@@ -63,9 +63,8 @@ final class Controller: NSObject, NSMenuDelegate {
 
         let auto = action("Auto effort", #selector(togglePaused))
         auto.state = paused ? .off : .on
+        auto.toolTip = paused ? "Off: every session keeps the level it has." : "On: Claude picks each session's effort for each task."
         menu.addItem(auto)
-        menu.addItem(caption(paused ? "Off: every session keeps the level it has."
-                                    : "Claude picks each session's effort per task."))
         let models = State.models
         if !models.isEmpty {
             let current = State.model ?? models.first(where: { $0.id.contains("haiku") })?.id ?? models[0].id
@@ -74,7 +73,6 @@ final class Controller: NSObject, NSMenuDelegate {
             pick.attributedTitle = NSAttributedString(string: "Model: \(name)", attributes: [.font: font(14)])
             let sub = NSMenu()
             sub.autoenablesItems = false
-            sub.addItem(caption("Picks the effort level. Newest Haiku and Sonnet models."))
             for m in models {
                 let i = action(m.label + (m.id.contains("haiku") ? "  (faster, cheaper)" : "  (slower, smarter)"), #selector(pickModel(_:)))
                 i.representedObject = m.id
@@ -82,13 +80,14 @@ final class Controller: NSObject, NSMenuDelegate {
                 sub.addItem(i)
             }
             pick.submenu = sub
+            pick.toolTip = "The model that picks the effort level. The newest Haiku and Sonnet models."
             menu.addItem(pick)
         }
         if !Setup.claudeFound { menu.addItem(caption("Claude Code isn't installed at ~/.local/bin/claude.")) }
 
         menu.addItem(.separator())
         let sessions = State.sessions()
-        menu.addItem(header(sessions.isEmpty ? "No sessions in the last 12 hours" : "Sessions (click for Auto or Manual)"))
+        if sessions.isEmpty { menu.addItem(caption("No sessions in the last 12 hours")) }
         for s in sessions.prefix(12) {
             let i = action("", #selector(toggleManual(_:)))
             i.attributedTitle = row(s, dim: paused)
@@ -101,24 +100,24 @@ final class Controller: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        let phone = action("Start sessions from your phone", #selector(togglePhone))
         if Server.otherRunning {
-            menu.addItem(caption("Phone sessions: a Remote Control server already runs on this Mac."))
+            phone.state = .on
+            phone.toolTip = "A Remote Control server set up outside Sttark Effort already runs on this Mac."
         } else {
-            let phone = action("Start sessions from your phone", #selector(togglePhone))
             phone.state = Server.installed ? .on : .off
-            menu.addItem(phone)
-            if Server.installed, let f = Server.folder {
-                menu.addItem(caption("Sessions start in " + f.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")))
-            }
+            phone.toolTip = Server.folder.map { "Sessions start in " + $0.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~") }
+                ?? "Start Claude Code sessions on this Mac from the Claude app on your phone or any computer."
         }
+        menu.addItem(phone)
         let skip = action("Skip approvals in phone sessions", #selector(toggleBypass))
         skip.state = Bypass.on ? .on : .off
+        skip.toolTip = "Sessions from a server started without approvals stay that way, instead of the Claude app switching them back to asking."
         menu.addItem(skip)
-        menu.addItem(caption("Sessions from a server started without approvals stay that way."))
         let chrome = action("Approve Claude in Chrome", #selector(toggleChrome))
         chrome.state = ChromeApprover.on ? .on : .off
+        chrome.toolTip = "Clicks Allow when Claude for Chrome asks to use a site."
         menu.addItem(chrome)
-        menu.addItem(caption("Clicks Allow when Claude for Chrome asks to use a site."))
         if ChromeApprover.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
@@ -191,6 +190,14 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func openAccessibility() { ChromeApprover.openAccessibility() }
 
     @objc func togglePhone() {
+        if Server.otherRunning {
+            let a = NSAlert()
+            a.messageText = "Already set up"
+            a.informativeText = "A Remote Control server set up outside Sttark Effort already runs on this Mac, so it's left as it is."
+            NSApp.activate(ignoringOtherApps: true)
+            a.runModal()
+            return
+        }
         if Server.installed { Server.stop() } else { Server.setUp() }
     }
 
