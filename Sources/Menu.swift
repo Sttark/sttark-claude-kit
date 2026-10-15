@@ -12,6 +12,7 @@ final class Controller: NSObject, NSMenuDelegate {
 
     func start() {
         setupResult = Setup.install()
+        if ChromeApprover.on { ChromeApprover.copyHelper() }
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -53,10 +54,15 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let paused = State.paused
 
-        if let r = updater.available {
-            menu.addItem(action(updater.installing ? "Updating…" : "Update to \(r.version)", #selector(update), enabled: !updater.installing))
-            menu.addItem(.separator())
+        menu.addItem(caption("Sttark Effort \(Updater.version)"))
+        if updater.installing {
+            menu.addItem(caption("Updating…"))
+        } else if let r = updater.available {
+            let u = action("Update to \(r.version)", #selector(update))
+            u.attributedTitle = NSAttributedString(string: "Update to \(r.version)", attributes: [.font: font(14, true)])
+            menu.addItem(u)
         }
+        menu.addItem(.separator())
 
         let auto = action("Auto effort", #selector(togglePaused))
         auto.state = paused ? .off : .on
@@ -108,10 +114,21 @@ final class Controller: NSObject, NSMenuDelegate {
                 menu.addItem(caption("Sessions start in " + f.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")))
             }
         }
+        let skip = action("Skip approvals in phone sessions", #selector(toggleBypass))
+        skip.state = Bypass.on ? .on : .off
+        menu.addItem(skip)
+        menu.addItem(caption("Sessions from a server started without approvals stay that way."))
+        let chrome = action("Approve Claude in Chrome", #selector(toggleChrome))
+        chrome.state = ChromeApprover.on ? .on : .off
+        menu.addItem(chrome)
+        menu.addItem(caption("Clicks Allow when Claude for Chrome asks to use a site."))
+        if ChromeApprover.needsAccessibility {
+            menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
+        }
+        menu.addItem(.separator())
         menu.addItem(action("Open log", #selector(openLog)))
-        menu.addItem(action("Check for updates", #selector(checkUpdates)))
-        let about = caption("Sttark Effort \(Updater.version)")
-        menu.addItem(about)
+        if updater.available == nil && !updater.installing { menu.addItem(action("Check for updates", #selector(checkUpdates))) }
+        menu.addItem(.separator())
         menu.addItem(action("Quit", #selector(quit), key: "q"))
     }
 
@@ -168,6 +185,14 @@ final class Controller: NSObject, NSMenuDelegate {
         State.setModel(id)
     }
 
+    @objc func toggleBypass() { Bypass.set(!Bypass.on) }
+
+    @objc func toggleChrome() {
+        if ChromeApprover.on { ChromeApprover.stop() } else { ChromeApprover.start() }
+    }
+
+    @objc func openAccessibility() { ChromeApprover.openAccessibility() }
+
     @objc func togglePhone() {
         if Server.installed { Server.stop() } else { Server.setUp() }
     }
@@ -191,10 +216,11 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func checkUpdates() {
         updater.check(force: true) { msg in
             let a = NSAlert()
-            a.messageText = "Sttark Effort"
+            a.messageText = self.updater.available == nil ? "No update" : "Update ready"
             a.informativeText = msg
+            if self.updater.available != nil { a.addButton(withTitle: "Update now"); a.addButton(withTitle: "Later") }
             NSApp.activate(ignoringOtherApps: true)
-            a.runModal()
+            if a.runModal() == .alertFirstButtonReturn && self.updater.available != nil { self.updater.install() }
         }
     }
 

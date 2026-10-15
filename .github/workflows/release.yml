@@ -4,7 +4,7 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: [Sources/**, Resources/**, Info.plist, build.sh]
+    paths: [Sources/**, Resources/**, Helpers/**, Info.plist, build.sh]
   workflow_dispatch:
 permissions:
   contents: write
@@ -14,8 +14,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - name: Load the signing certificate
+        env:
+          P12: ${{ secrets.SIGN_P12 }}
+          P12_PASSWORD: ${{ secrets.SIGN_P12_PASSWORD }}
+        run: |
+          KC=$RUNNER_TEMP/sign.keychain-db
+          echo "$P12" | base64 --decode > $RUNNER_TEMP/sign.p12
+          security create-keychain -p ci $KC
+          security set-keychain-settings $KC
+          security unlock-keychain -p ci $KC
+          security import $RUNNER_TEMP/sign.p12 -k $KC -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci $KC >/dev/null
+          security list-keychains -d user -s $KC login.keychain
+          openssl pkcs12 -in $RUNNER_TEMP/sign.p12 -nokeys -passin env:P12_PASSWORD -legacy -out $RUNNER_TEMP/cert.pem 2>/dev/null \
+            || openssl pkcs12 -in $RUNNER_TEMP/sign.p12 -nokeys -passin env:P12_PASSWORD -out $RUNNER_TEMP/cert.pem
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain $RUNNER_TEMP/cert.pem
+          security find-identity -v -p codesigning
       - name: Build
         run: ./build.sh
+      - name: Check the signature
+        run: codesign -dr- build/SttarkEffort.app 2>&1 | grep -E "certificate (leaf|root)"
       - name: Publish
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |

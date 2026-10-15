@@ -44,6 +44,8 @@ enum Server {
         Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
         let r = Updater.run("/bin/launchctl", ["bootstrap", domain, plist.path])
         guard r.0 == 0 else { return "macOS didn't start it: \(r.1.trimmingCharacters(in: .whitespacesAndNewlines))" }
+        // The Claude app switches each session it starts back to asking; the bypass hook undoes that.
+        if skipApprovals { Bypass.set(true) }
         note("phone sessions on: claude rc in \(folder)\(skipApprovals ? ", without approvals" : "")")
         return nil
     }

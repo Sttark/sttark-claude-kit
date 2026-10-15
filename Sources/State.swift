@@ -122,7 +122,7 @@ enum Setup {
         let fm = FileManager.default
         guard let src = Bundle.main.resourceURL?.appendingPathComponent("hooks") else { return "no hooks in the app" }
         try? fm.createDirectory(at: hooksDir, withIntermediateDirectories: true)
-        for name in (try? fm.contentsOfDirectory(atPath: src.path)) ?? [] where name.hasSuffix(".py") {
+        for name in (try? fm.contentsOfDirectory(atPath: src.path)) ?? [] where name.hasSuffix(".py") || name.hasSuffix(".sh") {
             let to = hooksDir.appendingPathComponent(name)
             if fm.contentsEqual(atPath: src.appendingPathComponent(name).path, andPath: to.path) { continue }
             try? fm.removeItem(at: to)
