@@ -98,6 +98,16 @@ final class Controller: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        if Server.otherRunning {
+            menu.addItem(caption("Phone sessions: a Remote Control server already runs on this Mac."))
+        } else {
+            let phone = action("Start sessions from your phone", #selector(togglePhone))
+            phone.state = Server.installed ? .on : .off
+            menu.addItem(phone)
+            if Server.installed, let f = Server.folder {
+                menu.addItem(caption("Sessions start in " + f.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")))
+            }
+        }
         menu.addItem(action("Open log", #selector(openLog)))
         menu.addItem(action("Check for updates", #selector(checkUpdates)))
         let about = caption("Sttark Effort \(Updater.version)")
@@ -156,6 +166,10 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func pickModel(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         State.setModel(id)
+    }
+
+    @objc func togglePhone() {
+        if Server.installed { Server.stop() } else { Server.setUp() }
     }
 
     @objc func togglePaused() { State.setPaused(!State.paused); refreshIcon() }
