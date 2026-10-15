@@ -1,6 +1,6 @@
 import AppKit
 
-/// "Skip approvals in phone sessions": the bypass hook in Claude Code's settings.
+/// "Bypass permissions for server sessions": the bypass hook in Claude Code's settings.
 enum Bypass {
     static var installer: String { hooksDir.appendingPathComponent("install-hooks.py").path }
 

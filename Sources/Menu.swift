@@ -100,7 +100,7 @@ final class Controller: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        let phone = action("Start sessions from your phone", #selector(togglePhone))
+        let phone = action("Start sessions from the Claude app", #selector(togglePhone))
         if Server.otherRunning {
             phone.state = .on
             phone.toolTip = "A Remote Control server set up outside Sttark Effort already runs on this Mac."
@@ -110,9 +110,9 @@ final class Controller: NSObject, NSMenuDelegate {
                 ?? "Start Claude Code sessions on this Mac from the Claude app on your phone or any computer."
         }
         menu.addItem(phone)
-        let skip = action("Skip approvals in phone sessions", #selector(toggleBypass))
+        let skip = action("Bypass permissions for server sessions", #selector(toggleBypass))
         skip.state = Bypass.on ? .on : .off
-        skip.toolTip = "Sessions from a server started without approvals stay that way, instead of the Claude app switching them back to asking."
+        skip.toolTip = "The Claude app, on desktop or phone, doesn't offer Bypass permissions for sessions on a Remote Control server. This turns it on for them."
         menu.addItem(skip)
         let chrome = action("Approve Claude in Chrome", #selector(toggleChrome))
         chrome.state = ChromeApprover.on ? .on : .off

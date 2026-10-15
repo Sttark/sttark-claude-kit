@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Removes Sttark Effort and everything it set up: the hooks in Claude Code's settings, the Chrome
-# approver, and the phone sessions server if it was turned on from the app. Leaves the logs.
+# approver, and the server for Claude app sessions if it was turned on from the app. Leaves the logs.
 H="$HOME/Library/Application Support/SttarkEffort/hooks/install-hooks.py"
 [[ -f $H ]] && /usr/bin/python3 "$H" --remove
 for label in com.sttark.chrome-approver com.sttark.claude-rc; do

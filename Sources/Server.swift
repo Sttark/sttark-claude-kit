@@ -1,6 +1,6 @@
 import AppKit
 
-/// "Start sessions from your phone": a `claude rc` (Remote Control) server that macOS keeps running.
+/// "Start sessions from the Claude app": a `claude rc` (Remote Control) server that macOS keeps running.
 /// Sessions started in the Claude app (phone, desktop or claude.ai, under Code) run on this Mac, in the
 /// chosen folder. The server lives in a LaunchAgent, so it starts at every login and restarts if it stops.
 enum Server {
@@ -26,10 +26,12 @@ enum Server {
         return Updater.run("/usr/bin/pgrep", ["-f", "claude (rc|remote-control)( |$)"]).0 == 0
     }
 
-    static func start(folder: String, skipApprovals: Bool) -> String? {
+    /// Always started in bypass. On its own that changes nothing: the Claude app switches every session it
+    /// starts on a server back to asking. "Bypass permissions for server sessions" is what actually turns it on.
+    static func start(folder: String) -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let claude = home + "/.local/bin/claude"
-        let mode = skipApprovals ? " --permission-mode bypassPermissions" : ""
+        let mode = " --permission-mode bypassPermissions"
         // screen gives the server a terminal of its own, so it runs with no Terminal window open
         let cmd = "exec /usr/bin/screen -DmS claude-rc /bin/zsh -c \"cd '\(folder)' && exec '\(claude)' rc\(mode)\""
         let d: [String: Any] = [
@@ -44,9 +46,7 @@ enum Server {
         Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
         let r = Updater.run("/bin/launchctl", ["bootstrap", domain, plist.path])
         guard r.0 == 0 else { return "macOS didn't start it: \(r.1.trimmingCharacters(in: .whitespacesAndNewlines))" }
-        // The Claude app switches each session it starts back to asking; the bypass hook undoes that.
-        if skipApprovals { Bypass.set(true) }
-        note("phone sessions on: claude rc in \(folder)\(skipApprovals ? ", without approvals" : "")")
+        note("server sessions on: claude rc in \(folder)")
         return nil
     }
 
@@ -60,7 +60,7 @@ enum Server {
         }
         Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
         try? FileManager.default.removeItem(at: plist)
-        note("phone sessions off")
+        note("server sessions off")
     }
 
     static func killTree(_ pid: Int32) {
@@ -69,7 +69,7 @@ enum Server {
         kill(pid, SIGTERM)
     }
 
-    /// Turning it on: pick the folder, choose whether sessions may run commands without asking, start.
+    /// Turning it on: pick the folder, start.
     static func setUp() {
         NSApp.activate(ignoringOtherApps: true)
         let p = NSOpenPanel()
@@ -77,23 +77,19 @@ enum Server {
         p.canChooseFiles = false
         p.canCreateDirectories = true
         p.prompt = "Use this folder"
-        p.message = "Sessions you start from your phone or the Claude app will start in this folder. A folder that holds all your projects works well."
+        p.message = "Sessions you start from the Claude app, on your phone or any computer, will start in this folder. A folder that holds all your projects works well."
         let src = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("src")
         p.directoryURL = FileManager.default.fileExists(atPath: src.path) ? src : FileManager.default.homeDirectoryForCurrentUser
         guard p.runModal() == .OK, let folder = p.url?.path else { return }
 
         let a = NSAlert()
-        a.messageText = "Start sessions from your phone"
+        a.messageText = "Start sessions from the Claude app"
         let shown = folder.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
         a.informativeText = "Sessions will run on this Mac, in \(shown). The Mac has to be on and awake for them to run.\n\nIn the Claude app, open Code, pick this Mac, and type."
-        let skip = NSButton(checkboxWithTitle: "Let sessions run commands without asking first", target: nil, action: nil)
-        skip.state = .off
-        skip.toolTip = "Nobody is at the Mac to approve each command. Off: you approve from your phone."
-        a.accessoryView = skip
         a.addButton(withTitle: "Start")
         a.addButton(withTitle: "Cancel")
         guard a.runModal() == .alertFirstButtonReturn else { return }
-        if let err = start(folder: folder, skipApprovals: skip.state == .on) {
+        if let err = start(folder: folder) {
             let e = NSAlert()
             e.messageText = "Couldn't start it"
             e.informativeText = err
