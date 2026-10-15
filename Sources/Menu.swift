@@ -18,6 +18,8 @@ final class Controller: NSObject, NSMenuDelegate {
         item.menu = menu
         updater.changed = { [weak self] in self?.refreshIcon() }
         updater.start()
+        State.refreshModels()
+        Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in State.refreshModels() }
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
     }
@@ -61,6 +63,24 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.addItem(auto)
         menu.addItem(caption(paused ? "Off: every session keeps the level it has."
                                     : "Claude picks each session's effort per task."))
+        let models = State.models
+        if !models.isEmpty {
+            let current = State.model ?? models.first(where: { $0.id.contains("haiku") })?.id ?? models[0].id
+            let name = models.first(where: { $0.id == current })?.label ?? current
+            let pick = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            pick.attributedTitle = NSAttributedString(string: "Model: \(name)", attributes: [.font: font(14)])
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            sub.addItem(caption("Picks the effort level. Newest Haiku and Sonnet models."))
+            for m in models {
+                let i = action(m.label + (m.id.contains("haiku") ? "  (faster, cheaper)" : "  (slower, smarter)"), #selector(pickModel(_:)))
+                i.representedObject = m.id
+                i.state = m.id == current ? .on : .off
+                sub.addItem(i)
+            }
+            pick.submenu = sub
+            menu.addItem(pick)
+        }
         if !Setup.claudeFound { menu.addItem(caption("Claude Code isn't installed at ~/.local/bin/claude.")) }
 
         menu.addItem(.separator())
@@ -132,6 +152,11 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     // MARK: actions
+
+    @objc func pickModel(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        State.setModel(id)
+    }
 
     @objc func togglePaused() { State.setPaused(!State.paused); refreshIcon() }
 

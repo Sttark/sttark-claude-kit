@@ -4,7 +4,7 @@ A Mac menu bar app that sets the effort level of your Claude Code sessions for y
 
 ![The menu: Auto effort switch, each session with its level and Claude's reason, Open log, Check for updates](docs/menu.png)
 
-- **Picks the level before Claude starts.** Each prompt you send goes to a quick side check (Claude Haiku) along with the last few messages. Haiku picks Low, Medium, High, Extra or Max, and the session is set to that level before Claude's first step. A plain "go" after a plan gets sized to the plan.
+- **Picks the level before Claude starts.** Each prompt you send goes to a quick side check (Claude Haiku, or another model you pick) along with the last few messages. Haiku picks Low, Medium, High, Extra or Max, and the session is set to that level before Claude's first step. A plain "go" after a plan gets sized to the plan.
 - **Checks again partway through.** At 10, 25 and 50 steps into a task, Haiku looks at the work so far. If builds keep failing or the cause is still unknown, it raises the level, up to Max for a task that's stuck at Extra. If the hard part is done and the rest is repeat edits, it lowers it.
 - **You can take over.** Turn **Auto effort** off for every session, or click one session to set it to Manual. If you change a session's effort yourself in the Claude app, Sttark Effort notices and switches that session to Manual on its own.
 - **Shows its reasons.** The menu lists each session with its level and Haiku's latest one-line reason, and every decision is logged.
@@ -29,6 +29,7 @@ Click the gauge:
 | Item | What it does |
 |---|---|
 | **Auto effort** | On: Claude picks each session's effort. Off: every session keeps the level it has, until you turn it back on. |
+| **Model** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Haiku is the default. |
 | **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual (orange), then click again for Auto. The gray line under it is Haiku's latest reason. |
 | **Open log** | Opens the full log in Console. |
 | **Check for updates** | Looks for a new version now. The app also checks a few times a day and offers **Update to …** at the top of the menu. |
@@ -122,7 +123,7 @@ Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.s
 The app is a small Swift menu bar app. The work is done by a Python hook it installs into Claude Code:
 
 1. **On launch** the app copies `Resources/hooks/*.py` to `~/Library/Application Support/SttarkEffort/hooks/` and runs `install-hooks.py`, which adds `effort-hook.py` to `~/.claude/settings.json` twice: as a `UserPromptSubmit` hook (40-second limit), and as a background `PostToolUse` hook. It does this on every launch, so an update brings new scripts and a removed hook comes back.
-2. **On each prompt** the hook finds the session's claude.ai id (`CLAUDE_CODE_BRIDGE_SESSION_ID` for `claude --remote-control`, or the `--session-id cse_…` a `claude rc` server starts it with). It runs `claude -p --model haiku` with the rules in `effort-hook.py`, the prompt, and the last few messages, keeping Claude's latest reply nearly whole.
+2. **On each prompt** the hook finds the session's claude.ai id (`CLAUDE_CODE_BRIDGE_SESSION_ID` for `claude --remote-control`, or the `--session-id cse_…` a `claude rc` server starts it with). It runs `claude -p` with the model picked in the menu, the rules in `effort-hook.py`, the prompt, and the last few messages, keeping Claude's latest reply nearly whole.
 3. **To change the level**, `set-session-effort.py` posts a `control_request` with `apply_flag_settings {effortLevel}` to `https://api.anthropic.com/v1/code/sessions/<id>/events`. That's the same message the Claude app's effort picker sends. It signs in with the Claude Code login in the Mac's Keychain (`Claude Code-credentials`). Claude Code hooks can't set effort themselves, and the documented ways (`/effort`, the app's picker) need a person.
 4. **Partway through**, the `PostToolUse` hook counts tool calls since the prompt in the session's transcript. At 10, 25 and 50 it sends Haiku the request plus a short account of each step and which ones failed.
 5. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkEffort/state.json`: the on/off switch, and per session the level, the last level sent, Manual, the latest reason and the name. Both lock it before writing.
