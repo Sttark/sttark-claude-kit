@@ -67,7 +67,7 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.addItem(auto)
         let models = State.models
         if !models.isEmpty {
-            let current = State.model ?? models.first(where: { $0.id.contains("haiku") })?.id ?? models[0].id
+            let current = State.model ?? models.first(where: { $0.id.contains("sonnet") })?.id ?? models[0].id
             let name = models.first(where: { $0.id == current })?.label ?? current
             let pick = NSMenuItem(title: "", action: nil, keyEquivalent: "")
             pick.attributedTitle = NSAttributedString(string: "Model: \(name)", attributes: [.font: font(14)])

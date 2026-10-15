@@ -78,7 +78,7 @@ enum State {
         }
     }
 
-    /// The model picked in the menu; nil means the newest Haiku.
+    /// The model picked in the menu; nil means the newest Sonnet.
     static var model: String? { read()["model"] as? String }
 
     static func setModel(_ id: String) {

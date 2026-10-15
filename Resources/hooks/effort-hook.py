@@ -3,7 +3,7 @@
 needs. Installed and kept up to date by the Sttark Effort app.
 
 UserPromptSubmit: the prompt and the last few messages go to a quick side call
-(claude -p, with the model picked in the app's menu, Haiku by default), which picks low, medium, high, xhigh or max. If that
+(claude -p, with the model picked in the app's menu, the newest Sonnet by default), which picks low, medium, high, xhigh or max. If that
 differs from the session's level, set-session-effort.py sends the change the
 same way the Claude app's effort picker does, so the first step of the turn
 already runs at the new level.
@@ -26,7 +26,7 @@ LOG = os.path.expanduser('~/Library/Logs/claude-effort-hook.log')
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.expanduser('~/Library/Application Support/SttarkEffort/state.json')
 CLAUDE = os.path.expanduser('~/.local/bin/claude')
-DEFAULT_MODEL = 'haiku'  # Claude Code's alias for the newest Haiku, until the app picks one
+DEFAULT_MODEL = 'sonnet'  # Claude Code's alias for the newest Sonnet, the best judge in the model test
 LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 CHECKPOINTS = (10, 25, 50)  # tool calls into a turn when the level is checked again
 SETTLE = 30  # seconds after a send when a different reported level is just the change still arriving
