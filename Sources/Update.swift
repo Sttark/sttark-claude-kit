@@ -126,7 +126,10 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
     /// A build made on someone's own Mac has no certificate, so for that one only a valid signature and the ID are checked.
     static func signedLikeThisApp(_ app: URL) -> Bool {
         let (_, out) = run("/usr/bin/codesign", ["-d", "-r-", Bundle.main.bundlePath])
-        guard let rule = out.split(separator: "\n").first(where: { $0.hasPrefix("designated => ") })?.dropFirst(14) else { return false }
+        // a build without a certificate prints its rule as a comment: "# designated => cdhash …"
+        guard let line = out.split(separator: "\n").map({ $0.hasPrefix("# ") ? $0.dropFirst(2) : $0 })
+                .first(where: { $0.hasPrefix("designated => ") }) else { return false }
+        let rule = line.dropFirst(14)
         let id = Bundle.main.bundleIdentifier ?? ""
         let req = rule.contains("cdhash") ? "identifier \"\(id)\"" : String(rule)
         return run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R=" + req, app.path]).0 == 0
