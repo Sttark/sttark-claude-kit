@@ -4,7 +4,7 @@ A Mac menu bar app that sets the effort level of your Claude Code sessions for y
 
 ![The menu: Auto effort, Model, each session with its level, the server, Bypass permissions and Chrome switches, Open log, Check for updates](docs/menu.png)
 
-- **Picks the level before Claude starts.** Each prompt you send goes to a quick side check (Claude Haiku, or another model you pick) along with the last few messages. Haiku picks Low, Medium, High, Extra or Max, and the session is set to that level before Claude's first step. A plain "go" after a plan gets sized to the plan.
+- **Picks the level before Claude starts.** Each prompt you send goes to a quick side check (the newest Claude Sonnet, or another model you pick) along with the last few messages. Haiku picks Low, Medium, High, Extra or Max, and the session is set to that level before Claude's first step. A plain "go" after a plan gets sized to the plan.
 - **Checks again partway through.** At 10, 25 and 50 steps into a task, Haiku looks at the work so far. If builds keep failing or the cause is still unknown, it raises the level, up to Max for a task that's stuck at Extra. If the hard part is done and the rest is repeat edits, it lowers it.
 - **You can take over.** Turn **Auto effort** off for every session, or click one session to set it to Manual. If you change a session's effort yourself in the Claude app, Sttark Effort notices and switches that session to Manual on its own.
 - **Shows its reasons.** The menu lists each session with its level; hover one for the latest reason. Every decision is logged.
@@ -33,7 +33,7 @@ Click the gauge:
 | Item | What it does |
 |---|---|
 | **Auto effort** | On: Claude picks each session's effort. Off: every session keeps the level it has, until you turn it back on. |
-| **Model** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Haiku is the default. |
+| **Model** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Sonnet is the default. |
 | **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual, then click again for Auto. Hover it to see the latest reason for its level. Hover any item for what it does. |
 | **Open log** | Opens the full log in Console. |
 | **Start sessions from the Claude app** | Sets this Mac up so you can start Claude Code sessions from the Claude app. See [below](#start-sessions-from-the-claude-app). |
@@ -67,7 +67,7 @@ To watch it live: `tail -f ~/Library/Logs/claude-effort-hook.log`.
 
 ## Choosing the model
 
-A test on October 15, 2026 found **Sonnet 5.5** picks effort best. The default is still the newest Haiku, which is faster and cheaper. Pick Sonnet 5.5 under **Model** if you'd rather spend a little more per check for fewer under-powered tasks.
+A test on October 15, 2026 found **Sonnet 5.5** picks effort best, so the newest Sonnet is the default. The newest Haiku is faster and cheaper, if you'd rather pick it under **Model**.
 
 ![Which model picks effort best: Sonnet 5.5 is too low least often](docs/model-test.png)
 
