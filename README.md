@@ -8,7 +8,7 @@ A Mac menu bar app that sets the effort level of your Claude Code sessions for y
 - **Checks again partway through.** At 10, 25 and 50 steps into a task, Haiku looks at the work so far. If builds keep failing or the cause is still unknown, it raises the level, up to Max for a task that's stuck at Extra. If the hard part is done and the rest is repeat edits, it lowers it.
 - **You can take over.** Turn **Auto effort** off for every session, or click one session to set it to Manual. If you change a session's effort yourself in the Claude app, Sttark Effort notices and switches that session to Manual on its own.
 - **Shows its reasons.** The menu lists each session with its level and Haiku's latest one-line reason, and every decision is logged.
-- **Updates itself** from this repo's releases, like Sttark Grammar.
+- **Updates itself** when a new version is released here.
 
 It only works on sessions that run through **Remote Control**: the ones you start from your phone or the Claude app on a Mac that runs a `claude rc` server, or a terminal session started with `claude --remote-control`. Effort can't be changed from outside any other kind of session. See [Start Claude Code sessions from your phone](#start-claude-code-sessions-from-your-phone) to set that up.
 
@@ -42,8 +42,8 @@ Sessions show for 12 hours after their last activity.
 Every decision goes into `~/Library/Logs/claude-effort-hook.log`, one line each:
 
 ```
-2026-10-08 11:02:48 change cse_01VKua… ->xhigh (2.2s) xhigh - Possible safety-relevant bug with unknown cause, spanning firmware and server code | Possible bug in hvac_automation…
-2026-10-08 11:03:22 steady cse_01VKua… xhigh at 11 steps (4.3s) xhigh - Unverified firmware bug affecting winter humidity, needs log checks and a unit test.
+2026-10-08 11:02:48 change cse_01AbCd… high->xhigh (2.2s) xhigh - Unknown cause spanning firmware and server code | The sensor readings drop out every few hours…
+2026-10-08 11:03:22 steady cse_01AbCd… xhigh at 11 steps (4.3s) xhigh - Cause still unconfirmed; needs log checks and a test. | The sensor readings drop out every few hours…
 ```
 
 | First word | Meaning |
@@ -59,9 +59,9 @@ To watch it live: `tail -f ~/Library/Logs/claude-effort-hook.log`.
 
 ## Start Claude Code sessions from your phone
 
-This is how Dan runs it: one `claude rc` (Remote Control) server on his Mac, kept running by macOS, serving the folder that holds all his projects. In the Claude app on his phone or another computer, he opens **Code**, picks the Mac's environment, and starts a new session. It runs on the Mac with the Mac's files, tools and logins. Sttark Effort works on every one of those sessions.
+A `claude rc` (Remote Control) server on your Mac lets you start Claude Code sessions from the Claude app on your phone or any computer. Each session runs on the Mac, with the Mac's files, tools and logins, and Sttark Effort sets the effort for every one of them. The steps below keep the server running all the time, including after a restart.
 
-**1. Pick the folder** sessions start in. Dan uses `~/src`, which holds every project.
+**1. Pick the folder** sessions start in. A folder that holds all your projects works well, so any session can reach any project. The example uses `~/src`; change it in step 2 if yours is different.
 
 **2. Save this as `~/Library/LaunchAgents/com.sttark.claude-rc.plist`**, with `YOU` changed to your Mac user name:
 
