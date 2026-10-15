@@ -87,34 +87,31 @@ final class Controller: NSObject, NSMenuDelegate {
 
     // MARK: rows
 
+    /// Brand type: Helvetica Neue (the guide's fallback for Founders Grotesk), 400 and 600 only.
+    func font(_ size: CGFloat, _ semibold: Bool = false) -> NSFont {
+        let f = NSFont(name: "Helvetica Neue", size: size) ?? .systemFont(ofSize: size)
+        return semibold ? NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask).withSize(size) : f
+    }
+
+    /// Session name in ink, level as a word in steel. No color for levels: the guide keeps an app's own
+    /// meaning colors few and never green for data, and the word already says the level.
     func row(_ s: Session, dim: Bool) -> NSAttributedString {
         let t = NSMutableAttributedString()
         let title = s.title.count > 42 ? String(s.title.prefix(41)) + "…" : s.title
-        let main: NSColor = dim ? .secondaryLabelColor : .labelColor
-        t.append(NSAttributedString(string: title, attributes: [.font: NSFont.menuFont(ofSize: 0), .foregroundColor: main]))
+        t.append(NSAttributedString(string: title, attributes: [.font: font(14),
+            .foregroundColor: dim ? NSColor.secondaryLabelColor : NSColor.labelColor]))
         let tag = (levelNames[s.level] ?? s.level) + (s.manual ? " · Manual" : "")
         let para = NSMutableParagraphStyle()
         para.tabStops = [NSTextTab(textAlignment: .right, location: 380)]
-        t.append(NSAttributedString(string: "\t" + tag, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium),
-            .foregroundColor: s.manual ? NSColor.systemOrange : color(s.level)]))
+        t.append(NSAttributedString(string: "\t" + tag, attributes: [.font: font(14, true),
+            .foregroundColor: NSColor.secondaryLabelColor]))
         t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
         return t
     }
 
-    func color(_ level: String) -> NSColor {
-        switch level {
-        case "low": return .systemGreen
-        case "medium": return .systemTeal
-        case "high": return .systemBlue
-        case "xhigh": return .systemPurple
-        case "max": return .systemRed
-        default: return .secondaryLabelColor
-        }
-    }
-
     func action(_ title: String, _ sel: Selector, key: String = "", enabled: Bool = true) -> NSMenuItem {
         let i = NSMenuItem(title: title, action: sel, keyEquivalent: key)
+        i.attributedTitle = NSAttributedString(string: title, attributes: [.font: font(14)])
         i.target = self
         i.isEnabled = enabled
         return i
@@ -128,7 +125,7 @@ final class Controller: NSObject, NSMenuDelegate {
     func caption(_ text: String, indent: Int = 0) -> NSMenuItem {
         let i = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         i.attributedTitle = NSAttributedString(string: text.count > 70 ? String(text.prefix(69)) + "…" : text, attributes: [
-            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor])
+            .font: font(12), .foregroundColor: NSColor.secondaryLabelColor])
         i.indentationLevel = indent
         i.isEnabled = false
         return i
