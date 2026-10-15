@@ -70,6 +70,30 @@ enum State {
         note("\(id) set to \(on ? "Manual" : "Auto") from the menu")
     }
 
+    /// The models the hook can use: the two newest Haiku and two newest Sonnet, as the hook last listed them.
+    static var models: [(id: String, label: String)] {
+        (read()["models"] as? [[String: String]] ?? []).compactMap { m in
+            guard let id = m["id"], let label = m["label"] else { return nil }
+            return (id, label)
+        }
+    }
+
+    /// The model picked in the menu; nil means the newest Haiku.
+    static var model: String? { read()["model"] as? String }
+
+    static func setModel(_ id: String) {
+        change { $0["model"] = id }
+        note("model set to \(id)")
+    }
+
+    /// Asks the hook for the current list of models. Runs off the main thread; it calls the API.
+    static func refreshModels(done: @escaping () -> Void = {}) {
+        DispatchQueue.global().async {
+            Updater.run("/usr/bin/python3", [hooksDir.appendingPathComponent("effort-hook.py").path, "--models"])
+            DispatchQueue.main.async(execute: done)
+        }
+    }
+
     /// Sessions seen in the last `hours`, newest first.
     static func sessions(hours: Double = 12) -> [Session] {
         let all = read()["sessions"] as? [String: [String: Any]] ?? [:]

@@ -3,7 +3,7 @@
 needs. Installed and kept up to date by the Sttark Effort app.
 
 UserPromptSubmit: the prompt and the last few messages go to a quick side call
-(claude -p, Haiku), which picks low, medium, high, xhigh or max. If that
+(claude -p, with the model picked in the app's menu, Haiku by default), which picks low, medium, high, xhigh or max. If that
 differs from the session's level, set-session-effort.py sends the change the
 same way the Claude app's effort picker does, so the first step of the turn
 already runs at the new level.
@@ -26,7 +26,7 @@ LOG = os.path.expanduser('~/Library/Logs/claude-effort-hook.log')
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.expanduser('~/Library/Application Support/SttarkEffort/state.json')
 CLAUDE = os.path.expanduser('~/.local/bin/claude')
-MODEL = 'haiku'
+DEFAULT_MODEL = 'haiku'  # Claude Code's alias for the newest Haiku, until the app picks one
 LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 CHECKPOINTS = (10, 25, 50)  # tool calls into a turn when the level is checked again
 SETTLE = 30  # seconds after a send when a different reported level is just the change still arriving
@@ -173,13 +173,44 @@ def recent(path, prompt='', turns=6, each=600, last_reply=4000):
     return '\n\n'.join(f'{w}: {trim(i, t)}' for i, (w, t) in enumerate(out))
 
 
+def model():
+    return peek().get('model') or DEFAULT_MODEL
+
+
+def list_models():
+    """The two newest Haiku and two newest Sonnet models the API offers, newest first.
+    New ones show up here without an update. Saved to the state for the app's menu."""
+    import urllib.request
+    h = sse().headers()
+    h['anthropic-beta'] = 'oauth-2025-04-20'
+    r = urllib.request.Request('https://api.anthropic.com/v1/models?limit=100', headers=h)
+    ids = [m['id'] for m in json.load(urllib.request.urlopen(r, timeout=15))['data']]
+    found = {}
+    for i in ids:
+        m = re.match(r'^claude-(haiku|sonnet)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$', i)
+        if not m:
+            continue
+        short = 'claude-%s-%s%s' % (m.group(1), m.group(2), '-' + m.group(3) if m.group(3) else '')
+        found[short] = (m.group(1), float(m.group(2) + '.' + (m.group(3) or '0')))
+    out = []
+    for fam in ('haiku', 'sonnet'):
+        mine = sorted((v[1], k) for k, v in found.items() if v[0] == fam)[::-1][:2]
+        for num, k in mine:
+            label = '%s %s' % (fam.capitalize(), ('%g' % num))
+            out.append({'id': k, 'label': label})
+    with state() as s:
+        s['models'] = out
+        s['models_at'] = time.time()
+    print(json.dumps(out))
+
+
 def judge(ask, system=RULES):
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID',
                                 'CLAUDE_EFFORT'))}
     env['EFFORT_JUDGE'] = '1'
     r = subprocess.run(
-        [CLAUDE, '-p', '--model', MODEL, '--effort', 'low',
+        [CLAUDE, '-p', '--model', model(), '--effort', 'low',
          '--no-session-persistence', '--strict-mcp-config', '--tools', '',
          '--settings', '{"disableAllHooks":true}', '--system-prompt', system, ask],
         capture_output=True, text=True, timeout=25, env=env, cwd='/tmp')
@@ -385,6 +416,9 @@ def on_tool(data, sid):
 
 
 def main():
+    if sys.argv[1:] == ['--models']:
+        list_models()
+        return
     if len(sys.argv) == 3 and sys.argv[1] == '--title':
         fetch_title(sys.argv[2])
         return
