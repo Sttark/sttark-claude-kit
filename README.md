@@ -34,7 +34,7 @@ Click the gauge:
 |---|---|
 | **Auto effort** | On: Claude picks each session's effort. Off: every session keeps the level it has, until you turn it back on. |
 | **Model** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Haiku is the default. |
-| **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual (orange), then click again for Auto. The gray line under it is Haiku's latest reason. |
+| **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual, then click again for Auto. The gray line under it is the latest reason for its level. Hover any item for what it does. |
 | **Open log** | Opens the full log in Console. |
 | **Start sessions from your phone** | Sets this Mac up so you can start Claude Code sessions from the Claude app. See [below](#start-claude-code-sessions-from-your-phone). |
 | **Skip approvals in phone sessions** | See [below](#skip-approvals-in-phone-sessions). Off until you turn it on. |
@@ -64,6 +64,33 @@ Every decision goes into `~/Library/Logs/claude-effort-hook.log`, one line each:
 | `error` | Something failed. The level was left as it was. |
 
 To watch it live: `tail -f ~/Library/Logs/claude-effort-hook.log`.
+
+## Choosing the model
+
+A test on October 15, 2026 found **Sonnet 5.5** picks effort best. The default is still the newest Haiku, which is faster and cheaper. Pick Sonnet 5.5 under **Model** if you'd rather spend a little more per check for fewer under-powered tasks.
+
+![Which model picks effort best: Sonnet 5.5 is too low least often](docs/model-test.png)
+
+| Model | Right level | Within one level | Too low | 2+ levels too low | Too high | Typical time |
+|---|---|---|---|---|---|---|
+| Sonnet 5.5 | 54% | 94% | 22% | 6% | 24% | 2.6 s |
+| Sonnet 5 | 57% | 92% | 35% | 8% | 8% | 2.2 s |
+| Haiku 5.5 | 52% | 89% | 29% | 8% | 19% | 1.9 s |
+| Haiku 4.5 | 37% | 82% | 55% | 16% | 8% | 10.3 s |
+
+**Why Sonnet 5.5:** a level that's too low is the costly mistake, because the work comes out wrong and has to be done again. A level that's too high only costs some extra time and usage on that task. Sonnet 5.5 is too low least often, and lands within one level 94% of the time. Sonnet 5 is right most often, but it's too low far more often. Haiku 4.5 is slow and too low over half the time.
+
+**How the test works:** it took 100 real past turns from Claude Code session history, 20 each from five sizes (no tool calls, 1 to 5, 6 to 20, 21 to 60, and more than 60). For the answer key, Opus at max effort read each whole turn, including how the work actually went (each step, which failed, how long it took), and named the level the work truly needed. Then each model judged the same 100 prompts the way the hook does, seeing only the prompt and the conversation before it. One limit: the answer key is one model's hindsight, not a measured result.
+
+**Run it again** when new models come out. From an empty folder:
+
+```sh
+python3 ~/path/to/sttark-effort/tools/model-test/sample.py   # picks 100 past turns: cases.json
+python3 ~/path/to/sttark-effort/tools/model-test/run.py      # answer key and models: results.json (edit the model list first)
+python3 ~/path/to/sttark-effort/tools/model-test/score.py    # table and chart.png
+```
+
+It reads your own session history, which stays on your Mac, and makes about 500 Claude calls with your Claude Code login.
 
 ## Start Claude Code sessions from your phone
 
@@ -138,6 +165,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Sources/Menu.swift` | The menu bar icon and menu. |
 | `Sources/Server.swift` | The Start sessions from your phone switch. |
 | `Sources/Switches.swift` | The Skip approvals and Approve Claude in Chrome switches. |
+| `tools/model-test/` | The model test: `sample.py`, `run.py`, `score.py`. |
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
 | `Helpers/ChromeApprover.swift` | The Chrome approver helper. `--dump` prints what it sees without clicking. |
 | `Resources/hooks/bypass-hook.sh` | The Skip approvals hook. |
