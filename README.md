@@ -60,49 +60,18 @@ To watch it live: `tail -f ~/Library/Logs/claude-effort-hook.log`.
 
 ## Start Claude Code sessions from your phone
 
-A `claude rc` (Remote Control) server on your Mac lets you start Claude Code sessions from the Claude app on your phone or any computer. Each session runs on the Mac, with the Mac's files, tools and logins, and Sttark Effort sets the effort for every one of them. The steps below keep the server running all the time, including after a restart.
+Sttark Effort can set your Mac up so you start Claude Code sessions from the Claude app on your phone or any computer. Each session runs on the Mac, with the Mac's files, tools and logins, and Sttark Effort sets the effort for every one of them.
 
-**1. Pick the folder** sessions start in. A folder that holds all your projects works well, so any session can reach any project. The example uses `~/src`; change it in step 2 if yours is different.
+1. Click the gauge and turn on **Start sessions from your phone**.
+2. Pick the folder sessions start in. A folder that holds all your projects works well, so any session can reach any of them.
+3. Choose whether sessions may run commands without asking first. Nobody is at the Mac to approve each one, so with this off you approve them from your phone.
+4. Click **Start**.
 
-**2. Save this as `~/Library/LaunchAgents/com.sttark.claude-rc.plist`**, with `YOU` changed to your Mac user name:
+From then on, open the Claude app, go to **Code**, pick your Mac, and type. The setting stays on through restarts. Turn the switch off to stop it.
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.sttark.claude-rc</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/zsh</string>
-    <string>-lc</string>
-    <string>exec /usr/bin/screen -DmS rc-src /bin/zsh -c 'cd ~/src &amp;&amp; exec ~/.local/bin/claude rc --permission-mode bypassPermissions'</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>/Users/YOU/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ThrottleInterval</key><integer>10</integer>
-  <key>StandardOutPath</key><string>/Users/YOU/Library/Logs/claude-rc.log</string>
-  <key>StandardErrorPath</key><string>/Users/YOU/Library/Logs/claude-rc.log</string>
-</dict>
-</plist>
-```
+The Mac has to be on and awake for sessions to run. On a laptop, set **System Settings > Battery > Options > Prevent automatic sleeping when the display is off** while it's plugged in.
 
-- `claude rc` is the Remote Control server. Each session you start from the app becomes its own Claude Code process on the Mac.
-- `screen` gives the server a terminal of its own, so it runs with nobody logged into a terminal. Peek at it with `screen -r rc-src` (leave with Ctrl-A then D).
-- `KeepAlive` restarts it if it stops, and `RunAtLoad` starts it at login, so it survives restarts.
-- `--permission-mode bypassPermissions` lets sessions work without asking before each command, since nobody is at the Mac to approve. Leave it off if you'd rather approve from your phone.
-
-**3. Start it:**
-
-```sh
-launchctl load ~/Library/LaunchAgents/com.sttark.claude-rc.plist
-```
-
-**4. Start a session:** in the Claude app (phone, desktop or claude.ai), go to **Code**, pick your Mac's environment, and type. To stop the server: `launchctl unload ~/Library/LaunchAgents/com.sttark.claude-rc.plist`.
-
-The Mac has to be on and awake for sessions to run. Set **System Settings > Battery > Options > Prevent automatic sleeping when the display is off** (on a laptop, while it's plugged in).
+If this Mac already runs a Remote Control server that you set up another way, the menu says so and leaves it alone.
 
 ## Cost
 
@@ -126,7 +95,8 @@ The app is a small Swift menu bar app. The work is done by a Python hook it inst
 2. **On each prompt** the hook finds the session's claude.ai id (`CLAUDE_CODE_BRIDGE_SESSION_ID` for `claude --remote-control`, or the `--session-id cse_…` a `claude rc` server starts it with). It runs `claude -p` with the model picked in the menu, the rules in `effort-hook.py`, the prompt, and the last few messages, keeping Claude's latest reply nearly whole.
 3. **To change the level**, `set-session-effort.py` posts a `control_request` with `apply_flag_settings {effortLevel}` to `https://api.anthropic.com/v1/code/sessions/<id>/events`. That's the same message the Claude app's effort picker sends. It signs in with the Claude Code login in the Mac's Keychain (`Claude Code-credentials`). Claude Code hooks can't set effort themselves, and the documented ways (`/effort`, the app's picker) need a person.
 4. **Partway through**, the `PostToolUse` hook counts tool calls since the prompt in the session's transcript. At 10, 25 and 50 it sends Haiku the request plus a short account of each step and which ones failed.
-5. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkEffort/state.json`: the on/off switch, and per session the level, the last level sent, Manual, the latest reason and the name. Both lock it before writing.
+5. **Start sessions from your phone** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-rc.plist`, that runs `claude rc` (Claude Code's Remote Control server) inside `screen` in the chosen folder, starts at login and restarts if it stops. Turning it off ends the server and removes the file.
+6. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkEffort/state.json`: the on/off switch, and per session the level, the last level sent, Manual, the latest reason and the name. Both lock it before writing.
 
 ### Building it yourself
 
@@ -141,6 +111,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Info.plist`, 
 | File | What it is |
 |---|---|
 | `Sources/Menu.swift` | The menu bar icon and menu. |
+| `Sources/Server.swift` | The Start sessions from your phone switch. |
 | `Sources/State.swift` | Reads and writes the shared state; installs the hooks. |
 | `Sources/Update.swift` | Checks GitHub for a new version and installs it. |
 | `Resources/hooks/effort-hook.py` | The hook: picks the level, rechecks, Manual and pause. |
