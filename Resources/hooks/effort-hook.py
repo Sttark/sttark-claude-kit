@@ -333,8 +333,11 @@ def on_tool(data, sid):
             log(f'manual {sid} set to {level_now} by hand; leaving this session alone')
         if level_now:
             x['level'] = level_now
+        seen = dict(x)
         if s.get('paused') or x.get('manual'):
+            title_later(sid, seen)
             return
+    title_later(sid, seen)
     turn = turn_so_far(data.get('transcript_path', ''))
     if not turn:
         return

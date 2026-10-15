@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Builds SttarkEffort.app into ./build. Runs on Apple Silicon and Intel Macs, macOS 14 or later.
 # The version is 1.<number of commits>, so every build of main is numbered higher than the last.
-# It's signed with the Sttark Effort Signing certificate when this Mac has it (GitHub's release builds do),
+# It's signed with a "Sttark Effort Signing" certificate when this Mac has one,
 # which lets an update check the new copy came from the same signer. Without it the build is signed
 # ad hoc, which is fine: the app needs no special permissions.
 set -e

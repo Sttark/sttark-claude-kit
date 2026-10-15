@@ -1,0 +1,25 @@
+# Builds, signs and publishes a new version whenever the app's code changes on main.
+# The app checks this repo's latest release and offers it to everyone with one click.
+name: Release
+on:
+  push:
+    branches: [main]
+    paths: [Sources/**, Resources/**, Info.plist, build.sh]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Build
+        run: ./build.sh
+      - name: Publish
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          V=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/SttarkEffort.app/Contents/Info.plist)
+          ditto -c -k --keepParent build/SttarkEffort.app SttarkEffort.zip
+          gh release create "v$V" SttarkEffort.zip --title "Sttark Effort $V" --latest \
+            --notes "$(git log -1 --format=%s)"$'\n\n'"Download SttarkEffort.zip below, or click Update in the app's menu."
