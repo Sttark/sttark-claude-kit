@@ -2,12 +2,12 @@
 
 A Mac menu bar app that sets the effort level of your Claude Code sessions for you, task by task. A quick question gets low effort. A bug with no known cause, or a new tool built end to end, gets extra high. The goal is enough effort to get the work right the first time, and no more than that.
 
-![The menu: Auto effort switch, each session with its level and Claude's reason, Open log, Check for updates](docs/menu.png)
+![The menu: Auto effort, Model, each session with its level, the phone, approval and Chrome switches, Open log, Check for updates](docs/menu.png)
 
 - **Picks the level before Claude starts.** Each prompt you send goes to a quick side check (Claude Haiku, or another model you pick) along with the last few messages. Haiku picks Low, Medium, High, Extra or Max, and the session is set to that level before Claude's first step. A plain "go" after a plan gets sized to the plan.
 - **Checks again partway through.** At 10, 25 and 50 steps into a task, Haiku looks at the work so far. If builds keep failing or the cause is still unknown, it raises the level, up to Max for a task that's stuck at Extra. If the hard part is done and the rest is repeat edits, it lowers it.
 - **You can take over.** Turn **Auto effort** off for every session, or click one session to set it to Manual. If you change a session's effort yourself in the Claude app, Sttark Effort notices and switches that session to Manual on its own.
-- **Shows its reasons.** The menu lists each session with its level and Haiku's latest one-line reason, and every decision is logged.
+- **Shows its reasons.** The menu lists each session with its level; hover one for the latest reason. Every decision is logged.
 - **Updates itself** when a new version is released here.
 
 It only works on sessions that run through **Remote Control**: the ones you start from your phone or the Claude app on a Mac that runs a `claude rc` server, or a terminal session started with `claude --remote-control`. Effort can't be changed from outside any other kind of session. See [Start Claude Code sessions from your phone](#start-claude-code-sessions-from-your-phone) to set that up.
@@ -34,7 +34,7 @@ Click the gauge:
 |---|---|
 | **Auto effort** | On: Claude picks each session's effort. Off: every session keeps the level it has, until you turn it back on. |
 | **Model** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Haiku is the default. |
-| **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual, then click again for Auto. The gray line under it is the latest reason for its level. Hover any item for what it does. |
+| **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual, then click again for Auto. Hover it to see the latest reason for its level. Hover any item for what it does. |
 | **Open log** | Opens the full log in Console. |
 | **Start sessions from your phone** | Sets this Mac up so you can start Claude Code sessions from the Claude app. See [below](#start-claude-code-sessions-from-your-phone). |
 | **Skip approvals in phone sessions** | See [below](#skip-approvals-in-phone-sessions). Off until you turn it on. |

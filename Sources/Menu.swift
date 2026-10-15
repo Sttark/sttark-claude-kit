@@ -93,10 +93,10 @@ final class Controller: NSObject, NSMenuDelegate {
             i.attributedTitle = row(s, dim: paused)
             i.representedObject = s.id
             i.state = s.manual ? .off : .on
-            i.toolTip = s.manual ? "Manual: you set the effort. Click to let Claude pick it again."
-                                 : "Auto: Claude picks the effort. Click to set it yourself."
+            let why = s.reason.isEmpty || s.manual ? "" : "Why \(levelNames[s.level] ?? s.level): \(s.reason)\n\n"
+            i.toolTip = why + (s.manual ? "Manual: you set the effort. Click to let Claude pick it again."
+                                        : "Auto: Claude picks the effort. Click to set it yourself.")
             menu.addItem(i)
-            if !s.reason.isEmpty && !s.manual { menu.addItem(caption(s.reason, indent: 1)) }
         }
 
         menu.addItem(.separator())
