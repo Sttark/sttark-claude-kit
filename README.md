@@ -20,7 +20,7 @@ You need a Mac on macOS 14 or later, with [Claude Code](https://code.claude.com/
 2. Drag **SttarkEffort** into your **Applications** folder, then open it.
 3. The first time, macOS says it can't check the app for malicious software, because it isn't sold through Apple. Click **Done**, go to **System Settings > Privacy & Security**, scroll down and click **Open Anyway**. You only do this once.
 
-That's it. The app adds its hook to Claude Code's settings (`~/.claude/settings.json`, backed up first), starts by itself when you log in, and shows a gauge in the menu bar. The needle shows the level of the session you used last. A pause sign means Auto effort is off. New sessions use the hook right away. Sessions that were already open pick it up from their next prompt.
+That's it. The app adds its hook to Claude Code's settings (`~/.claude/settings.json`, backed up first), starts by itself when you log in, and shows a gauge in the menu bar. The needle points at the level of the session you used last: far left for Low, straight up for High, far right for Max. No needle means no session in the last hour. A pause sign means Auto effort is off. New sessions use the hook right away. Sessions that were already open pick it up from their next prompt.
 
 ## Updates
 
@@ -138,6 +138,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Sources/Menu.swift` | The menu bar icon and menu. |
 | `Sources/Server.swift` | The Start sessions from your phone switch. |
 | `Sources/Switches.swift` | The Skip approvals and Approve Claude in Chrome switches. |
+| `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
 | `Helpers/ChromeApprover.swift` | The Chrome approver helper. `--dump` prints what it sees without clicking. |
 | `Resources/hooks/bypass-hook.sh` | The Skip approvals hook. |
 | `Sources/State.swift` | Reads and writes the shared state; installs the hooks. |
