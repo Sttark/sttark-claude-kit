@@ -22,6 +22,10 @@ You need a Mac on macOS 14 or later, with [Claude Code](https://code.claude.com/
 
 That's it. The app adds its hook to Claude Code's settings (`~/.claude/settings.json`, backed up first), starts by itself when you log in, and shows a gauge in the menu bar. The needle shows the level of the session you used last. A pause sign means Auto effort is off. New sessions use the hook right away. Sessions that were already open pick it up from their next prompt.
 
+## Updates
+
+The app checks for a new version a few times a day. When there is one, you get a notice: click it, or choose **Update to …** at the top of the menu. The app downloads the new version, swaps it in and restarts in a few seconds. Your settings, and the Accessibility permission for the Chrome approver, stay as they are. **Check for updates** in the menu checks right away.
+
 ## Using it
 
 Click the gauge:
@@ -32,7 +36,10 @@ Click the gauge:
 | **Model** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Haiku is the default. |
 | **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual (orange), then click again for Auto. The gray line under it is Haiku's latest reason. |
 | **Open log** | Opens the full log in Console. |
-| **Check for updates** | Looks for a new version now. The app also checks a few times a day and offers **Update to …** at the top of the menu. |
+| **Start sessions from your phone** | Sets this Mac up so you can start Claude Code sessions from the Claude app. See [below](#start-claude-code-sessions-from-your-phone). |
+| **Skip approvals in phone sessions** | See [below](#skip-approvals-in-phone-sessions). Off until you turn it on. |
+| **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. |
+| **Check for updates** | Looks for a new version now. Hidden while an update is waiting. |
 
 Sessions show for 12 hours after their last activity.
 
@@ -64,7 +71,7 @@ Sttark Effort can set your Mac up so you start Claude Code sessions from the Cla
 
 1. Click the gauge and turn on **Start sessions from your phone**.
 2. Pick the folder sessions start in. A folder that holds all your projects works well, so any session can reach any of them.
-3. Choose whether sessions may run commands without asking first. Nobody is at the Mac to approve each one, so with this off you approve them from your phone.
+3. Choose whether sessions may run commands without asking first. Nobody is at the Mac to approve each one, so with this off you approve them from your phone. With it on, **Skip approvals in phone sessions** turns on too.
 4. Click **Start**.
 
 From then on, open the Claude app, go to **Code**, pick your Mac, and type. The setting stays on through restarts. Turn the switch off to stop it.
@@ -72,6 +79,22 @@ From then on, open the Claude app, go to **Code**, pick your Mac, and type. The 
 The Mac has to be on and awake for sessions to run. On a laptop, set **System Settings > Battery > Options > Prevent automatic sleeping when the display is off** while it's plugged in.
 
 If this Mac already runs a Remote Control server that you set up another way, the menu says so and leaves it alone.
+
+## Skip approvals in phone sessions
+
+A Remote Control server can be started so its sessions run commands without asking first. The Claude app still switches each session it starts there back to asking. With this switch on, at a session's first approval prompt Sttark Effort approves it and switches the session to run without asking, so no more prompts follow.
+
+- It only acts on sessions whose server was started that way (**Let sessions run commands without asking first** when you turned on **Start sessions from your phone**, or `--permission-mode bypassPermissions` on a server you started yourself).
+- Plan mode, plan approvals and questions Claude asks you are left alone.
+- Each switch is logged to `~/Library/Logs/claude-bypass-hook.log`.
+
+Only turn it on if you're comfortable with Claude running commands on this Mac without checking with you first.
+
+## Approve Claude in Chrome
+
+When Claude uses Chrome through the Claude for Chrome extension, it stops to ask for permission on each new site. With this switch on, Sttark Effort answers for you: it clicks **Always allow actions on this site** when that's offered, otherwise **Allow this action**. It never clicks Decline, and it only clicks inside the Claude extension's own window, never on web pages.
+
+The first time you turn it on, macOS asks you to allow **SttarkChromeApprover** under **System Settings > Privacy & Security > Accessibility**, because it has to see and click the button. Until you do, the menu shows **Needs Accessibility permission…**, which opens that page. Each approval is logged to `~/Library/Logs/claude-chrome-approver.log`.
 
 ## Cost
 
@@ -85,7 +108,7 @@ Each check is one short Haiku call: about 2 to 5 seconds before a prompt starts,
 
 ## Uninstall
 
-Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.sh`](uninstall.sh), or by hand: quit the app, delete it from Applications, run `/usr/bin/python3 ~/Library/Application\ Support/SttarkEffort/hooks/install-hooks.py --remove`, then delete `~/Library/Application Support/SttarkEffort`.
+Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.sh`](uninstall.sh). It takes the hooks out of Claude Code's settings, stops the Chrome approver and the phone sessions server if they were turned on here, and deletes the app and its folder in Application Support. The logs stay.
 
 ## How it works
 
@@ -95,8 +118,10 @@ The app is a small Swift menu bar app. The work is done by a Python hook it inst
 2. **On each prompt** the hook finds the session's claude.ai id (`CLAUDE_CODE_BRIDGE_SESSION_ID` for `claude --remote-control`, or the `--session-id cse_…` a `claude rc` server starts it with). It runs `claude -p` with the model picked in the menu, the rules in `effort-hook.py`, the prompt, and the last few messages, keeping Claude's latest reply nearly whole.
 3. **To change the level**, `set-session-effort.py` posts a `control_request` with `apply_flag_settings {effortLevel}` to `https://api.anthropic.com/v1/code/sessions/<id>/events`. That's the same message the Claude app's effort picker sends. It signs in with the Claude Code login in the Mac's Keychain (`Claude Code-credentials`). Claude Code hooks can't set effort themselves, and the documented ways (`/effort`, the app's picker) need a person.
 4. **Partway through**, the `PostToolUse` hook counts tool calls since the prompt in the session's transcript. At 10, 25 and 50 it sends Haiku the request plus a short account of each step and which ones failed.
-5. **Start sessions from your phone** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-rc.plist`, that runs `claude rc` (Claude Code's Remote Control server) inside `screen` in the chosen folder, starts at login and restarts if it stops. Turning it off ends the server and removes the file.
-6. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkEffort/state.json`: the on/off switch, and per session the level, the last level sent, Manual, the latest reason and the name. Both lock it before writing.
+5. **Skip approvals in phone sessions** adds `bypass-hook.sh` to Claude Code's settings as a `PermissionRequest` hook. It answers with Claude Code's own "switch this session to bypass" reply, only when the session's parent processes include `claude rc` or `claude remote-control` started with `--permission-mode bypassPermissions`.
+6. **Approve Claude in Chrome** copies the helper `SttarkChromeApprover` (source in `Helpers/ChromeApprover.swift`) out of the app and runs it at login with a LaunchAgent, `~/Library/LaunchAgents/com.sttark.chrome-approver.plist`. The copy is replaced only when the helper changes. It watches Chrome's windows through macOS's Accessibility interface every 0.4 seconds.
+7. **Start sessions from your phone** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-rc.plist`, that runs `claude rc` (Claude Code's Remote Control server) inside `screen` in the chosen folder, starts at login and restarts if it stops. Turning it off ends the server and removes the file.
+8. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkEffort/state.json`: the on/off switch, and per session the level, the last level sent, Manual, the latest reason and the name. Both lock it before writing.
 
 ### Building it yourself
 
@@ -104,7 +129,7 @@ The app is a small Swift menu bar app. The work is done by a Python hook it inst
 
 ### Releases
 
-Every change to the app's code on `main` (`Sources`, `Resources`, `Info.plist`, `build.sh`) makes GitHub build and publish a new release (`.github/workflows/release.yml`). The version is 1 followed by the number of commits. The app installs a new release only if its signature passes the same check as the running copy and it carries the same app ID.
+Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `Info.plist`, `build.sh`) makes GitHub build, sign and publish a new release by itself (`.github/workflows/release.yml`). The version is 1 followed by the number of commits, so each one is higher than the last. The app installs a new release only if it's signed with the same Sttark Effort certificate. The certificate is in the repo's secrets (`SIGN_P12`, `SIGN_P12_PASSWORD`). It's self-made, not from Apple: it keeps the Chrome approver's Accessibility permission on through updates, but can't skip the Open Anyway step on a first install.
 
 ### Files
 
@@ -112,8 +137,15 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Info.plist`, 
 |---|---|
 | `Sources/Menu.swift` | The menu bar icon and menu. |
 | `Sources/Server.swift` | The Start sessions from your phone switch. |
+| `Sources/Switches.swift` | The Skip approvals and Approve Claude in Chrome switches. |
+| `Helpers/ChromeApprover.swift` | The Chrome approver helper. `--dump` prints what it sees without clicking. |
+| `Resources/hooks/bypass-hook.sh` | The Skip approvals hook. |
 | `Sources/State.swift` | Reads and writes the shared state; installs the hooks. |
 | `Sources/Update.swift` | Checks GitHub for a new version and installs it. |
 | `Resources/hooks/effort-hook.py` | The hook: picks the level, rechecks, Manual and pause. |
 | `Resources/hooks/set-session-effort.py` | Sends an effort change to a session. Also usable by hand: `set-session-effort.py cse_… high`. |
 | `Resources/hooks/install-hooks.py` | Adds the hook to Claude Code's settings, or removes it with `--remove`. |
+
+## License
+
+Copyright Sttark. For use by Sttark employees. The code is public so the app can update itself; it isn't offered for use outside Sttark.
