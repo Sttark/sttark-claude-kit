@@ -75,3 +75,79 @@ enum ChromeApprover {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
 }
+
+/// "Sync Claude profile instructions": copies the instructions from the Claude app's Profile settings into
+/// ~/.claude/CLAUDE.md every 15 minutes, and puts them in front of every prompt with a hook.
+/// The sync needs two Python add-ons (curl_cffi to get past Cloudflare, cryptography to read the Claude
+/// app's sign-in), installed into a private folder the first time it's turned on.
+enum ProfileSync {
+    static let label = "com.sttark.claude-profile-sync"
+    static var plist: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(label).plist")
+    }
+    static var log: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/claude-profile-sync.log")
+    }
+    static var venv: URL { supportDir.appendingPathComponent("venv") }
+    static var python: String { venv.appendingPathComponent("bin/python").path }
+    static var domain: String { "gui/\(getuid())" }
+    static var claudeAppSignedIn: Bool {
+        FileManager.default.fileExists(atPath: FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Claude/config.json").path)
+    }
+    private(set) static var settingUp = false
+
+    static var on: Bool {
+        let out = Updater.run("/usr/bin/python3", [Bypass.installer, "--status"]).1
+        let d = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Bool]
+        return d?["profile"] ?? false
+    }
+
+    /// The last line the sync wrote: when it last ran and what happened.
+    static var lastResult: String? {
+        guard let text = try? String(contentsOf: log, encoding: .utf8) else { return nil }
+        return text.split(separator: "\n").last.map(String.init)
+    }
+
+    static func start(done: @escaping (String?) -> Void) {
+        settingUp = true
+        DispatchQueue.global().async {
+            var err: String?
+            let fm = FileManager.default
+            if !fm.isExecutableFile(atPath: python) {
+                if Updater.run("/usr/bin/python3", ["-m", "venv", venv.path]).0 != 0 {
+                    err = "Couldn't set up Python. Install Apple's command line tools: xcode-select --install"
+                }
+            }
+            if err == nil {
+                let r = Updater.run(venv.appendingPathComponent("bin/pip").path,
+                                    ["install", "-q", "--disable-pip-version-check", "curl_cffi", "cryptography"])
+                if r.0 != 0 { err = "Couldn't install the add-ons the sync needs: " + r.1.suffix(200) }
+            }
+            if err == nil {
+                let home = fm.homeDirectoryForCurrentUser.path
+                let d: [String: Any] = [
+                    "Label": label,
+                    "ProgramArguments": [python, hooksDir.appendingPathComponent("profile-sync.py").path],
+                    "RunAtLoad": true, "StartInterval": 900,
+                    "StandardOutPath": log.path, "StandardErrorPath": log.path,
+                    "EnvironmentVariables": ["PATH": "\(home)/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"],
+                ]
+                try? fm.createDirectory(at: plist.deletingLastPathComponent(), withIntermediateDirectories: true)
+                (d as NSDictionary).write(to: plist, atomically: true)
+                Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
+                Updater.run("/bin/launchctl", ["bootstrap", domain, plist.path])
+                let r = Updater.run("/usr/bin/python3", [Bypass.installer, "--profile", "on"]).1
+                note("profile sync on: \(r.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+            DispatchQueue.main.async { settingUp = false; done(err) }
+        }
+    }
+
+    static func stop() {
+        Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
+        try? FileManager.default.removeItem(at: plist)
+        let r = Updater.run("/usr/bin/python3", [Bypass.installer, "--profile", "off"]).1
+        note("profile sync off: \(r.trimmingCharacters(in: .whitespacesAndNewlines))")
+    }
+}
