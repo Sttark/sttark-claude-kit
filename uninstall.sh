@@ -3,7 +3,7 @@
 # approver, and the server for Claude app sessions if it was turned on from the app. Leaves the logs.
 H="$HOME/Library/Application Support/SttarkEffort/hooks/install-hooks.py"
 [[ -f $H ]] && /usr/bin/python3 "$H" --remove
-for label in com.sttark.chrome-approver com.sttark.claude-rc; do
+for label in com.sttark.chrome-approver com.sttark.claude-rc com.sttark.claude-profile-sync; do
   launchctl bootout gui/$(id -u)/$label 2>/dev/null
   rm -f ~/Library/LaunchAgents/$label.plist
 done

@@ -118,6 +118,12 @@ final class Controller: NSObject, NSMenuDelegate {
         chrome.state = ChromeApprover.on ? .on : .off
         chrome.toolTip = "Clicks Allow when Claude for Chrome asks to use a site."
         menu.addItem(chrome)
+        let sync = action(ProfileSync.settingUp ? "Sync Claude profile instructions: setting up…" : "Sync Claude profile instructions",
+                          #selector(toggleProfile), enabled: !ProfileSync.settingUp)
+        sync.state = ProfileSync.on ? .on : .off
+        sync.toolTip = "Copies the instructions from your Claude profile into Claude Code and puts them in front of every prompt, so running sessions see edits too."
+            + (ProfileSync.on ? (ProfileSync.lastResult.map { "\n\nLast sync: " + $0 } ?? "") : "")
+        menu.addItem(sync)
         if ChromeApprover.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
@@ -185,6 +191,26 @@ final class Controller: NSObject, NSMenuDelegate {
 
     @objc func toggleChrome() {
         if ChromeApprover.on { ChromeApprover.stop() } else { ChromeApprover.start() }
+    }
+
+    @objc func toggleProfile() {
+        if ProfileSync.on { ProfileSync.stop(); return }
+        guard ProfileSync.claudeAppSignedIn else {
+            let a = NSAlert()
+            a.messageText = "Needs the Claude app"
+            a.informativeText = "The sync reads your profile with the Claude desktop app's sign-in. Install the Claude app, sign in, then turn this on."
+            NSApp.activate(ignoringOtherApps: true)
+            a.runModal()
+            return
+        }
+        ProfileSync.start { err in
+            guard let err else { return }
+            let a = NSAlert()
+            a.messageText = "Couldn't turn on the sync"
+            a.informativeText = err
+            NSApp.activate(ignoringOtherApps: true)
+            a.runModal()
+        }
     }
 
     @objc func openAccessibility() { ChromeApprover.openAccessibility() }
