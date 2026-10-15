@@ -1,11 +1,12 @@
 #!/bin/bash
-# Claude Code PermissionRequest hook, turned on with "Skip approvals in phone
-# sessions" in the Sttark Effort menu.
+# Claude Code PermissionRequest hook, turned on with "Bypass permissions for
+# server sessions" in the Sttark Effort menu.
 #
-# A Remote Control server started with --permission-mode bypassPermissions
-# should run its sessions without asking before each command, but the Claude
-# app switches each session it starts there to Manual or auto, and never offers
-# Bypass for Remote Control sessions. At a session's first approval prompt, this
+# The Claude app, on desktop or phone, switches each session it starts on a
+# Remote Control server to Manual or auto, and never offers Bypass permissions
+# for those sessions, even when the server was started with
+# --permission-mode bypassPermissions. Without this hook there's no way to run
+# them in bypass. At a session's first approval prompt, this
 # approves it and switches the session to bypass, so no more prompts follow.
 # Plan mode, plan approvals and questions to the person are left alone, and so
 # is any session whose server wasn't started in bypass. Every switch is logged.

@@ -3,8 +3,8 @@
 take it out with --remove. Run by the Sttark Effort app on every launch, so a
 hook that went missing comes back.
 
---bypass on|off adds or removes the bypass hook (the "Skip approvals in phone
-sessions" switch) and leaves the effort hook alone. --status prints which are
+--bypass on|off adds or removes the bypass hook (the "Bypass permissions for
+server sessions" switch) and leaves the effort hook alone. --status prints which are
 on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
