@@ -13,6 +13,7 @@ final class Controller: NSObject, NSMenuDelegate {
     func start() {
         setupResult = Setup.install()
         if ChromeApprover.on { ChromeApprover.copyHelper() }
+        if ChromeWindow.on { ChromeWindow.installTool() }
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -126,6 +127,15 @@ final class Controller: NSObject, NSMenuDelegate {
         chrome.state = ChromeApprover.on ? .on : .off
         chrome.toolTip = "Clicks Allow when Claude for Chrome asks to use a site."
         menu.addItem(chrome)
+        let cw = action("Claude window in Chrome", #selector(toggleChromeWindow))
+        cw.state = ChromeWindow.on ? .on : .off
+        cw.toolTip = "Claude uses one Chrome window named Claude, with your logins, and moves it between pages instead of opening tabs or windows, so Chrome stops jumping in front of what you're typing in."
+        menu.addItem(cw)
+        if ChromeWindow.on && ChromeWindow.chromeRunning && !ChromeWindow.exists {
+            let o = action("Open Claude window", #selector(openChromeWindow))
+            o.toolTip = "The Claude window in Chrome was closed. Opens it again; Chrome comes forward this once."
+            menu.addItem(o)
+        }
         let names = action("Name sessions automatically", #selector(toggleNames))
         names.state = Names.on ? .on : .off
         names.toolTip = "Gives each Claude Code session a short handle for its project or area, in the style of your own names. Never changes a name once set."
@@ -209,6 +219,8 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     @objc func signIn() { Login.signIn() }
+    @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
+    @objc func openChromeWindow() { ChromeWindow.open() }
 
     @objc func toggleNames() { Names.set(!Names.on) }
 
