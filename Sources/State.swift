@@ -28,6 +28,9 @@ struct Session {
     let reason: String
     let manual: Bool
     let at: Date
+    /// From the Claude app, checked every minute: the link, and when Claude finished a reply you haven't read yet.
+    var url: String = ""
+    var waitingSince: Date? = nil
 }
 
 /// The state file the hook and the app share: {"paused": bool, "sessions": {id: {...}}}.
@@ -102,9 +105,19 @@ enum State {
             let at = Date(timeIntervalSince1970: x["at"] as? Double ?? 0)
             guard at > cutoff else { return nil }
             let t = (x["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-            return Session(id: id, title: t.isEmpty ? "Session " + id.suffix(6) : t,
-                           level: x["level"] as? String ?? "?", reason: x["reason"] as? String ?? "",
-                           manual: x["manual"] as? Bool ?? false, at: at)
+            var s = Session(id: id, title: t.isEmpty ? "Session " + id.suffix(6) : t,
+                            level: x["level"] as? String ?? "?", reason: x["reason"] as? String ?? "",
+                            manual: x["manual"] as? Bool ?? false, at: at)
+            if let a = x["app"] as? [String: Any] {
+                s.url = a["url"] as? String ?? ""
+                let iso = ISO8601DateFormatter()
+                iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if (a["unread"] as? Bool ?? false), !(a["working"] as? Bool ?? true),
+                   let d = iso.date(from: a["last_event_at"] as? String ?? "") {
+                    s.waitingSince = d
+                }
+            }
+            return s
         }.sorted { $0.at > $1.at }
     }
 }

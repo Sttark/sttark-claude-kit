@@ -66,7 +66,10 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler done: @escaping () -> Void) {
         let id = response.notification.request.identifier
-        DispatchQueue.main.async { if id.hasPrefix("login") { Login.signIn() } else { self.install() } }
+        let url = response.notification.request.content.userInfo["url"] as? String ?? ""
+        DispatchQueue.main.async {
+            if id.hasPrefix("login") { Login.signIn() } else if id.hasPrefix("waiting") { Waiting.open(url) } else { self.install() }
+        }
         done()
     }
 

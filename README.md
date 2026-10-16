@@ -71,6 +71,14 @@ Every decision goes into `~/Library/Logs/claude-effort-hook.log`, one line each:
 
 To watch it live: `tail -f ~/Library/Logs/claude-effort-hook.log`.
 
+## Waiting on you
+
+You send Claude a prompt, move on to something else, and forget to come back. Sttark Effort checks every minute which of your Claude Code sessions have finished a reply you haven't read yet. The Claude app marks a reply read when you open it, on any device, so a session you looked at and moved on from doesn't count.
+
+- Those sessions show at the top of the menu, with how long each has been waiting. Click one to open it.
+- When a reply has waited 10 minutes, you get one notice listing what's waiting. Click it to open the session.
+- It covers Claude Code sessions that run through Remote Control, from the last day.
+
 ## Choosing the model
 
 A test on October 15, 2026 found **Sonnet 5.5** picks effort best, so the newest Sonnet is the default. The newest Haiku is faster and cheaper, if you'd rather pick it under **Model**.
@@ -226,6 +234,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Resources/hooks/bypass-hook.sh` | The Bypass permissions hook. |
 | `Resources/hooks/name-hook.py` | The session naming hook. |
 | `Resources/hooks/claude-window.sh` | The `claude-window` command. |
+| `Sources/Waiting.swift` | The Waiting on you section and its notices. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
 | `Resources/hooks/profile-sync.py`, `profile-hook.sh` | The profile instructions sync and its prompt hook. |
 | `tools/screenshot.swift` | Draws the menu image above from the app's own code, with sample sessions. |

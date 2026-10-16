@@ -23,6 +23,8 @@ final class Controller: NSObject, NSMenuDelegate {
         State.refreshModels()
         Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in State.refreshModels() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
+        Waiting.refresh()
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
@@ -67,6 +69,24 @@ final class Controller: NSObject, NSMenuDelegate {
             l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true)])
             l.toolTip = Login.tip
             menu.addItem(l)
+        }
+        let waiting = Waiting.sessions
+        if !waiting.isEmpty {
+            menu.addItem(.separator())
+            for s in waiting {
+                let i = action("", #selector(openWaiting(_:)))
+                let t = NSMutableAttributedString(string: s.title.count > 40 ? String(s.title.prefix(39)) + "…" : s.title,
+                                                  attributes: [.font: font(14, true)])
+                let para = NSMutableParagraphStyle()
+                para.tabStops = [NSTextTab(textAlignment: .right, location: 380)]
+                t.append(NSAttributedString(string: "\twaiting " + Waiting.ago(s.waitingSince!),
+                                            attributes: [.font: font(14), .foregroundColor: NSColor.secondaryLabelColor]))
+                t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
+                i.attributedTitle = t
+                i.representedObject = s.url
+                i.toolTip = "Claude finished and you haven't read the reply yet. Click to open the session."
+                menu.addItem(i)
+            }
         }
         menu.addItem(.separator())
 
@@ -219,6 +239,7 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     @objc func signIn() { Login.signIn() }
+    @objc func openWaiting(_ sender: NSMenuItem) { Waiting.open(sender.representedObject as? String ?? "") }
     @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
     @objc func openChromeWindow() { ChromeWindow.open() }
 

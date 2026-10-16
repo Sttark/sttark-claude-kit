@@ -307,6 +307,30 @@ def fetch_title(sid):
         x['title_at'] = time.time()
 
 
+def track():
+    """Every minute, from the app: for each session seen in the last day, whether Claude is still working and
+    whether you've read its latest reply (the Claude app marks a reply read on any device). Saved as
+    x['app'] for the menu's Waiting on you section and its notices."""
+    cutoff = time.time() - 86400
+    ids = [sid for sid, x in peek().get('sessions', {}).items() if x.get('at', 0) > cutoff]
+    for sid in ids:
+        try:
+            d = sse().session(sid)
+        except Exception as e:
+            if getattr(e, 'code', 0) == 404:
+                with state() as s:
+                    s['sessions'].pop(sid, None)
+            continue
+        working = d.get('status_bucket') == 'working' or d.get('worker_status') == 'running'
+        info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'unread': bool(d.get('unread')),
+                'working': working, 'last_event_at': d.get('last_event_at') or '', 'checked': time.time()}
+        with state() as s:
+            x = s['sessions'].setdefault(sid, {})
+            x['app'] = info
+            if info['title']:
+                x['title'] = info['title']
+
+
 def title_later(sid, x):
     if time.time() - x.get('title_at', 0) > 60:
         subprocess.Popen([sys.executable, os.path.abspath(__file__), '--title', sid],
@@ -430,6 +454,9 @@ def on_tool(data, sid):
 def main():
     if sys.argv[1:] == ['--models']:
         list_models()
+        return
+    if sys.argv[1:] == ['--track']:
+        track()
         return
     if len(sys.argv) == 3 and sys.argv[1] == '--title':
         fetch_title(sys.argv[2])
