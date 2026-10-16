@@ -3,7 +3,8 @@
 take it out with --remove. Run by the Sttark Effort app on every launch, so a
 hook that went missing comes back.
 
---profile on|off adds or removes the profile instructions hook (the "Sync Claude
+--names on|off adds or removes the session naming hook ("Name sessions
+automatically"), --profile on|off the profile instructions hook (the "Sync Claude
 profile instructions" switch), and --bypass on|off the bypass hook (the "Bypass permissions for
 server sessions" switch) and leaves the effort hook alone. --status prints which are
 on. Other settings and hooks are left as they are, and a backup is saved
@@ -20,6 +21,13 @@ BYPASS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bypass-hook.s
 def is_bypass(cmd):
     c = cmd.rstrip('"')
     return c.endswith('bypass-hook.sh')  # this app's copy, or one set up by hand as rc-bypass-hook.sh
+
+
+NAMES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'name-hook.py')
+
+
+def is_names(cmd):
+    return cmd.rstrip('"').endswith('name-hook.py')
 
 
 PROFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'profile-hook.sh')
@@ -72,12 +80,26 @@ def set_profile(hooks, on):
         hooks.pop('UserPromptSubmit', None)
 
 
+def set_names(hooks, on):
+    groups = hooks.get('UserPromptSubmit', [])
+    for g in groups:
+        g['hooks'] = [h for h in g.get('hooks', []) if not is_names(h.get('command', ''))]
+    groups = [g for g in groups if g.get('hooks')]
+    if on:
+        groups.append({'hooks': [{'type': 'command', 'command': f'"{NAMES}"', 'timeout': 40}]})
+    if groups:
+        hooks['UserPromptSubmit'] = groups
+    else:
+        hooks.pop('UserPromptSubmit', None)
+
+
 def main():
     s = load()
     if '--status' in sys.argv:
         print(json.dumps({'effort': has(s, 'UserPromptSubmit', ours),
                           'bypass': has(s, 'PermissionRequest', is_bypass),
-                          'profile': has(s, 'UserPromptSubmit', is_profile)}))
+                          'profile': has(s, 'UserPromptSubmit', is_profile),
+                          'names': has(s, 'UserPromptSubmit', is_names)}))
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -85,12 +107,16 @@ def main():
     if '--bypass' in sys.argv:
         set_bypass(hooks, sys.argv[sys.argv.index('--bypass') + 1] == 'on')
         return save(s, before, 'bypass ' + sys.argv[sys.argv.index('--bypass') + 1])
+    if '--names' in sys.argv:
+        set_names(hooks, sys.argv[sys.argv.index('--names') + 1] == 'on')
+        return save(s, before, 'names ' + sys.argv[sys.argv.index('--names') + 1])
     if '--profile' in sys.argv:
         set_profile(hooks, sys.argv[sys.argv.index('--profile') + 1] == 'on')
         return save(s, before, 'profile ' + sys.argv[sys.argv.index('--profile') + 1])
     if remove:
         set_bypass(hooks, False)
         set_profile(hooks, False)
+        set_names(hooks, False)
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])
         for g in groups:  # drop every copy, old paths included

@@ -124,6 +124,14 @@ def session_id():
     return m.group(1) if m else None
 
 
+NOTE = re.compile(r'<(system-reminder|local-command-[a-z]+|command-[a-z]+)>.*?</\1>', re.S)
+
+
+def clean(text):
+    """What the person wrote, without the notes Claude Code adds around it (system reminders, command output)."""
+    return NOTE.sub('', text or '').strip()
+
+
 def text_of(content):
     if isinstance(content, str):
         return content
@@ -150,7 +158,7 @@ def recent(path, prompt='', turns=6, each=600, last_reply=4000):
             continue
         if e.get('type') not in ('user', 'assistant') or e.get('isMeta'):
             continue
-        t = text_of((e.get('message') or {}).get('content')).strip()
+        t = clean(text_of((e.get('message') or {}).get('content')))
         if not t or t.startswith('<'):
             continue
         who = 'User' if e['type'] == 'user' else 'Claude'
@@ -237,7 +245,7 @@ def turn_so_far(path):
     for i in range(len(entries) - 1, -1, -1):
         e = entries[i]
         if e.get('type') == 'user' and not e.get('isMeta'):
-            t = text_of((e.get('message') or {}).get('content')).strip()
+            t = clean(text_of((e.get('message') or {}).get('content')))
             if t and not t.startswith('<'):
                 start = i
                 break

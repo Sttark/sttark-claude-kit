@@ -21,6 +21,8 @@ final class Controller: NSObject, NSMenuDelegate {
         updater.start()
         State.refreshModels()
         Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in State.refreshModels() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
     }
@@ -58,6 +60,12 @@ final class Controller: NSObject, NSMenuDelegate {
             let u = action("Update to \(r.version)", #selector(update))
             u.attributedTitle = NSAttributedString(string: "Update to \(r.version)", attributes: [.font: font(14, true)])
             menu.addItem(u)
+        }
+        if let warn = Login.urgent {
+            let l = action(warn, #selector(signIn))
+            l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true)])
+            l.toolTip = Login.tip
+            menu.addItem(l)
         }
         menu.addItem(.separator())
 
@@ -118,6 +126,10 @@ final class Controller: NSObject, NSMenuDelegate {
         chrome.state = ChromeApprover.on ? .on : .off
         chrome.toolTip = "Clicks Allow when Claude for Chrome asks to use a site."
         menu.addItem(chrome)
+        let names = action("Name sessions automatically", #selector(toggleNames))
+        names.state = Names.on ? .on : .off
+        names.toolTip = "Gives each Claude Code session a short handle for its project or area, in the style of your own names. Never changes a name once set."
+        menu.addItem(names)
         let sync = action(ProfileSync.settingUp ? "Sync Claude profile instructions: setting up…" : "Sync Claude profile instructions",
                           #selector(toggleProfile), enabled: !ProfileSync.settingUp)
         sync.state = ProfileSync.on ? .on : .off
@@ -128,6 +140,9 @@ final class Controller: NSObject, NSMenuDelegate {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
         menu.addItem(.separator())
+        let sign = action("Sign in to Claude Code…", #selector(signIn))
+        sign.toolTip = Login.tip
+        menu.addItem(sign)
         menu.addItem(action("Open log", #selector(openLog)))
         if updater.available == nil && !updater.installing { menu.addItem(action("Check for updates", #selector(checkUpdates))) }
         menu.addItem(.separator())
@@ -192,6 +207,10 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleChrome() {
         if ChromeApprover.on { ChromeApprover.stop() } else { ChromeApprover.start() }
     }
+
+    @objc func signIn() { Login.signIn() }
+
+    @objc func toggleNames() { Names.set(!Names.on) }
 
     @objc func toggleProfile() {
         if ProfileSync.on { ProfileSync.stop(); return }
