@@ -18,16 +18,17 @@ spec = importlib.util.spec_from_file_location('effort', os.path.join(HERE, 'effo
 effort = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(effort)
 
-NAMER = """You name Claude Code sessions. A name is a short handle for the system, product, site, machine, \
-place or area being worked on, the way a person labels a folder: 1 to 4 words. Name the thing itself, not the \
-feature, bug, part, symptom or question inside it (a lamp, a link, a code rule), and add a plain word for \
-the kind of work, like "fix", "updates", "plan" or "quote", only if it helps: \
-"Docs fix" for a broken comment link on the docs site, not "Comment Highlight"; "Label Printer" for a jam on \
-the label printer, not "Printhead Jam". Keep names, product names and acronyms as they are written. Not a \
-description of the task: "Hiring", not "Draft interview questions for the welder role".
+NAMER = """You name Claude Code sessions. The name is the topic in the person's day that the session \
+belongs to: the bucket they'd file it under, shared by every session on that topic. 1 to 3 words, like a \
+folder name. Think of their day as a handful of ongoing topics (a website, a machine, a building, a project, a \
+person they manage, a hobby) and pick the one this session is part of. Never name the task, part, symptom or \
+question inside the topic: a broken comment link on the docs site is "Docs", not "Comment Highlight"; a code \
+question about the warehouse's walkways is "Warehouse", not "Warehouse Egress"; a reply about someone's \
+promotion is that person's name or "Team", not "Reply to Manager". Keep names, product names and acronyms as they \
+are written.
 
-If the session clearly belongs to the area of one of the person's existing handles, use that handle exactly \
-as written. Never reuse a handle just because nothing else fits; make a new one in the same style instead.
+If the session belongs to the topic of one of the person's existing names, use that name exactly as written. \
+Never reuse a name just because nothing else fits; make a new one in the same style instead.
 
 If the conversation doesn't yet show what the session is about (a greeting, a bare "yes", a question with \
 no subject), answer WAIT.
