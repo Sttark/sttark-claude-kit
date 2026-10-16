@@ -49,7 +49,8 @@ def main():
         # Named already: remember the handle so new names can reuse it, and leave the session alone.
         with effort.state() as s:
             h = s.setdefault('handles', [])
-            if title not in h:
+            # only short names are handles; a long one is Claude's own description, or a message used as a name
+            if title not in h and len(title.split()) <= 4 and len(title) <= 40:
                 h.insert(0, title)
                 del h[60:]
                 effort.log(f'name   {data.get("session_id", "")[:8]} has "{title}", remembered as a handle')
