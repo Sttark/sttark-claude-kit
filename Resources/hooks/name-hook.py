@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Claude Code UserPromptSubmit hook, turned on with "Name sessions automatically" in the Sttark Effort menu.
+"""Claude Code UserPromptSubmit hook, turned on with "Name sessions automatically" in the Sttark Claude Kit menu.
 
 Gives each session a short handle for its project or area, like "Order Page" or "Label Printer", instead of
 the long description Claude generates. On each prompt, if the session has no custom name yet (Claude Code
@@ -9,7 +9,7 @@ session belongs to the same area. If it can't tell yet what the session is about
 prompt. Once a session has a name, this never changes it.
 
 Every handle it sees on a named session is remembered, so new names follow your own. Decisions go to the
-same log as the effort checks, ~/Library/Logs/claude-effort-hook.log.
+same log as the effort checks, ~/Library/Logs/sttark-claude-kit.log.
 """
 import importlib.util, json, os, re, sys, time
 

@@ -3,12 +3,12 @@ import ServiceManagement
 
 let supportDir: URL = {
     let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("SttarkEffort")
+        .appendingPathComponent("SttarkClaudeKit")
     try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
     return u
 }()
 let hooksDir = supportDir.appendingPathComponent("hooks")
-let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/claude-effort-hook.log")
+let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/sttark-claude-kit.log")
 
 /// One line in the same log the hook writes, so everything is in one place.
 func note(_ s: String) {

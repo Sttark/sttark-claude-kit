@@ -134,8 +134,8 @@ enum ProfileSync {
                 }
             }
             if err == nil {
-                let r = Updater.run(venv.appendingPathComponent("bin/pip").path,
-                                    ["install", "-q", "--disable-pip-version-check", "curl_cffi", "cryptography"])
+                // python -m pip, not bin/pip: a copied folder's pip still points at its old place
+                let r = Updater.run(python, ["-m", "pip", "install", "-q", "--disable-pip-version-check", "curl_cffi", "cryptography"])
                 if r.0 != 0 { err = "Couldn't install the add-ons the sync needs: " + r.1.suffix(200) }
             }
             if err == nil {

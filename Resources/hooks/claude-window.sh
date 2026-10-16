@@ -1,7 +1,7 @@
 #!/bin/zsh
 # claude-window: lets Claude use your signed-in Chrome without taking your screen.
 #
-# Works only in the Chrome window named "Claude" that Sttark Effort opens ("Claude window in Chrome" in its
+# Works only in the Chrome window named "Claude" that Sttark Claude Kit opens ("Claude window in Chrome" in its
 # menu). It moves that window between pages and reads or acts on them by running JavaScript inside the page,
 # which doesn't bring Chrome forward. It never opens tabs or windows and never activates Chrome, because both
 # make Chrome jump in front of whatever you're typing in.
@@ -16,7 +16,7 @@ set -uo pipefail
 cmd=${1:-}
 [[ -n $cmd ]] || { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 if ! pgrep -xq "Google Chrome"; then
-  echo "Chrome isn't open. Open Chrome, then click Open Claude window in the Sttark Effort menu." >&2; exit 1
+  echo "Chrome isn't open. Open Chrome, then click Open Claude window in the Sttark Claude Kit menu." >&2; exit 1
 fi
 
 run_js() {  # run JavaScript in the Claude window's tab; never activates Chrome
@@ -35,7 +35,7 @@ js() {
   local out
   out=$(run_js "$1" 2>&1) || {
     case $out in
-      *NO_CLAUDE_WINDOW*) echo "There's no Chrome window named Claude. Click Open Claude window in the Sttark Effort menu." >&2 ;;
+      *NO_CLAUDE_WINDOW*) echo "There's no Chrome window named Claude. Click Open Claude window in the Sttark Claude Kit menu." >&2 ;;
       *"Apple Events"*|*"JavaScript"*) echo "Chrome blocks scripts: turn on View > Developer > Allow JavaScript from Apple Events." >&2 ;;
       *) echo "$out" >&2 ;;
     esac

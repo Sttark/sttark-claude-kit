@@ -5,8 +5,8 @@ import UserNotifications
 /// Looks for a newer version on GitHub, says so once, and installs it in place with one click.
 /// The state and the hooks live outside the app, so they stay as they are.
 final class Updater: NSObject, UNUserNotificationCenterDelegate {
-    static let repo = "Sttark/sttark-effort"
-    static let asset = "SttarkEffort.zip"
+    static let repo = "Sttark/sttark-claude-kit"
+    static let asset = "SttarkClaudeKit.zip"
 
     struct Release { let build: Int; let version: String; let url: URL }
     private(set) var available: Release?
@@ -57,7 +57,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
         c.requestAuthorization(options: [.alert]) { ok, _ in
             guard ok else { return }
             let n = UNMutableNotificationContent()
-            n.title = "Sttark Effort \(r.version) is ready"
+            n.title = "Sttark Claude Kit \(r.version) is ready"
             n.body = "Click to update. It takes a few seconds and keeps your settings."
             c.add(UNNotificationRequest(identifier: "update", content: n, trigger: nil))
         }
@@ -88,11 +88,11 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
             let result: String? = {
                 guard let zip else { return "The download failed: \(error?.localizedDescription ?? "no file")" }
                 let fm = FileManager.default
-                let tmp = fm.temporaryDirectory.appendingPathComponent("SttarkEffort-update-\(r.build)")
+                let tmp = fm.temporaryDirectory.appendingPathComponent("SttarkClaudeKit-update-\(r.build)")
                 try? fm.removeItem(at: tmp)
                 try? fm.createDirectory(at: tmp, withIntermediateDirectories: true)
                 guard Self.run("/usr/bin/ditto", ["-x", "-k", zip.path, tmp.path]).0 == 0 else { return "Couldn't unpack the download." }
-                let new = tmp.appendingPathComponent("SttarkEffort.app")
+                let new = tmp.appendingPathComponent("SttarkClaudeKit.app")
                 guard Self.signedLikeThisApp(new) else { return "The download isn't signed by Sttark, so it wasn't installed." }
                 let here = URL(fileURLWithPath: Bundle.main.bundlePath)
                 let old = tmp.appendingPathComponent("previous.app")
