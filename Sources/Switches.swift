@@ -76,6 +76,20 @@ enum ChromeApprover {
     }
 }
 
+/// "Name sessions automatically": the naming hook in Claude Code's settings.
+enum Names {
+    static var on: Bool {
+        let out = Updater.run("/usr/bin/python3", [Bypass.installer, "--status"]).1
+        let d = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Bool]
+        return d?["names"] ?? false
+    }
+
+    static func set(_ on: Bool) {
+        let r = Updater.run("/usr/bin/python3", [Bypass.installer, "--names", on ? "on" : "off"]).1
+        note("naming hook: \(r.trimmingCharacters(in: .whitespacesAndNewlines))")
+    }
+}
+
 /// "Sync Claude profile instructions": copies the instructions from the Claude app's Profile settings into
 /// ~/.claude/CLAUDE.md every 15 minutes, and puts them in front of every prompt with a hook.
 /// The sync needs two Python add-ons (curl_cffi to get past Cloudflare, cryptography to read the Claude

@@ -65,7 +65,8 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler done: @escaping () -> Void) {
-        DispatchQueue.main.async { self.install() }
+        let id = response.notification.request.identifier
+        DispatchQueue.main.async { if id.hasPrefix("login") { Login.signIn() } else { self.install() } }
         done()
     }
 

@@ -21,9 +21,24 @@ enum Server {
     }
 
     /// A Remote Control server this app didn't set up (started by hand or by another LaunchAgent).
+    /// Counts a server macOS is set to start even while it's crashing and has no process at that moment:
+    /// any enabled LaunchAgent, other than ours, that runs `claude rc` or `claude remote-control`.
     static var otherRunning: Bool {
         guard !installed, ProcessInfo.processInfo.environment["STTARK_EFFORT_TEST"] == nil else { return false }
-        return Updater.run("/usr/bin/pgrep", ["-f", "claude (rc|remote-control)( |$)"]).0 == 0
+        if Updater.run("/usr/bin/pgrep", ["-f", "claude (rc|remote-control)( |$)"]).0 == 0 { return true }
+        let disabled = Updater.run("/bin/launchctl", ["print-disabled", domain]).1
+        let fm = FileManager.default
+        for dir in [fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents"), URL(fileURLWithPath: "/Library/LaunchAgents")] {
+            for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where name.hasSuffix(".plist") {
+                guard let d = NSDictionary(contentsOf: dir.appendingPathComponent(name)),
+                      let l = d["Label"] as? String, l != label else { continue }
+                let args = (d["ProgramArguments"] as? [String] ?? []).joined(separator: " ")
+                guard args.range(of: #"claude['"]? (rc|remote-control)( |'|"|$)"#, options: .regularExpression) != nil else { continue }
+                if disabled.contains("\"\(l)\" => disabled") || disabled.contains("\"\(l)\" => true") { continue }
+                return true
+            }
+        }
+        return false
     }
 
     /// Always started in bypass. On its own that changes nothing: the Claude app switches every session it

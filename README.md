@@ -42,6 +42,8 @@ Click the gauge:
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). Off until you turn it on. |
 | **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. |
 | **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). Off until you turn it on. |
+| **Name sessions automatically** | See [below](#name-sessions-automatically). Off until you turn it on. |
+| **Sign in to Claude Code…** | Opens Terminal and starts Claude Code's sign-in; you finish in the browser. Hover it to see when your login runs out. See [below](#claude-code-login). |
 | **Check for updates** | Looks for a new version now. Hidden while an update is waiting. |
 
 Sessions show for 12 hours after their last activity.
@@ -136,6 +138,22 @@ The Claude app has a box for instructions to Claude in **Settings > Profile**. C
 - Hover the switch to see the last sync. Each sync is logged to `~/Library/Logs/claude-profile-sync.log`.
 - Edit your instructions in the Claude app, not in `CLAUDE.md`: the marked block is overwritten. Anything else in that file is left alone.
 
+## Name sessions automatically
+
+Claude names each new Claude Code session with a long description of the first task. With this switch on, sessions get a short handle for their project or area instead, like "Order Page" or "Label Printer", the way you'd label a folder.
+
+- It names a session at your first message that shows what the session is about. A greeting or a bare "yes" waits for a later one.
+- It reuses one of your own handles when a session clearly belongs to that area, and learns your handles from the sessions you name yourself.
+- Once a session has a name, from you or from this, it's never changed.
+- It names Claude Code sessions only. Claude chats can't be renamed by an app.
+- It runs alongside the effort check, so it adds no wait. Each name is logged, with lines starting `name`.
+
+## Claude Code login
+
+Claude Code's sign-in lasts about a month. When it runs out, every Claude Code session and the server for **Start sessions from the Claude app** stop working until you sign in again, and nothing tells you. Sttark Effort checks the end date every hour and warns you 3 days, 1 day and 2 hours before, and right away if Claude Code is signed out. Click the notice, or **Sign in to Claude Code…** in the menu: Terminal opens and starts the sign-in, and you finish it in the browser. Within 3 days of the end, the sign-in item also shows at the top of the menu.
+
+After you sign in, the server picks up the new login by itself the next time it starts. If it stopped because the login ran out, macOS restarts it within seconds.
+
 ## Cost
 
 Each check is one short Haiku call: about 2 to 5 seconds before a prompt starts, plus about a second and a half when the level changes. The checks at 10, 25 and 50 steps run in the background and don't slow the work. They count toward your Claude plan's usage like any other Claude Code call.
@@ -161,8 +179,10 @@ The app is a small Swift menu bar app. The work is done by a Python hook it inst
 5. **Bypass permissions for server sessions** adds `bypass-hook.sh` to Claude Code's settings as a `PermissionRequest` hook. It answers with Claude Code's own "switch this session to bypass" reply, only when the session's parent processes include `claude rc` or `claude remote-control` started with `--permission-mode bypassPermissions`.
 6. **Approve Claude in Chrome** copies the helper `SttarkChromeApprover` (source in `Helpers/ChromeApprover.swift`) out of the app and runs it at login with a LaunchAgent, `~/Library/LaunchAgents/com.sttark.chrome-approver.plist`. The copy is replaced only when the helper changes. It watches Chrome's windows through macOS's Accessibility interface every 0.4 seconds.
 7. **Sync Claude profile instructions** installs `curl_cffi` and `cryptography` into a private Python folder (`~/Library/Application Support/SttarkEffort/venv`), runs `profile-sync.py` every 15 minutes with a LaunchAgent (`com.sttark.claude-profile-sync`), and adds `profile-hook.sh` as a `UserPromptSubmit` hook. The sync decrypts the Claude desktop app's sign-in cookie with its Keychain password and asks `claude.ai/api/account_profile` for the instructions, connecting the way Chrome does so Cloudflare lets it through. If that fails it reads through a claude.ai tab already open in Google Chrome, and never opens one. The hook adds the synced block to each prompt and starts a sync in the background when the last one is over a minute old.
-8. **Start sessions from the Claude app** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-rc.plist`, that runs `claude rc` (Claude Code's Remote Control server) inside `screen` in the chosen folder, starts at login and restarts if it stops. Turning it off ends the server and removes the file.
-9. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkEffort/state.json`: the on/off switch, and per session the level, the last level sent, Manual, the latest reason and the name. Both lock it before writing.
+8. **Name sessions automatically** adds `name-hook.py` as a `UserPromptSubmit` hook. Claude Code passes it `session_title` once a session has a custom name; until then it asks the menu's model for a handle and answers with Claude Code's `sessionTitle` hook output. Handles it sees are kept in the state file.
+9. **The login check** reads `refreshTokenExpiresAt`, and whether the tokens are present, from the Keychain item `Claude Code-credentials`. The tokens themselves are never read out or saved. **Sign in to Claude Code…** opens a small `.command` file in Terminal that runs `claude auth login`.
+10. **Start sessions from the Claude app** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-rc.plist`, that runs `claude rc` (Claude Code's Remote Control server) inside `screen` in the chosen folder, starts at login and restarts if it stops. Turning it off ends the server and removes the file.
+11. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkEffort/state.json`: the on/off switch, and per session the level, the last level sent, Manual, the latest reason and the name. Both lock it before writing.
 
 ### Building it yourself
 
@@ -183,6 +203,8 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
 | `Helpers/ChromeApprover.swift` | The Chrome approver helper. `--dump` prints what it sees without clicking. |
 | `Resources/hooks/bypass-hook.sh` | The Bypass permissions hook. |
+| `Resources/hooks/name-hook.py` | The session naming hook. |
+| `Sources/Login.swift` | The login check, warnings and sign-in. |
 | `Resources/hooks/profile-sync.py`, `profile-hook.sh` | The profile instructions sync and its prompt hook. |
 | `tools/screenshot.swift` | Draws the menu image above from the app's own code, with sample sessions. |
 | `Sources/State.swift` | Reads and writes the shared state; installs the hooks. |
