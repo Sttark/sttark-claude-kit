@@ -18,10 +18,13 @@ spec = importlib.util.spec_from_file_location('effort', os.path.join(HERE, 'effo
 effort = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(effort)
 
-NAMER = """You name Claude Code sessions. A name is a short handle for the project or area the session \
-belongs to, the way a person labels a folder: 1 to 3 words, Title Case for words, names and acronyms kept as \
-they are. Examples of the style: "Order Page", "Label Printer", "HVAC", "Q3 Budget", "Hiring". \
-Not a description of the task: "Hiring", not "Draft interview questions for the welder role".
+NAMER = """You name Claude Code sessions. A name is a short handle for the system, product, site, machine, \
+place or area being worked on, the way a person labels a folder: 1 to 4 words. Name the thing itself, not the \
+feature, bug, part, symptom or question inside it (a lamp, a link, a code rule), and add a plain word for \
+the kind of work, like "fix", "updates", "plan" or "quote", only if it helps: \
+"Docs fix" for a broken comment link on the docs site, not "Comment Highlight"; "Label Printer" for a jam on \
+the label printer, not "Printhead Jam". Keep names, product names and acronyms as they are written. Not a \
+description of the task: "Hiring", not "Draft interview questions for the welder role".
 
 If the session clearly belongs to the area of one of the person's existing handles, use that handle exactly \
 as written. Never reuse a handle just because nothing else fits; make a new one in the same style instead.
