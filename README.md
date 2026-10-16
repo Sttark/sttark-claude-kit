@@ -183,7 +183,8 @@ claude-window js 'document.title'       run JavaScript in the page
 
 - Opening the window brings Chrome forward once, when you click the switch. Sttark Claude Kit puts the app you were using back in front right after.
 - If you close the Claude window, the menu shows **Open Claude window**.
-- While the switch is on, every Claude Code prompt carries the rule to use only the Claude window, so there's nothing to add to your instructions. If you added a line like that to your Claude profile instructions earlier, you can take it out. Keep it only if you also want Claude chat (claude.ai and the Claude app's chats) to follow it, since the rule reaches Claude Code only.
+- While the switch is on, every Claude Code prompt carries the rule to use only the Claude window, so Claude Code needs nothing from you.
+- **For Claude chat too** (claude.ai and the Claude app's chats), add this line to your Claude profile instructions (**Settings > Profile**). Chats don't run hooks, so this is the only way they learn the rule: *"Browser: use only the Chrome window named Claude. In Claude Code, use the claude-window command (go, url, text, js) for every page. Never open a new tab or window, and never bring Chrome to the front."* With **Sync Claude profile instructions** on, Claude Code gets the same line, which does no harm alongside the automatic rule.
 - It needs Chrome's **View > Developer > Allow JavaScript from Apple Events**.
 - The Claude in Chrome extension opens tabs its own way, and that can't be changed from outside it.
 
