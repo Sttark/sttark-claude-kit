@@ -143,6 +143,10 @@ The Mac has to be on and awake for sessions to run. On a laptop, set **System Se
 
 If this Mac already runs a Remote Control server that you set up another way, the menu shows it as on and leaves it alone.
 
+### One Accessibility approval, not one per update
+
+Claude Code installs each update in a new folder, and macOS files a program's Accessibility permission by where it lives, so every update used to ask for Accessibility again. While **Start sessions from the Claude app** is on, the server runs from one copy of Claude Code that never moves (`~/.local/share/claude/stable/claude`), so you approve it once. A job checks every 30 minutes for a newer Claude Code, swaps it into that copy, and restarts the server to use it. Restarting ends open sessions, so it waits for between 2 and 5 AM when no session is working. Each step is logged.
+
 ## Bypass permissions for server sessions
 
 The Claude app, on desktop or phone, doesn't offer **Bypass permissions** for sessions that run on a Remote Control server. It switches each one to asking before commands, even when the server was started to bypass. Without this switch, there's no way to run those sessions in bypass.
@@ -250,6 +254,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | File | What it is |
 |---|---|
 | `Sources/Menu.swift` | The menu bar icon and menu. |
+| `Sources/Stable.swift`, `Resources/hooks/stable-claude.sh` | The fixed copy of Claude Code and its night job. |
 | `Sources/Server.swift` | The Start sessions from the Claude app switch. |
 | `Sources/Switches.swift` | The Bypass permissions and Approve Claude in Chrome switches. |
 | `tools/model-test/` | The model test: `sample.py`, `run.py`, `score.py`. |

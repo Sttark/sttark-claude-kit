@@ -45,7 +45,9 @@ enum Server {
     /// starts on a server back to asking. "Bypass permissions for server sessions" is what actually turns it on.
     static func start(folder: String) -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let claude = home + "/.local/bin/claude"
+        // the fixed copy, when there is one: macOS keeps Accessibility for a program that stays in one place
+        let stable = home + "/.local/share/claude/stable/claude"
+        let claude = FileManager.default.isExecutableFile(atPath: stable) ? stable : home + "/.local/bin/claude"
         let mode = " --permission-mode bypassPermissions"
         // screen gives the server a terminal of its own, so it runs with no Terminal window open
         let cmd = "exec /usr/bin/screen -DmS claude-rc /bin/zsh -c \"cd '\(folder)' && exec '\(claude)' rc\(mode)\""
@@ -61,11 +63,13 @@ enum Server {
         Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
         let r = Updater.run("/bin/launchctl", ["bootstrap", domain, plist.path])
         guard r.0 == 0 else { return "macOS didn't start it: \(r.1.trimmingCharacters(in: .whitespacesAndNewlines))" }
+        Stable.keep(true)
         note("server sessions on: claude rc in \(folder)")
         return nil
     }
 
     static func stop() {
+        Stable.keep(false)
         // The server runs inside screen; unloading the LaunchAgent alone leaves it running, so end
         // the whole tree under the agent's process first.
         let out = Updater.run("/bin/launchctl", ["print", "\(domain)/\(label)"]).1
