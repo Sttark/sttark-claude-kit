@@ -166,6 +166,7 @@ Claude names each new Claude Code session with a long description of the first t
 - It reuses one of your own handles when a session clearly belongs to that area, and learns your handles from the sessions you name yourself.
 - Once a session has a name, from you or from this, it's never changed.
 - It names Claude Code sessions only. Claude chats can't be renamed by an app.
+- It also sets the name in the Claude app, after the app's own automatic title lands, so the app shows it too.
 - It runs alongside the effort check, so it adds no wait. Each name is logged, with lines starting `name`.
 
 ## Claude Code login

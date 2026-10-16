@@ -52,6 +52,16 @@ def session(session):
     return d.get('response_shape', d)
 
 
+def rename(session, title):
+    """Set the session's name in the Claude app. Takes the cse_ or session_ id."""
+    sid = 'session_' + session.split('_', 1)[1]
+    r = urllib.request.Request('https://api.anthropic.com/v1/sessions/' + sid,
+                               data=json.dumps({'title': title}).encode(),
+                               method='PATCH', headers=headers())
+    with urllib.request.urlopen(r, timeout=15) as resp:
+        return resp.status
+
+
 if __name__ == '__main__':
     status, text = send(sys.argv[1], sys.argv[2])
     print(status, text)

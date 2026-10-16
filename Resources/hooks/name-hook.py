@@ -40,7 +40,26 @@ def known_handles(state):
     return state.get('handles', [])
 
 
+def push(sid, name):
+    """Claude Code keeps the name on this Mac, and the Claude app sets its own automatic title a few seconds
+    after the first prompt, which replaces it there. So set the name on the server too, after that title lands,
+    and once more in case it lands late."""
+    for wait in (15, 45):
+        time.sleep(wait)
+        try:
+            if effort.sse().session(sid).get('title') != name:
+                effort.sse().rename(sid, name)
+                effort.log(f'name   {sid[4:12]} set "{name}" in the Claude app')
+        except Exception as e:
+            effort.log(f'name   {sid[4:12]} could not set "{name}" in the Claude app: {e!r}')
+            return
+    effort.fetch_title(sid)
+
+
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] == '--push':
+        push(sys.argv[2], sys.argv[3])
+        return
     if os.environ.get('EFFORT_JUDGE'):
         return
     data = json.load(sys.stdin)
@@ -83,6 +102,11 @@ def main():
         return
     effort.log(f'name   {data.get("session_id", "")[:8]} -> "{name}" ({time.time() - t0:.1f}s) | {snippet}')
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'sessionTitle': name}}))
+    sid = effort.session_id()
+    if sid:
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), '--push', sid, name],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 if __name__ == '__main__':
