@@ -183,7 +183,7 @@ claude-window js 'document.title'       run JavaScript in the page
 
 - Opening the window brings Chrome forward once, when you click the switch. Sttark Claude Kit puts the app you were using back in front right after.
 - If you close the Claude window, the menu shows **Open Claude window**.
-- Claude has to be told to use it. Put a line like this in your Claude profile instructions (**Settings > Profile**; turn on **Sync Claude profile instructions** so Claude Code gets them too): *"When you need my browser, use only the Chrome window named Claude, with the claude-window command in Claude Code. Never open a new tab or window and never bring Chrome to the front."*
+- Claude is told about it on every prompt while the switch is on, so there's nothing to add to your instructions.
 - It needs Chrome's **View > Developer > Allow JavaScript from Apple Events**.
 - The Claude in Chrome extension opens tabs its own way, and that can't be changed from outside it.
 

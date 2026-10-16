@@ -78,6 +78,13 @@ If torn between two levels, pick the higher one. Answer on one line: the \
 level, then " - " and a reason of under 12 words."""
 
 
+BROWSER_RULE = ("Browser rule from Sttark Claude Kit: when you need the person's browser, use only the Chrome window "
+                "named Claude, with the claude-window command (claude-window go <url>, url, text, js '<code>'). "
+                "Never open a new tab or window and never bring Chrome to the front: both take the person's screen "
+                "while they're typing. If there's no Claude window, ask them to click Open Claude window in the "
+                "Sttark Claude Kit menu.")
+
+
 def log(line):
     with open(LOG, 'a') as f:
         f.write(time.strftime('%F %T ') + line + '\n')
@@ -512,8 +519,11 @@ def main():
     if os.environ.get('EFFORT_JUDGE'):
         return
     data = json.load(sys.stdin)
-    sid = session_id()
     event = data.get('hook_event_name', 'UserPromptSubmit')
+    if event == 'UserPromptSubmit' and peek().get('claude_window'):
+        # "Claude window in Chrome" is on: tell Claude to use it, so no one has to add this to their instructions
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': BROWSER_RULE}}))
+    sid = session_id()
     if not sid:
         if event == 'UserPromptSubmit':
             log(f'skip   {data.get("session_id", "")[:8]} not a Remote Control session')

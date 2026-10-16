@@ -203,8 +203,12 @@ enum ChromeWindow {
         back?.activate()
     }
 
+    /// The hook reads this to add the browser rule to every prompt.
+    static func tellHooks() { State.change { $0["claude_window"] = on } }
+
     static func set(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: "claudeWindow")
+        tellHooks()
         if on {
             installTool()
             if !exists { open() }
