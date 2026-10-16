@@ -7,7 +7,9 @@ enum Waiting {
     static let after: TimeInterval = 10 * 60
 
     static var sessions: [Session] {
-        State.sessions(hours: 24).filter { $0.waitingSince != nil }.sorted { $0.waitingSince! < $1.waitingSince! }
+        // the ones that need you first, then the ones you haven't opened; oldest first in each
+        State.sessions(hours: 24).filter { $0.waitingSince != nil }
+            .sorted { ($0.needsYou ? 0 : 1, $0.waitingSince!) < ($1.needsYou ? 0 : 1, $1.waitingSince!) }
     }
 
     static func ago(_ d: Date) -> String {
@@ -41,7 +43,8 @@ enum Waiting {
         c.requestAuthorization(options: [.alert, .sound]) { ok, _ in
             guard ok else { return }
             let n = UNMutableNotificationContent()
-            n.title = due.count == 1 ? "Claude is waiting on you: \(first.title)" : "Claude is waiting on you in \(due.count) sessions"
+            n.title = due.count == 1 ? (first.needsYou ? "Claude needs you: \(first.title)" : "Claude finished: \(first.title)")
+                : "\(due.count) sessions are waiting on you"
             n.body = all.prefix(4).map { "\($0.title), \(ago($0.waitingSince!))" }.joined(separator: "\n")
                 + "\nClick to open \(first.title)."
             n.sound = .default

@@ -93,12 +93,14 @@ To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
 
 ## Waiting on you
 
-You send Claude a prompt, move on to something else, and forget to come back. Every minute, Sttark Claude Kit checks which of your recent Claude Code sessions are waiting on you:
+You send Claude a prompt, move on to something else, and forget to come back. Every minute, Sttark Claude Kit checks your recent Claude Code sessions and lists, at the top of the menu, the ones waiting on you:
 
-- **Blocked on you:** Claude stopped to ask you something or to get a permission.
-- **A finished reply Claude can't move on from without you:** a question you must answer, a plan waiting for your go-ahead, a choice it needs you to make, or a step only you can do, like signing in. The menu's model reads the reply once to decide, and leans toward not counting it. A finished report, an optional offer ("want me to also..."), or a draft left for you to send doesn't count.
+| Shows as | When |
+|---|---|
+| **needs you** (bold) | Claude stopped to ask you something or for a permission, or its finished reply can't go on without you: a question, a plan waiting for your go-ahead, a choice, or a step only you can do. The menu's model reads the reply once to decide, and leans toward no. |
+| **not opened** | Claude finished, and you haven't opened the session since. The Claude app records when you open a session, on any device, so opening it clears it. |
 
-Archived sessions and sessions Claude is still working on never count. Those that are waiting show at the top of the menu with how long they've waited; hover one for why. Click one to open it. When one has waited 10 minutes, you get one notice listing what's waiting. It covers Claude Code sessions that run through Remote Control, from the last day.
+Each row shows how long it has waited; hover for why, click to open the session. When one has waited 10 minutes, you get one notice. Archived sessions and sessions Claude is still working on never show. It covers Claude Code sessions that run through Remote Control, from the last day.
 
 ## Choosing the model
 

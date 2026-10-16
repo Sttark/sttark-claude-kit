@@ -32,6 +32,8 @@ struct Session {
     var url: String = ""
     var waitingSince: Date? = nil
     var why: String = ""
+    /// Claude needs you (blocked, or the reply asks you); otherwise just not opened yet.
+    var needsYou = false
 }
 
 /// The state file the hook and the app share: {"paused": bool, "sessions": {id: {...}}}.
@@ -114,7 +116,8 @@ enum State {
                 let iso = ISO8601DateFormatter()
                 iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                 s.why = a["why"] as? String ?? ""
-                if (a["needs"] as? Bool ?? false), !(a["archived"] as? Bool ?? false), !(a["working"] as? Bool ?? true),
+                s.needsYou = a["needs"] as? Bool ?? false
+                if (s.needsYou || (a["unseen"] as? Bool ?? false)), !(a["archived"] as? Bool ?? false), !(a["working"] as? Bool ?? true),
                    let d = iso.date(from: a["last_event_at"] as? String ?? "") {
                     s.waitingSince = d
                 }
