@@ -55,8 +55,11 @@ case $cmd in
   go)
     [[ -n ${2:-} ]] || { echo "usage: claude-window go <url>" >&2; exit 2; }
     url=$(/usr/bin/python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$2")
+    old=$(js 'location.href') || exit 1
     js "location.href = $url; 'ok'" >/dev/null || exit 1
-    sleep 1; wait_loaded
+    # wait for the new page to replace the old one, then for it to finish loading
+    for i in {1..40}; do [[ $(js 'location.href' 2>/dev/null) != "$old" ]] && break; sleep 0.25; done
+    wait_loaded
     js 'document.title + "\n" + location.href' ;;
   url)  js 'document.title + "\n" + location.href' ;;
   text) js "document.body ? document.body.innerText.slice(0, ${2:-20000}) : ''" ;;
