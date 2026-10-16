@@ -14,6 +14,7 @@ final class Controller: NSObject, NSMenuDelegate {
         setupResult = Setup.install()
         if ChromeApprover.on { ChromeApprover.copyHelper() }
         if ChromeWindow.on { ChromeWindow.installTool() }
+        ChromeWindow.tellHooks()
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
