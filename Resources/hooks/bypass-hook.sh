@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Code PermissionRequest hook, turned on with "Bypass permissions for
-# server sessions" in the Sttark Effort menu.
+# server sessions" in the Sttark Claude Kit menu.
 #
 # The Claude app, on desktop or phone, switches each session it starts on a
 # Remote Control server to Manual or auto, and never offers Bypass permissions

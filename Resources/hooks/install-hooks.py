@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """Add the effort hook to Claude Code's settings (~/.claude/settings.json), or
-take it out with --remove. Run by the Sttark Effort app on every launch, so a
+take it out with --remove. Run by the Sttark Claude Kit app on every launch, so a
 hook that went missing comes back.
 
 --names on|off adds or removes the session naming hook ("Name sessions

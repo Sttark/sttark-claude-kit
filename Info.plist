@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Sttark Effort</string>
+	<string>Sttark Claude Kit</string>
 	<key>CFBundleExecutable</key>
-	<string>SttarkEffort</string>
+	<string>SttarkClaudeKit</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.sttark.sttark-effort</string>
+	<string>com.sttark.sttark-claude-kit</string>
 	<key>CFBundleName</key>
-	<string>SttarkEffort</string>
+	<string>SttarkClaudeKit</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

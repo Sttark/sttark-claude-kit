@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code UserPromptSubmit hook, turned on with "Sync Claude profile instructions" in the Sttark Effort
+# Claude Code UserPromptSubmit hook, turned on with "Sync Claude profile instructions" in the Sttark Claude Kit
 # menu: puts the instructions from the Claude app's Profile settings in front of every prompt.
 #
 # CLAUDE.md is read once when a session starts, so a session already running never sees an edit. This runs on
@@ -8,7 +8,7 @@
 # so the next prompt carries any change.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUPPORT="$HOME/Library/Application Support/SttarkEffort"
+SUPPORT="$HOME/Library/Application Support/SttarkClaudeKit"
 FILE="$HOME/.claude/CLAUDE.md"
 PY="$SUPPORT/venv/bin/python"
 TRIED="$SUPPORT/profile-sync.tried"

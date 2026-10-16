@@ -30,7 +30,7 @@ struct Divider_: View {
         NSApplication.shared.appearance = NSAppearance(named: .aqua)
         let gauge = GaugeIcon.image("xhigh")
         let menu = VStack(alignment: .leading, spacing: 0) {
-            Row(title: "Sttark Effort 1.34", dim: true)
+            Row(title: "Sttark Claude Kit 1.48", dim: true)
             Divider_()
             Row(title: "Auto effort", check: true)
             Row(title: "Model: Sonnet 5.5", chevron: true)

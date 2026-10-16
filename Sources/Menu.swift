@@ -35,15 +35,15 @@ final class Controller: NSObject, NSMenuDelegate {
         guard let b = item.button else { return }
         let last = State.sessions(hours: 1).first
         if State.paused {
-            let img = NSImage(systemSymbolName: "pause.circle", accessibilityDescription: "Sttark Effort: off")
+            let img = NSImage(systemSymbolName: "pause.circle", accessibilityDescription: "Sttark Claude Kit: off")
             img?.isTemplate = true
             b.image = img
         } else {
             b.image = GaugeIcon.image(last?.level)
         }
-        b.toolTip = State.paused ? "Sttark Effort: off for every session"
-            : last.map { "Sttark Effort: \($0.title) at \(levelNames[$0.level] ?? $0.level)\($0.manual ? " (Manual)" : "")" }
-            ?? "Sttark Effort"
+        b.toolTip = State.paused ? "Sttark Claude Kit: off for every session"
+            : last.map { "Sttark Claude Kit: \($0.title) at \(levelNames[$0.level] ?? $0.level)\($0.manual ? " (Manual)" : "")" }
+            ?? "Sttark Claude Kit"
         b.appearsDisabled = State.paused
     }
 
@@ -56,7 +56,7 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let paused = State.paused
 
-        menu.addItem(caption("Sttark Effort \(Updater.version)"))
+        menu.addItem(caption("Sttark Claude Kit \(Updater.version)"))
         if updater.installing {
             menu.addItem(caption("Updating…"))
         } else if let r = updater.available {
@@ -132,7 +132,7 @@ final class Controller: NSObject, NSMenuDelegate {
         let phone = action("Start sessions from the Claude app", #selector(togglePhone))
         if Server.otherRunning {
             phone.state = .on
-            phone.toolTip = "A Remote Control server set up outside Sttark Effort already runs on this Mac."
+            phone.toolTip = "A Remote Control server set up outside Sttark Claude Kit already runs on this Mac."
         } else {
             phone.state = Server.installed ? .on : .off
             phone.toolTip = Server.folder.map { "Sessions start in " + $0.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~") }
@@ -271,7 +271,7 @@ final class Controller: NSObject, NSMenuDelegate {
         if Server.otherRunning {
             let a = NSAlert()
             a.messageText = "Already set up"
-            a.informativeText = "A Remote Control server set up outside Sttark Effort already runs on this Mac, so it's left as it is."
+            a.informativeText = "A Remote Control server set up outside Sttark Claude Kit already runs on this Mac, so it's left as it is."
             NSApp.activate(ignoringOtherApps: true)
             a.runModal()
             return
@@ -348,7 +348,7 @@ enum GaugeIcon {
             return true
         }
         img.isTemplate = true
-        img.accessibilityDescription = "Sttark Effort" + (level.map { ": \($0)" } ?? "")
+        img.accessibilityDescription = "Sttark Claude Kit" + (level.map { ": \($0)" } ?? "")
         return img
     }
 }

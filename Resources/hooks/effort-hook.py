@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """Claude Code hook: set each Remote Control session's effort to what the task
-needs. Installed and kept up to date by the Sttark Effort app.
+needs. Installed and kept up to date by the Sttark Claude Kit app.
 
 UserPromptSubmit: the prompt and the last few messages go to a quick side call
 (claude -p, with the model picked in the app's menu, the newest Sonnet by default), which picks low, medium, high, xhigh or max. If that
@@ -17,14 +17,14 @@ in the app, or when the person changes a session's effort themselves (the hook
 sees a level it didn't send and sets that session to Manual).
 
 Only sessions with a claude.ai session id (Remote Control) can be changed.
-Every decision is logged to ~/Library/Logs/claude-effort-hook.log.
+Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 """
 import fcntl, importlib.util, json, os, re, subprocess, sys, time
 from contextlib import contextmanager
 
-LOG = os.path.expanduser('~/Library/Logs/claude-effort-hook.log')
+LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 HERE = os.path.dirname(os.path.abspath(__file__))
-STATE = os.path.expanduser('~/Library/Application Support/SttarkEffort/state.json')
+STATE = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/state.json')
 CLAUDE = os.path.expanduser('~/.local/bin/claude')
 DEFAULT_MODEL = 'sonnet'  # Claude Code's alias for the newest Sonnet, the best judge in the model test
 LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']

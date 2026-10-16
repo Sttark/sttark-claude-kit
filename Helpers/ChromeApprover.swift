@@ -1,8 +1,8 @@
-// Sttark Effort's Chrome approver: watches Google Chrome for the Claude for Chrome
+// Sttark Claude Kit's Chrome approver: watches Google Chrome for the Claude for Chrome
 // "New permissions required" window and approves it. Presses "Always allow actions on
 // this site" when offered, else "Allow this action". Never presses Decline, and only acts
 // inside the Claude extension's own pages, never on ordinary web pages. Runs at login when
-// "Approve Claude in Chrome" is on in the Sttark Effort menu.
+// "Approve Claude in Chrome" is on in the Sttark Claude Kit menu.
 //
 // Run with --dump to print what it sees in Claude windows instead of pressing anything.
 

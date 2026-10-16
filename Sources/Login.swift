@@ -80,7 +80,7 @@ enum Login {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let script = """
         #!/bin/zsh
-        # Started from the Sttark Effort menu: signs Claude Code in again. Finish the steps in the browser.
+        # Started from the Sttark Claude Kit menu: signs Claude Code in again. Finish the steps in the browser.
         "\(home)/.local/bin/claude" auth login
         echo
         echo "Done. You can close this window."

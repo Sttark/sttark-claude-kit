@@ -34,11 +34,11 @@ jobs:
       - name: Build
         run: ./build.sh
       - name: Check the signature
-        run: codesign -dr- build/SttarkEffort.app 2>&1 | grep -E "certificate (leaf|root)"
+        run: codesign -dr- build/SttarkClaudeKit.app 2>&1 | grep -E "certificate (leaf|root)"
       - name: Publish
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
-          V=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/SttarkEffort.app/Contents/Info.plist)
-          ditto -c -k --keepParent build/SttarkEffort.app SttarkEffort.zip
-          gh release create "v$V" SttarkEffort.zip --title "Sttark Effort $V" --latest \
-            --notes "$(git log -1 --format=%s)"$'\n\n'"Download SttarkEffort.zip below, or click Update in the app's menu."
+          V=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/SttarkClaudeKit.app/Contents/Info.plist)
+          ditto -c -k --keepParent build/SttarkClaudeKit.app SttarkClaudeKit.zip
+          gh release create "v$V" SttarkClaudeKit.zip --title "Sttark Claude Kit $V" --latest \
+            --notes "$(git log -1 --format=%s)"$'\n\n'"Download SttarkClaudeKit.zip below, or click Update in the app's menu."

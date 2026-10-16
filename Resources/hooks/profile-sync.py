@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Copy the instructions from the Claude app's Profile settings into ~/.claude/CLAUDE.md.
 
-Turned on with "Sync Claude profile instructions" in the Sttark Effort menu, which runs this every 15 minutes
+Turned on with "Sync Claude profile instructions" in the Sttark Claude Kit menu, which runs this every 15 minutes
 (and profile-hook.sh runs it in the background when a prompt arrives and the last run is over a minute old).
 
 Claude Code reads CLAUDE.md files; it doesn't read the "Instructions for Claude" box in the Claude app's
@@ -19,7 +19,7 @@ from pathlib import Path
 TARGET = Path.home() / ".claude/CLAUDE.md"
 APP_DIR = Path.home() / "Library/Application Support/Claude"
 APP_CONFIG = APP_DIR / "config.json"
-TRIED = Path.home() / "Library/Application Support/SttarkEffort/profile-sync.tried"  # every run; the prompt hook spaces runs by it
+TRIED = Path.home() / "Library/Application Support/SttarkClaudeKit/profile-sync.tried"  # every run; the prompt hook spaces runs by it
 PROFILE_URL = "https://claude.ai/api/account_profile"
 MARK_BEGIN = "<!-- profile-sync:begin -->"
 MARK_END = "<!-- profile-sync:end -->"

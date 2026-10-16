@@ -24,7 +24,7 @@ enum Server {
     /// Counts a server macOS is set to start even while it's crashing and has no process at that moment:
     /// any enabled LaunchAgent, other than ours, that runs `claude rc` or `claude remote-control`.
     static var otherRunning: Bool {
-        guard !installed, ProcessInfo.processInfo.environment["STTARK_EFFORT_TEST"] == nil else { return false }
+        guard !installed, ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] == nil else { return false }
         if Updater.run("/usr/bin/pgrep", ["-f", "claude (rc|remote-control)( |$)"]).0 == 0 { return true }
         let disabled = Updater.run("/bin/launchctl", ["print-disabled", domain]).1
         let fm = FileManager.default
