@@ -165,3 +165,55 @@ enum ProfileSync {
         note("profile sync off: \(r.trimmingCharacters(in: .whitespacesAndNewlines))")
     }
 }
+
+/// "Claude window in Chrome": one Chrome window named "Claude", in the person's own signed-in profile, that
+/// Claude moves between pages with the claude-window tool instead of opening tabs or windows (which bring Chrome
+/// in front of whatever the person is typing in). Opening the window is the one moment Chrome comes forward, so
+/// it only happens when the person clicks; the app puts the app they were using back in front right after.
+enum ChromeWindow {
+    static var on: Bool { UserDefaults.standard.bool(forKey: "claudeWindow") }
+    static var tool: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude-window") }
+    static var chromeRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty }
+
+    /// Asking Chrome while it's closed would open it, so this only asks a running Chrome.
+    static var exists: Bool {
+        guard chromeRunning else { return false }
+        let r = Updater.run("/usr/bin/osascript", ["-e", #"tell application "Google Chrome" to return (count of (every window whose given name is "Claude")) > 0"#])
+        return r.1.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+    }
+
+    static func installTool() {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: tool.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.removeItem(at: tool)
+        try? fm.createSymbolicLink(at: tool, withDestinationURL: hooksDir.appendingPathComponent("claude-window.sh"))
+    }
+
+    static func open() {
+        let back = NSWorkspace.shared.frontmostApplication
+        let r = Updater.run("/usr/bin/osascript", ["-e", """
+            tell application "Google Chrome"
+              set w to make new window
+              set given name of w to "Claude"
+              set URL of active tab of w to "about:blank"
+              return id of w
+            end tell
+            """])
+        note("Claude window: \(r.0 == 0 ? "opened" : "couldn't open: " + r.1.trimmingCharacters(in: .whitespacesAndNewlines))")
+        back?.activate()
+    }
+
+    static func set(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: "claudeWindow")
+        if on {
+            installTool()
+            if !exists { open() }
+        } else {
+            try? FileManager.default.removeItem(at: tool)
+            if chromeRunning {
+                Updater.run("/usr/bin/osascript", ["-e", #"tell application "Google Chrome" to close (every window whose given name is "Claude")"#])
+            }
+        }
+        note("Claude window in Chrome \(on ? "on" : "off")")
+    }
+}

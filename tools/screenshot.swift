@@ -30,7 +30,7 @@ struct Divider_: View {
         NSApplication.shared.appearance = NSAppearance(named: .aqua)
         let gauge = GaugeIcon.image("xhigh")
         let menu = VStack(alignment: .leading, spacing: 0) {
-            Row(title: "Sttark Effort 1.28", dim: true)
+            Row(title: "Sttark Effort 1.34", dim: true)
             Divider_()
             Row(title: "Auto effort", check: true)
             Row(title: "Model: Sonnet 5.5", chevron: true)
@@ -42,6 +42,7 @@ struct Divider_: View {
             Row(title: "Start sessions from the Claude app", check: true)
             Row(title: "Bypass permissions for server sessions", check: true)
             Row(title: "Approve Claude in Chrome", check: true)
+            Row(title: "Claude window in Chrome", check: true)
             Row(title: "Name sessions automatically", check: true)
             Row(title: "Sync Claude profile instructions", check: true)
             Divider_()
@@ -77,7 +78,7 @@ struct Divider_: View {
                 menu.padding(.leading, 16).padding(.top, 4)
                 tip.padding(.leading, 452).padding(.top, 150)
             }
-            .frame(width: 790, height: 480, alignment: .topLeading)
+            .frame(width: 790, height: 505, alignment: .topLeading)
         }
         .background(Color(red: 0.973, green: 0.961, blue: 0.949))   // brand Beige-Light
 

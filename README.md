@@ -42,6 +42,7 @@ Click the gauge:
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). Off until you turn it on. |
 | **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. |
 | **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). Off until you turn it on. |
+| **Claude window in Chrome** | See [below](#claude-window-in-chrome). Off until you turn it on. |
 | **Name sessions automatically** | See [below](#name-sessions-automatically). Off until you turn it on. |
 | **Sign in to Claude Code…** | Opens Terminal and starts Claude Code's sign-in; you finish in the browser. Hover it to see when your login runs out. See [below](#claude-code-login). |
 | **Check for updates** | Looks for a new version now. Hidden while an update is waiting. |
@@ -138,6 +139,25 @@ The Claude app has a box for instructions to Claude in **Settings > Profile**. C
 - Hover the switch to see the last sync. Each sync is logged to `~/Library/Logs/claude-profile-sync.log`.
 - Edit your instructions in the Claude app, not in `CLAUDE.md`: the marked block is overwritten. Anything else in that file is left alone.
 
+## Claude window in Chrome
+
+When Claude uses your browser, it usually opens a new tab or window, and Chrome jumps in front of whatever you're typing in: your cursor goes, and your keystrokes land in Chrome. Opening a tab does that even in a window behind others. Running a script in a page that's already open doesn't.
+
+With this switch on, Sttark Effort opens one Chrome window named **Claude**, in your own profile with all your logins, and installs `claude-window`, a small command Claude Code sessions use to work in it without opening anything:
+
+```
+claude-window go https://example.com    open a page in the Claude window and wait for it to load
+claude-window url                       the current page's title and address
+claude-window text                      the page's visible text
+claude-window js 'document.title'       run JavaScript in the page
+```
+
+- Opening the window brings Chrome forward once, when you click the switch. Sttark Effort puts the app you were using back in front right after.
+- If you close the Claude window, the menu shows **Open Claude window**.
+- Claude has to be told to use it. Put a line like this in your Claude profile instructions (**Settings > Profile**; turn on **Sync Claude profile instructions** so Claude Code gets them too): *"When you need my browser, use only the Chrome window named Claude, with the claude-window command in Claude Code. Never open a new tab or window and never bring Chrome to the front."*
+- It needs Chrome's **View > Developer > Allow JavaScript from Apple Events**.
+- The Claude in Chrome extension opens tabs its own way, and that can't be changed from outside it.
+
 ## Name sessions automatically
 
 Claude names each new Claude Code session with a long description of the first task. With this switch on, sessions get a short handle for their project or area instead, like "Order Page" or "Label Printer", the way you'd label a folder.
@@ -204,6 +224,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Helpers/ChromeApprover.swift` | The Chrome approver helper. `--dump` prints what it sees without clicking. |
 | `Resources/hooks/bypass-hook.sh` | The Bypass permissions hook. |
 | `Resources/hooks/name-hook.py` | The session naming hook. |
+| `Resources/hooks/claude-window.sh` | The `claude-window` command. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
 | `Resources/hooks/profile-sync.py`, `profile-hook.sh` | The profile instructions sync and its prompt hook. |
 | `tools/screenshot.swift` | Draws the menu image above from the app's own code, with sample sessions. |
