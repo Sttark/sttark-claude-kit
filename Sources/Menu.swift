@@ -77,15 +77,16 @@ final class Controller: NSObject, NSMenuDelegate {
             for s in waiting {
                 let i = action("", #selector(openWaiting(_:)))
                 let t = NSMutableAttributedString(string: s.title.count > 40 ? String(s.title.prefix(39)) + "…" : s.title,
-                                                  attributes: [.font: font(14, true)])
+                                                  attributes: [.font: font(14, s.needsYou)])
                 let para = NSMutableParagraphStyle()
                 para.tabStops = [NSTextTab(textAlignment: .right, location: 380)]
-                t.append(NSAttributedString(string: "\twaiting " + Waiting.ago(s.waitingSince!),
+                t.append(NSAttributedString(string: "\t" + (s.needsYou ? "needs you · " : "not opened · ") + Waiting.ago(s.waitingSince!),
                                             attributes: [.font: font(14), .foregroundColor: NSColor.secondaryLabelColor]))
                 t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
                 i.attributedTitle = t
                 i.representedObject = s.url
-                i.toolTip = (s.why.isEmpty ? "Claude needs you here." : "Claude needs you: \(s.why).") + " Click to open the session."
+                i.toolTip = (s.needsYou ? (s.why.isEmpty ? "Claude needs you here." : "Claude needs you: \(s.why).")
+                             : "Claude finished and you haven't opened the reply yet.") + " Click to open the session."
                 menu.addItem(i)
             }
         }

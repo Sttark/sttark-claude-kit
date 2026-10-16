@@ -377,7 +377,9 @@ def track():
                     needs, why = old.get('needs', False), old.get('why', '')
                 else:
                     needs, why = asks_you(last_reply(sessions.get(sid, {}).get('transcript', '')))
-        info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working,
+        # not opened: Claude finished, and the Claude app hasn't recorded you opening it since (any device)
+        unseen = bool(d.get('unread')) and not archived and not working
+        info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working, 'unseen': unseen,
                 'archived': archived, 'unread': bool(d.get('unread')), 'needs': needs, 'why': why,
                 'judged': last, 'last_event_at': last, 'checked': time.time()}
         with state() as s:
