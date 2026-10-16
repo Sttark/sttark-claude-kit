@@ -96,7 +96,7 @@ To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
 You send Claude a prompt, move on to something else, and forget to come back. Every minute, Sttark Claude Kit checks which of your recent Claude Code sessions are waiting on you:
 
 - **Blocked on you:** Claude stopped to ask you something or to get a permission.
-- **A finished reply that asks you something:** a question, a plan waiting for your go-ahead, a choice, or something only you can do. The menu's model reads the reply once to decide. A finished report or an answer that needs nothing back doesn't count, even if it offers more help.
+- **A finished reply Claude can't move on from without you:** a question you must answer, a plan waiting for your go-ahead, a choice it needs you to make, or a step only you can do, like signing in. The menu's model reads the reply once to decide, and leans toward not counting it. A finished report, an optional offer ("want me to also..."), or a draft left for you to send doesn't count.
 
 Archived sessions and sessions Claude is still working on never count. Those that are waiting show at the top of the menu with how long they've waited; hover one for why. Click one to open it. When one has waited 10 minutes, you get one notice listing what's waiting. It covers Claude Code sessions that run through Remote Control, from the last day.
 

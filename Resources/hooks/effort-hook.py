@@ -314,11 +314,12 @@ def fetch_title(sid):
         x['title_at'] = time.time()
 
 
-ASKS = """You read the last reply Claude wrote in a work session. Decide whether it needs the person to \
-answer or decide something before the work can go on: a question to them, a plan waiting for their go-ahead, a \
-choice between options, or something only they can do (approve, sign in, test). A finished report, a summary, \
-or an answer that needs nothing back is NO, even if it offers more help. Answer YES or NO, then " - " and a \
-reason of under 10 words."""
+ASKS = """You read the last reply Claude wrote in a work session. Answer YES only when Claude can't go on \
+without the person and asks them directly: a question they must answer, a plan waiting for their go-ahead, a \
+choice it needs them to make, or a step only they can do (approve, sign in, test). Everything else is NO: a \
+finished report or answer; an optional offer ("if you want, I can...", "want me to also...?"); a draft or \
+result left for the person to send or use on their own; anything where the work is done whether or not they \
+reply. If torn, answer NO. Answer YES or NO, then " - " and a reason of under 10 words."""
 
 
 def last_reply(path):
