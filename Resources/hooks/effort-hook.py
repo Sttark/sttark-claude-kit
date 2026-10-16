@@ -294,7 +294,11 @@ def fetch_title(sid):
     """The session's name in the Claude app, for the app's menu."""
     try:
         d = sse().session(sid)
-    except Exception:
+    except Exception as e:
+        if getattr(e, 'code', 0) == 404:
+            # deleted in the Claude app: take it off the menu
+            with state() as s:
+                s['sessions'].pop(sid, None)
         return
     with state() as s:
         x = s['sessions'].setdefault(sid, {})
@@ -304,7 +308,7 @@ def fetch_title(sid):
 
 
 def title_later(sid, x):
-    if time.time() - x.get('title_at', 0) > 600:
+    if time.time() - x.get('title_at', 0) > 60:
         subprocess.Popen([sys.executable, os.path.abspath(__file__), '--title', sid],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)

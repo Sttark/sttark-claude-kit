@@ -104,6 +104,8 @@ def main():
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'sessionTitle': name}}))
     sid = effort.session_id()
     if sid:
+        with effort.state() as s:
+            s['sessions'].setdefault(sid, {}).update(title=name, title_at=time.time())
         subprocess.Popen([sys.executable, os.path.abspath(__file__), '--push', sid, name],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
