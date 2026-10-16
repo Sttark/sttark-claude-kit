@@ -307,12 +307,47 @@ def fetch_title(sid):
         x['title_at'] = time.time()
 
 
+ASKS = """You read the last reply Claude wrote in a work session. Decide whether it needs the person to \
+answer or decide something before the work can go on: a question to them, a plan waiting for their go-ahead, a \
+choice between options, or something only they can do (approve, sign in, test). A finished report, a summary, \
+or an answer that needs nothing back is NO, even if it offers more help. Answer YES or NO, then " - " and a \
+reason of under 10 words."""
+
+
+def last_reply(path):
+    try:
+        with open(path) as f:
+            lines = f.readlines()[-400:]
+    except OSError:
+        return ''
+    for line in reversed(lines):
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get('type') == 'assistant':
+            t = clean(text_of((e.get('message') or {}).get('content')))
+            if t:
+                return t
+    return ''
+
+
+def asks_you(text):
+    if not text:
+        return False, 'no reply text'
+    t = text if len(text) <= 3000 else text[:1000] + '\n[...]\n' + text[-2000:]
+    _, answer = judge(f'Last reply:\n{t}\n\nDoes it need the person?', ASKS)
+    return answer.upper().startswith('YES'), answer.split(' - ', 1)[-1]
+
+
 def track():
-    """Every minute, from the app: for each session seen in the last day, whether Claude is still working and
-    whether you've read its latest reply (the Claude app marks a reply read on any device). Saved as
-    x['app'] for the menu's Waiting on you section and its notices."""
+    """Every minute, from the app: which recent sessions are waiting on you. A session waits on you when it's
+    blocked on you (asking a question or a permission), or when its finished reply asks you to answer or
+    decide something (judged once per reply). Archived sessions and replies that need nothing don't count.
+    Saved as x['app'] for the menu's Waiting on you section and its notices."""
     cutoff = time.time() - 86400
-    ids = [sid for sid, x in peek().get('sessions', {}).items() if x.get('at', 0) > cutoff]
+    sessions = peek().get('sessions', {})
+    ids = [sid for sid, x in sessions.items() if x.get('at', 0) > cutoff]
     for sid in ids:
         try:
             d = sse().session(sid)
@@ -321,9 +356,22 @@ def track():
                 with state() as s:
                     s['sessions'].pop(sid, None)
             continue
-        working = d.get('status_bucket') == 'working' or d.get('worker_status') == 'running'
-        info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'unread': bool(d.get('unread')),
-                'working': working, 'last_event_at': d.get('last_event_at') or '', 'checked': time.time()}
+        old = sessions.get(sid, {}).get('app', {})
+        bucket, last = d.get('status_bucket'), d.get('last_event_at') or ''
+        working = bucket == 'working' or d.get('worker_status') == 'running'
+        archived = d.get('status') == 'archived'
+        needs, why = False, ''
+        if not archived and not working:
+            if bucket == 'blocked':
+                needs, why = True, 'waiting on your answer or permission'
+            elif d.get('unread'):
+                if old.get('judged') == last:  # this reply was already judged
+                    needs, why = old.get('needs', False), old.get('why', '')
+                else:
+                    needs, why = asks_you(last_reply(sessions.get(sid, {}).get('transcript', '')))
+        info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working,
+                'archived': archived, 'unread': bool(d.get('unread')), 'needs': needs, 'why': why,
+                'judged': last, 'last_event_at': last, 'checked': time.time()}
         with state() as s:
             x = s['sessions'].setdefault(sid, {})
             x['app'] = info
@@ -470,6 +518,10 @@ def main():
         if event == 'UserPromptSubmit':
             log(f'skip   {data.get("session_id", "")[:8]} not a Remote Control session')
         return
+    tp = data.get('transcript_path')
+    if tp and peek().get('sessions', {}).get(sid, {}).get('transcript') != tp:
+        with state() as s:  # the tracker reads the last reply from here
+            s['sessions'].setdefault(sid, {})['transcript'] = tp
     if event == 'PostToolUse':
         on_tool(data, sid)
     else:

@@ -73,11 +73,12 @@ To watch it live: `tail -f ~/Library/Logs/claude-effort-hook.log`.
 
 ## Waiting on you
 
-You send Claude a prompt, move on to something else, and forget to come back. Sttark Effort checks every minute which of your Claude Code sessions have finished a reply you haven't read yet. The Claude app marks a reply read when you open it, on any device, so a session you looked at and moved on from doesn't count.
+You send Claude a prompt, move on to something else, and forget to come back. Every minute, Sttark Effort checks which of your recent Claude Code sessions are waiting on you:
 
-- Those sessions show at the top of the menu, with how long each has been waiting. Click one to open it.
-- When a reply has waited 10 minutes, you get one notice listing what's waiting. Click it to open the session.
-- It covers Claude Code sessions that run through Remote Control, from the last day.
+- **Blocked on you:** Claude stopped to ask you something or to get a permission.
+- **A finished reply that asks you something:** a question, a plan waiting for your go-ahead, a choice, or something only you can do. The menu's model reads the reply once to decide. A finished report or an answer that needs nothing back doesn't count, even if it offers more help.
+
+Archived sessions and sessions Claude is still working on never count. Those that are waiting show at the top of the menu with how long they've waited; hover one for why. Click one to open it. When one has waited 10 minutes, you get one notice listing what's waiting. It covers Claude Code sessions that run through Remote Control, from the last day.
 
 ## Choosing the model
 

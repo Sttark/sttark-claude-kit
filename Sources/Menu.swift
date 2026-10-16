@@ -84,7 +84,7 @@ final class Controller: NSObject, NSMenuDelegate {
                 t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
                 i.attributedTitle = t
                 i.representedObject = s.url
-                i.toolTip = "Claude finished and you haven't read the reply yet. Click to open the session."
+                i.toolTip = (s.why.isEmpty ? "Claude needs you here." : "Claude needs you: \(s.why).") + " Click to open the session."
                 menu.addItem(i)
             }
         }
