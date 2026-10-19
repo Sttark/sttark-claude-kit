@@ -28,7 +28,11 @@ promotion is that person's name or "Team", not "Reply to Manager". Keep names, p
 are written.
 
 If the session belongs to the topic of one of the person's existing names, use that name exactly as written. \
-Never reuse a name just because nothing else fits; make a new one in the same style instead.
+It has to fit the name's whole meaning, not just share a word with it: a name about one building's monitoring \
+tool doesn't fit work on the controls of every building. When the work is broader than an existing name, make a \
+broader one ("HVAC Updates", not "South B LGMV"). A name with a specific tool, unit, code or acronym in it \
+(LGMV, CH03, a model number) fits only sessions about that specific thing; general work on the same system \
+goes under the general name. Never reuse a name just because nothing else fits.
 
 If the conversation doesn't yet show what the session is about (a greeting, a bare "yes", a question with \
 no subject), answer WAIT.
