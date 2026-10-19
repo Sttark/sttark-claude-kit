@@ -351,7 +351,8 @@ def asks_you(text):
 def track():
     """Every minute, from the app: which recent sessions are waiting on you. A session waits on you when it's
     blocked on you (asking a question or a permission), or when its finished reply asks you to answer or
-    decide something (judged once per reply). Archived sessions and replies that need nothing don't count.
+    decide something (judged once per reply). Archived sessions, replies that need nothing, and sessions
+    you've opened since Claude last wrote don't count.
     Saved as x['app'] for the menu's Waiting on you section and its notices."""
     cutoff = time.time() - 86400
     sessions = peek().get('sessions', {})
@@ -369,10 +370,11 @@ def track():
         working = bucket == 'working' or d.get('worker_status') == 'running'
         archived = d.get('status') == 'archived'
         needs, why = False, ''
-        if not archived and not working:
+        # once you open a session it stops waiting on you, even if it's still asking, until Claude writes again
+        if not archived and not working and d.get('unread'):
             if bucket == 'blocked':
                 needs, why = True, 'waiting on your answer or permission'
-            elif d.get('unread'):
+            else:
                 if old.get('judged') == last:  # this reply was already judged
                     needs, why = old.get('needs', False), old.get('why', '')
                 else:
