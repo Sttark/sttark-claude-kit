@@ -201,7 +201,7 @@ Claude names each new Claude Code session with a long description of the first t
 
 - It names a session at your first message that shows what the session is about. A greeting or a bare "yes" waits for a later one.
 - It reuses one of your own handles when a session clearly belongs to that area, and learns your handles from the sessions you name yourself.
-- Once a session has a name, from you or from this, it's never changed.
+- A name you set yourself is never changed. A name this chose gets a second look on your 3rd, 6th and 12th prompts and every 12th after that: if the session has moved on to another topic (a session that starts with "build an Apple TV app" and turns into YouTube playlists), it's renamed to the new topic.
 - It names Claude Code sessions only. Claude chats can't be renamed by an app.
 - It also sets the name in the Claude app, after the app's own automatic title lands, so the app shows it too.
 - It runs alongside the effort check, so it adds no wait. Each name is logged, with lines starting `name`.
