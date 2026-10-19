@@ -98,7 +98,7 @@ You send Claude a prompt, move on to something else, and forget to come back. Ev
 
 | Shows as | When |
 |---|---|
-| **needs you** (bold) | Claude stopped to ask you something or for a permission, or its finished reply can't go on without you: a question, a plan waiting for your go-ahead, a choice, or a step only you can do. The menu's model reads the reply once to decide, and leans toward no. |
+| **needs you** (bold) | Claude stopped to ask you something or for a permission, or its finished reply can't go on without you: a question, a plan waiting for your go-ahead, a choice, or a step only you can do. The menu's model reads the reply once to decide, and leans toward no. Opening the session clears it, even if you don't answer, until Claude writes again. |
 | **not opened** | Claude finished, and you haven't opened the session since. The Claude app records when you open a session, on any device, so opening it clears it. |
 
 Each row shows how long it has waited; hover for why, click to open the session. When one has waited 10 minutes, you get one notice. Archived sessions and sessions Claude is still working on never show. It covers Claude Code sessions that run through Remote Control, from the last day.
