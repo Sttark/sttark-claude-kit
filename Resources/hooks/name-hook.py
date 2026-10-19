@@ -36,6 +36,14 @@ no subject), answer WAIT.
 Answer with the handle alone on one line, or WAIT."""
 
 
+RECHECK_EVERY = (3, 6, 12)  # prompts after which a name this hook chose is looked at again; then every 12th
+
+RENAMER = NAMER.replace("If the conversation doesn't yet show", "The session already has a name this tool chose \
+earlier. Sessions drift: the first message may have been about something the session soon left behind. Read \
+what the session is mostly about now. If the current name still fits, answer KEEP. If not, answer the new \
+name.\n\nIf the conversation doesn't yet show") + " Or KEEP."
+
+
 def known_handles(state):
     return state.get('handles', [])
 
@@ -64,16 +72,92 @@ def main():
         return
     data = json.load(sys.stdin)
     title = (data.get('session_title') or '').strip()
+    sid = effort.session_id()
+    mine = effort.peek().get('auto_names', {}).get(sid) if sid else None
+    if title and title == mine:
+        # A name this hook chose: look again now and then, in case the session moved to another topic.
+        with effort.state() as s:
+            n = s.setdefault('name_prompts', {}).get(sid, 0) + 1
+            s['name_prompts'][sid] = n
+        if n in RECHECK_EVERY or (n > 12 and n % 12 == 0):
+            return rename(data, sid, title)
+        return
     if title:
         # Named already: remember the handle so new names can reuse it, and leave the session alone.
         with effort.state() as s:
             h = s.setdefault('handles', [])
             # only short names are handles; a long one is Claude's own description, or a message used as a name
-            if title not in h and len(title.split()) <= 4 and len(title) <= 40:
+            if title not in h and len(title.split()) <= 4 and len(title) <= 40 and title not in s.get('auto_names', {}).values():
                 h.insert(0, title)
                 del h[60:]
                 effort.log(f'name   {data.get("session_id", "")[:8]} has "{title}", remembered as a handle')
         return
+    name_it(data, sid)
+
+
+def ask_model(system, ask):
+    import subprocess
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
+    env['EFFORT_JUDGE'] = '1'
+    r = subprocess.run([effort.CLAUDE, '-p', '--model', effort.model(), '--effort', 'low',
+                        '--no-session-persistence', '--strict-mcp-config', '--tools', '',
+                        '--settings', '{"disableAllHooks":true}', '--system-prompt', system, ask],
+                       capture_output=True, text=True, timeout=25, env=env, cwd='/tmp')
+    return (r.stdout.strip().splitlines() or [''])[0].strip().strip('"').strip()
+
+
+def first_prompts(path, n=2):
+    out = []
+    try:
+        for line in open(path):
+            e = json.loads(line)
+            if e.get('type') == 'user' and not e.get('isMeta'):
+                t = effort.clean(effort.text_of((e.get('message') or {}).get('content')))
+                if t and not t.startswith('<'):
+                    out.append(t[:400])
+                    if len(out) >= n:
+                        break
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+def rename(data, sid, current):
+    prompt = effort.clean(data.get('prompt'))
+    handles = [h for h in known_handles(effort.peek()) if h != current]
+    start = first_prompts(data.get('transcript_path', ''))
+    context = effort.recent(data.get('transcript_path', ''), prompt, turns=10)
+    ask = (f'Current name: {current}\n\nThe person\'s other names: {", ".join(handles) or "(none)"}\n\n'
+           f'How the session started:\n' + '\n'.join('- ' + p for p in start) +
+           f'\n\nRecent conversation:\n{context or "(none)"}\n\nLatest message:\n{prompt[:2000]}\n\nKEEP or new name?')
+    t0 = time.time()
+    try:
+        name = ask_model(RENAMER, ask)
+    except Exception as e:
+        effort.log(f'name   {sid[4:12]} recheck failed: {e!r}')
+        return
+    if not name or name.upper() in ('KEEP', 'WAIT') or len(name) > 40 or name == current:
+        effort.log(f'name   {sid[4:12]} keeps "{current}" ({time.time() - t0:.1f}s)')
+        return
+    effort.log(f'name   {sid[4:12]} "{current}" -> "{name}": the session moved on ({time.time() - t0:.1f}s)')
+    apply(sid, name)
+
+
+def apply(sid, name):
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'sessionTitle': name}}))
+    if not sid:
+        return
+    import subprocess
+    with effort.state() as s:
+        s['sessions'].setdefault(sid, {}).update(title=name, title_at=time.time())
+        s.setdefault('auto_names', {})[sid] = name
+    subprocess.Popen([sys.executable, os.path.abspath(__file__), '--push', sid, name],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def name_it(data, sid):
     prompt = effort.clean(data.get('prompt'))
     if not prompt:
         effort.log(f'name   {data.get("session_id", "")[:8]} wait: only automatic notes, nothing from the person yet')
@@ -83,16 +167,8 @@ def main():
     ask = (f'The person\'s existing handles: {", ".join(handles) if handles else "(none yet)"}\n\n'
            f'Conversation so far:\n{context or "(none)"}\n\nLatest message:\n{prompt[:3000]}\n\nName?')
     t0 = time.time()
-    env = {k: v for k, v in os.environ.items()
-           if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
-    env['EFFORT_JUDGE'] = '1'
-    import subprocess
     try:
-        r = subprocess.run([effort.CLAUDE, '-p', '--model', effort.model(), '--effort', 'low',
-                            '--no-session-persistence', '--strict-mcp-config', '--tools', '',
-                            '--settings', '{"disableAllHooks":true}', '--system-prompt', NAMER, ask],
-                           capture_output=True, text=True, timeout=25, env=env, cwd='/tmp')
-        name = (r.stdout.strip().splitlines() or [''])[0].strip().strip('"').strip()
+        name = ask_model(NAMER, ask)
     except Exception as e:
         effort.log(f'name   {data.get("session_id", "")[:8]} failed: {e!r}')
         return
@@ -101,14 +177,7 @@ def main():
         effort.log(f'name   {data.get("session_id", "")[:8]} wait ({time.time() - t0:.1f}s) | {snippet}')
         return
     effort.log(f'name   {data.get("session_id", "")[:8]} -> "{name}" ({time.time() - t0:.1f}s) | {snippet}')
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'sessionTitle': name}}))
-    sid = effort.session_id()
-    if sid:
-        with effort.state() as s:
-            s['sessions'].setdefault(sid, {}).update(title=name, title_at=time.time())
-        subprocess.Popen([sys.executable, os.path.abspath(__file__), '--push', sid, name],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+    apply(sid, name)
 
 
 if __name__ == '__main__':
