@@ -158,11 +158,16 @@ enum Setup {
         note("hooks: \(r.1.trimmingCharacters(in: .whitespacesAndNewlines))")
     }
 
-    /// Start at login. Set once, so turning it off in System Settings > General > Login Items sticks.
+    /// Start at login, from the copy in an Applications folder. A copy run from anywhere else (a test build)
+    /// never takes it over, and the Applications copy takes it back. Set once per copy, so turning it off in
+    /// System Settings > General > Login Items sticks.
     static func loginItem() {
         let d = UserDefaults.standard
-        guard !d.bool(forKey: "loginItemSet"), Bundle.main.bundlePath.hasSuffix(".app") else { return }
+        let here = Bundle.main.bundlePath
+        guard here.hasSuffix(".app"), here.contains("/Applications/"), d.string(forKey: "loginItemPath") != here else { return }
+        try? SMAppService.mainApp.unregister()   // drops one another copy registered
         try? SMAppService.mainApp.register()
-        d.set(true, forKey: "loginItemSet")
+        d.set(here, forKey: "loginItemPath")
+        note("starts at login from \(here)")
     }
 }

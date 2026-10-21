@@ -16,7 +16,7 @@ enum Migrate {
         let d = UserDefaults.standard
         guard !d.bool(forKey: flag) else { return }
         for (k, v) in d.persistentDomain(forName: "com.sttark.sttark-effort") ?? [:]
-        where d.object(forKey: k) == nil && !["loginItemSet", "notifiedBuild"].contains(k) {
+        where d.object(forKey: k) == nil && !["loginItemSet", "loginItemPath", "notifiedBuild"].contains(k) {
             d.set(v, forKey: k)
         }
         if fm.fileExists(atPath: oldDir.path) && !fm.fileExists(atPath: supportDir.appendingPathComponent("state.json").path) {

@@ -14,7 +14,8 @@ to match how the work is actually going.
 
 Hands off when the app's "Auto effort" is off, when a session is set to Manual
 in the app, or when the person changes a session's effort themselves (the hook
-sees a level it didn't send and sets that session to Manual).
+sees a level it didn't send and sets that session to Manual). A session reopening
+in a new process starts from its new level instead.
 
 Only sessions with a claude.ai session id (Remote Control) can be changed.
 Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
@@ -129,6 +130,35 @@ def session_id():
                           capture_output=True, text=True).stdout
     m = re.search(r'--session-id[= ](cse_\w+)', args)
     return m.group(1) if m else None
+
+
+def session_process():
+    """This session's Claude Code process (its pid and start time) and the --effort it was started with."""
+    pid = os.environ.get('CLAUDE_PID', '')
+    if not pid:
+        return '', ''
+    out = subprocess.run(['ps', '-ww', '-o', 'lstart=,args=', '-p', pid],
+                         capture_output=True, text=True).stdout
+    if not out.strip():
+        return '', ''
+    m = re.search(r'--effort[= ](\w+)', out)
+    return f'{pid} {out[:24].strip()}', m.group(1) if m else ''
+
+
+def reopened(sid, x, proc, level):
+    """Inside the state lock. A session that reopens (after a restart, or when the server brings back an idle
+    one) runs in a new process at the level it was started with, not the one last sent. That level becomes the
+    starting point, so it isn't mistaken for the person changing it."""
+    if not proc or x.get('proc') == proc:
+        return
+    if x.get('proc'):
+        if level:
+            x['level'] = x['sent'] = level
+            x['sent_at'] = 0
+        else:
+            x.pop('sent', None)
+        log(f'reopen {sid} at {level or "?"}; starting from there')
+    x['proc'] = proc
 
 
 NOTE = re.compile(r'<(system-reminder|local-command-[a-z]+|command-[a-z]+)>.*?</\1>', re.S)
@@ -413,6 +443,12 @@ def on_prompt(data, sid):
     snippet = re.sub(r'\s+', ' ', prompt)[:80]
     st = peek()
     x = st.get('sessions', {}).get(sid, {})
+    proc, launched = session_process()
+    if proc and x.get('proc') != proc:
+        with state() as s:
+            reopened(sid, s['sessions'].setdefault(sid, {}), proc, os.environ.get('CLAUDE_EFFORT') or launched)
+            st = s
+        x = dict(st['sessions'][sid])
     title_later(sid, x)
     if st.get('paused') or x.get('manual'):
         remember(sid)
@@ -450,9 +486,11 @@ def on_tool(data, sid):
     if data.get('agent_id'):  # a subagent's own steps
         return
     level_now = (data.get('effort') or {}).get('level', '')
+    proc, launched = session_process()
     with state() as s:
         x = s['sessions'].setdefault(sid, {})
         x['at'] = time.time()
+        reopened(sid, x, proc, level_now or os.environ.get('CLAUDE_EFFORT') or launched)
         # A level the hook didn't send, well after its last send: the person set it. Hands off.
         if (level_now and x.get('sent') and level_now != x['sent'] and not x.get('manual')
                 and time.time() - x.get('sent_at', 0) > SETTLE):
