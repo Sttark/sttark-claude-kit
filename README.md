@@ -62,7 +62,7 @@ Click the gauge:
 
 Sessions show for 12 hours after their last activity.
 
-**Setting the effort yourself:** change it in the Claude app's effort picker as usual. On the session's next step, Sttark Claude Kit sees a level it didn't send, switches that session to Manual and leaves it alone. Click the row to hand it back.
+**Setting the effort yourself:** change it in the Claude app's effort picker as usual. On the session's next step, Sttark Claude Kit sees a level it didn't send, switches that session to Manual and leaves it alone. Click the row to hand it back. A session that reopens (after the Mac restarts, or when the server brings back an idle one) starts again at the level it was saved with; that doesn't count as you changing it.
 
 ### The log
 
@@ -78,6 +78,7 @@ Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
 | `change` / `keep` | The check when a prompt arrives. |
 | `raise` / `lower` / `steady` | The check at 10, 25 or 50 steps. |
 | `manual` | The session is on Manual, or you just changed it yourself. |
+| `reopen` | The session came back in a new process, at the level shown. The hook starts from there. |
 | `paused` | Auto effort is off. |
 | `skip` | Not a Remote Control session, so it can't be changed. |
 | `error` | Something failed. The level was left as it was. |
@@ -242,11 +243,11 @@ The app is a small Swift menu bar app. The work is done by a Python hook it inst
 10. **Start sessions from the Claude app** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-rc.plist`, that runs `claude rc` (Claude Code's Remote Control server) inside `screen` in the chosen folder, starts at login and restarts if it stops. Turning it off ends the server and removes the file.
 11. **Waiting on you**: every minute the app runs `effort-hook.py --track`, which reads each recent session's status, whether it's archived, and whether the Claude app has it marked unread. For a finished, unread reply it asks the menu's model once whether the reply needs the person.
 12. **The fixed copy of Claude Code**: `stable-claude.sh`, run every 30 minutes by the LaunchAgent `com.sttark.claude-stable` while the server is on, keeps a real copy of the newest Claude Code at `~/.local/share/claude/stable/claude` (written next to the old one and renamed over it), points the server's LaunchAgent at it, and restarts the server only between 2 and 5 AM with no session working.
-13. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkClaudeKit/state.json`: the on/off switch, and per session the level, the last level sent, Manual, the latest reason and the name. Both lock it before writing.
+13. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkClaudeKit/state.json`: the on/off switch, and per session the level, the last level sent, the session's process (a new one means it reopened), Manual, the latest reason and the name. Both lock it before writing.
 
 ### Building it yourself
 
-`./install.sh` builds the app with Apple's command line tools (`xcode-select --install`), puts it in `~/Applications` and opens it.
+`./install.sh` builds the app with Apple's command line tools (`xcode-select --install`), puts it in `/Applications` and opens it. Only a copy in an Applications folder starts at login, so opening a test build from `build/` never takes that over.
 
 ### Releases
 
