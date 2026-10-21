@@ -20,12 +20,14 @@ in a new process starts from its new level instead.
 Only sessions with a claude.ai session id (Remote Control) can be changed.
 Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 """
-import fcntl, importlib.util, json, os, re, subprocess, sys, time
+import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time
 from contextlib import contextmanager
 
 LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/state.json')
+CLAUDE_LOG = os.path.expanduser('~/Library/Logs/Claude/main.log')  # the Claude app's log: which session is open in it
+FRONT = os.path.join(os.path.dirname(STATE), 'claude-front.json')  # when the Claude app was in front, from the menu bar app
 CLAUDE = os.path.expanduser('~/.local/bin/claude')
 DEFAULT_MODEL = 'sonnet'  # Claude Code's alias for the newest Sonnet, the best judge in the model test
 LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -378,14 +380,49 @@ def asks_you(text):
     return answer.upper().startswith('YES'), answer.split(' - ', 1)[-1]
 
 
+def on_screen():
+    """When each session was on screen in the Claude app on this Mac: open in the app (its log's
+    setFocusedSession lines) while the app was in front with the screen on. {sid: [(start, end), ...]}"""
+    now = time.time()
+    try:
+        front = [(a, b or now) for a, b in json.load(open(FRONT))]
+        with open(CLAUDE_LOG, 'rb') as f:
+            f.seek(max(0, os.path.getsize(CLAUDE_LOG) - 3_000_000))
+            text = f.read().decode('utf-8', 'replace')
+    except (OSError, ValueError, TypeError):
+        return {}
+    marks = []  # (when, session open from then on, or None)
+    for m in re.finditer(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) .*setFocusedSession: sessionId=(\S+)', text, re.M):
+        sid = m.group(2)
+        marks.append((time.mktime(time.strptime(m.group(1), '%Y-%m-%d %H:%M:%S')),
+                      'cse_' + sid.split('_', 1)[1] if sid.startswith('session_') else None))
+    shown = {}
+    for (start, sid), (end, _) in zip(marks, marks[1:] + [(now, None)]):
+        if sid:
+            for a, b in front:
+                if min(end, b) > max(start, a):
+                    shown.setdefault(sid, []).append((max(start, a), min(end, b)))
+    return shown
+
+
+def seen_since(spans, iso):
+    """On screen for a few seconds after the moment `iso` (the session's latest event)."""
+    try:
+        t = calendar.timegm(time.strptime(iso[:19], '%Y-%m-%dT%H:%M:%S'))  # the API's times are UTC
+    except ValueError:
+        return False
+    return any(b - max(a, t) >= 3 for a, b in spans)
+
+
 def track():
     """Every minute, from the app: which recent sessions are waiting on you. A session waits on you when it's
     blocked on you (asking a question or a permission), or when its finished reply asks you to answer or
     decide something (judged once per reply). Archived sessions, replies that need nothing, and sessions
-    you've opened since Claude last wrote don't count.
+    you've opened or had on screen since Claude last wrote don't count.
     Saved as x['app'] for the menu's Waiting on you section and its notices."""
     cutoff = time.time() - 86400
     sessions = peek().get('sessions', {})
+    shown = on_screen()
     ids = [sid for sid, x in sessions.items() if x.get('at', 0) > cutoff]
     for sid in ids:
         try:
@@ -400,8 +437,10 @@ def track():
         working = bucket == 'working' or d.get('worker_status') == 'running'
         archived = d.get('status') == 'archived'
         needs, why = False, ''
+        # opened on any device (the Claude app's own record), or seen on this Mac's screen since Claude last wrote
+        seen = not d.get('unread') or seen_since(shown.get(sid, []), last)
         # once you open a session it stops waiting on you, even if it's still asking, until Claude writes again
-        if not archived and not working and d.get('unread'):
+        if not archived and not working and not seen:
             if bucket == 'blocked':
                 needs, why = True, 'waiting on your answer or permission'
             else:
@@ -409,10 +448,10 @@ def track():
                     needs, why = old.get('needs', False), old.get('why', '')
                 else:
                     needs, why = asks_you(last_reply(sessions.get(sid, {}).get('transcript', '')))
-        # not opened: Claude finished, and the Claude app hasn't recorded you opening it since (any device)
-        unseen = bool(d.get('unread')) and not archived and not working
+        # not opened: Claude finished, and you haven't opened it or had it on screen since
+        unseen = not seen and not archived and not working
         info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working, 'unseen': unseen,
-                'archived': archived, 'unread': bool(d.get('unread')), 'needs': needs, 'why': why,
+                'archived': archived, 'unread': bool(d.get('unread')), 'seen': seen, 'needs': needs, 'why': why,
                 'judged': last, 'last_event_at': last, 'checked': time.time()}
         with state() as s:
             x = s['sessions'].setdefault(sid, {})

@@ -54,6 +54,39 @@ enum Waiting {
         note("waiting notice: \(due.map(\.title).joined(separator: ", "))")
     }
 
+    /// When the Claude app was the app in front with the screen on, so the check can tell a reply you saw from
+    /// one that landed while you were in another app or away. Kept for a day as [[start, end], ...] in
+    /// claude-front.json; while it's in front the last one ends at 0.
+    static let frontFile = supportDir.appendingPathComponent("claude-front.json")
+    static let claudeApp = "com.anthropic.claudefordesktop"
+
+    static func watchFront() {
+        record(false, closeAt: nil)   // a span left open by the last run: when it ended is unknown, so it counts for nothing
+        let claudeInFront = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier == claudeApp }
+        record(claudeInFront())
+        let ws = NSWorkspace.shared.notificationCenter
+        ws.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { n in
+            record((n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier == claudeApp)
+        }
+        ws.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { _ in record(false) }
+        ws.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { _ in record(claudeInFront()) }
+        let dn = DistributedNotificationCenter.default()
+        dn.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { _ in record(false) }
+        dn.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in record(claudeInFront()) }
+    }
+
+    /// Opens a span when Claude comes to the front, closes it (at `closeAt`, now by default; nil: at its start) when it leaves.
+    static func record(_ front: Bool, closeAt: Double? = Date().timeIntervalSince1970) {
+        let now = Date().timeIntervalSince1970
+        var spans = ((try? JSONSerialization.jsonObject(with: Data(contentsOf: frontFile))) as? [[Double]] ?? [])
+            .filter { $0.count == 2 && ($0[1] == 0 || $0[1] > now - 86400) }
+        let open = spans.last?[1] == 0
+        if front && !open { spans.append([now, 0]) }
+        else if !front && open { spans[spans.count - 1][1] = closeAt ?? spans[spans.count - 1][0] }
+        else { return }
+        if let d = try? JSONSerialization.data(withJSONObject: spans) { try? d.write(to: frontFile, options: .atomic) }
+    }
+
     static func open(_ url: String) {
         guard let u = URL(string: url), !url.isEmpty else { return }
         NSWorkspace.shared.open(u)
