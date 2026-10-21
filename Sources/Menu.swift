@@ -25,6 +25,7 @@ final class Controller: NSObject, NSMenuDelegate {
         State.refreshModels()
         Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in State.refreshModels() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
+        Waiting.watchFront()
         Waiting.refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
