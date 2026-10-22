@@ -1,0 +1,149 @@
+# The AI review of a Sttark app's pull request, against the Sttark Brand and
+# App Guidelines: the Pages and Behavior chapter and the Usability list in
+# the Checks chapter. Every Sttark web app calls this one workflow on pull
+# requests that change its pages or styles; the rules live here once.
+#
+# It reads the guide from the calling repo's copy of the shared page check
+# (page-check/app-rules.md, a word-for-word copy of the Apps chapters kept in
+# Sttark/sttark-docs), reads the pull request's diff and the changed files,
+# posts one comment with what it found (updated on each push), and fails
+# when a change clearly breaks a rule. It never changes code.
+#
+# In the app's repo, .github/workflows/app-review.yml:
+#
+#   name: app review
+#   on:
+#     pull_request:
+#       paths: ['src/pages/**', 'src/components/**', 'src/layouts/**', 'src/styles/**']
+#   jobs:
+#     review:
+#       uses: Sttark/sttark-claude-kit/.github/workflows/app-review.yml@main
+#       with:
+#         rules: scripts/page-check/app-rules.md
+#       secrets:
+#         APP_REVIEW_ANTHROPIC_API_KEY: ${{ secrets.APP_REVIEW_ANTHROPIC_API_KEY }}
+#       permissions:
+#         contents: read
+#         pull-requests: write
+#
+# APP_REVIEW_ANTHROPIC_API_KEY is a Sttark organization secret.
+name: app review
+
+on:
+  workflow_call:
+    inputs:
+      rules:
+        description: The calling repo's copy of the Apps chapters (page-check/app-rules.md)
+        type: string
+        required: true
+      model:
+        description: The Claude model that reviews
+        type: string
+        default: sonnet
+    secrets:
+      APP_REVIEW_ANTHROPIC_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The rules and the change
+        env:
+          RULES: ${{ inputs.rules }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test -f "$RULES" || { echo "::error::$RULES not found; copy page-check/ from Sttark/sttark-docs"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/review"
+          git diff --name-only "$BASE...$HEAD" > "$RUNNER_TEMP/review/files.txt"
+          git diff "$BASE...$HEAD" > "$RUNNER_TEMP/review/diff.patch"
+          echo "Changed files:"; cat "$RUNNER_TEMP/review/files.txt"
+      - name: Review
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.APP_REVIEW_ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            You review a pull request to a Sttark web app against the Sttark
+            Brand and App Guidelines. You only read; you never edit files,
+            commit or comment yourself.
+
+            Read, in full:
+            1. ${{ inputs.rules }}: the Apps chapters, word for word. Your rules
+               are the chapter "Pages and Behavior" (all of it) and, in the
+               chapter "Checks", the "Usability" list. Use the other chapters
+               only to understand those.
+            2. ${{ runner.temp }}/review/files.txt and
+               ${{ runner.temp }}/review/diff.patch: what this pull request
+               changes. Open the changed page, component, layout and style
+               files in the repo (it is checked out at the pull request's
+               head) to see each changed page whole, not only the diff.
+            3. The repo's README and AGENTS.md or CLAUDE.md, for what the app
+               is and who uses it.
+
+            Judge only what this pull request changes or adds, as a
+            technician on a phone would meet it. For each finding, name the
+            rule (quote it short), the file and line, what is wrong, and the
+            plainest fix. A clear miss is something the rule plainly forbids
+            and the change plainly does: several jobs stacked on one page,
+            text links or scroll buttons instead of tabs between a section's
+            pages, a first tab named like its section, a form folded inside a
+            list, a long flat list with no grouping and indentation, IDs or
+            MAC or IP addresses in list rows, a place read from a name, a
+            second green button, an error that shows another page, a field
+            not styled as a field, jargon on screen, something added that
+            cannot be removed, an important control behind hover, a summary
+            that does not lead with status. Anything you are not sure of, or
+            that needs the running app to judge, is a note, not a clear miss.
+            Do not report what the automatic page check already measures
+            (pixel spacing, alignment, widths) unless the code makes it
+            obvious. No praise, no summary of the change, nothing about code
+            style, tests or naming. Plain words; no em-dashes.
+
+            Answer with the structured output: verdict "fail" if there is at
+            least one clear miss, else "pass"; findings, each with its kind
+            ("clear miss" or "note"); and comment, the markdown comment for
+            the pull request: a first line that says the verdict in words,
+            then the findings as a short list, clear misses first. With no
+            findings, the comment is one line saying the change follows the
+            Pages and Behavior and Usability rules.
+          claude_args: >-
+            --model ${{ inputs.model }}
+            --max-turns 40
+            --allowedTools Read,Glob,Grep,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(cat:*),Bash(ls:*)
+            --json-schema '{"type":"object","required":["verdict","findings","comment"],"properties":{"verdict":{"type":"string","enum":["pass","fail"]},"findings":{"type":"array","items":{"type":"object","required":["kind","rule","where","what"],"properties":{"kind":{"type":"string","enum":["clear miss","note"]},"rule":{"type":"string"},"where":{"type":"string"},"what":{"type":"string"},"fix":{"type":"string"}}}},"comment":{"type":"string"}}}'
+      - name: Comment and verdict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUT: ${{ steps.review.outputs.structured_output }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          test -n "$OUT" || { echo "::error::the review gave no answer"; exit 1; }
+          MARK='<!-- sttark-app-review -->'
+          printf '%s' "$OUT" | jq -r '.comment' > "$RUNNER_TEMP/review/comment.md"
+          printf '\n\n%s\n<sub>AI review against the Pages and Behavior chapter and the Usability list in Checks (Sttark Brand and App Guidelines).</sub>\n' "$MARK" >> "$RUNNER_TEMP/review/comment.md"
+          # One comment per pull request, updated on each push.
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq ".[] | select(.body | contains(\"$MARK\")) | .id" | tail -1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@"$RUNNER_TEMP/review/comment.md" > /dev/null
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -F body=@"$RUNNER_TEMP/review/comment.md" > /dev/null
+          fi
+          cat "$RUNNER_TEMP/review/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          verdict=$(printf '%s' "$OUT" | jq -r '.verdict')
+          echo "verdict: $verdict"
+          if [ "$verdict" = fail ]; then
+            echo "::error::The AI review found clear misses of the Pages and Behavior or Usability rules; see the pull request comment."
+            exit 1
+          fi
