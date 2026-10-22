@@ -6,7 +6,8 @@ hook that went missing comes back.
 --names on|off adds or removes the session naming hook ("Name sessions
 automatically"), --profile on|off the profile instructions hook (the "Sync Claude
 profile instructions" switch), and --bypass on|off the bypass hook (the "Bypass permissions for
-server sessions" switch) and leaves the effort hook alone. --status prints which are
+server sessions" switch) and leaves the effort hook alone. The app rules hook
+(app-rules-hook.py, no switch) goes in with the effort hook. --status prints which are
 on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -36,6 +37,32 @@ PROFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'profile-hook
 def is_profile(cmd):
     c = cmd.rstrip('"')
     return c.endswith('profile-hook.sh') or c.endswith('profile-instructions-hook.sh')  # this app's, or one set up by hand
+
+
+RULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app-rules-hook.py')
+RULES_PARTS = 6  # app-rules-hook.py's PARTS: one UserPromptSubmit entry per part
+
+
+def is_rules(cmd):
+    return 'app-rules-hook.py' in cmd
+
+
+def set_rules(hooks, on):
+    for event in ('UserPromptSubmit', 'SessionStart'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_rules(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on and event == 'UserPromptSubmit':
+            groups.append({'hooks': [{'type': 'command', 'command': f'"{RULES}" {i}', 'timeout': 10}
+                                     for i in range(1, RULES_PARTS + 1)]})
+        if on and event == 'SessionStart':
+            groups.append({'matcher': 'compact',
+                           'hooks': [{'type': 'command', 'command': f'"{RULES}" --compacted', 'timeout': 10}]})
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
 
 
 def ours(cmd):
@@ -99,7 +126,8 @@ def main():
         print(json.dumps({'effort': has(s, 'UserPromptSubmit', ours),
                           'bypass': has(s, 'PermissionRequest', is_bypass),
                           'profile': has(s, 'UserPromptSubmit', is_profile),
-                          'names': has(s, 'UserPromptSubmit', is_names)}))
+                          'names': has(s, 'UserPromptSubmit', is_names),
+                          'rules': has(s, 'UserPromptSubmit', is_rules)}))
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -117,6 +145,7 @@ def main():
         set_bypass(hooks, False)
         set_profile(hooks, False)
         set_names(hooks, False)
+    set_rules(hooks, not remove)
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])
         for g in groups:  # drop every copy, old paths included
