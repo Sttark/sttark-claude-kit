@@ -279,6 +279,10 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Resources/hooks/set-session-effort.py` | Sends an effort change to a session. Also usable by hand: `set-session-effort.py cse_… high`. |
 | `Resources/hooks/install-hooks.py` | Adds the hook to Claude Code's settings, or removes it with `--remove`. |
 
+## AI review for Sttark app pull requests
+
+This repo also holds one GitHub Actions workflow that every Sttark web app calls on pull requests that change its pages or styles: [`.github/workflows/app-review.yml`](.github/workflows/app-review.yml). Claude reads the changed pages against the Pages and Behavior chapter and the Checks chapter's Usability list of the Sttark Brand and App Guidelines, posts one comment with what it found, and fails the check on a clear miss. It reads the guide from the app's own copy of the shared page check (`page-check/app-rules.md`, kept in Sttark/sttark-docs), so the rules are never copied into this public repo. How to call it is at the top of the workflow file.
+
 ## License
 
 Copyright Sttark. For use by Sttark employees. The code is public so the app can update itself; it isn't offered for use outside Sttark.
