@@ -20,6 +20,7 @@
 #       uses: Sttark/sttark-claude-kit/.github/workflows/app-review.yml@main
 #       with:
 #         rules: scripts/page-check/app-rules.md
+#         # report_only: true   # comments, never fails (an app still under review)
 #       secrets:
 #         APP_REVIEW_ANTHROPIC_API_KEY: ${{ secrets.APP_REVIEW_ANTHROPIC_API_KEY }}
 #       permissions:
@@ -36,6 +37,10 @@ on:
         description: The calling repo's copy of the Apps chapters (page-check/app-rules.md)
         type: string
         required: true
+      report_only:
+        description: Comment only, never fail the check (for an app still under review)
+        type: boolean
+        default: false
       model:
         description: The Claude model that reviews
         type: string
@@ -128,6 +133,7 @@ jobs:
           OUT: ${{ steps.review.outputs.structured_output }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          REPORT_ONLY: ${{ inputs.report_only }}
         run: |
           test -n "$OUT" || { echo "::error::the review gave no answer"; exit 1; }
           MARK='<!-- sttark-app-review -->'
@@ -143,7 +149,9 @@ jobs:
           cat "$RUNNER_TEMP/review/comment.md" >> "$GITHUB_STEP_SUMMARY"
           verdict=$(printf '%s' "$OUT" | jq -r '.verdict')
           echo "verdict: $verdict"
-          if [ "$verdict" = fail ]; then
+          if [ "$verdict" = fail ] && [ "$REPORT_ONLY" = true ]; then
+            echo "::warning::The AI review found clear misses (report only for this app); see the pull request comment."
+          elif [ "$verdict" = fail ]; then
             echo "::error::The AI review found clear misses of the Pages and Behavior or Usability rules; see the pull request comment."
             exit 1
           fi
