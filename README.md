@@ -13,8 +13,9 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Lets Claude use your signed-in Chrome without taking your screen | [Claude window in Chrome](#claude-window-in-chrome) |
 | Answers Claude for Chrome's permission prompts | [Approve Claude in Chrome](#approve-claude-in-chrome) |
 | Copies your Claude profile instructions into Claude Code | [Sync Claude profile instructions](#sync-claude-profile-instructions) |
+| Gives sessions in Sttark's app repos the Sttark app rules | [Sttark app rules](#sttark-app-rules) |
 
-Everything except effort is off until you turn it on in the menu. It updates itself when a new version is released here.
+Everything except effort and the Sttark app rules is off until you turn it on in the menu. It updates itself when a new version is released here.
 
 ![The menu: Auto effort, Model, each session with its level and a hover tip with the reason, then the switches, Open log, Check for updates](docs/menu.png)
 
@@ -81,6 +82,7 @@ Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
 | `reopen` | The session came back in a new process, at the level shown. The hook starts from there. |
 | `paused` | Auto effort is off. |
 | `skip` | Not a Remote Control session, so it can't be changed. |
+| `rules` | The Sttark app rules: added to a session, or the saved copy refreshed. |
 | `error` | Something failed. The level was left as it was. |
 
 To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
@@ -209,6 +211,15 @@ Claude names each new Claude Code session with a long description of the first t
 - It also sets the name in the Claude app, after the app's own automatic title lands, so the app shows it too.
 - It runs alongside the effort check, so it adds no wait. Each name is logged, with lines starting `name`.
 
+## Sttark app rules
+
+When a session works in one of Sttark's app repos, Sttark Claude Kit adds the five Apps chapters of the Sttark Brand and App Guidelines (Building Web Apps, Look, Pages and Behavior, Sign-in and Access, Checks) to the session, with one line before them: follow them for any UI work, and run the Checks chapter's Before you ship list. It's on for everyone; there's no switch, since it only reads.
+
+- **Which repos.** A git repo, or a worktree of one, whose `origin` is Sttark/building, Sttark/sttark-docs, Sttark/sttark-inventory or Sttark/hvac_automation. It goes by the remote address, not the folder name, so a clone anywhere counts.
+- **When.** At the first prompt whose working folder is in one of those repos, once per session. After Claude compacts the session, the next prompt adds them again.
+- **Where the rules come from.** docs.sttark.com needs sign-in, so the app reads the chapters as you, through Claude Code's Sttark Workrouter connector, and keeps a copy on this Mac. The copy is refreshed in the background once a day; a prompt never waits for it. Until the first copy arrives, the session is told to read the five chapters itself.
+- The chapters are never stored in this repo. Each addition and refresh is logged, with lines starting `rules`.
+
 ## Claude Code login
 
 Claude Code's sign-in lasts about a month. When it runs out, every Claude Code session and the server for **Start sessions from the Claude app** stop working until you sign in again, and nothing tells you. Sttark Claude Kit checks the end date every hour and warns you 3 days, 1 day and 2 hours before, and right away if Claude Code is signed out. Click the notice, or **Sign in to Claude Code…** in the menu: Terminal opens and starts the sign-in, and you finish it in the browser. Within 3 days of the end, the sign-in item also shows at the top of the menu.
@@ -245,7 +256,8 @@ The app is a small Swift menu bar app. The work is done by a Python hook it inst
 10. **Start sessions from the Claude app** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-rc.plist`, that runs `claude rc` (Claude Code's Remote Control server) inside `screen` in the chosen folder, starts at login and restarts if it stops. Turning it off ends the server and removes the file.
 11. **Waiting on you**: every minute the app runs `effort-hook.py --track`, which reads each recent session's status, whether it's archived, and whether the Claude app has it marked unread. It also counts a reply as seen when the session was on screen after Claude finished: the Claude app's log (`~/Library/Logs/Claude/main.log`) says which session is open in it, and the menu bar app keeps a day of when the Claude app was in front with the screen on (`claude-front.json` in its Application Support folder). For a finished reply you haven't seen it asks the menu's model once whether the reply needs the person.
 12. **The fixed copy of Claude Code**: `stable-claude.sh`, run every 30 minutes by the LaunchAgent `com.sttark.claude-stable` while the server is on, keeps a real copy of the newest Claude Code at `~/.local/share/claude/stable/claude` (written next to the old one and renamed over it), points the server's LaunchAgent at it, and restarts the server only between 2 and 5 AM with no session working.
-13. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkClaudeKit/state.json`: the on/off switch, and per session the level, the last level sent, the session's process (a new one means it reopened), Manual, the latest reason and the name. Both lock it before writing.
+13. **Sttark app rules**: `install-hooks.py` adds `app-rules-hook.py` as six `UserPromptSubmit` hooks, `app-rules-hook.py 1` to `6`, and once as a `SessionStart` hook for `compact`. Claude Code saves any hook text over 10,000 characters to a file and shows Claude only a preview, so the chapters go in parts of at most 9,000 characters, one per hook, each labeled "part N of M". Each hook reads the prompt's `cwd`, checks `git config remote.origin.url` there, and adds its part once per session (marked in `app-rules/seen/`). The copy is `app-rules/chapters.json` in the Application Support folder. `app-rules-hook.py --refresh`, started in the background when the copy is over a day old (at most once an hour), runs `claude -p --output-format stream-json --model haiku` with only `docs_read` allowed and hooks off, asks it to read each chapter, and saves the tool's own output from the stream, never a model's retyping. It uses the fixed copy of Claude Code when there is one.
+14. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkClaudeKit/state.json`: the on/off switch, and per session the level, the last level sent, the session's process (a new one means it reopened), Manual, the latest reason and the name. Both lock it before writing.
 
 ### Building it yourself
 
@@ -268,6 +280,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Helpers/ChromeApprover.swift` | The Chrome approver helper. `--dump` prints what it sees without clicking. |
 | `Resources/hooks/bypass-hook.sh` | The Bypass permissions hook. |
 | `Resources/hooks/name-hook.py` | The session naming hook. |
+| `Resources/hooks/app-rules-hook.py` | The Sttark app rules hook and its refresh. |
 | `Resources/hooks/claude-window.sh` | The `claude-window` command. |
 | `Sources/Waiting.swift` | The Waiting on you section and its notices. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
