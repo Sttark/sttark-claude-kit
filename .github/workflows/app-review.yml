@@ -1,14 +1,17 @@
 # The AI review of a Sttark app's pull request, against the Sttark Brand and
 # App Guidelines: the Pages and Behavior chapter and the Usability list in
-# the Checks chapter. Every Sttark web app calls this one workflow on pull
-# requests that change its pages or styles; the rules live here once.
+# the Checks chapter, under "Usability comes first". Every Sttark web app
+# calls this one workflow on pull requests that change its pages or styles;
+# the rules live here once.
 #
 # It reads the guide from app-rules.md on Sttark/sttark-docs main at run time
 # (the Apps chapters word for word, kept current from docs.sttark.com by that
-# repo's app-rules workflow; apps carry no copy), reads the pull request's
-# diff and the changed files,
-# posts one comment with what it found (updated on each push), and fails
-# when a change clearly breaks a rule. It never changes code.
+# repo's app-rules workflow; apps carry no copy), the app's own
+# DESIGN-DECISIONS.md at its repo root (where it departs from or settles a
+# rule; never flagged again), and the pull request's diff and changed files.
+# It posts one comment with what it found (updated on each push), and fails
+# only when a change clearly breaks a rule in a way anyone can see in the
+# code; judgment calls are suggestions. It never changes code.
 #
 # In the app's repo, .github/workflows/app-review.yml:
 #
@@ -85,6 +88,12 @@ jobs:
           test -s .sttark-docs-rules/app-rules.md || { echo "::error::app-rules.md not found on Sttark/sttark-docs main"; exit 1; }
           mv .sttark-docs-rules/app-rules.md "$RUNNER_TEMP/review/app-rules.md"
           rm -rf .sttark-docs-rules
+          # The app's design decisions, as this pull request leaves them.
+          if [ -s DESIGN-DECISIONS.md ]; then
+            cp DESIGN-DECISIONS.md "$RUNNER_TEMP/review/design-decisions.md"
+          else
+            echo "This app has no DESIGN-DECISIONS.md yet: no decisions." > "$RUNNER_TEMP/review/design-decisions.md"
+          fi
           git diff --name-only "$BASE...$HEAD" > "$RUNNER_TEMP/review/files.txt"
           git diff "$BASE...$HEAD" > "$RUNNER_TEMP/review/diff.patch"
           echo "Changed files:"; cat "$RUNNER_TEMP/review/files.txt"
@@ -102,21 +111,27 @@ jobs:
             Read, in full:
             1. ${{ runner.temp }}/review/app-rules.md: the Apps chapters, word for word. Your rules
                are the chapter "Pages and Behavior" (all of it) and, in the
-               chapter "Checks", the "Usability" list. Use the other chapters
-               only to understand those.
-            2. ${{ runner.temp }}/review/files.txt and
+               chapter "Checks", the "Usability" list. Over all of them is
+               "Usability comes first" in the chapter "Building Web Apps":
+               the rules serve the people using the app. Use the other
+               chapters only to understand those.
+            2. ${{ runner.temp }}/review/design-decisions.md: this app's
+               DESIGN-DECISIONS.md, the decisions it made where a rule
+               departs or is settled for it. A decision there is made.
+            3. ${{ runner.temp }}/review/files.txt and
                ${{ runner.temp }}/review/diff.patch: what this pull request
                changes. Open the changed page, component, layout and style
                files in the repo (it is checked out at the pull request's
                head) to see each changed page whole, not only the diff.
-            3. The repo's README and AGENTS.md or CLAUDE.md, for what the app
+            4. The repo's README and AGENTS.md or CLAUDE.md, for what the app
                is and who uses it.
 
             Judge only what this pull request changes or adds, as a
             technician on a phone would meet it. For each finding, name the
-            rule (quote it short), the file and line, what is wrong, and the
-            plainest fix. A clear miss is something the rule plainly forbids
-            and the change plainly does: several jobs stacked on one page,
+            rule (its chapter and section, and quote it short), the file and
+            line, what is wrong, and the plainest fix. A clear miss is
+            something the rule plainly forbids and the change plainly does,
+            that anyone can see in the code: several jobs stacked on one page,
             text links or scroll buttons instead of tabs between a section's
             pages, a first tab named like its section, a form folded inside a
             list, a long flat list with no grouping and indentation, IDs or
@@ -126,6 +141,21 @@ jobs:
             cannot be removed, an important control behind hover, a summary
             that does not lead with status. Anything you are not sure of, or
             that needs the running app to judge, is a note, not a clear miss.
+
+            Design decisions: never report anything a decision in
+            DESIGN-DECISIONS.md covers, not even as a note. When a change
+            seems to need a new exception (the rule does not fit this page,
+            or following it would make the page harder to use), report it as
+            a suggestion, never a clear miss: name the rule and propose the
+            entry (the page, the rule, the decision, why). If this pull
+            request adds or changes an entry in DESIGN-DECISIONS.md, say so
+            in a note naming the entry, so whoever merges sees the decision
+            being made.
+
+            Usability comes first: a change that follows the rules but makes
+            a page harder to use (more taps for the common job, what a
+            technician needs hidden or pushed down, a split that loses what
+            they were looking at) is a finding too, as a suggestion.
             Do not report what the automatic page check already measures
             (pixel spacing, alignment, widths) unless the code makes it
             obvious. No praise, no summary of the change, nothing about code
@@ -133,16 +163,27 @@ jobs:
 
             Answer with the structured output: verdict "fail" if there is at
             least one clear miss, else "pass"; findings, each with its kind
-            ("clear miss" or "note"); and comment, the markdown comment for
-            the pull request: a first line that says the verdict in words,
-            then the findings as a short list, clear misses first. With no
-            findings, the comment is one line saying the change follows the
-            Pages and Behavior and Usability rules.
+            ("clear miss", "note" or "suggestion"); and comment, the markdown
+            comment for the pull request: a first line that says the verdict
+            in words, then the findings as a short list, clear misses first,
+            then notes, then suggestions. When there is any finding, end the
+            comment with this paragraph, word for word:
+
+            For each finding, one of three: fix the page; or, if the rule
+            does not fit this page, add an entry to DESIGN-DECISIONS.md at
+            the repo root (the page, the rule, the decision and why, plus an
+            `allow` entry in the page check config for a problem the page
+            check measures) in this pull request; or, if the rule is wrong
+            for every app, propose a change to the guide on docs.sttark.com.
+
+            With no findings, the comment is one line saying the change
+            follows the Pages and Behavior and Usability rules and this
+            app's design decisions.
           claude_args: >-
             --model ${{ inputs.model }}
             --max-turns 40
             --allowedTools Read,Glob,Grep,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(cat:*),Bash(ls:*)
-            --json-schema '{"type":"object","required":["verdict","findings","comment"],"properties":{"verdict":{"type":"string","enum":["pass","fail"]},"findings":{"type":"array","items":{"type":"object","required":["kind","rule","where","what"],"properties":{"kind":{"type":"string","enum":["clear miss","note"]},"rule":{"type":"string"},"where":{"type":"string"},"what":{"type":"string"},"fix":{"type":"string"}}}},"comment":{"type":"string"}}}'
+            --json-schema '{"type":"object","required":["verdict","findings","comment"],"properties":{"verdict":{"type":"string","enum":["pass","fail"]},"findings":{"type":"array","items":{"type":"object","required":["kind","rule","where","what"],"properties":{"kind":{"type":"string","enum":["clear miss","note","suggestion"]},"rule":{"type":"string"},"where":{"type":"string"},"what":{"type":"string"},"fix":{"type":"string"}}}},"comment":{"type":"string"}}}'
       - name: Comment and verdict
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -154,7 +195,7 @@ jobs:
           test -n "$OUT" || { echo "::error::the review gave no answer"; exit 1; }
           MARK='<!-- sttark-app-review -->'
           printf '%s' "$OUT" | jq -r '.comment' > "$RUNNER_TEMP/review/comment.md"
-          printf '\n\n%s\n<sub>AI review against the Pages and Behavior chapter and the Usability list in Checks (Sttark Brand and App Guidelines).</sub>\n' "$MARK" >> "$RUNNER_TEMP/review/comment.md"
+          printf '\n\n%s\n<sub>AI review against the Pages and Behavior chapter and the Usability list in Checks, under Usability comes first (Sttark Brand and App Guidelines), and this app's DESIGN-DECISIONS.md. Only clear misses fail.</sub>\n' "$MARK" >> "$RUNNER_TEMP/review/comment.md"
           # One comment per pull request, updated on each push.
           id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq ".[] | select(.body | contains(\"$MARK\")) | .id" | tail -1)
           if [ -n "$id" ]; then

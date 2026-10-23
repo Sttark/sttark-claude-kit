@@ -12,22 +12,33 @@ parts of under that, one per hook entry; the entries run side by side.
 SessionStart (compact), with --compacted: a compacted session forgets them, so the next
 prompt adds them again.
 
-The chapters live on docs.sttark.com, which needs sign-in. --refresh reads them through
-Claude Code's Sttark Workrouter connector (docs_read), as this Mac's own Claude Code user,
-and keeps the tool's own output, never a model's retyping. The hook never waits for it: it
-uses whatever copy is saved, starts a refresh in the background when that copy is a day
-old, and with no copy yet tells Claude to read the chapters itself. Nothing of the
+The chapters live on docs.sttark.com, which needs sign-in. Two sources keep the saved copy
+current, and the hook uses whichever has the higher revision:
+
+- At a session's first prompt, it reads app-rules.md on Sttark/sttark-docs main with gh
+  (4 seconds at most): the five chapters word for word, which that repo's app-rules
+  workflow renders from the published chapters twice a day and right after a chapter is
+  published. So a newly published revision reaches the next session, not the next day.
+  The parts run side by side; the first one checks while the others wait for it, and a
+  check in the last 5 minutes counts. If gh cannot read it, the saved copy is used.
+- --refresh reads them through Claude Code's Sttark Workrouter connector (docs_read), as
+  this Mac's own Claude Code user, and keeps the tool's own output, never a model's
+  retyping. The hook never waits for it: it starts one in the background when the saved
+  copy is a day old.
+
+With no copy at all, the hook tells Claude to read the chapters itself. Nothing of the
 chapters is kept in this repo.
 
 Logged to ~/Library/Logs/sttark-claude-kit.log, lines starting "rules".
 """
-import fcntl, glob, json, os, re, subprocess, sys, time
+import fcntl, glob, json, os, re, shutil, subprocess, sys, time
 
 SUPPORT = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
 DIR = os.path.join(SUPPORT, 'app-rules')
 CACHE = os.path.join(DIR, 'chapters.json')
 TRIED = os.path.join(DIR, 'refresh.tried')
 SEEN = os.path.join(DIR, 'seen')
+CHECKED = os.path.join(DIR, 'checked')
 LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')  # the kit's fixed copy, when the server is on
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
@@ -41,6 +52,10 @@ PARTS = 6           # hook entries install-hooks.py adds; room for the chapters 
 SIZE = 9000         # characters per part, under Claude Code's 10,000
 STALE = 24 * 3600   # refresh a copy older than this
 RETRY = 3600        # but try at most once an hour
+CHECK_EVERY = 300   # a session's first prompt checks sttark-docs main, unless one did this recently
+GH = next((p for p in (shutil.which('gh'), '/opt/homebrew/bin/gh', '/usr/local/bin/gh')
+           if p and os.access(p, os.X_OK)), None)
+MARK = re.compile(r'^<!-- (%s/[a-z-]+), revision (\d+) -->$' % re.escape(GUIDE), re.M)
 
 LEAD = ("These are the rules for Sttark apps (the Apps chapters of the Sttark Brand and App Guidelines on "
         "docs.sttark.com, added by Sttark Claude Kit because this session works in a Sttark app repo). "
@@ -72,6 +87,68 @@ def cached():
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return None
+
+
+def revision(c):
+    """The highest chapter revision in a copy (the guide's revision), 0 when unknown."""
+    return max([int(x['revision']) for x in (c or {}).get('chapters', []) if str(x['revision']).isdigit()] or [0])
+
+
+def from_sttark_docs():
+    """The chapters from app-rules.md on Sttark/sttark-docs main, or None."""
+    if not GH:
+        return None
+    try:
+        r = subprocess.run([GH, 'api', '-H', 'Accept: application/vnd.github.raw',
+                            'repos/Sttark/sttark-docs/contents/app-rules.md?ref=main'],
+                           capture_output=True, text=True, timeout=4)
+    except Exception:
+        return None
+    if r.returncode:
+        return None
+    marks = list(MARK.finditer(r.stdout))
+    found = {}
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(r.stdout)
+        found[m.group(1)] = {'path': m.group(1), 'revision': m.group(2), 'text': r.stdout[m.end():end].strip()}
+    paths = [f'{GUIDE}/{n}' for n in CHAPTERS]
+    if not all(found.get(p, {}).get('text') for p in paths):
+        return None
+    return {'fetched': time.time(), 'source': 'Sttark/sttark-docs app-rules.md', 'chapters': [found[p] for p in paths]}
+
+
+def check_current():
+    """At a session's first prompt: if app-rules.md on sttark-docs main is a newer revision than
+    the saved copy, save it. The parts call this side by side: the first takes the lock and
+    checks, the others wait (5 seconds at most) and then read what it saved."""
+    os.makedirs(DIR, exist_ok=True)
+    with open(os.path.join(DIR, 'check.lock'), 'w') as lock:
+        until = time.time() + 5
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.time() > until:
+                    return
+                time.sleep(0.1)
+        try:
+            if time.time() - os.path.getmtime(CHECKED) < CHECK_EVERY:
+                return
+        except OSError:
+            pass
+        open(CHECKED, 'w').close()
+        t = time.time()
+        new, old = from_sttark_docs(), cached()
+        if not new:
+            return log('check: could not read app-rules.md on sttark-docs main; using the saved copy')
+        if old and revision(old) >= revision(new):
+            return
+        tmp = CACHE + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(new, f)
+        os.replace(tmp, CACHE)
+        log(f'check: revision {revision(old) or "none"} -> {revision(new)} from sttark-docs main ({time.time() - t:.1f}s)')
 
 
 def parts(c):
@@ -182,6 +259,7 @@ def main():
     app = app_repo(cwd)
     if not app:
         return
+    check_current()
     c = cached()
     if part == 1 and (not c or time.time() - os.path.getmtime(CACHE) > STALE):
         start_refresh()
