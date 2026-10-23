@@ -35,10 +35,6 @@ name: app review
 on:
   workflow_call:
     inputs:
-      rules:
-        description: Not read any more (the rules come from Sttark/sttark-docs main); kept so callers that still pass it do not break
-        type: string
-        required: false
       report_only:
         description: Comment only, never fail the check (for an app still under review)
         type: boolean
@@ -77,9 +73,7 @@ jobs:
           ref: main
           path: .sttark-docs-rules
           ssh-key: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
-          sparse-checkout: |
-            app-rules.md
-            page-check/app-rules.md
+          sparse-checkout: app-rules.md
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: The rules and the change
@@ -88,11 +82,8 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           mkdir -p "$RUNNER_TEMP/review"
-          # app-rules.md moved from page-check/ to the root of sttark-docs.
-          for f in app-rules.md page-check/app-rules.md; do
-            if [ -s ".sttark-docs-rules/$f" ]; then mv ".sttark-docs-rules/$f" "$RUNNER_TEMP/review/app-rules.md"; break; fi
-          done
-          test -s "$RUNNER_TEMP/review/app-rules.md" || { echo "::error::app-rules.md not found on Sttark/sttark-docs main"; exit 1; }
+          test -s .sttark-docs-rules/app-rules.md || { echo "::error::app-rules.md not found on Sttark/sttark-docs main"; exit 1; }
+          mv .sttark-docs-rules/app-rules.md "$RUNNER_TEMP/review/app-rules.md"
           rm -rf .sttark-docs-rules
           git diff --name-only "$BASE...$HEAD" > "$RUNNER_TEMP/review/files.txt"
           git diff "$BASE...$HEAD" > "$RUNNER_TEMP/review/diff.patch"
