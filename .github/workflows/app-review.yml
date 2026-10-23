@@ -195,7 +195,7 @@ jobs:
           test -n "$OUT" || { echo "::error::the review gave no answer"; exit 1; }
           MARK='<!-- sttark-app-review -->'
           printf '%s' "$OUT" | jq -r '.comment' > "$RUNNER_TEMP/review/comment.md"
-          printf '\n\n%s\n<sub>AI review against the Pages and Behavior chapter and the Usability list in Checks, under Usability comes first (Sttark Brand and App Guidelines), and this app's DESIGN-DECISIONS.md. Only clear misses fail.</sub>\n' "$MARK" >> "$RUNNER_TEMP/review/comment.md"
+          printf '\n\n%s\n<sub>AI review against the Pages and Behavior chapter and the Usability list in Checks, under Usability comes first (Sttark Brand and App Guidelines), and the DESIGN-DECISIONS.md file. Only clear misses fail.</sub>\n' "$MARK" >> "$RUNNER_TEMP/review/comment.md"
           # One comment per pull request, updated on each push.
           id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq ".[] | select(.body | contains(\"$MARK\")) | .id" | tail -1)
           if [ -n "$id" ]; then
