@@ -294,7 +294,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 
 ## AI review for Sttark app pull requests
 
-This repo also holds one GitHub Actions workflow that every Sttark web app calls on pull requests that change its pages or styles: [`.github/workflows/app-review.yml`](.github/workflows/app-review.yml). Claude reads the changed pages against the Pages and Behavior chapter and the Checks chapter's Usability list of the Sttark Brand and App Guidelines, posts one comment with what it found, and fails the check on a clear miss. It reads the guide from the app's own copy of the shared page check (`page-check/app-rules.md`, kept in Sttark/sttark-docs), so the rules are never copied into this public repo. How to call it is at the top of the workflow file.
+This repo also holds one GitHub Actions workflow that every Sttark web app calls on pull requests that change its pages or styles: [`.github/workflows/app-review.yml`](.github/workflows/app-review.yml). Claude reads the changed pages against the Pages and Behavior chapter and the Checks chapter's Usability list of the Sttark Brand and App Guidelines, posts one comment with what it found, and fails the check on a clear miss. It reads the guide at run time from `app-rules.md` on Sttark/sttark-docs main (the Apps chapters word for word, refreshed there from docs.sttark.com), with the calling repo's read-only deploy key, so apps carry no copy and the rules are never copied into this public repo. How to call it is at the top of the workflow file.
 
 ## License
 

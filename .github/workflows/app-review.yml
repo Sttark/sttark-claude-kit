@@ -3,9 +3,10 @@
 # the Checks chapter. Every Sttark web app calls this one workflow on pull
 # requests that change its pages or styles; the rules live here once.
 #
-# It reads the guide from the calling repo's copy of the shared page check
-# (page-check/app-rules.md, a word-for-word copy of the Apps chapters kept in
-# Sttark/sttark-docs), reads the pull request's diff and the changed files,
+# It reads the guide from app-rules.md on Sttark/sttark-docs main at run time
+# (the Apps chapters word for word, kept current from docs.sttark.com by that
+# repo's app-rules workflow; apps carry no copy), reads the pull request's
+# diff and the changed files,
 # posts one comment with what it found (updated on each push), and fails
 # when a change clearly breaks a rule. It never changes code.
 #
@@ -18,11 +19,12 @@
 #   jobs:
 #     review:
 #       uses: Sttark/sttark-claude-kit/.github/workflows/app-review.yml@main
-#       with:
-#         rules: scripts/page-check/app-rules.md
-#         # report_only: true   # comments, never fails (an app still under review)
+#       # with:
+#       #   report_only: true   # comments, never fails (an app still under review)
 #       secrets:
 #         APP_REVIEW_ANTHROPIC_API_KEY: ${{ secrets.APP_REVIEW_ANTHROPIC_API_KEY }}
+#         # The read-only deploy key for Sttark/sttark-docs (not needed there).
+#         STTARK_DOCS_DEPLOY_KEY: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
 #       permissions:
 #         contents: read
 #         pull-requests: write
@@ -34,9 +36,9 @@ on:
   workflow_call:
     inputs:
       rules:
-        description: The calling repo's copy of the Apps chapters (page-check/app-rules.md)
+        description: Not read any more (the rules come from Sttark/sttark-docs main); kept so callers that still pass it do not break
         type: string
-        required: true
+        required: false
       report_only:
         description: Comment only, never fail the check (for an app still under review)
         type: boolean
@@ -48,6 +50,9 @@ on:
     secrets:
       APP_REVIEW_ANTHROPIC_API_KEY:
         required: true
+      STTARK_DOCS_DEPLOY_KEY:
+        description: Read-only deploy key for Sttark/sttark-docs, where the rules are; not needed when the caller is sttark-docs
+        required: false
 
 permissions:
   contents: read
@@ -61,14 +66,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # The rules: app-rules.md on Sttark/sttark-docs main, read now, so a
+      # guide change reaches every app's next review with no copy to update.
+      # Without the deploy key, checkout uses this run's own token, which can
+      # read the repo only when the caller is sttark-docs itself.
+      - name: Fetch the rules from Sttark/sttark-docs main
+        uses: actions/checkout@v4
+        with:
+          repository: Sttark/sttark-docs
+          ref: main
+          path: .sttark-docs-rules
+          ssh-key: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
+          sparse-checkout: |
+            app-rules.md
+            page-check/app-rules.md
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: The rules and the change
         env:
-          RULES: ${{ inputs.rules }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          test -f "$RULES" || { echo "::error::$RULES not found; copy page-check/ from Sttark/sttark-docs"; exit 1; }
           mkdir -p "$RUNNER_TEMP/review"
+          # app-rules.md moved from page-check/ to the root of sttark-docs.
+          for f in app-rules.md page-check/app-rules.md; do
+            if [ -s ".sttark-docs-rules/$f" ]; then mv ".sttark-docs-rules/$f" "$RUNNER_TEMP/review/app-rules.md"; break; fi
+          done
+          test -s "$RUNNER_TEMP/review/app-rules.md" || { echo "::error::app-rules.md not found on Sttark/sttark-docs main"; exit 1; }
+          rm -rf .sttark-docs-rules
           git diff --name-only "$BASE...$HEAD" > "$RUNNER_TEMP/review/files.txt"
           git diff "$BASE...$HEAD" > "$RUNNER_TEMP/review/diff.patch"
           echo "Changed files:"; cat "$RUNNER_TEMP/review/files.txt"
@@ -84,7 +109,7 @@ jobs:
             commit or comment yourself.
 
             Read, in full:
-            1. ${{ inputs.rules }}: the Apps chapters, word for word. Your rules
+            1. ${{ runner.temp }}/review/app-rules.md: the Apps chapters, word for word. Your rules
                are the chapter "Pages and Behavior" (all of it) and, in the
                chapter "Checks", the "Usability" list. Use the other chapters
                only to understand those.
