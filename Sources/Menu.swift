@@ -59,10 +59,12 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let paused = State.paused
 
+        // read once: the checks below run commands that let the update check's answer land mid-build
+        let installing = updater.installing, available = updater.available
         menu.addItem(caption("Sttark Claude Kit \(Updater.version)"))
-        if updater.installing {
+        if installing {
             menu.addItem(caption("Updating…"))
-        } else if let r = updater.available {
+        } else if let r = available {
             let u = action("Update to \(r.version)", #selector(update))
             u.attributedTitle = NSAttributedString(string: "Update to \(r.version)", attributes: [.font: font(14, true)])
             menu.addItem(u)
@@ -178,7 +180,7 @@ final class Controller: NSObject, NSMenuDelegate {
         sign.toolTip = Login.tip
         menu.addItem(sign)
         menu.addItem(action("Open log", #selector(openLog)))
-        if updater.available == nil && !updater.installing { menu.addItem(action("Check for updates", #selector(checkUpdates))) }
+        if available == nil && !installing { menu.addItem(action("Check for updates", #selector(checkUpdates))) }
         menu.addItem(.separator())
         menu.addItem(action("Quit", #selector(quit), key: "q"))
     }
