@@ -13,6 +13,14 @@
 # only when a change clearly breaks a rule in a way anyone can see in the
 # code; judgment calls are suggestions. It never changes code.
 #
+# A later push is reviewed against the earlier review, not from scratch: the
+# comment records the commit it reviewed and its verdict, and the next run
+# judges only what changed since that commit in the pull request's files,
+# checks whether the earlier clear misses are fixed, and carries the rest
+# over. A push that changes none of the pull request's page or style files
+# since then keeps the earlier review as it is. After a force push (the
+# reviewed commit is gone from the branch) it reviews the whole change.
+#
 # In the app's repo, .github/workflows/app-review.yml:
 #
 #   name: app review
@@ -80,9 +88,13 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: The rules and the change
+        id: change
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
           mkdir -p "$RUNNER_TEMP/review"
           test -s .sttark-docs-rules/app-rules.md || { echo "::error::app-rules.md not found on Sttark/sttark-docs main"; exit 1; }
@@ -97,7 +109,50 @@ jobs:
           git diff --name-only "$BASE...$HEAD" > "$RUNNER_TEMP/review/files.txt"
           git diff "$BASE...$HEAD" > "$RUNNER_TEMP/review/diff.patch"
           echo "Changed files:"; cat "$RUNNER_TEMP/review/files.txt"
+          # The earlier review on this pull request, if any: the commit it
+          # reviewed and its verdict are in its comment. Only what changed
+          # since then in the pull request's files is reviewed now.
+          MARK='<!-- sttark-app-review -->'
+          gh api "repos/$REPO/issues/$PR/comments" --paginate --jq ".[] | select(.body | contains(\"$MARK\")) | .body" > "$RUNNER_TEMP/review/all-reviews.md" || true
+          reviewed=$(grep -oE 'sttark-app-review reviewed: [0-9a-f]{40}' "$RUNNER_TEMP/review/all-reviews.md" | tail -1 | awk '{print $3}')
+          verdict=$(grep -oE 'sttark-app-review verdict: (pass|fail)' "$RUNNER_TEMP/review/all-reviews.md" | tail -1 | awk '{print $3}')
+          if [ -n "$reviewed" ] && [ -n "$verdict" ] && git cat-file -e "$reviewed^{commit}" 2>/dev/null && git merge-base --is-ancestor "$reviewed" "$HEAD"; then
+            # The last comment, as it stands.
+            gh api "repos/$REPO/issues/$PR/comments" --paginate --jq "[.[] | select(.body | contains(\"$MARK\"))] | last | .body" > "$RUNNER_TEMP/review/previous-review.md"
+            xargs -r git diff "$reviewed" "$HEAD" -- < "$RUNNER_TEMP/review/files.txt" > "$RUNNER_TEMP/review/since.patch"
+            echo "Reviewed before at $reviewed ($verdict). Changed since, in this pull request's files:"
+            git diff --stat "$reviewed" "$HEAD" -- $(cat "$RUNNER_TEMP/review/files.txt") || true
+            cat > "$RUNNER_TEMP/review/since.md" <<EOF
+          This pull request was reviewed before, at commit $reviewed.
+          $RUNNER_TEMP/review/previous-review.md is that review as it stands,
+          and $RUNNER_TEMP/review/since.patch is everything changed in the
+          pull request's files since then. Judge only what since.patch changes
+          or adds; do not judge again what it leaves alone. For each earlier
+          clear miss, look at the code now: drop it if it is fixed, keep it if
+          not. Carry the earlier notes and suggestions over as they were,
+          unless since.patch changed the code they are about. Your answer
+          replaces the earlier review, so it lists every finding still open,
+          old and new.
+          EOF
+            echo "since=$reviewed" >> "$GITHUB_OUTPUT"
+            echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+            [ -s "$RUNNER_TEMP/review/since.patch" ] && echo "unchanged=false" >> "$GITHUB_OUTPUT" || echo "unchanged=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Nothing the earlier review read has changed: keep its verdict.
+      - name: Nothing to review again
+        if: steps.change.outputs.unchanged == 'true'
+        env:
+          VERDICT: ${{ steps.change.outputs.verdict }}
+          SINCE: ${{ steps.change.outputs.since }}
+          REPORT_ONLY: ${{ inputs.report_only }}
+        run: |
+          echo "None of this pull request's files changed since the review of $SINCE: its verdict ($VERDICT) stands."
+          if [ "$VERDICT" = fail ] && [ "$REPORT_ONLY" != true ]; then
+            echo "::error::The earlier AI review found clear misses, and nothing has changed since; see the pull request comment."
+            exit 1
+          fi
       - name: Review
+        if: steps.change.outputs.unchanged != 'true'
         id: review
         uses: anthropics/claude-code-action@v1
         with:
@@ -125,7 +180,9 @@ jobs:
                head) to see each changed page whole, not only the diff.
             4. The repo's README and AGENTS.md or CLAUDE.md, for what the app
                is and who uses it.
-
+            5. ${{ runner.temp }}/review/since.md, if it is there (ls it):
+               this pull request was reviewed before. Read it before the
+               diff; it says what to judge this time.
             Judge only what this pull request changes or adds, as a
             technician on a phone would meet it. For each finding, name the
             rule (its chapter and section, and quote it short), the file and
@@ -185,17 +242,21 @@ jobs:
             --allowedTools Read,Glob,Grep,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(cat:*),Bash(ls:*)
             --json-schema '{"type":"object","required":["verdict","findings","comment"],"properties":{"verdict":{"type":"string","enum":["pass","fail"]},"findings":{"type":"array","items":{"type":"object","required":["kind","rule","where","what"],"properties":{"kind":{"type":"string","enum":["clear miss","note","suggestion"]},"rule":{"type":"string"},"where":{"type":"string"},"what":{"type":"string"},"fix":{"type":"string"}}}},"comment":{"type":"string"}}}'
       - name: Comment and verdict
+        if: steps.change.outputs.unchanged != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OUT: ${{ steps.review.outputs.structured_output }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           REPORT_ONLY: ${{ inputs.report_only }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           test -n "$OUT" || { echo "::error::the review gave no answer"; exit 1; }
           MARK='<!-- sttark-app-review -->'
           printf '%s' "$OUT" | jq -r '.comment' > "$RUNNER_TEMP/review/comment.md"
           printf '\n\n%s\n<sub>AI review against the Pages and Behavior chapter and the Usability list in Checks, under Usability comes first (Sttark Brand and App Guidelines), and the DESIGN-DECISIONS.md file. Only clear misses fail.</sub>\n' "$MARK" >> "$RUNNER_TEMP/review/comment.md"
+          # What this review read, for the next push's review.
+          printf '<!-- sttark-app-review reviewed: %s -->\n<!-- sttark-app-review verdict: %s -->\n' "$HEAD" "$(printf '%s' "$OUT" | jq -r '.verdict')" >> "$RUNNER_TEMP/review/comment.md"
           # One comment per pull request, updated on each push.
           id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq ".[] | select(.body | contains(\"$MARK\")) | .id" | tail -1)
           if [ -n "$id" ]; then
