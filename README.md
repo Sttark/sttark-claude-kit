@@ -90,7 +90,7 @@ To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
 ## Effort per task
 
 - **Picks the level before Claude starts.** Each prompt you send goes to a quick side check (the newest Claude Sonnet, or another model you pick) along with the last few messages. The model picks Low, Medium, High, Extra or Max, and the session is set to that level before Claude's first step. A plain "go" after a plan gets sized to the plan.
-- **Checks again partway through.** At 10, 25 and 50 steps into a task, the model looks at the work so far. If builds keep failing or the cause is still unknown, it raises the level, up to Max for a task that's stuck at Extra. If the hard part is done and the rest is repeat edits, it lowers it.
+- **Checks again partway through.** At 10, 25 and 50 steps into a task, the model looks at the work so far. If builds keep failing or the cause is still unknown, it raises the level, up to Max for a task that's stuck at Extra. If the hard part is done and the rest is repeat edits, it lowers it. UI work stays at High or above until Claude has looked at the result and judged it, since that look is where the design gets decided.
 - **You can take over.** Turn **Auto effort** off for every session, or click one session to set it to Manual. If you change a session's effort yourself in the Claude app, Sttark Claude Kit notices and switches that session to Manual on its own.
 - **Shows its reasons.** The menu lists each session with its level; hover one for the latest reason. Every decision is logged.
 - **Updates itself** when a new version is released here.
