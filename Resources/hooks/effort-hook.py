@@ -57,6 +57,9 @@ Rules:
 work they approve. Read the recent conversation to see what that work is.
 - If the user names an effort level, use it.
 - If torn between two levels, pick the higher one.
+- UI work people will use (a page, screen, layout, dialog, mockup or visual) is \
+at least high, and a new page or a redesign is at least xhigh: how it should \
+work for the person using it is a judgment call, not a routine edit.
 
 Answer on one line: the level, then " - " and a reason of under 12 words."""
 
@@ -71,6 +74,10 @@ growing, or many systems involved mean harder than it first looked. If the hard 
 part is done (the cause found, the design settled) and what remains is routine \
 (repeating a known edit, a build, a commit), the rest needs less. Raise or \
 lower to match.
+
+UI work is different: looking at screenshots or renders of the result and \
+judging them is where the design gets decided, not a routine check. While UI \
+work still has screenshots to look at, judge or fix, keep it at high or above.
 
 Levels: low (trivial), medium (routine), high (multi-step work with judgment), \
 xhigh (hard or open-ended: unknown causes, building something end to end, \
