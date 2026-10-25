@@ -157,7 +157,7 @@ Claude Code installs each update in a new folder, and macOS files a program's Ac
 
 The Claude app, on desktop or phone, doesn't offer **Bypass permissions** for sessions that run on a Remote Control server. It switches each one to asking before commands, even when the server was started to bypass. Without this switch, there's no way to run those sessions in bypass.
 
-With it on, at a session's first permission prompt Sttark Claude Kit approves it and switches the session to Bypass permissions, so no more prompts follow. The Claude app then shows the session in Bypass permissions.
+With it on, at a session's first permission prompt Sttark Claude Kit approves it and switches the session to Bypass permissions. The Claude app then shows the session in Bypass permissions. Bypass still asks about a few commands Claude Code flags as risky, such as `rm` on a path built from a variable, so in bypass the switch approves those too.
 
 - It acts on sessions whose server was started with `--permission-mode bypassPermissions`. The server **Start sessions from the Claude app** sets up always is, so this switch alone decides.
 - Plan mode, plan approvals and questions Claude asks you are left alone.
