@@ -30,9 +30,9 @@ def headers():
             'x-organization-uuid': org()}
 
 
-def send(session, level):
+def send(session, level, request_id=None):
     body = {'session_id': session, 'events': [{'payload': {
-        'type': 'control_request', 'request_id': str(uuid.uuid4()), 'uuid': str(uuid.uuid4()),
+        'type': 'control_request', 'request_id': request_id or str(uuid.uuid4()), 'uuid': str(uuid.uuid4()),
         'request': {'subtype': 'apply_flag_settings',
                     'settings': {'effortLevel': level}}}}]}
     r = urllib.request.Request(API + session + '/events', data=json.dumps(body).encode(),

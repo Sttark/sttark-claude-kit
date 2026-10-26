@@ -20,7 +20,7 @@ in a new process starts from its new level instead.
 Only sessions with a claude.ai session id (Remote Control) can be changed.
 Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 """
-import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time
+import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time, uuid
 from contextlib import contextmanager
 
 LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
@@ -330,10 +330,43 @@ def sse():
 
 
 def send(sid, level):
+    """Change the session's effort. Returns (status, text, request id); the id tells the kit's own changes
+    apart from the person's on the server."""
+    rid = str(uuid.uuid4())
     try:
-        return sse().send(sid, level)
+        return (*sse().send(sid, level, rid), rid)
     except Exception as e:
-        return 0, repr(e)
+        return 0, repr(e), rid
+
+
+def live(sid):
+    """The session as the server sees it right now, or {} when it can't be read."""
+    try:
+        return sse().session(sid)
+    except Exception:
+        return {}
+
+
+def set_by_hand(x, d):
+    """The level the person picked in the Claude app, or ''. The server knows the moment they pick it; the
+    session's own steps only show it once the step running then finishes, which can take minutes."""
+    meta = d.get('external_metadata') or {}
+    level, rid = meta.get('effort_level') or '', meta.get('effort_request_id') or ''
+    if (level and x.get('sent') and level != x['sent'] and not x.get('manual')
+            and not (rid and rid == x.get('sent_id'))
+            and time.time() - x.get('sent_at', 0) > SETTLE):
+        return level
+    return ''
+
+
+def hands_off(sid, level, why):
+    """The person set this session's effort: leave it alone from now on."""
+    with state() as s:
+        x = s['sessions'].setdefault(sid, {})
+        if not x.get('manual'):
+            x['manual'] = True
+            x['level'] = level
+            log(f'manual {sid} set to {level} by hand; leaving this session alone | {why}')
 
 
 def fetch_title(sid):
@@ -465,6 +498,9 @@ def track():
             x['app'] = info
             if info['title']:
                 x['title'] = info['title']
+        hand = set_by_hand(sessions.get(sid, {}), d)
+        if hand:
+            hands_off(sid, hand, 'seen on the server')
 
 
 def title_later(sid, x):
@@ -500,6 +536,10 @@ def on_prompt(data, sid):
         remember(sid)
         log(f'{"paused" if st.get("paused") else "manual"} {sid} left at {x.get("level", "?")} | {snippet}')
         return
+    hand = set_by_hand(x, live(sid))
+    if hand:
+        hands_off(sid, hand, snippet)
+        return
     current = os.environ.get('CLAUDE_EFFORT') or x.get('level', '')
     t0 = time.time()
     try:
@@ -519,9 +559,13 @@ def on_prompt(data, sid):
         remember(sid, level=level, reason=reason)
         log(f'keep   {sid} {current} ({secs:.1f}s) {answer} | {snippet}')
         return
-    status, text = send(sid, level)
+    hand = set_by_hand(peek().get('sessions', {}).get(sid, {}), live(sid))
+    if hand:  # picked while the judge was thinking
+        hands_off(sid, hand, snippet)
+        return
+    status, text, rid = send(sid, level)
     if 200 <= status < 300:
-        remember(sid, level=level, sent=level, sent_at=time.time(), reason=reason)
+        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, reason=reason)
         time.sleep(1.5)  # let the change reach the session before the turn starts
         log(f'change {sid} {current}->{level} ({secs:.1f}s) {answer} | {snippet}')
     else:
@@ -586,9 +630,13 @@ def on_tool(data, sid):
         remember(sid, reason=reason)
         log(f'steady {sid} {current} at {calls} steps ({secs:.1f}s) {answer} | {snippet}')
         return
-    status, text = send(sid, level)
+    hand = set_by_hand(peek().get('sessions', {}).get(sid, {}), live(sid))
+    if hand:  # picked during the step that's still running
+        hands_off(sid, hand, snippet)
+        return
+    status, text, rid = send(sid, level)
     if 200 <= status < 300:
-        remember(sid, level=level, sent=level, sent_at=time.time(), reason=reason)
+        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, reason=reason)
         up = current not in LEVELS or LEVELS.index(level) > LEVELS.index(current)
         log(f'{"raise " if up else "lower "} {sid} {current}->{level} at {calls} steps ({secs:.1f}s) {answer} | {snippet}')
     else:
