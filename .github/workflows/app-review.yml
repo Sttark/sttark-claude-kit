@@ -187,9 +187,8 @@ jobs:
                every changed route, handler or function that writes data,
                follow it to where the write happens and see whether the
                change is recorded with who made it, and whether a page shows
-               that record to people: on the thing it changed and on the
-               app's Activity page. A record only in a log file or a table
-               no page reads is not shown.
+               that record to people on the thing it changed. A record only
+               in a log file or a table no page reads is not shown.
             4. The repo's README and AGENTS.md or CLAUDE.md, for what the app
                is and who uses it.
             5. ${{ runner.temp }}/review/since.md, if it is there (ls it):
