@@ -1,8 +1,9 @@
 # The AI review of a Sttark app's pull request, against the Sttark Brand and
-# App Guidelines: the Pages and Behavior chapter and the Usability list in
-# the Checks chapter, under "Usability comes first". Every Sttark web app
-# calls this one workflow on pull requests that change its pages or styles;
-# the rules live here once.
+# App Guidelines: the Pages and Behavior chapter, the Usability list in the
+# Checks chapter and "Every change has a name on it" in Sign-in and Access,
+# under "Usability comes first". Every Sttark web app calls this one workflow
+# on pull requests that change its pages, styles or server code; the rules
+# live here once.
 #
 # It reads the guide from app-rules.md on Sttark/sttark-docs main at run time
 # (the Apps chapters word for word, kept current from docs.sttark.com by that
@@ -26,7 +27,9 @@
 #   name: app review
 #   on:
 #     pull_request:
-#       paths: ['src/pages/**', 'src/components/**', 'src/layouts/**', 'src/styles/**']
+#       # Pages and styles, and the server code that writes data, so a new
+#       # way to change something is checked for its record.
+#       paths: ['src/**', 'public/**/*.css']
 #   jobs:
 #     review:
 #       uses: Sttark/sttark-claude-kit/.github/workflows/app-review.yml@main
@@ -165,8 +168,10 @@ jobs:
 
             Read, in full:
             1. ${{ runner.temp }}/review/app-rules.md: the Apps chapters, word for word. Your rules
-               are the chapter "Pages and Behavior" (all of it) and, in the
-               chapter "Checks", the "Usability" list. Over all of them is
+               are the chapter "Pages and Behavior" (all of it); in the
+               chapter "Checks", the "Usability" list; and in the chapter
+               "Sign-in and Access", the section "Every change has a name on
+               it", when the guide has it. Over all of them is
                "Usability comes first" in the chapter "Building Web Apps":
                the rules serve the people using the app. Use the other
                chapters only to understand those.
@@ -177,7 +182,10 @@ jobs:
                ${{ runner.temp }}/review/diff.patch: what this pull request
                changes. Open the changed page, component, layout and style
                files in the repo (it is checked out at the pull request's
-               head) to see each changed page whole, not only the diff.
+               head) to see each changed page whole, not only the diff. For
+               every changed route, handler or function that writes data,
+               follow it to where the write happens and see whether the
+               change is recorded with who made it.
             4. The repo's README and AGENTS.md or CLAUDE.md, for what the app
                is and who uses it.
             5. ${{ runner.temp }}/review/since.md, if it is there (ls it):
@@ -196,7 +204,11 @@ jobs:
             second green button, an error that shows another page, a field
             not styled as a field, jargon on screen, something added that
             cannot be removed, an important control behind hover, a summary
-            that does not lead with status. Anything you are not sure of, or
+            that does not lead with status, a new way to change data (a
+            route, handler, form action or function that writes) whose
+            change is recorded with no one's name, or code that edits or
+            erases those records outside the app's stated expiry. Anything
+            you are not sure of, or
             that needs the running app to judge, is a note, not a clear miss.
 
             Design decisions: never report anything a decision in
@@ -234,8 +246,8 @@ jobs:
             for every app, propose a change to the guide on docs.sttark.com.
 
             With no findings, the comment is one line saying the change
-            follows the Pages and Behavior and Usability rules and this
-            app's design decisions.
+            follows the Pages and Behavior, Usability and change-record
+            rules and this app's design decisions.
           claude_args: >-
             --model ${{ inputs.model }}
             --max-turns 40
@@ -254,7 +266,7 @@ jobs:
           test -n "$OUT" || { echo "::error::the review gave no answer"; exit 1; }
           MARK='<!-- sttark-app-review -->'
           printf '%s' "$OUT" | jq -r '.comment' > "$RUNNER_TEMP/review/comment.md"
-          printf '\n\n%s\n<sub>AI review against the Pages and Behavior chapter and the Usability list in Checks, under Usability comes first (Sttark Brand and App Guidelines), and the DESIGN-DECISIONS.md file. Only clear misses fail.</sub>\n' "$MARK" >> "$RUNNER_TEMP/review/comment.md"
+          printf '\n\n%s\n<sub>AI review against the Pages and Behavior chapter, the Usability list in Checks and Every change has a name on it in Sign-in and Access, under Usability comes first (Sttark Brand and App Guidelines), and the DESIGN-DECISIONS.md file. Only clear misses fail.</sub>\n' "$MARK" >> "$RUNNER_TEMP/review/comment.md"
           # What this review read, for the next push's review.
           printf '<!-- sttark-app-review reviewed: %s -->\n<!-- sttark-app-review verdict: %s -->\n' "$HEAD" "$(printf '%s' "$OUT" | jq -r '.verdict')" >> "$RUNNER_TEMP/review/comment.md"
           # One comment per pull request, updated on each push.
@@ -270,6 +282,6 @@ jobs:
           if [ "$verdict" = fail ] && [ "$REPORT_ONLY" = true ]; then
             echo "::warning::The AI review found clear misses (report only for this app); see the pull request comment."
           elif [ "$verdict" = fail ]; then
-            echo "::error::The AI review found clear misses of the Pages and Behavior or Usability rules; see the pull request comment."
+            echo "::error::The AI review found clear misses of the Pages and Behavior, Usability or change-record rules; see the pull request comment."
             exit 1
           fi
