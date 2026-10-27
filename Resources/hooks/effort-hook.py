@@ -333,6 +333,8 @@ def send(sid, level):
     """Change the session's effort. Returns (status, text, request id); the id tells the kit's own changes
     apart from the person's on the server."""
     rid = str(uuid.uuid4())
+    with state() as s:  # saved first, so a check that reads the server mid-send knows this change is the kit's
+        s['sessions'].setdefault(sid, {})['sent_id'] = rid
     try:
         return (*sse().send(sid, level, rid), rid)
     except Exception as e:
@@ -347,26 +349,28 @@ def live(sid):
         return {}
 
 
-def set_by_hand(x, d):
-    """The level the person picked in the Claude app, or ''. The server knows the moment they pick it; the
-    session's own steps only show it once the step running then finishes, which can take minutes."""
-    meta = d.get('external_metadata') or {}
+def by_hand(sid, why, d=None):
+    """Whether the person picked this session's level in the Claude app; if so the session goes to Manual and
+    the level is returned, else ''. The server knows the moment they pick it; the session's own steps only show
+    it once the step running then finishes, which can take minutes.
+    The server keeps the id of the latest change. A pick is an id that is new since the kit last looked and
+    isn't the kit's own, to a level other than the one the kit set. The first look only notes the id: a change
+    from before then (the kit's own from before it saved ids, or a level a reopened session left behind)
+    isn't the person's. Compared with the state as it is now, not a copy read before a send."""
+    meta = ((live(sid) if d is None else d) or {}).get('external_metadata') or {}
     level, rid = meta.get('effort_level') or '', meta.get('effort_request_id') or ''
-    if (level and x.get('sent') and level != x['sent'] and not x.get('manual')
-            and not (rid and rid == x.get('sent_id'))
-            and time.time() - x.get('sent_at', 0) > SETTLE):
-        return level
-    return ''
-
-
-def hands_off(sid, level, why):
-    """The person set this session's effort: leave it alone from now on."""
+    if not (level and rid):
+        return ''
     with state() as s:
         x = s['sessions'].setdefault(sid, {})
-        if not x.get('manual'):
+        hand = ('seen_id' in x and rid not in (x['seen_id'], x.get('sent_id'))
+                and level != (x.get('sent') or x.get('level')) and not x.get('manual'))
+        x['seen_id'] = rid
+        if hand:
             x['manual'] = True
             x['level'] = level
             log(f'manual {sid} set to {level} by hand; leaving this session alone | {why}')
+    return level if hand else ''
 
 
 def fetch_title(sid):
@@ -498,9 +502,7 @@ def track():
             x['app'] = info
             if info['title']:
                 x['title'] = info['title']
-        hand = set_by_hand(sessions.get(sid, {}), d)
-        if hand:
-            hands_off(sid, hand, 'seen on the server')
+        by_hand(sid, 'seen on the server', d)
 
 
 def title_later(sid, x):
@@ -536,9 +538,7 @@ def on_prompt(data, sid):
         remember(sid)
         log(f'{"paused" if st.get("paused") else "manual"} {sid} left at {x.get("level", "?")} | {snippet}')
         return
-    hand = set_by_hand(x, live(sid))
-    if hand:
-        hands_off(sid, hand, snippet)
+    if by_hand(sid, snippet):
         return
     current = os.environ.get('CLAUDE_EFFORT') or x.get('level', '')
     t0 = time.time()
@@ -559,13 +559,11 @@ def on_prompt(data, sid):
         remember(sid, level=level, reason=reason)
         log(f'keep   {sid} {current} ({secs:.1f}s) {answer} | {snippet}')
         return
-    hand = set_by_hand(peek().get('sessions', {}).get(sid, {}), live(sid))
-    if hand:  # picked while the judge was thinking
-        hands_off(sid, hand, snippet)
+    if by_hand(sid, snippet):  # picked while the judge was thinking
         return
     status, text, rid = send(sid, level)
     if 200 <= status < 300:
-        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, reason=reason)
+        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid, reason=reason)
         time.sleep(1.5)  # let the change reach the session before the turn starts
         log(f'change {sid} {current}->{level} ({secs:.1f}s) {answer} | {snippet}')
     else:
@@ -630,13 +628,11 @@ def on_tool(data, sid):
         remember(sid, reason=reason)
         log(f'steady {sid} {current} at {calls} steps ({secs:.1f}s) {answer} | {snippet}')
         return
-    hand = set_by_hand(peek().get('sessions', {}).get(sid, {}), live(sid))
-    if hand:  # picked during the step that's still running
-        hands_off(sid, hand, snippet)
+    if by_hand(sid, snippet):  # picked during the step that's still running
         return
     status, text, rid = send(sid, level)
     if 200 <= status < 300:
-        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, reason=reason)
+        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid, reason=reason)
         up = current not in LEVELS or LEVELS.index(level) > LEVELS.index(current)
         log(f'{"raise " if up else "lower "} {sid} {current}->{level} at {calls} steps ({secs:.1f}s) {answer} | {snippet}')
     else:

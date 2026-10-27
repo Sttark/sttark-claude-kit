@@ -69,7 +69,10 @@ enum State {
             var all = s["sessions"] as? [String: Any] ?? [:]
             var x = all[id] as? [String: Any] ?? [:]
             x["manual"] = on
-            if !on { x.removeValue(forKey: "sent") }   // the current level becomes the starting point again
+            if !on {   // the current level, and the server's latest change, become the starting point again
+                x.removeValue(forKey: "sent")
+                x.removeValue(forKey: "seen_id")
+            }
             all[id] = x
             s["sessions"] = all
         }
