@@ -185,7 +185,10 @@ jobs:
                head) to see each changed page whole, not only the diff. For
                every changed route, handler or function that writes data,
                follow it to where the write happens and see whether the
-               change is recorded with who made it.
+               change is recorded with who made it, and whether a page shows
+               that record to people: on the thing it changed and on the
+               app's Activity page. A record only in a log file or a table
+               no page reads is not shown.
             4. The repo's README and AGENTS.md or CLAUDE.md, for what the app
                is and who uses it.
             5. ${{ runner.temp }}/review/since.md, if it is there (ls it):
@@ -206,8 +209,9 @@ jobs:
             cannot be removed, an important control behind hover, a summary
             that does not lead with status, a new way to change data (a
             route, handler, form action or function that writes) whose
-            change is recorded with no one's name, or code that edits or
-            erases those records outside the app's stated expiry. Anything
+            change is recorded with no one's name, or whose record no page
+            shows, or code that edits or erases those records outside the
+            app's stated expiry. Anything
             you are not sure of, or
             that needs the running app to judge, is a note, not a clear miss.
 
