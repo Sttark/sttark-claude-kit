@@ -40,7 +40,7 @@ def is_profile(cmd):
 
 
 RULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app-rules-hook.py')
-RULES_PARTS = 6  # app-rules-hook.py's PARTS: one UserPromptSubmit entry per part
+RULES_PARTS = 8  # app-rules-hook.py's PARTS: one UserPromptSubmit entry per part
 
 
 def is_rules(cmd):

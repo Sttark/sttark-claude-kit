@@ -1,0 +1,230 @@
+# The shared Sttark page check, as one workflow every Sttark web app calls,
+# so a new app adds a few lines instead of writing its own. The check itself
+# lives in Sttark/sttark-docs (page-check/); the app keeps its launcher as
+# scripts/page-check.mjs and its own part in scripts/page-check.config.*,
+# both made by page-check/setup.mjs there. What the check does is in the
+# Checks chapter of the Sttark Brand and App Guidelines.
+#
+# On a pull request it checks the pages the change reaches (against the
+# base branch), and from the second push on only what changed since the
+# last run on that pull request, plus the pages that failed in it. On a push
+# to main it checks what main gained since the merged pull request's last
+# passing run, or, without one, what changed since the last commit on main
+# that passed; every page when there is no such commit, or when the
+# workflows, the dependencies or the launcher changed. On a schedule it
+# checks every page, and skips when main has not moved since the last
+# scheduled pass. A failure on main emails whoever's change failed it.
+#
+# In the app's repo, .github/workflows/page-check.yml:
+#
+#   name: page check
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+#     schedule:
+#       - cron: '0 8 * * *'
+#   concurrency:
+#     group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+#     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+#   jobs:
+#     page-check:
+#       uses: Sttark/sttark-claude-kit/.github/workflows/page-check.yml@main
+#       # with:
+#       #   directory: web          # the app's folder, when it is not the repo root
+#       #   prepare: npm run build  # anything the servers need first
+#       secrets:
+#         # The read-only deploy key for Sttark/sttark-docs, where the check is.
+#         STTARK_DOCS_DEPLOY_KEY: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
+#         # The mail password for telling whoever's change failed main.
+#         CHECK_MAIL_SMTP_PASSWORD: ${{ secrets.CHECK_MAIL_SMTP_PASSWORD }}
+#       permissions:
+#         contents: read
+#         actions: read
+#         pull-requests: read
+#
+# Then make "page-check / check" a required check on main.
+name: page check
+
+on:
+  workflow_call:
+    inputs:
+      directory:
+        description: The app's folder (where package.json and scripts/page-check.mjs are), from the repo root
+        type: string
+        default: .
+      node-version:
+        type: string
+        default: '22'
+      install:
+        description: How to install the app's dependencies
+        type: string
+        default: npm ci
+      prepare:
+        description: Commands to run before the check (a build, made-up data)
+        type: string
+        default: ''
+    secrets:
+      STTARK_DOCS_DEPLOY_KEY:
+        required: true
+      CHECK_MAIL_SMTP_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  # A scheduled run skips when main has not moved since the last scheduled
+  # run that passed.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != schedule ]; then echo run=true >> "$GITHUB_OUTPUT"; exit 0; fi
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$WORKFLOW" --branch main --status success --event schedule --limit 1 --json headSha -q '.[0].headSha' || true)
+          if [ "$last" = "$GITHUB_SHA" ]; then echo "main is unchanged since the last scheduled pass ($last); skipping."; echo run=false >> "$GITHUB_OUTPUT"
+          else echo run=true >> "$GITHUB_OUTPUT"; fi
+
+  check:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{ inputs.directory }}
+    env:
+      STTARK_PAGE_CHECK: ${{ github.workspace }}/../sttark-docs/page-check
+      DOCS: ${{ github.workspace }}/../sttark-docs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The check works out changed pages from the merge base.
+          fetch-depth: 0
+      - name: Fetch the page check from sttark-docs
+        working-directory: .
+        env:
+          DEPLOY_KEY: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
+        run: |
+          test -n "$DEPLOY_KEY" || { echo "The STTARK_DOCS_DEPLOY_KEY secret is not set (page-check/setup.mjs in Sttark/sttark-docs sets it)"; exit 1; }
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/sttark-docs
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sttark-docs -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone -q --filter=blob:none --sparse --branch main git@github.com:Sttark/sttark-docs.git "$DOCS"
+          git -C "$DOCS" sparse-checkout set --no-cone app/src/styles/sttark-shared.css '/page-check/'
+          rm -f ~/.ssh/sttark-docs
+      # On a push to main: what to check. full = every page; otherwise the
+      # check runs --changed against `against`.
+      - name: What this push changed
+        id: scope
+        if: github.event_name == 'push'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW: ${{ github.workflow }}
+          DIR: ${{ inputs.directory }}
+        run: |
+          full() { echo "Checking every page: $1"; echo full=true >> "$GITHUB_OUTPUT"; exit 0; }
+          sha=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$WORKFLOW" --branch main --status success --event push --limit 1 --json headSha -q '.[0].headSha' || true)
+          # The merged pull request's last passing run, when there is one:
+          # only what main gained since it.
+          if node "$STTARK_PAGE_CHECK/last-run.mjs" --files > "$RUNNER_TEMP/changed.txt"; then
+            cat "$RUNNER_TEMP/changed.txt"
+            { [ -n "$sha" ] && git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; } || sha=$(git rev-parse HEAD~1)
+          else
+            [ -n "$sha" ] || full "no earlier passing run on main"
+            git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || full "$sha is not in main's history"
+            echo "Last passing run on main: $sha"
+            git diff --name-only "$sha" HEAD | tee "$RUNNER_TEMP/changed.txt"
+          fi
+          d="${DIR#./}"; d="${d%/}"; [ "$d" = . ] && d="" || d="$d/"
+          while read -r f; do
+            case "$f" in
+              .github/workflows/*|"${d}package.json"|"${d}package-lock.json"|"${d}scripts/page-check.mjs") full "$f changed" ;;
+            esac
+          done < "$RUNNER_TEMP/changed.txt"
+          echo full=false >> "$GITHUB_OUTPUT"
+          echo "against=$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+      - name: Install
+        run: ${{ inputs.install }}
+      - name: Prepare
+        if: inputs.prepare != ''
+        run: ${{ inputs.prepare }}
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache the Playwright browser
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Chromium's system libraries
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Page check, the pages this pull request changes
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run check:pages -- --changed --against "origin/${{ github.base_ref }}" --since last-run --report "$RUNNER_TEMP/page-check-report.json" --shots "$RUNNER_TEMP/shots"
+      - name: Page check, the pages changed since the last passing run
+        if: github.event_name == 'push' && steps.scope.outputs.full == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run check:pages -- --changed --since last-run --against "${{ steps.scope.outputs.against }}" --report "$RUNNER_TEMP/page-check-report.json" --shots "$RUNNER_TEMP/shots"
+      - name: Page check, every page
+        if: github.event_name != 'pull_request' && steps.scope.outputs.full != 'false'
+        run: npm run check:pages -- --report "$RUNNER_TEMP/page-check-report.json" --shots "$RUNNER_TEMP/shots"
+      # What this run checked and what failed: the next push to the pull
+      # request checks only what changed since, and the merge only what main
+      # gained since.
+      - name: Keep the page check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: page-check-report
+          path: ${{ runner.temp }}/page-check-report.json
+          retention-days: 30
+          if-no-files-found: ignore
+          overwrite: true
+      - name: Dev server logs
+        if: failure()
+        run: tail -n 100 "${TMPDIR:-/tmp}"/page-check-serve-*/*.log || true
+      - name: Screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: page-shots
+          path: ${{ runner.temp }}/shots
+          retention-days: 7
+      # A failed check on main emails the authors of the commits since the
+      # last pass that reach what failed. Never a Chat space, never a fixed
+      # list.
+      - name: Email whoever's change failed this
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAIL_SMTP_HOST: smtp.sparkpostmail.com
+          MAIL_SMTP_PORT: '587'
+          MAIL_SMTP_USER: SMTP_Injection
+          MAIL_SMTP_PASS: ${{ secrets.CHECK_MAIL_SMTP_PASSWORD }}
+          MAIL_FROM: alerts@sttark.com
+        run: |
+          if [ -z "$MAIL_SMTP_PASS" ]; then echo "::warning::CHECK_MAIL_SMTP_PASSWORD is not set, so nobody is emailed about this failure"; exit 0; fi
+          node scripts/page-check.mjs tell-failed --report "$RUNNER_TEMP/page-check-report.json" --canonical "$DOCS" --send
