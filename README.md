@@ -61,7 +61,7 @@ Click the gauge:
 | **Sign in to Claude Code…** | Opens Terminal and starts Claude Code's sign-in; you finish in the browser. Hover it to see when your login runs out. See [below](#claude-code-login). |
 | **Check for updates** | Looks for a new version now. Hidden while an update is waiting. |
 
-Sessions show for 12 hours after their last activity.
+Sessions show for 12 hours after their last activity. Archived sessions drop off within a minute.
 
 **Setting the effort yourself:** change it in the Claude app's effort picker as usual. Sttark Claude Kit reads each session's level from the server, sees one it didn't send, switches that session to Manual and leaves it alone. The menu shows Manual within a minute, and the kit checks again right before any change it makes, so it never undoes your pick, even in the middle of a long step. Click the row to hand it back. A session that reopens (after the Mac restarts, or when the server brings back an idle one) starts again at the level it was saved with; that doesn't count as you changing it.
 

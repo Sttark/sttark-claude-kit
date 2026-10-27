@@ -103,13 +103,13 @@ enum State {
         }
     }
 
-    /// Sessions seen in the last `hours`, newest first.
+    /// Sessions seen in the last `hours`, newest first. Archived ones are left out.
     static func sessions(hours: Double = 12) -> [Session] {
         let all = read()["sessions"] as? [String: [String: Any]] ?? [:]
         let cutoff = Date().addingTimeInterval(-hours * 3600)
         return all.compactMap { id, x in
             let at = Date(timeIntervalSince1970: x["at"] as? Double ?? 0)
-            guard at > cutoff else { return nil }
+            guard at > cutoff, !((x["app"] as? [String: Any])?["archived"] as? Bool ?? false) else { return nil }
             let t = (x["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             var s = Session(id: id, title: t.isEmpty ? "Session " + id.suffix(6) : t,
                             level: x["level"] as? String ?? "?", reason: x["reason"] as? String ?? "",
@@ -120,7 +120,7 @@ enum State {
                 iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                 s.why = a["why"] as? String ?? ""
                 s.needsYou = a["needs"] as? Bool ?? false
-                if (s.needsYou || (a["unseen"] as? Bool ?? false)), !(a["archived"] as? Bool ?? false), !(a["working"] as? Bool ?? true),
+                if (s.needsYou || (a["unseen"] as? Bool ?? false)), !(a["working"] as? Bool ?? true),
                    let d = iso.date(from: a["last_event_at"] as? String ?? "") {
                     s.waitingSince = d
                 }
