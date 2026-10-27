@@ -171,10 +171,11 @@ jobs:
                are the chapter "Pages and Behavior" (all of it); in the
                chapter "Checks", the "Usability" list; and in the chapter
                "Sign-in and Access", the section "Every change has a name on
-               it", when the guide has it. Over all of them is
-               "Usability comes first" in the chapter "Building Web Apps":
-               the rules serve the people using the app. Use the other
-               chapters only to understand those.
+               it", when the guide has it. Over all of them are "How to
+               decide" (when the guide has it) and "Usability comes first" in
+               the chapter "Building Web Apps": the rules serve the people
+               using the app, and each rule's reason outranks its wording.
+               Use the other chapters only to understand those.
             2. ${{ runner.temp }}/review/design-decisions.md: this app's
                DESIGN-DECISIONS.md, the decisions it made where a rule
                departs or is settled for it. A decision there is made.
@@ -195,7 +196,14 @@ jobs:
                this pull request was reviewed before. Read it before the
                diff; it says what to judge this time.
             Judge only what this pull request changes or adds, as a
-            technician on a phone would meet it. For each finding, name the
+            technician on a phone would meet it. Start from what each changed
+            page is for: who comes to it and what they come to do. Weigh
+            every finding against that. Something few people need now and
+            then belongs quiet and reachable, not in plain sight, so never
+            ask to make it more prominent. When a rule seems to fight the
+            page's purpose, or two rules pull against each other, that is a
+            question for the app's owner, never a clear miss: say which
+            rules and what each is for, and ask. For each finding, name the
             rule (its chapter and section, and quote it short), the file and
             line, what is wrong, and the plainest fix. A clear miss is
             something the rule plainly forbids and the change plainly does,
