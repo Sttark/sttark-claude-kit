@@ -3,13 +3,13 @@
 Sttark Brand and App Guidelines to the session once. Installed by the Sttark Claude Kit app.
 
 Which sessions (app_kind): the prompt's working folder is in a git repo (a worktree counts)
-whose origin is any Sttark repo, or that has no origin yet (a new app), and the repo has
-screens: tracked or new files a page is made of (SCREENS). A Sttark repo without screens,
-such as a machine's controller, gets nothing until one is added; a repo of anyone else gets
-nothing. A folder outside any git repo, and a new repo without screens yet, get one short
-line instead (POINTER): read the chapters first if the session builds a Sttark app or page,
-and set up a new app with the setup command. The check runs again at every prompt, so a new
-app that gains its first page gets the chapters at the next prompt.
+that is set up for the guide (it has the page check: SET_UP), or a new repo with no origin
+yet that has screens (tracked or new files a page is made of: SCREENS). Any other repo gets
+nothing, whoever's it is: an app that was never set up stays as it is. A folder outside any
+git repo, and a new repo without screens yet, get one short line instead (POINTER): read the
+chapters first if the session builds a Sttark app or page, and set up a new app with the
+setup command. The check runs again at every prompt, so a new app that gains its first page
+gets the chapters at the next prompt.
 
 UserPromptSubmit, with a part number (1 to PARTS): each part adds its share of the chapters
 as additionalContext, the first time in each session. Claude Code saves any hook
@@ -50,7 +50,9 @@ LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')  # the kit's fixed copy, when the server is on
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
 
-ORIGIN = re.compile(r'[:/]Sttark/([A-Za-z0-9_.-]+?)(?:\.git)?/?$', re.I)
+# An app set up for the guide: it has the page check's launcher (page-check/setup.mjs in
+# Sttark/sttark-docs adds it), or is sttark-docs itself, where the check lives.
+SET_UP = ('scripts/page-check.mjs', '*/scripts/page-check.mjs', 'page-check/check-pages.mjs')
 # Files a page is made of. node_modules and build output are ignored by git, so they don't count.
 SCREENS = ('*.astro', '*.tsx', '*.jsx', '*.vue', '*.svelte', '*.html', '*.css', '*.scss',
            '*.blade.php', '*.twig', '*.erb')
@@ -106,17 +108,28 @@ def has_screens(cwd):
     return False
 
 
+def is_set_up(cwd):
+    """Whether the repo has the page check, committed or new."""
+    for args in (('ls-files', '--'), ('ls-files', '--others', '--exclude-standard', '--')):
+        if git(cwd, *args, *SET_UP):
+            return True
+    return False
+
+
 def app_kind(cwd):
-    """('app', name) for a Sttark app repo, or a new repo with screens; ('pointer', None) for a
-    folder outside any repo, or a new repo without screens yet; None otherwise."""
-    if git(cwd, 'rev-parse', '--show-toplevel') is None:
-        return ('pointer', None)
-    url = git(cwd, 'config', '--get', 'remote.origin.url')
-    if url:
-        m = ORIGIN.search(url)
-        return ('app', m.group(1)) if m and has_screens(cwd) else None
+    """('app', name) for a repo set up for the guide, or a new repo with screens;
+    ('pointer', None) for a folder outside any repo, or a new repo without screens yet;
+    None for every other repo."""
     top = git(cwd, 'rev-parse', '--show-toplevel')
-    return ('app', os.path.basename(top)) if has_screens(cwd) else ('pointer', None)
+    if top is None:
+        return ('pointer', None)
+    name = os.path.basename(top)
+    if is_set_up(cwd):
+        url = git(cwd, 'config', '--get', 'remote.origin.url') or ''
+        return ('app', re.sub(r'\.git$', '', url.rstrip('/').rsplit('/', 1)[-1].rsplit(':', 1)[-1]) or name)
+    if git(cwd, 'config', '--get', 'remote.origin.url'):
+        return None
+    return ('app', name) if has_screens(cwd) else ('pointer', None)
 
 
 def cached():
