@@ -1,11 +1,18 @@
 #!/usr/bin/python3
-"""Claude Code hook: in a session working inside one of Sttark's app repos, add the Apps
-chapters of the Sttark Brand and App Guidelines to the session once. Installed by the
-Sttark Claude Kit app.
+"""Claude Code hook: in a session working on a Sttark app, add the Apps chapters of the
+Sttark Brand and App Guidelines to the session once. Installed by the Sttark Claude Kit app.
 
-UserPromptSubmit, with a part number (1 to PARTS): when the prompt's working folder is in a
-git repo whose origin is one of APPS (a worktree counts), each part adds its share of the
-chapters as additionalContext, the first time in each session. Claude Code saves any hook
+Which sessions (app_kind): the prompt's working folder is in a git repo (a worktree counts)
+that is set up for the guide (it has the page check: SET_UP), or a new repo with no origin
+yet that has screens (tracked or new files a page is made of: SCREENS). Any other repo gets
+nothing, whoever's it is: an app that was never set up stays as it is. A folder outside any
+git repo, and a new repo without screens yet, get one short line instead (POINTER): read the
+chapters first if the session builds a Sttark app or page, and set up a new app with the
+setup command. The check runs again at every prompt, so a new app that gains its first page
+gets the chapters at the next prompt.
+
+UserPromptSubmit, with a part number (1 to PARTS): each part adds its share of the chapters
+as additionalContext, the first time in each session. Claude Code saves any hook
 text over 10,000 characters to a file and shows only a preview, so the chapters go in
 parts of under that, one per hook entry; the entries run side by side.
 
@@ -43,12 +50,19 @@ LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')  # the kit's fixed copy, when the server is on
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
 
-APPS = ('building', 'sttark-docs', 'sttark-inventory', 'hvac_automation')
-ORIGIN = re.compile(r'[:/]Sttark/(%s)(?:\.git)?/?$' % '|'.join(map(re.escape, APPS)), re.I)
+# An app set up for the guide: it has the page check's launcher (page-check/setup.mjs in
+# Sttark/sttark-docs adds it), or is sttark-docs itself, where the check lives.
+SET_UP = ('scripts/page-check.mjs', '*/scripts/page-check.mjs', 'page-check/check-pages.mjs')
+# Files a page is made of. node_modules and build output are ignored by git, so they don't count.
+SCREENS = ('*.astro', '*.tsx', '*.jsx', '*.vue', '*.svelte', '*.html', '*.css', '*.scss',
+           '*.blade.php', '*.twig', '*.erb')
+# The setup command for a new app: the page check, the AI review and the agent notes.
+SETUP = ("gh api -H 'Accept: application/vnd.github.raw' repos/Sttark/sttark-docs/contents/page-check/setup.mjs"
+         " > \"$TMPDIR/sttark-setup.mjs\" && node \"$TMPDIR/sttark-setup.mjs\"")
 GUIDE = '/company/sttark-brand-and-app-guidelines/guide'
 CHAPTERS = ('building-web-apps', 'look', 'pages-and-behavior', 'sign-in-and-access', 'checks')
 TOOL = 'mcp__claude_ai_Sttark_Workrouter__docs_read'
-PARTS = 6           # hook entries install-hooks.py adds; room for the chapters to grow
+PARTS = 8           # hook entries install-hooks.py adds; room for the chapters to grow
 SIZE = 9000         # characters per part, under Claude Code's 10,000
 STALE = 24 * 3600   # refresh a copy older than this
 RETRY = 3600        # but try at most once an hour
@@ -59,7 +73,17 @@ MARK = re.compile(r'^<!-- (%s/[a-z-]+), revision (\d+) -->$' % re.escape(GUIDE),
 
 LEAD = ("These are the rules for Sttark apps (the Apps chapters of the Sttark Brand and App Guidelines on "
         "docs.sttark.com, added by Sttark Claude Kit because this session works in a Sttark app repo). "
-        "Follow them for any UI work, and run the Checks chapter's Before you ship list.")
+        "Follow them for any UI work, and run the Checks chapter's Before you ship list. An app without "
+        "scripts/page-check.mjs has no page check yet: when the work is building a new app, or the "
+        "person asks, set one up in the repo root with " + SETUP + ".")
+POINTER = ("Sttark Claude Kit: if this session builds or changes a web app or page for Sttark, first read the "
+           "Apps chapters of the Sttark Brand and App Guidelines with the Sttark Workrouter docs_read tool: "
+           + ', '.join(f'{GUIDE}/{n}' for n in CHAPTERS) + ". Set up a new app, once it is a git repo, with "
+           + SETUP + " (the page check, the AI review and the agent notes). Otherwise ignore this line.")
+# Code a session needs only when it builds that one thing (the logo's SVG, a Chat card's dots):
+# left out of what is added, with where to find it, so the chapters fit and stay short.
+CODE = re.compile(r'```(?:xml|svg)\n.*?```', re.S)
+LEFT_OUT = '(Code left out here; read it in this chapter with docs_read when you need it.)'
 
 
 def log(line):
@@ -67,15 +91,45 @@ def log(line):
         f.write(time.strftime('%F %T ') + 'rules  ' + line + '\n')
 
 
-def app_repo(cwd):
-    """The app's name when cwd is inside a git repo (or worktree) whose origin is a Sttark app."""
+def git(cwd, *args):
+    """git's output in cwd, or None when it fails (not a repo, no such setting)."""
     try:
-        url = subprocess.run(['git', '-C', cwd, 'config', '--get', 'remote.origin.url'],
-                             capture_output=True, text=True, timeout=3).stdout.strip()
+        r = subprocess.run(['git', '-C', cwd, *args], capture_output=True, text=True, timeout=3)
     except Exception:
         return None
-    m = ORIGIN.search(url)
-    return m.group(1) if m else None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def has_screens(cwd):
+    """Whether the repo has a file a page is made of, committed or new."""
+    for args in (('ls-files', '--'), ('ls-files', '--others', '--exclude-standard', '--')):
+        if git(cwd, *args, *SCREENS):
+            return True
+    return False
+
+
+def is_set_up(cwd):
+    """Whether the repo has the page check, committed or new."""
+    for args in (('ls-files', '--'), ('ls-files', '--others', '--exclude-standard', '--')):
+        if git(cwd, *args, *SET_UP):
+            return True
+    return False
+
+
+def app_kind(cwd):
+    """('app', name) for a repo set up for the guide, or a new repo with screens;
+    ('pointer', None) for a folder outside any repo, or a new repo without screens yet;
+    None for every other repo."""
+    top = git(cwd, 'rev-parse', '--show-toplevel')
+    if top is None:
+        return ('pointer', None)
+    name = os.path.basename(top)
+    if is_set_up(cwd):
+        url = git(cwd, 'config', '--get', 'remote.origin.url') or ''
+        return ('app', re.sub(r'\.git$', '', url.rstrip('/').rsplit('/', 1)[-1].rsplit(':', 1)[-1]) or name)
+    if git(cwd, 'config', '--get', 'remote.origin.url'):
+        return None
+    return ('app', name) if has_screens(cwd) else ('pointer', None)
 
 
 def cached():
@@ -153,8 +207,8 @@ def check_current():
 
 def parts(c):
     """The lead line and the chapters, split at paragraph breaks into pieces of at most SIZE characters."""
-    text = LEAD + '\n\n' + '\n\n'.join(f'<!-- {x["path"]}, revision {x["revision"]} -->\n{x["text"]}'
-                                        for x in c['chapters'])
+    text = LEAD + '\n\n' + '\n\n'.join(f'<!-- {x["path"]}, revision {x["revision"]} -->\n'
+                                        + CODE.sub(LEFT_OUT, x['text']) for x in c['chapters'])
     out, cur = [], ''
     for para in text.split('\n\n'):
         while len(para) > SIZE:  # a single paragraph longer than a part: cut it at a line break
@@ -256,9 +310,17 @@ def main():
     cwd = data.get('cwd') or os.getcwd()
     if not sid or os.path.exists(seen_file(sid, part)):
         return
-    app = app_repo(cwd)
-    if not app:
+    kind = app_kind(cwd)
+    if not kind:
         return
+    if kind[0] == 'pointer':  # once per session, from the first part; the chapters can still follow
+        if part == 1 and not os.path.exists(seen_file(sid, 'pointer')):
+            os.makedirs(SEEN, exist_ok=True)
+            open(seen_file(sid, 'pointer'), 'w').close()
+            log(f'{sid[:12]}… pointer: {cwd}')
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': POINTER}}))
+        return
+    app = kind[1]
     check_current()
     c = cached()
     if part == 1 and (not c or time.time() - os.path.getmtime(CACHE) > STALE):
