@@ -513,7 +513,7 @@ def track():
 
 KEEP_MAX = 30  # chats kept running at once; a `claude rc` server takes 32 by default
 KEEP_RETRY = 180  # seconds before waking the same chat again
-KEEP_MOVE = 2  # wakes that bring no process before the chat is started on a new link
+KEEP_MOVE = 2  # wakes that bring no process before the chat is started on its own (an unarchived one goes right away)
 KEEP_PAUSE = 1800  # after a chat can't be started either way, seconds before trying again
 TRIGGERS = 'https://api.anthropic.com/v1/code/triggers'
 
@@ -572,12 +572,58 @@ def start_alone(transcript):
     return cid
 
 
-def new_link(transcript, wait=90):
-    """The link a chat started with start_alone records in its transcript, once it has one."""
+def chat_events(sid, pages=5):
+    """A chat's events, newest first, back to the last one its Claude Code wrote (or `pages` pages)."""
+    out, cursor = [], ''
+    for _ in range(pages):
+        d = api('GET', f'https://api.anthropic.com/v1/code/sessions/{sid}/events?limit=100' + (f'&cursor={cursor}' if cursor else ''))
+        out += d.get('data') or []
+        cursor = d.get('next_cursor')
+        if not cursor or any(e.get('source') == 'worker' for e in out):
+            break
+    return out
+
+
+def waiting_since_reply(events):
+    """(the position to pick up from, archived since its last reply). The position is just before the first message
+    the person sent since Claude Code last wrote, so those messages are answered and nothing older runs again."""
+    seq = lambda e: int(e.get('sequence_num') or 0)
+    last = max((seq(e) for e in events if e.get('source') == 'worker'), default=0)
+    after = [e for e in events if seq(e) > last and e.get('source') == 'client']
+    sent = [seq(e) for e in after if e.get('event_type') == 'user']
+    archived = False
+    for e in after:
+        try:
+            p = e['payload'] if isinstance(e['payload'], dict) else json.loads(e['payload'])
+        except Exception:
+            continue
+        r = p.get('request') or {}
+        archived |= r.get('subtype') == 'end_session' and r.get('reason') == 'archived'
+    return (min(sent) - 1 if sent else max(map(seq, events), default=0)), archived
+
+
+def point_at(transcript, sid, seq):
+    """Tell a saved conversation which link to reconnect to, and from where. Claude Code reads the last such line
+    when it's started with --remote-control: it reattaches that link, unarchiving it if needed."""
+    with open(os.path.expanduser('~/.claude.json')) as f:
+        acct = json.load(f).get('oauthAccount') or {}
+    cid = os.path.basename(transcript)[:-len('.jsonl')]
+    with open(transcript, 'a') as f:
+        f.write(json.dumps({'type': 'bridge-session', 'sessionId': cid, 'bridgeSessionId': sid, 'lastSequenceNum': seq,
+                            'ownerAccountUuid': acct.get('accountUuid', ''),
+                            'ownerOrganizationUuid': acct.get('organizationUuid', '')}) + '\n')
+
+
+def links(transcript):
+    with open(transcript) as f:
+        return [json.loads(l)['bridgeSessionId'] for l in f if '"type":"bridge-session"' in l]
+
+
+def new_link(transcript, wait=90, after=0):
+    """The link a chat started with start_alone records in its transcript, once it has one (past the first `after`)."""
     for _ in range(wait // 3):
-        with open(transcript) as f:
-            ids = [json.loads(l)['bridgeSessionId'] for l in f if '"type":"bridge-session"' in l]
-        if ids:
+        ids = links(transcript)
+        if len(ids) > after:
             return ids[-1]
         time.sleep(3)
     return ''
@@ -601,16 +647,23 @@ def move_routines(old, new):
     return moved
 
 
-def move(c):
+def move(c, seq):
     """A chat the server won't start (it was archived, then unarchived) starts as a chat of its own with its whole
-    conversation, on a new link. Its Routines follow it, and the old entry is archived so the app lists it once."""
+    conversation, on the same link, picking up at `seq` so messages sent while it was stopped are answered.
+    If Claude Code can't reattach the link it makes a new one: then its Routines follow it, and the old entry is
+    archived so the app lists it once."""
     sid, title = c['id'], c.get('title', '')
     transcript = peek().get('sessions', {}).get(sid, {}).get('transcript', '')
     if not os.path.exists(transcript):
         log(f'keep   {sid} "{title}" won\'t start, and its conversation isn\'t on this Mac')
         return None
+    point_at(transcript, sid, seq)
+    before = len(links(transcript))
     start_alone(transcript)
-    new = new_link(transcript)
+    new = new_link(transcript, after=before)
+    if new == sid:
+        log(f'reattach {sid} "{title}" the server won\'t start it (unarchived), so it runs on its own on the same link, from {seq}')
+        return {'id': sid, 'transcript': transcript, 'title': title}
     if not new:
         log(f'keep   {sid} "{title}" won\'t start, and starting it on a new link didn\'t work either')
         return None
@@ -635,6 +688,12 @@ def keep(dry=False):
     they're started again here, which brings back the same link.
     The server's environment (the place the Claude app lists for this Mac) is learned from the chats it runs,
     and remembered for after a restart."""
+    import fcntl
+    lock = open(os.path.join(os.path.dirname(STATE), 'keep.lock'), 'w')
+    try:  # one at a time: starting a chat can take longer than the gap between checks
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return
     ps = processes()
     running = server_chats(ps)
     if running is None:
@@ -668,22 +727,31 @@ def keep(dry=False):
         if dry:
             print(f'would start {sid} "{a.get("title", "")}" again on its own')
             continue
+        try:
+            point_at(a['transcript'], sid, waiting_since_reply(chat_events(sid))[0])
+        except Exception as e:
+            log(f'keep   {sid} couldn\'t read where it left off: {e!r}'[:200])
         start_alone(a['transcript'])
         a['at'] = now
         log(f'start  {sid} "{a.get("title", "")}" runs on its own and had stopped; started it again')
 
     mine = [c for c in chats if c.get('environment_id') in envs and c.get('environment_kind') == 'bridge']
-    stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running]
+    stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running and c['id'] not in alone]
     room = KEEP_MAX - sum(1 for c in mine if c['id'] in running) - len(alone)
     for c in sorted(stopped, key=lambda c: c.get('last_event_at') or '', reverse=True)[:max(room, 0)]:
         sid, w = c['id'], woke.get(c['id'], {})
         if now - w.get('at', 0) < (KEEP_PAUSE if w.get('failed') else KEEP_RETRY):
             continue
-        if w.get('tries', 0) >= KEEP_MOVE and not w.get('failed'):
+        try:
+            seq, archived = waiting_since_reply(chat_events(sid))
+        except Exception as e:
+            log(f'keep   {sid} can\'t read its events: {e!r}'[:200])
+            continue
+        if (archived or w.get('tries', 0) >= KEEP_MOVE) and not w.get('failed'):
             if dry:
-                print(f'would move {sid} "{c.get("title", "")}" to a new link')
+                print(f'would start {sid} "{c.get("title", "")}" on its own, from {seq}')
                 continue
-            a = move(c)
+            a = move(c, seq)
             if a:
                 new = a.pop('id')
                 alone[new] = dict(a, at=now)
