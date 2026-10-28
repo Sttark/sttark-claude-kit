@@ -28,7 +28,8 @@ final class Controller: NSObject, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
         Waiting.watchFront()
         Waiting.refresh()
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh(); Server.keepChats() }
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
+        Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in Server.keepChats() }
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in ChromeWindow.keepOpen() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
         refreshIcon()
