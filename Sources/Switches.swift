@@ -247,3 +247,57 @@ enum ChromeWindow {
         note("Claude window in Chrome \(on ? "on" : "off")")
     }
 }
+
+/// "Links to files": a small web server on this Mac, run at login by a LaunchAgent, and the claude-link command
+/// that turns a file a session made into a link to it. The person reads replies in the Claude app, often on their
+/// phone, where a file path opens nothing; a link opens the file in the browser.
+enum FileLinks {
+    static let label = "com.sttark.claude-file-links"
+    static var plist: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(label).plist")
+    }
+    static var tool: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude-link") }
+    static var script: String { hooksDir.appendingPathComponent("file-links.py").path }
+    static var domain: String { "gui/\(getuid())" }
+
+    static var on: Bool { FileManager.default.fileExists(atPath: plist.path) }
+
+    static func installTool() {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: tool.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.removeItem(at: tool)
+        try? fm.createSymbolicLink(at: tool, withDestinationURL: URL(fileURLWithPath: script))
+        chmod(script, 0o755)
+    }
+
+    /// The hook reads this to add the file link rule to every prompt.
+    static func tellHooks() { State.change { $0["file_links"] = on } }
+
+    /// On launch: an update may bring a new server, so restart it to run the new code.
+    static func refresh() {
+        tellHooks()
+        guard on else { return }
+        installTool()
+        Updater.run("/bin/launchctl", ["kickstart", "-k", "\(domain)/\(label)"])
+    }
+
+    static func set(_ on: Bool) {
+        if on {
+            installTool()
+            let d: [String: Any] = [
+                "Label": label, "ProgramArguments": ["/usr/bin/python3", script, "--serve"],
+                "RunAtLoad": true, "KeepAlive": true,
+            ]
+            try? FileManager.default.createDirectory(at: plist.deletingLastPathComponent(), withIntermediateDirectories: true)
+            (d as NSDictionary).write(to: plist, atomically: true)
+            Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
+            Updater.run("/bin/launchctl", ["bootstrap", domain, plist.path])
+        } else {
+            Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
+            try? FileManager.default.removeItem(at: plist)
+            try? FileManager.default.removeItem(at: tool)
+        }
+        tellHooks()
+        note("Links to files \(on ? "on" : "off")")
+    }
+}

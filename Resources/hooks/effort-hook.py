@@ -95,6 +95,11 @@ BROWSER_RULE = ("Browser rule from Sttark Claude Kit: when you need the person's
                 "the keyboard for a minute; if you can't wait, ask them to click Open Claude window in the Sttark "
                 "Claude Kit menu.")
 
+FILE_RULE = ("Files from Sttark Claude Kit: when you give the person a file on this Mac (a picture, page, PDF, "
+             "spreadsheet, anything they'd open), run claude-link <path> and give them the link it prints, as a "
+             "clickable link. Never give a bare file path: they read replies in the Claude app, often on their "
+             "phone, where a path opens nothing.")
+
 
 def log(line):
     with open(LOG, 'a') as f:
@@ -854,9 +859,11 @@ def main():
         return
     data = json.load(sys.stdin)
     event = data.get('hook_event_name', 'UserPromptSubmit')
-    if event == 'UserPromptSubmit' and peek().get('claude_window'):
-        # "Claude window in Chrome" is on: tell Claude to use it, so no one has to add this to their instructions
-        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': BROWSER_RULE}}))
+    if event == 'UserPromptSubmit':
+        # "Claude window in Chrome" and "Links to files" are on: tell Claude, so no one has to add this to their instructions
+        rules = [r for key, r in (('claude_window', BROWSER_RULE), ('file_links', FILE_RULE)) if peek().get(key)]
+        if rules:
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': '\n\n'.join(rules)}}))
     sid = session_id()
     if not sid:
         if event == 'UserPromptSubmit':
