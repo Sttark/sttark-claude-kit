@@ -12,6 +12,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Keeps every session that isn't archived running, through restarts | [Sessions stay running](#sessions-stay-running) |
 | Gives those sessions Bypass permissions, which the Claude app doesn't offer | [Bypass permissions for server sessions](#bypass-permissions-for-server-sessions) |
 | Lets Claude use your signed-in Chrome without taking your screen | [Claude window in Chrome](#claude-window-in-chrome) |
+| Gives you a link to open a file Claude made, instead of a path | [Links to files](#links-to-files) |
 | Answers Claude for Chrome's permission prompts | [Approve Claude in Chrome](#approve-claude-in-chrome) |
 | Copies your Claude profile instructions into Claude Code | [Sync Claude profile instructions](#sync-claude-profile-instructions) |
 | Gives sessions in Sttark's app repos the Sttark app rules | [Sttark app rules](#sttark-app-rules) |
@@ -58,6 +59,7 @@ Click the gauge:
 | **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. |
 | **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). Off until you turn it on. |
 | **Claude window in Chrome** | See [below](#claude-window-in-chrome). Off until you turn it on. |
+| **Links to files** | See [below](#links-to-files). Off until you turn it on. |
 | **Name sessions automatically** | See [below](#name-sessions-automatically). Off until you turn it on. |
 | **Sign in to Claude Code…** | Opens Terminal and starts Claude Code's sign-in; you finish in the browser. Hover it to see when your login runs out. See [below](#claude-code-login). |
 | **Check for updates** | Looks for a new version now. Hidden while an update is waiting. |
@@ -212,7 +214,22 @@ claude-window js 'document.title'       run JavaScript in the page
 - It needs Chrome's **View > Developer > Allow JavaScript from Apple Events**.
 - The Claude in Chrome extension opens tabs its own way, and that can't be changed from outside it.
 
-## Name sessions automatically
+## Links to files
+
+Claude Code sessions save what they make (a picture, a page, a PDF) on the Mac and hand you its path, like `/private/tmp/claude-501/…/chart.svg`. You read the reply in the Claude app, often on your phone, where a path opens nothing.
+
+With this switch on, Sttark Claude Kit runs a small web server on the Mac (port 8732) and installs `claude-link`, a command that turns a file into a link:
+
+```
+claude-link ~/Desktop/chart.svg
+http://Your-Mac.local:8732/k3J9xQ2mV7pL1aTz/chart.svg
+```
+
+- Every Claude Code prompt carries the rule to give you that link instead of a path, so Claude Code needs nothing from you.
+- The link opens in your browser on the Mac, or on a phone or computer on the same network.
+- Each link has its own random part, and the server shows only files a session linked: no list, nothing else on the Mac. Anyone on your network with the link can open that file.
+- The link shows the file as it is now, so a file Claude changes shows the change. A deleted file stops opening. Links go away after 30 days.
+
 
 Claude names each new Claude Code session with a long description of the first task. With this switch on, sessions get a short handle for their project or area instead, like "Order Page" or "Label Printer", the way you'd label a folder.
 
@@ -253,7 +270,7 @@ Each effort check is one short call to the model picked under **Model** (the new
 
 ## Uninstall
 
-Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.sh`](uninstall.sh). It takes the hooks out of Claude Code's settings, stops the Chrome approver, the profile sync, the night job and the server if they were turned on here, removes the fixed copy of Claude Code and the `claude-window` command, and deletes the app and its folder in Application Support. The logs stay.
+Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.sh`](uninstall.sh). It takes the hooks out of Claude Code's settings, stops the Chrome approver, the profile sync, the night job, the file link server and the server if they were turned on here, removes the fixed copy of Claude Code and the `claude-window` and `claude-link` commands, and deletes the app and its folder in Application Support. The logs stay.
 
 ## How it works
 
@@ -272,7 +289,8 @@ The app is a small Swift menu bar app. The work is done by a Python hook it inst
 11. **Waiting on you**: every minute the app runs `effort-hook.py --track`, which reads each recent session's status, whether it's archived, and whether the Claude app has it marked unread. It also counts a reply as seen when the session was on screen after Claude finished: the Claude app's log (`~/Library/Logs/Claude/main.log`) says which session is open in it, and the menu bar app keeps a day of when the Claude app was in front with the screen on (`claude-front.json` in its Application Support folder). For a finished reply you haven't seen it asks the menu's model once whether the reply needs the person.
 12. **The fixed copy of Claude Code**: `stable-claude.sh`, run every 30 minutes by the LaunchAgent `com.sttark.claude-stable` while the server is on, keeps a real copy of the newest Claude Code at `~/.local/share/claude/stable/claude` (written next to the old one and renamed over it), points the server's LaunchAgent at it, and restarts the server only between 2 and 5 AM with no session working.
 13. **Sttark app rules**: `install-hooks.py` adds `app-rules-hook.py` as eight `UserPromptSubmit` hooks, `app-rules-hook.py 1` to `8`, and once as a `SessionStart` hook for `compact`. Claude Code saves any hook text over 10,000 characters to a file and shows Claude only a preview, so the chapters go in parts of at most 9,000 characters, one per hook, each labeled "part N of M". Each hook reads the prompt's `cwd`, checks `git config remote.origin.url` there and, with `git ls-files`, whether the repo has screens, and adds its part once per session (marked in `app-rules/seen/`). The copy is `app-rules/chapters.json` in the Application Support folder. At a session's first prompt the hook reads `app-rules.md` on Sttark/sttark-docs main with `gh` (4 seconds at most; that file is the chapters word for word, refreshed from docs.sttark.com twice a day and right after a chapter is published) and saves it when its revision is newer than the copy, so a published change reaches the next session; the parts run side by side, the first checks and the others wait for it, and without `gh` the saved copy is used. `app-rules-hook.py --refresh`, started in the background when the copy is over a day old (at most once an hour), runs `claude -p --output-format stream-json --model haiku` with only `docs_read` allowed and hooks off, asks it to read each chapter, and saves the tool's own output from the stream, never a model's retyping. It uses the fixed copy of Claude Code when there is one.
-14. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkClaudeKit/state.json`: the on/off switch, and per session the level, the last level sent and its change id, and the latest change id it has seen on the server (the server keeps the id of the latest change; one that is new since the kit last looked and isn't the kit's own is yours), the session's process (a new one means it reopened), Manual, the latest reason and the name. Both lock it before writing.
+14. **Links to files** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-file-links.plist`, that runs `file-links.py --serve` (Python's built-in web server, port 8732, serving `links/` in the Application Support folder, with no folder lists) and links `~/.local/bin/claude-link` to the same script. `claude-link` makes `links/<random>/<name>`, a symbolic link to the file, and prints the address with the Mac's Bonjour name (`scutil --get LocalHostName`). The server deletes links older than 30 days when it starts, and restarts on each app launch so an update reaches it. The hook adds the rule to each prompt while `file_links` is on in the state file.
+15. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkClaudeKit/state.json`: the on/off switch, and per session the level, the last level sent and its change id, and the latest change id it has seen on the server (the server keeps the id of the latest change; one that is new since the kit last looked and isn't the kit's own is yours), the session's process (a new one means it reopened), Manual, the latest reason and the name. Both lock it before writing.
 
 ### Building it yourself
 
@@ -297,6 +315,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Resources/hooks/name-hook.py` | The session naming hook. |
 | `Resources/hooks/app-rules-hook.py` | The Sttark app rules hook and its refresh. |
 | `Resources/hooks/claude-window.sh` | The `claude-window` command. |
+| `Resources/hooks/file-links.py` | The `claude-link` command and the Links to files server. |
 | `Sources/Waiting.swift` | The Waiting on you section and its notices. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
 | `Resources/hooks/profile-sync.py`, `profile-hook.sh` | The profile instructions sync and its prompt hook. |

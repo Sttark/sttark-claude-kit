@@ -15,6 +15,7 @@ final class Controller: NSObject, NSMenuDelegate {
         if ChromeApprover.on { ChromeApprover.copyHelper() }
         if ChromeWindow.on { ChromeWindow.installTool() }
         ChromeWindow.tellHooks()
+        FileLinks.refresh()
         Stable.keep(Server.installed)
         let menu = NSMenu()
         menu.delegate = self
@@ -163,6 +164,10 @@ final class Controller: NSObject, NSMenuDelegate {
             o.toolTip = "The Claude window in Chrome was closed. Opens it again; Chrome comes forward this once."
             menu.addItem(o)
         }
+        let links = action("Links to files", #selector(toggleFileLinks))
+        links.state = FileLinks.on ? .on : .off
+        links.toolTip = "When Claude gives you a file it made on this Mac, you get a link that opens it in your browser, on this Mac or your phone on the same network, instead of a file path that opens nothing."
+        menu.addItem(links)
         let names = action("Name sessions automatically", #selector(toggleNames))
         names.state = Names.on ? .on : .off
         names.toolTip = "Gives each Claude Code session a short handle for its project or area, in the style of your own names. Never changes a name once set."
@@ -250,6 +255,7 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
     @objc func openChromeWindow() { ChromeWindow.open() }
 
+    @objc func toggleFileLinks() { FileLinks.set(!FileLinks.on) }
     @objc func toggleNames() { Names.set(!Names.on) }
 
     @objc func toggleProfile() {
