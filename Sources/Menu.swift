@@ -27,7 +27,8 @@ final class Controller: NSObject, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
         Waiting.watchFront()
         Waiting.refresh()
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh(); Server.keepChats() }
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in ChromeWindow.keepOpen() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
@@ -155,7 +156,7 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.addItem(chrome)
         let cw = action("Claude window in Chrome", #selector(toggleChromeWindow))
         cw.state = ChromeWindow.on ? .on : .off
-        cw.toolTip = "Claude uses one Chrome window named Claude, with your logins, and moves it between pages instead of opening tabs or windows, so Chrome stops jumping in front of what you're typing in."
+        cw.toolTip = "Claude uses one Chrome window named Claude, with your logins, and moves it between pages instead of opening tabs or windows, so Chrome stops jumping in front of what you're typing in. If the window closes, it comes back once you've been away from the keyboard for a minute."
         menu.addItem(cw)
         if ChromeWindow.on && ChromeWindow.chromeRunning && !ChromeWindow.exists {
             let o = action("Open Claude window", #selector(openChromeWindow))

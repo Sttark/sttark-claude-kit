@@ -169,7 +169,8 @@ enum ProfileSync {
 /// "Claude window in Chrome": one Chrome window named "Claude", in the person's own signed-in profile, that
 /// Claude moves between pages with the claude-window tool instead of opening tabs or windows (which bring Chrome
 /// in front of whatever the person is typing in). Opening the window is the one moment Chrome comes forward, so
-/// it only happens when the person clicks; the app puts the app they were using back in front right after.
+/// it only happens when the person clicks, or on its own once they've been away from the keyboard for a minute;
+/// the app puts the app they were using back in front right after.
 enum ChromeWindow {
     static var on: Bool { UserDefaults.standard.bool(forKey: "claudeWindow") }
     static var tool: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude-window") }
@@ -201,6 +202,31 @@ enum ChromeWindow {
             """])
         note("Claude window: \(r.0 == 0 ? "opened" : "couldn't open: " + r.1.trimmingCharacters(in: .whitespacesAndNewlines))")
         back?.activate()
+    }
+
+    /// Seconds since the last key press, click or mouse move.
+    static var idle: Double {
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
+    }
+
+    /// Every 30 seconds: with the switch on, a Claude window that's gone (closed by mistake, Chrome quit, or a
+    /// restart) comes back. Opening it brings Chrome forward, so it waits until no one has typed or moved the mouse
+    /// for a minute, and puts the app that was in front back. A Chrome that isn't running is started hidden first.
+    static func keepOpen() {
+        guard on, idle >= 60 else { return }
+        if !chromeRunning {
+            guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else { return }
+            let c = NSWorkspace.OpenConfiguration()
+            c.activates = false
+            c.hides = true
+            NSWorkspace.shared.openApplication(at: app, configuration: c) { _, _ in }
+            note("Claude window: Chrome wasn't running; started it to reopen the window")
+            return  // the next check, once Chrome is up, opens the window
+        }
+        if !exists {
+            note("Claude window: was closed; reopening")
+            open()
+        }
     }
 
     /// The hook reads this to add the browser rule to every prompt.

@@ -82,6 +82,14 @@ enum Server {
         note("server sessions off")
     }
 
+    /// Every minute: start again any chat on this Mac's server that stopped (a restart, or unarchiving it) but
+    /// isn't archived. The hook does the work and does nothing when no server runs; see keep() in effort-hook.py.
+    static func keepChats() {
+        DispatchQueue.global().async {
+            Updater.run("/usr/bin/python3", [hooksDir.appendingPathComponent("effort-hook.py").path, "--keep"])
+        }
+    }
+
     static func killTree(_ pid: Int32) {
         let kids = Updater.run("/usr/bin/pgrep", ["-P", String(pid)]).1.split(separator: "\n").compactMap { Int32($0) }
         kids.forEach(killTree)

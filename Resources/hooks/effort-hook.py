@@ -91,8 +91,9 @@ level, then " - " and a reason of under 12 words."""
 BROWSER_RULE = ("Browser rule from Sttark Claude Kit: when you need the person's browser, use only the Chrome window "
                 "named Claude, with the claude-window command (claude-window go <url>, url, text, js '<code>'). "
                 "Never open a new tab or window and never bring Chrome to the front: both take the person's screen "
-                "while they're typing. If there's no Claude window, ask them to click Open Claude window in the "
-                "Sttark Claude Kit menu.")
+                "while they're typing. If there's no Claude window, it reopens by itself once they've been away from "
+                "the keyboard for a minute; if you can't wait, ask them to click Open Claude window in the Sttark "
+                "Claude Kit menu.")
 
 
 def log(line):
@@ -505,6 +506,79 @@ def track():
         by_hand(sid, 'seen on the server', d)
 
 
+KEEP_MAX = 30  # chats kept running at once; a `claude rc` server takes 32 by default
+KEEP_RETRY = 180  # seconds before waking the same chat again
+KEEP_GIVE_UP = 3  # wakes in a row that bring no process, before waiting KEEP_PAUSE
+KEEP_PAUSE = 1800
+
+
+def server_chats():
+    """The chats this Mac's Remote Control server is running now: {cse id: True}, or None with no server."""
+    ps = subprocess.run(['ps', '-axo', 'command'], capture_output=True, text=True).stdout
+    if not re.search(r'claude (rc|remote-control)( |$)', ps, re.M):
+        return None
+    return {m: True for m in re.findall(r'--sdk-url \S+/v1/code/sessions/(cse_\w+)', ps)}
+
+
+def all_chats(pages=5):
+    """The account's recent Claude Code chats, newest first, as the server lists them."""
+    import urllib.request
+    m, out, cursor = sse(), [], ''
+    for _ in range(pages):
+        url = 'https://api.anthropic.com/v1/code/sessions?limit=100' + (f'&cursor={cursor}' if cursor else '')
+        d = json.load(urllib.request.urlopen(urllib.request.Request(url, headers=m.headers()), timeout=20))
+        out += d.get('data') or []
+        cursor = d.get('next_cursor')
+        if not cursor:
+            break
+    return out
+
+
+def keep(dry=False):
+    """Every minute, from the app: keep every chat on this Mac's Remote Control server running unless it's
+    archived. A Mac restart ends every chat, and archiving one ends it, and the server only starts a chat again
+    when something reaches it. Each stopped chat gets its own effort level sent to it again, which makes the server
+    start it on the same link with its whole conversation, and shows nothing in the chat.
+    The server's environment (the place the Claude app lists for this Mac) is learned from the chats it runs,
+    and remembered for after a restart."""
+    running = server_chats()
+    if running is None:
+        return
+    try:
+        chats = all_chats()
+    except Exception as e:
+        log(f'keep   can\'t list chats: {e!r}'[:300])
+        return
+    k = peek().get('keep', {})
+    envs = set(k.get('envs', [])) | {c.get('environment_id') for c in chats if c['id'] in running}
+    envs.discard(None)
+    envs.discard('')
+    now, woke = time.time(), k.get('woke', {})
+    mine = [c for c in chats if c.get('environment_id') in envs and c.get('environment_kind') == 'bridge']
+    stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running]
+    room = KEEP_MAX - sum(1 for c in mine if c['id'] in running)
+    for c in sorted(stopped, key=lambda c: c.get('last_event_at') or '', reverse=True)[:max(room, 0)]:
+        sid, w = c['id'], woke.get(c['id'], {})
+        if now - w.get('at', 0) < (KEEP_PAUSE if w.get('tries', 0) >= KEEP_GIVE_UP else KEEP_RETRY):
+            continue
+        meta, cfg = c.get('external_metadata') or {}, c.get('config') or {}
+        level = meta.get('effort_level') or cfg.get('effort_level') or 'high'
+        tries = w.get('tries', 0) + 1 if w.get('tries', 0) < KEEP_GIVE_UP else 1
+        if dry:
+            print(f'would wake {sid} "{c.get("title", "")}" at {level}')
+            continue
+        status, text, _ = send(sid, level)
+        woke[sid] = {'at': now, 'tries': tries}
+        log(f'wake   {sid} "{c.get("title", "")}" stopped, not archived; sent {level} to start it'
+            + ('' if 200 <= status < 300 else f' (failed {status}: {text[:120]})'))
+    for sid in list(woke):  # running again, or archived: start counting from zero next time
+        if sid in running or not any(c['id'] == sid and c.get('status') == 'active' for c in mine):
+            woke.pop(sid)
+    if not dry:
+        with state() as s:
+            s['keep'] = {'envs': sorted(envs), 'woke': woke}
+
+
 def title_later(sid, x):
     if time.time() - x.get('title_at', 0) > 60:
         subprocess.Popen([sys.executable, os.path.abspath(__file__), '--title', sid],
@@ -645,6 +719,9 @@ def main():
         return
     if sys.argv[1:] == ['--track']:
         track()
+        return
+    if sys.argv[1:2] == ['--keep']:
+        keep(dry='--dry' in sys.argv)
         return
     if len(sys.argv) == 3 and sys.argv[1] == '--title':
         fetch_title(sys.argv[2])

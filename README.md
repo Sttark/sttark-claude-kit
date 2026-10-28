@@ -9,6 +9,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Names sessions with short handles for the topic they belong to | [Name sessions automatically](#name-sessions-automatically) |
 | Warns before your Claude Code login runs out, and starts the sign-in | [Claude Code login](#claude-code-login) |
 | Sets your Mac up to run sessions you start from the Claude app | [Start sessions from the Claude app](#start-sessions-from-the-claude-app) |
+| Keeps every session that isn't archived running, through restarts | [Sessions stay running](#sessions-stay-running) |
 | Gives those sessions Bypass permissions, which the Claude app doesn't offer | [Bypass permissions for server sessions](#bypass-permissions-for-server-sessions) |
 | Lets Claude use your signed-in Chrome without taking your screen | [Claude window in Chrome](#claude-window-in-chrome) |
 | Answers Claude for Chrome's permission prompts | [Approve Claude in Chrome](#approve-claude-in-chrome) |
@@ -149,6 +150,16 @@ The Mac has to be on and awake for sessions to run. On a laptop, set **System Se
 
 If this Mac already runs a Remote Control server that you set up another way, the menu shows it as on and leaves it alone.
 
+### Sessions stay running
+
+A Mac restart ends every session, and so does archiving one. The server only starts a session again when something reaches it, so a session can sit in the Claude app with nothing on the Mac answering it. While a Remote Control server runs on this Mac, Sttark Claude Kit checks every minute for sessions on it that aren't archived but have stopped, and starts each one again: on the same link, with its whole conversation, and with nothing added to the chat. It does this by sending the session its own effort level, which is enough for the server to start it.
+
+- After a restart, every session that isn't archived is back within a minute or two of logging in. A session you unarchive comes back the same way.
+- Archive a session to stop it for good.
+- Timed tasks a session set for itself come back with it, except ones whose time passed while it was stopped. Loops that pick their own timing, and scripts it was running in the background, don't: ask the session to start them again. Routines (scheduled from the Claude app, or by Claude with the Routines tools) run on Anthropic's side and wake their session when they fire.
+- It keeps up to 30 sessions running, the most recently used first, since a server runs 32 at most.
+- Each start is logged as `wake` in the log.
+
 ### One Accessibility approval, not one per update
 
 Claude Code installs each update in a new folder, and macOS files a program's Accessibility permission by where it lives, so every update used to ask for Accessibility again. While **Start sessions from the Claude app** is on, the server runs from one copy of Claude Code that never moves (`~/.local/share/claude/stable/claude`), so you approve it once. A job checks every 30 minutes for a newer Claude Code, swaps it into that copy, and restarts the server to use it. Restarting ends open sessions, so it waits for between 2 and 5 AM when no session is working. Each step is logged.
@@ -193,8 +204,8 @@ claude-window text                      the page's visible text
 claude-window js 'document.title'       run JavaScript in the page
 ```
 
-- Opening the window brings Chrome forward once, when you click the switch. Sttark Claude Kit puts the app you were using back in front right after.
-- If you close the Claude window, the menu shows **Open Claude window**.
+- Opening the window brings Chrome forward once, when you click the switch or when it reopens. Sttark Claude Kit puts the app you were using back in front right after.
+- If the Claude window closes (by mistake, because Chrome quit, or a restart), it comes back by itself once no one has typed or moved the mouse for a minute, so it never jumps in front of you mid-sentence. If Chrome isn't running, Sttark Claude Kit starts it hidden first. To get it back right away, click **Open Claude window** in the menu.
 - While the switch is on, every Claude Code prompt carries the rule to use only the Claude window, so Claude Code needs nothing from you.
 - **For Claude chat too** (claude.ai and the Claude app's chats), add this line to your Claude profile instructions (**Settings > Profile**). Chats don't run hooks, so this is the only way they learn the rule: *"Browser: use only the Chrome window named Claude. In Claude Code, use the claude-window command (go, url, text, js) for every page. Never open a new tab or window, and never bring Chrome to the front."* With **Sync Claude profile instructions** on, Claude Code gets the same line, which does no harm alongside the automatic rule.
 - It needs Chrome's **View > Developer > Allow JavaScript from Apple Events**.
