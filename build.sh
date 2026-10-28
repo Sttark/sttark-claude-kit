@@ -8,6 +8,8 @@ set -e
 cd "$(dirname "$0")"
 command -v swiftc >/dev/null || { echo "Needs Apple's command line tools. Run: xcode-select --install"; exit 1; }
 APP=build/SttarkClaudeKit.app
+# the hooks run on macOS's own Python (3.9), which rejects some newer syntax
+for f in Resources/hooks/*.py; do /usr/bin/python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$f" || exit 1; done
 BUILD=${BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}
 rm -rf build
 mkdir -p $APP/Contents/MacOS $APP/Contents/Resources

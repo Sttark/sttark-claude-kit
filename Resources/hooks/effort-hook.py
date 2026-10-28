@@ -508,25 +508,37 @@ def track():
 
 KEEP_MAX = 30  # chats kept running at once; a `claude rc` server takes 32 by default
 KEEP_RETRY = 180  # seconds before waking the same chat again
-KEEP_GIVE_UP = 3  # wakes in a row that bring no process, before waiting KEEP_PAUSE
-KEEP_PAUSE = 1800
+KEEP_MOVE = 2  # wakes that bring no process before the chat is started on a new link
+KEEP_PAUSE = 1800  # after a chat can't be started either way, seconds before trying again
+TRIGGERS = 'https://api.anthropic.com/v1/code/triggers'
 
 
-def server_chats():
+def processes():
+    return subprocess.run(['ps', '-axo', 'command'], capture_output=True, text=True).stdout
+
+
+def server_chats(ps):
     """The chats this Mac's Remote Control server is running now: {cse id: True}, or None with no server."""
-    ps = subprocess.run(['ps', '-axo', 'command'], capture_output=True, text=True).stdout
     if not re.search(r'claude (rc|remote-control)( |$)', ps, re.M):
         return None
     return {m: True for m in re.findall(r'--sdk-url \S+/v1/code/sessions/(cse_\w+)', ps)}
 
 
+def api(method, url, body=None, beta=None):
+    import urllib.request
+    h = sse().headers()
+    if beta:
+        h['anthropic-beta'] = beta
+    r = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(), method=method, headers=h)
+    with urllib.request.urlopen(r, timeout=20) as resp:
+        return json.load(resp)
+
+
 def all_chats(pages=5):
     """The account's recent Claude Code chats, newest first, as the server lists them."""
-    import urllib.request
-    m, out, cursor = sse(), [], ''
+    out, cursor = [], ''
     for _ in range(pages):
-        url = 'https://api.anthropic.com/v1/code/sessions?limit=100' + (f'&cursor={cursor}' if cursor else '')
-        d = json.load(urllib.request.urlopen(urllib.request.Request(url, headers=m.headers()), timeout=20))
+        d = api('GET', 'https://api.anthropic.com/v1/code/sessions?limit=100' + (f'&cursor={cursor}' if cursor else ''))
         out += d.get('data') or []
         cursor = d.get('next_cursor')
         if not cursor:
@@ -534,14 +546,92 @@ def all_chats(pages=5):
     return out
 
 
+def start_alone(transcript):
+    """Start a saved conversation as a chat of its own with Remote Control, in a screen so it needs no Terminal
+    window. The first time it gets a new link; after that, starting it again reattaches the same link.
+    A clean environment, so nothing from the app or a Claude session leaks in (that turns transcript saving off)."""
+    cwd = ''
+    with open(transcript) as f:
+        for line in f:
+            cwd = (json.loads(line).get('cwd') if '"cwd"' in line else '') or cwd
+    cid = os.path.basename(transcript)[:-len('.jsonl')]
+    stable = os.path.expanduser('~/.local/share/claude/stable/claude')
+    claude = stable if os.access(stable, os.X_OK) else CLAUDE
+    home = os.path.expanduser('~')
+    env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
+           'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
+           'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
+    subprocess.run(['/usr/bin/screen', '-dmS', 'kit-' + cid[:8], '/bin/zsh', '-lc',
+                    f"cd '{cwd or home}' && exec '{claude}' --resume {cid} --remote-control --permission-mode bypassPermissions"],
+                   env=env)
+    return cid
+
+
+def new_link(transcript, wait=90):
+    """The link a chat started with start_alone records in its transcript, once it has one."""
+    for _ in range(wait // 3):
+        with open(transcript) as f:
+            ids = [json.loads(l)['bridgeSessionId'] for l in f if '"type":"bridge-session"' in l]
+        if ids:
+            return ids[-1]
+        time.sleep(3)
+    return ''
+
+
+def move_routines(old, new):
+    """Point the Routines that fire into one chat at another. A Routine's chat can't be changed, so each is copied
+    with the new chat, then the old one is turned off (not deleted: deleting a Routine deletes chats it started)."""
+    old_s, new_s = 'session_' + old.split('_', 1)[1], 'session_' + new.split('_', 1)[1]
+    beta, moved = 'ccr-triggers-2026-01-30', 0
+    for t in api('GET', TRIGGERS + '?limit=100', beta=beta).get('data') or []:
+        if t.get('persistent_session_id') != old_s or not t.get('enabled'):
+            continue
+        t = api('GET', f"{TRIGGERS}/{t['id']}", beta=beta).get('trigger') or t
+        copy = {k: t[k] for k in ('name', 'job_config', 'mcp_connections', 'notifications') if t.get(k) is not None}
+        copy.update(enabled=True, persist_session=True, persistent_session_id=new_s)
+        copy.update({'cron_expression': t['cron_expression']} if t.get('cron_expression') else {'run_once_at': t['run_once_at']})
+        api('POST', TRIGGERS, copy, beta=beta)
+        api('POST', f"{TRIGGERS}/{t['id']}", {'enabled': False}, beta=beta)
+        moved += 1
+    return moved
+
+
+def move(c):
+    """A chat the server won't start (it was archived, then unarchived) starts as a chat of its own with its whole
+    conversation, on a new link. Its Routines follow it, and the old entry is archived so the app lists it once."""
+    sid, title = c['id'], c.get('title', '')
+    transcript = peek().get('sessions', {}).get(sid, {}).get('transcript', '')
+    if not os.path.exists(transcript):
+        log(f'keep   {sid} "{title}" won\'t start, and its conversation isn\'t on this Mac')
+        return None
+    start_alone(transcript)
+    new = new_link(transcript)
+    if not new:
+        log(f'keep   {sid} "{title}" won\'t start, and starting it on a new link didn\'t work either')
+        return None
+    try:
+        moved = move_routines(sid, new)
+        api('POST', f'https://api.anthropic.com/v1/code/sessions/{sid}/archive', {})
+    except Exception as e:
+        log(f'keep   {sid} "{title}" moved to {new}, but its Routines or archiving failed: {e!r}'[:300])
+        return {'id': new, 'transcript': transcript, 'title': title}
+    log(f'move   {sid} "{title}" the server won\'t start it (unarchived), so it runs on its own as {new}; '
+        f'{moved} Routine(s) moved, old entry archived')
+    return {'id': new, 'transcript': transcript, 'title': title}
+
+
 def keep(dry=False):
-    """Every minute, from the app: keep every chat on this Mac's Remote Control server running unless it's
-    archived. A Mac restart ends every chat, and archiving one ends it, and the server only starts a chat again
-    when something reaches it. Each stopped chat gets its own effort level sent to it again, which makes the server
-    start it on the same link with its whole conversation, and shows nothing in the chat.
+    """Every minute, from the app: keep every chat on this Mac running unless it's archived.
+    A Mac restart ends every chat, and the server only starts a chat again when something reaches it. Each stopped
+    chat gets its own effort level sent to it again, which makes the server start it on the same link with its
+    whole conversation, and shows nothing in the chat.
+    The server won't start a chat that was archived and then unarchived, so after KEEP_MOVE wakes that bring
+    nothing, move() starts it as a chat of its own on a new link. Those run outside the server, so after a restart
+    they're started again here, which brings back the same link.
     The server's environment (the place the Claude app lists for this Mac) is learned from the chats it runs,
     and remembered for after a restart."""
-    running = server_chats()
+    ps = processes()
+    running = server_chats(ps)
     if running is None:
         return
     try:
@@ -553,30 +643,64 @@ def keep(dry=False):
     envs = set(k.get('envs', [])) | {c.get('environment_id') for c in chats if c['id'] in running}
     envs.discard(None)
     envs.discard('')
-    now, woke = time.time(), k.get('woke', {})
+    now, woke, alone = time.time(), k.get('woke', {}), k.get('alone', {})
+    status = {c['id']: c.get('status') for c in chats}
+
+    # chats running on their own. Stopping one (a restart) archives it, and starting it again brings it back on
+    # the same link, so a stopped one is started again even when it shows as archived. Archived while it's still
+    # running means the person archived it: it's stopped and forgotten.
+    for sid, a in list(alone.items()):
+        cid = os.path.basename(a['transcript'])[:-len('.jsonl')]
+        up = f'--resume {cid}' in ps
+        if status.get(sid) not in ('active', 'archived') or (up and status.get(sid) == 'archived' and now - a.get('at', 0) > 120):
+            if not dry:
+                subprocess.run(['/usr/bin/screen', '-S', 'kit-' + cid[:8], '-X', 'quit'])
+                log(f'keep   {sid} "{a.get("title", "")}" archived or deleted in the Claude app; stopped it')
+            alone.pop(sid)
+            continue
+        if up or now - a.get('at', 0) < KEEP_RETRY:
+            continue
+        if dry:
+            print(f'would start {sid} "{a.get("title", "")}" again on its own')
+            continue
+        start_alone(a['transcript'])
+        a['at'] = now
+        log(f'start  {sid} "{a.get("title", "")}" runs on its own and had stopped; started it again')
+
     mine = [c for c in chats if c.get('environment_id') in envs and c.get('environment_kind') == 'bridge']
     stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running]
-    room = KEEP_MAX - sum(1 for c in mine if c['id'] in running)
+    room = KEEP_MAX - sum(1 for c in mine if c['id'] in running) - len(alone)
     for c in sorted(stopped, key=lambda c: c.get('last_event_at') or '', reverse=True)[:max(room, 0)]:
         sid, w = c['id'], woke.get(c['id'], {})
-        if now - w.get('at', 0) < (KEEP_PAUSE if w.get('tries', 0) >= KEEP_GIVE_UP else KEEP_RETRY):
+        if now - w.get('at', 0) < (KEEP_PAUSE if w.get('failed') else KEEP_RETRY):
+            continue
+        if w.get('tries', 0) >= KEEP_MOVE and not w.get('failed'):
+            if dry:
+                print(f'would move {sid} "{c.get("title", "")}" to a new link')
+                continue
+            a = move(c)
+            if a:
+                new = a.pop('id')
+                alone[new] = dict(a, at=now)
+                woke.pop(sid, None)
+            else:
+                woke[sid] = {'at': now, 'tries': w['tries'], 'failed': True}
             continue
         meta, cfg = c.get('external_metadata') or {}, c.get('config') or {}
         level = meta.get('effort_level') or cfg.get('effort_level') or 'high'
-        tries = w.get('tries', 0) + 1 if w.get('tries', 0) < KEEP_GIVE_UP else 1
         if dry:
             print(f'would wake {sid} "{c.get("title", "")}" at {level}')
             continue
-        status, text, _ = send(sid, level)
-        woke[sid] = {'at': now, 'tries': tries}
+        code, text, _ = send(sid, level)
+        woke[sid] = {'at': now, 'tries': 1 if w.get('failed') else w.get('tries', 0) + 1}
         log(f'wake   {sid} "{c.get("title", "")}" stopped, not archived; sent {level} to start it'
-            + ('' if 200 <= status < 300 else f' (failed {status}: {text[:120]})'))
+            + ('' if 200 <= code < 300 else f' (failed {code}: {text[:120]})'))
     for sid in list(woke):  # running again, or archived: start counting from zero next time
-        if sid in running or not any(c['id'] == sid and c.get('status') == 'active' for c in mine):
+        if sid in running or status.get(sid) != 'active':
             woke.pop(sid)
     if not dry:
         with state() as s:
-            s['keep'] = {'envs': sorted(envs), 'woke': woke}
+            s['keep'] = {'envs': sorted(envs), 'woke': woke, 'alone': alone}
 
 
 def title_later(sid, x):

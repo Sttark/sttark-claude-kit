@@ -154,9 +154,10 @@ If this Mac already runs a Remote Control server that you set up another way, th
 
 A Mac restart ends every session, and so does archiving one. The server only starts a session again when something reaches it, so a session can sit in the Claude app with nothing on the Mac answering it. While a Remote Control server runs on this Mac, Sttark Claude Kit checks every minute for sessions on it that aren't archived but have stopped, and starts each one again: on the same link, with its whole conversation, and with nothing added to the chat. It does this by sending the session its own effort level, which is enough for the server to start it.
 
-- After a restart, every session that isn't archived is back within a minute or two of logging in. A session you unarchive comes back the same way.
+- After a restart, every session that isn't archived is back within a minute or two of logging in.
+- The server won't start a session that was archived and then unarchived. After two tries, Sttark Claude Kit starts it as a session of its own, outside the server, with its whole conversation: it gets a new link, and the old entry is archived so the app lists it once. Its Routines move with it (each is copied to the new link and the old one turned off). After a restart it comes back on that same new link. Logged as `move` and `start`.
 - Archive a session to stop it for good.
-- Timed tasks a session set for itself come back with it, except ones whose time passed while it was stopped. Loops that pick their own timing, and scripts it was running in the background, don't: ask the session to start them again. Routines (scheduled from the Claude app, or by Claude with the Routines tools) run on Anthropic's side and wake their session when they fire.
+- Timed tasks a session set for itself come back with it, except ones whose time passed while it was stopped. Loops that pick their own timing, and scripts it was running in the background, don't: ask the session to start them again. Routines (scheduled from the Claude app, or by Claude with the Routines tools) run on Anthropic's side and wake their session when they fire. A Routine that fires into an archived session fails and turns itself off, and a session that runs on its own shows as archived while it's stopped, so a Routine in one of those that comes due while the Mac is off is lost.
 - It keeps up to 30 sessions running, the most recently used first, since a server runs 32 at most.
 - Each start is logged as `wake` in the log.
 
