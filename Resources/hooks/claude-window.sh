@@ -16,7 +16,7 @@ set -uo pipefail
 cmd=${1:-}
 [[ -n $cmd ]] || { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 if ! pgrep -xq "Google Chrome"; then
-  echo "Chrome isn't open. Open Chrome, then click Open Claude window in the Sttark Claude Kit menu." >&2; exit 1
+  echo "Chrome isn't open. Sttark Claude Kit starts it and reopens the Claude window once no one has used the keyboard or mouse for a minute, or open Chrome and click Open Claude window in its menu." >&2; exit 1
 fi
 
 run_js() {  # run JavaScript in the Claude window's tab; never activates Chrome
@@ -35,7 +35,7 @@ js() {
   local out
   out=$(run_js "$1" 2>&1) || {
     case $out in
-      *NO_CLAUDE_WINDOW*) echo "There's no Chrome window named Claude. Click Open Claude window in the Sttark Claude Kit menu." >&2 ;;
+      *NO_CLAUDE_WINDOW*) echo "There's no Chrome window named Claude. Sttark Claude Kit reopens it once no one has used the keyboard or mouse for a minute, or click Open Claude window in its menu." >&2 ;;
       *"Apple Events"*|*"JavaScript"*) echo "Chrome blocks scripts: turn on View > Developer > Allow JavaScript from Apple Events." >&2 ;;
       *) echo "$out" >&2 ;;
     esac
