@@ -7,7 +7,8 @@
 #
 # On a pull request it checks the pages the change reaches (against the
 # base branch), and from the second push on only what changed since the
-# last run on that pull request, plus the pages that failed in it. On a push
+# last run on that pull request, plus the pages that failed in it; every
+# page when it changes the workflows, the dependencies or the launcher. On a push
 # to main it checks what main gained since the merged pull request's last
 # passing run, or, without one, what changed since the last commit on main
 # that passed; every page when there is no such commit, or when the
@@ -122,18 +123,35 @@ jobs:
           git clone -q --filter=blob:none --sparse --branch main git@github.com:Sttark/sttark-docs.git "$DOCS"
           git -C "$DOCS" sparse-checkout set --no-cone app/src/styles/sttark-shared.css '/page-check/'
           rm -f ~/.ssh/sttark-docs
-      # On a push to main: what to check. full = every page; otherwise the
-      # check runs --changed against `against`.
-      - name: What this push changed
+      # On a pull request or a push to main: what to check. full = every
+      # page (a workflow or dependency change reaches every page though no
+      # page imports it); otherwise the check runs --changed, on a push
+      # against `against`.
+      - name: What this change changed
         id: scope
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
           WORKFLOW: ${{ github.workflow }}
           DIR: ${{ inputs.directory }}
+          BASE: ${{ github.base_ref }}
         run: |
           full() { echo "Checking every page: $1"; echo full=true >> "$GITHUB_OUTPUT"; exit 0; }
+          d="${DIR#./}"; d="${d%/}"; [ "$d" = . ] && d="" || d="$d/"
+          reaches_all() {
+            while read -r f; do
+              case "$f" in
+                .github/workflows/*|"${d}package.json"|"${d}package-lock.json"|"${d}scripts/page-check.mjs") full "$f changed" ;;
+              esac
+            done < "$RUNNER_TEMP/changed.txt"
+          }
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git diff --name-only "$(git merge-base "origin/$BASE" HEAD)" HEAD > "$RUNNER_TEMP/changed.txt"
+            reaches_all
+            echo full=false >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           sha=$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$WORKFLOW" --branch main --status success --event push --limit 1 --json headSha -q '.[0].headSha' || true)
           # The merged pull request's last passing run, when there is one:
           # only what main gained since it.
@@ -146,12 +164,7 @@ jobs:
             echo "Last passing run on main: $sha"
             git diff --name-only "$sha" HEAD | tee "$RUNNER_TEMP/changed.txt"
           fi
-          d="${DIR#./}"; d="${d%/}"; [ "$d" = . ] && d="" || d="$d/"
-          while read -r f; do
-            case "$f" in
-              .github/workflows/*|"${d}package.json"|"${d}package-lock.json"|"${d}scripts/page-check.mjs") full "$f changed" ;;
-            esac
-          done < "$RUNNER_TEMP/changed.txt"
+          reaches_all
           echo full=false >> "$GITHUB_OUTPUT"
           echo "against=$sha" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
@@ -179,7 +192,7 @@ jobs:
         run: npx playwright install-deps chromium
 
       - name: Page check, the pages this pull request changes
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.scope.outputs.full == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: npm run check:pages -- --changed --against "origin/${{ github.base_ref }}" --since last-run --report "$RUNNER_TEMP/page-check-report.json" --shots "$RUNNER_TEMP/shots"
@@ -189,7 +202,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: npm run check:pages -- --changed --since last-run --against "${{ steps.scope.outputs.against }}" --report "$RUNNER_TEMP/page-check-report.json" --shots "$RUNNER_TEMP/shots"
       - name: Page check, every page
-        if: github.event_name != 'pull_request' && steps.scope.outputs.full != 'false'
+        if: steps.scope.outputs.full != 'false'
         run: npm run check:pages -- --report "$RUNNER_TEMP/page-check-report.json" --shots "$RUNNER_TEMP/shots"
       # What this run checked and what failed: the next push to the pull
       # request checks only what changed since, and the merge only what main
