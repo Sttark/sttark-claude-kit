@@ -89,11 +89,12 @@ level, then " - " and a reason of under 12 words."""
 
 
 BROWSER_RULE = ("Browser rule from Sttark Claude Kit: when you need the person's browser, use only the Chrome window "
-                "named Claude, with the claude-window command (claude-window go <url>, url, text, js '<code>'). "
-                "Never open a new tab or window and never bring Chrome to the front: both take the person's screen "
-                "while they're typing. If there's no Claude window, it reopens by itself once they've been away from "
-                "the keyboard for a minute; if you can't wait, ask them to click Open Claude window in the Sttark "
-                "Claude Kit menu.")
+                "named Claude, with the claude-window command (claude-window go <url>, url, text, js '<code>', done). "
+                "It gives this session its own tab there, so other sessions can't move your page; run claude-window "
+                "done when you've finished with the browser. Never open a tab or window any other way and never bring "
+                "Chrome to the front: that takes the person's screen while they're typing. If there's no Claude "
+                "window, it reopens by itself once they've been away from the keyboard for a minute; if you can't "
+                "wait, ask them to click Open Claude window in the Sttark Claude Kit menu.")
 
 FILE_RULE = ("Files from Sttark Claude Kit: when you give the person a file on this Mac (a picture, page, PDF, "
              "spreadsheet, anything they'd open), run claude-link <path> and give them the link it prints, as a "
