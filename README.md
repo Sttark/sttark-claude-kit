@@ -11,7 +11,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Sets your Mac up to run sessions you start from the Claude app | [Start sessions from the Claude app](#start-sessions-from-the-claude-app) |
 | Keeps every session that isn't archived running, through restarts | [Sessions stay running](#sessions-stay-running) |
 | Gives those sessions Bypass permissions, which the Claude app doesn't offer | [Bypass permissions for server sessions](#bypass-permissions-for-server-sessions) |
-| Lets Claude use your signed-in Chrome without taking your screen | [Claude window in Chrome](#claude-window-in-chrome) |
+| Lets Claude use your signed-in Chrome without taking your screen, each session in its own tab | [Claude window in Chrome](#claude-window-in-chrome) |
 | Gives you a link to open a file Claude made, instead of a path | [Links to files](#links-to-files) |
 | Answers Claude for Chrome's permission prompts | [Approve Claude in Chrome](#approve-claude-in-chrome) |
 | Copies your Claude profile instructions into Claude Code | [Sync Claude profile instructions](#sync-claude-profile-instructions) |
@@ -197,21 +197,25 @@ The Claude app has a box for instructions to Claude in **Settings > Profile**. C
 
 ## Claude window in Chrome
 
-When Claude uses your browser, it usually opens a new tab or window, and Chrome jumps in front of whatever you're typing in: your cursor goes, and your keystrokes land in Chrome. Opening a tab does that even in a window behind others. Running a script in a page that's already open doesn't.
+When Claude uses your browser, it usually opens tabs or windows the way Claude in Chrome does, and Chrome jumps in front of whatever you're typing in: your cursor goes, and your keystrokes land in Chrome. That happens even with a window behind others.
 
-With this switch on, Sttark Claude Kit opens one Chrome window named **Claude**, in your own profile with all your logins, and installs `claude-window`, a small command Claude Code sessions use to work in it without opening anything:
+With this switch on, Sttark Claude Kit opens one Chrome window named **Claude**, in your own profile with all your logins, and installs `claude-window`, a small command Claude Code sessions use to work in it without taking your screen. Each session gets its own tab in that window, so sessions working at the same time never move each other's pages:
 
 ```
-claude-window go https://example.com    open a page in the Claude window and wait for it to load
+claude-window go https://example.com    open a page in this session's tab and wait for it to load
 claude-window url                       the current page's title and address
 claude-window text                      the page's visible text
 claude-window js 'document.title'       run JavaScript in the page
+claude-window done                      close this session's tab
 ```
 
+- A session's tab becomes the Claude window's front tab whenever the session uses it, so sites that only work in the front tab work.
+- Claude closes its tab with `claude-window done` when it's finished. Sttark Claude Kit also closes any tab whose session has ended or that hasn't been used for 30 minutes.
+- Chrome comes forward when a script gives a tab its address, so `claude-window` never does: it opens a blank tab and moves it to the page from inside. Opening, switching and closing tabs and running scripts in a page leave Chrome where it is.
 - Opening the window brings Chrome forward once, when you click the switch or when it reopens. Sttark Claude Kit puts the app you were using back in front right after.
 - If the Claude window closes (by mistake, because Chrome quit, or a restart), it comes back by itself once no one has typed or moved the mouse for a minute, so it never jumps in front of you mid-sentence. If Chrome isn't running, Sttark Claude Kit starts it hidden first. To get it back right away, click **Open Claude window** in the menu.
 - While the switch is on, every Claude Code prompt carries the rule to use only the Claude window, so Claude Code needs nothing from you.
-- **For Claude chat too** (claude.ai and the Claude app's chats), add this line to your Claude profile instructions (**Settings > Profile**). Chats don't run hooks, so this is the only way they learn the rule: *"Browser: use only the Chrome window named Claude. In Claude Code, use the claude-window command (go, url, text, js) for every page. Never open a new tab or window, and never bring Chrome to the front."* With **Sync Claude profile instructions** on, Claude Code gets the same line, which does no harm alongside the automatic rule.
+- **For Claude chat too** (claude.ai and the Claude app's chats), add this line to your Claude profile instructions (**Settings > Profile**). Chats don't run hooks, so this is the only way they learn the rule: *"Browser: use only the Chrome window named Claude. In Claude Code, use the claude-window command (go, url, text, js, done) for every page; it gives each session its own tab. Never open a tab or window any other way, and never bring Chrome to the front."* With **Sync Claude profile instructions** on, Claude Code gets the same line, which does no harm alongside the automatic rule.
 - It needs Chrome's **View > Developer > Allow JavaScript from Apple Events**.
 - The Claude in Chrome extension opens tabs its own way, and that can't be changed from outside it.
 
