@@ -33,6 +33,7 @@ DEFAULT_MODEL = 'sonnet'  # Claude Code's alias for the newest Sonnet, the best 
 LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 CHECKPOINTS = (10, 25, 50)  # tool calls into a turn when the level is checked again
 SETTLE = 30  # seconds after a send when a different reported level is just the change still arriving
+IDS = 20  # change ids kept per session, the kit's own and the ones it saw on the server
 
 RULES = """You set the effort level for a Claude Code agent before it starts on \
 the user's latest message. Higher effort means more thinking and more careful \
@@ -341,7 +342,9 @@ def send(sid, level):
     apart from the person's on the server."""
     rid = str(uuid.uuid4())
     with state() as s:  # saved first, so a check that reads the server mid-send knows this change is the kit's
-        s['sessions'].setdefault(sid, {})['sent_id'] = rid
+        x = s['sessions'].setdefault(sid, {})
+        x['sent_id'] = rid
+        x['ids'] = ((x.get('ids') or []) + [rid])[-IDS:]
     try:
         return (*sse().send(sid, level, rid), rid)
     except Exception as e:
@@ -360,19 +363,23 @@ def by_hand(sid, why, d=None):
     """Whether the person picked this session's level in the Claude app; if so the session goes to Manual and
     the level is returned, else ''. The server knows the moment they pick it; the session's own steps only show
     it once the step running then finishes, which can take minutes.
-    The server keeps the id of the latest change. A pick is an id that is new since the kit last looked and
-    isn't the kit's own, to a level other than the one the kit set. The first look only notes the id: a change
-    from before then (the kit's own from before it saved ids, or a level a reopened session left behind)
-    isn't the person's. Compared with the state as it is now, not a copy read before a send."""
+    The server keeps the id of the latest change. A pick is an id the kit has never sent or seen, to a level
+    other than the one the kit set. The first look only notes the id: a change from before then (the kit's own
+    from before it saved ids, or a level a reopened session left behind) isn't the person's.
+    Every id is kept, not just the latest: a server read taken just before one of the kit's own sends still
+    shows the kit's previous change, and by the time it's compared the state already holds the new one."""
     meta = ((live(sid) if d is None else d) or {}).get('external_metadata') or {}
     level, rid = meta.get('effort_level') or '', meta.get('effort_request_id') or ''
     if not (level and rid):
         return ''
     with state() as s:
         x = s['sessions'].setdefault(sid, {})
-        hand = ('seen_id' in x and rid not in (x['seen_id'], x.get('sent_id'))
+        known = set(x.get('ids') or []) | {x.get('seen_id'), x.get('sent_id')}
+        hand = ('seen_id' in x and rid not in known
                 and level != (x.get('sent') or x.get('level')) and not x.get('manual'))
         x['seen_id'] = rid
+        if rid not in known:
+            x['ids'] = ((x.get('ids') or []) + [rid])[-IDS:]
         if hand:
             x['manual'] = True
             x['level'] = level
