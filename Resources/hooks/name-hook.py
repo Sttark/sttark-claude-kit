@@ -101,6 +101,8 @@ def main():
 
 def ask_model(system, ask):
     import subprocess
+    if effort.at_limit():
+        return ''   # no name for now: nothing is spent at the usage limit
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
     env['EFFORT_JUDGE'] = '1'

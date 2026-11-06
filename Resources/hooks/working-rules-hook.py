@@ -150,9 +150,24 @@ def prose(text):
     return FENCE.sub('', text).strip()
 
 
+def at_limit():
+    """True at the usage limit when no one chose usage credits (limit-hook.py)."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'limit', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'limit-hook.py'))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m.held()
+    except Exception:
+        return False
+
+
 def ask(text):
     """Haiku's list of breaks, or OK. Hooks off and this session's variables dropped, so the check is a plain
-    call that never starts another check."""
+    call that never starts another check. Skipped (OK) at the usage limit, so it spends nothing."""
+    if at_limit():
+        return 'OK'
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
     env['STE_JUDGE'] = '1'

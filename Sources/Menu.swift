@@ -97,6 +97,7 @@ final class Controller: NSObject, NSMenuDelegate {
                 menu.addItem(i)
             }
         }
+        addLimit(menu)
         menu.addItem(.separator())
 
         let auto = action("Auto effort", #selector(togglePaused))
@@ -138,6 +139,12 @@ final class Controller: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        let credits = action("Use credits at the usage limit", #selector(toggleCredits))
+        credits.state = Limit.creditsAll ? .on : .off
+        credits.toolTip = Limit.creditsAll
+            ? "On: when your 5-hour or weekly limit is reached, sessions go on with usage credits."
+            : "Off: when your 5-hour or weekly limit is reached, sessions wait and go on by themselves when it resets, so no usage credits are spent. To use credits for one session, click it under Usage limit reached, or send \"use credits\" in it."
+        menu.addItem(credits)
         let phone = action("Start sessions from the Claude app", #selector(togglePhone))
         if Server.otherRunning {
             phone.state = .on
@@ -196,6 +203,45 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.addItem(action("Quit", #selector(quit), key: "q"))
     }
 
+    /// Only while a limit is reached: the status first, then each session waiting for the reset, with the one
+    /// thing to do on it. Nothing shows under the limit.
+    func addLimit(_ menu: NSMenu) {
+        let waiting = Limit.waiting
+        let reached = Limit.reached
+        guard reached != nil || !waiting.isEmpty else { return }
+        menu.addItem(.separator())
+        let until = reached?.until ?? waiting.map(\.until).max()!
+        let head = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        head.attributedTitle = NSAttributedString(
+            string: "Usage limit reached · resets \(Limit.clock(until))",
+            attributes: [.font: font(14, true)])
+        head.isEnabled = false
+        menu.addItem(head)
+        if Limit.creditsAll {
+            menu.addItem(caption("Sessions go on with usage credits"))
+            return
+        }
+        if waiting.isEmpty {
+            menu.addItem(caption("A session that reaches it waits here for the reset"))
+            return
+        }
+        menu.addItem(caption("These wait and go on by themselves. Click one to use credits now."))
+        for w in waiting {
+            let i = action("", #selector(useCredits(_:)))
+            let t = NSMutableAttributedString(string: w.title.count > 40 ? String(w.title.prefix(39)) + "…" : w.title,
+                                              attributes: [.font: font(14)])
+            let para = NSMutableParagraphStyle()
+            para.tabStops = [NSTextTab(textAlignment: .right, location: 380)]
+            t.append(NSAttributedString(string: "\tUse credits", attributes: [.font: font(14, true),
+                .foregroundColor: NSColor.secondaryLabelColor]))
+            t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
+            i.attributedTitle = t
+            i.representedObject = w.id
+            i.toolTip = "Waiting since \(Limit.clock(w.since)) for the \(w.limit) limit. It goes on by itself at \(Limit.clock(w.until)). Click to let this session go on now with usage credits."
+            menu.addItem(i)
+        }
+    }
+
     // MARK: rows
 
     /// Brand type: Helvetica Neue (the guide's fallback for Founders Grotesk), 400 and 600 only.
@@ -250,6 +296,12 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     @objc func toggleBypass() { Bypass.set(!Bypass.on) }
+    @objc func toggleCredits() { Limit.setCreditsAll(!Limit.creditsAll) }
+
+    @objc func useCredits(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let w = Limit.waiting.first(where: { $0.id == id }) else { return }
+        Limit.useCredits(w)
+    }
 
     @objc func toggleChrome() {
         if ChromeApprover.on { ChromeApprover.stop() } else { ChromeApprover.start() }

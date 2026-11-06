@@ -6,6 +6,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 |---|---|
 | Sets each session's effort to what the task needs, and adjusts it partway through | [Effort per task](#effort-per-task) |
 | Shows which sessions are waiting on you, and tells you when one has waited 10 minutes | [Waiting on you](#waiting-on-you) |
+| At your 5-hour or weekly usage limit, holds sessions until the limit resets instead of spending usage credits, then lets them go on by themselves | [Wait at the usage limit](#wait-at-the-usage-limit) |
 | Names sessions with short handles for the topic they belong to | [Name sessions automatically](#name-sessions-automatically) |
 | Warns before your Claude Code login runs out, and starts the sign-in | [Claude Code login](#claude-code-login) |
 | Sets your Mac up to run sessions you start from the Claude app | [Start sessions from the Claude app](#start-sessions-from-the-claude-app) |
@@ -18,7 +19,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Puts Sttark's working rules in front of every prompt, and checks each reply for Simplified Technical English | [Sttark working rules](#sttark-working-rules) |
 | Gives sessions in Sttark's app repos the Sttark app rules | [Sttark app rules](#sttark-app-rules) |
 
-Everything except effort, the Sttark working rules and the Sttark app rules is off until you turn it on in the menu. It updates itself when a new version is released here.
+Everything except effort, the wait at the usage limit, the Sttark working rules and the Sttark app rules is off until you turn it on in the menu. It updates itself when a new version is released here.
 
 ![The menu: Auto effort, Model, each session with its level and a hover tip with the reason, then the switches, Open log, Check for updates](docs/menu.png)
 
@@ -51,10 +52,12 @@ Click the gauge:
 | Item | What it does |
 |---|---|
 | **Waiting on you** (top rows, when there are any) | Sessions that need you or that you haven't opened since Claude finished. Click one to open it. See [below](#waiting-on-you). |
+| **Usage limit reached** (only at the limit) | When the limit resets, and each session holding for it. Click one to let it go on now with usage credits. See [below](#wait-at-the-usage-limit). |
 | **Auto effort** | On: Claude picks each session's effort. Off: every session keeps the level it has, until you turn it back on. |
 | **Model** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Sonnet is the default. |
 | **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual, then click again for Auto. Hover it to see the latest reason for its level. Hover any item for what it does. |
 | **Open log** | Opens the full log in Console. |
+| **Use credits at the usage limit** | Off (the default): at the limit, sessions hold until it resets. On: they go on with usage credits. See [below](#wait-at-the-usage-limit). |
 | **Start sessions from the Claude app** | Sets this Mac up so you can start Claude Code sessions from the Claude app. See [below](#start-sessions-from-the-claude-app). |
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). Off until you turn it on. |
 | **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. |
@@ -113,6 +116,25 @@ You send Claude a prompt, move on to something else, and forget to come back. Ev
 On this Mac, seeing the reply also counts: if the session was open in the Claude app, with the app in front and the screen on, for a few seconds after Claude finished, it comes off the list. That covers watching a reply arrive, which the Claude app itself doesn't record as opening it.
 
 Each row shows how long it has waited; hover for why, click to open the session. When one has waited 10 minutes, you get one notice. Archived sessions and sessions Claude is still working on never show. It covers Claude Code sessions that run through Remote Control, from the last day.
+
+## Wait at the usage limit
+
+When your account has usage credits turned on, Claude Code doesn't stop at your 5-hour or weekly limit: it goes on and charges usage credits. With Sttark Claude Kit, a session holds at the limit instead, spends nothing, and goes on with its task by itself when the limit resets. Credits are used only when you choose them. Nothing changes in your account's settings.
+
+![The menu at the limit: "Usage limit reached · resets 6:00 PM", a line saying the sessions below wait and go on by themselves, and two sessions, each with "Use credits" on the right](docs/limit.png)
+
+*Drawn by the app's own menu code, with sample sessions.*
+
+- **A session at work** holds before its next step (tool call). It shows as working in the Claude app, and makes no calls to Claude while it holds. At the reset it takes that step and goes on. A reply already being written when the limit is reached finishes, and that one reply uses credits.
+- **A message you send at the limit** is stopped, with the reset time and how to use credits. Send it again after the reset.
+- **To use credits for one session:** click it under **Usage limit reached** in the menu, or send `use credits` in it. It goes on now and uses credits until that limit resets. A holding session's message box takes your message only once its turn ends, so while it holds, use the menu, or stop it in the Claude app and then send `use credits`.
+- **To use credits for every session:** turn on **Use credits at the usage limit**. Turn it off to go back to holding.
+- **Stopping a session** in the Claude app ends its hold, as with any step.
+- A model's own weekly limit (for example a weekly limit for one model) holds only the sessions that run on that model.
+- At the limit the kit's own side calls to Claude (the effort check, the reply check, naming, the app rules refresh) are skipped too, so nothing is spent.
+- Accounts without usage credits, or at their credits spend limit, are left alone: there Claude Code stops at the limit by itself.
+
+It works for every Claude Code session on this Mac, Remote Control or not. Each hold, resume and choice is logged, with lines starting `limit`.
 
 ## Choosing the model
 
@@ -278,7 +300,7 @@ After you sign in, the server picks up the new login by itself the next time it 
 
 ## Cost
 
-Each effort check is one short call to the model picked under **Model** (the newest Sonnet unless you change it): about 2 to 5 seconds before a prompt starts, plus about a second and a half when the level changes. The checks at 10, 25 and 50 steps, the naming check, and the Waiting on you check (once per finished reply) run alongside or in the background and don't slow the work. The working rules' check of each finished reply is one short Haiku call, a few seconds after the reply shows. All of them count toward your Claude plan's usage like any other Claude Code call.
+Each effort check is one short call to the model picked under **Model** (the newest Sonnet unless you change it): about 2 to 5 seconds before a prompt starts, plus about a second and a half when the level changes. The checks at 10, 25 and 50 steps, the naming check, and the Waiting on you check (once per finished reply) run alongside or in the background and don't slow the work. The working rules' check of each finished reply is one short Haiku call, a few seconds after the reply shows. All of them count toward your Claude plan's usage like any other Claude Code call, and all of them are skipped at the usage limit. The usage limit check is not a call to Claude: it reads your usage, at most once a minute (every 15 seconds near a limit), shared by every session.
 
 ## Troubleshooting
 
@@ -309,7 +331,8 @@ The app is a small Swift menu bar app. The work is done by a Python hook it inst
 13. **The fixed copy of Claude Code**: `stable-claude.sh`, run every 30 minutes by the LaunchAgent `com.sttark.claude-stable` while the server is on, keeps a real copy of the newest Claude Code at `~/.local/share/claude/stable/claude` (written next to the old one and renamed over it), points the server's LaunchAgent at it, and restarts the server only between 2 and 5 AM with no session working.
 14. **Sttark app rules**: `install-hooks.py` adds `app-rules-hook.py` as eight `UserPromptSubmit` hooks, `app-rules-hook.py 1` to `8`, and once as a `SessionStart` hook for `compact`. Claude Code saves any hook text over 10,000 characters to a file and shows Claude only a preview, so the chapters go in parts of at most 9,000 characters, one per hook, each labeled "part N of M". Each hook reads the prompt's `cwd`, checks `git config remote.origin.url` there and, with `git ls-files`, whether the repo has screens, and adds its part once per session (marked in `app-rules/seen/`). The copy is `app-rules/chapters.json` in the Application Support folder. At a session's first prompt the hook reads `app-rules.md` on Sttark/sttark-docs main with `gh` (4 seconds at most; that file is the chapters word for word, refreshed from docs.sttark.com twice a day and right after a chapter is published) and saves it when its revision is newer than the copy, so a published change reaches the next session; the parts run side by side, the first checks and the others wait for it, and without `gh` the saved copy is used. `app-rules-hook.py --refresh`, started in the background when the copy is over a day old (at most once an hour), runs `claude -p --output-format stream-json --model haiku` with only `docs_read` allowed and hooks off, asks it to read each chapter, and saves the tool's own output from the stream, never a model's retyping. It uses the fixed copy of Claude Code when there is one.
 15. **Links to files** writes a LaunchAgent, `~/Library/LaunchAgents/com.sttark.claude-file-links.plist`, that runs `file-links.py --serve` (Python's built-in web server, port 8732, serving `links/` in the Application Support folder, with no folder lists) and links `~/.local/bin/claude-link` to the same script. `claude-link` makes `links/<random>/<name>`, a symbolic link to the file, and prints the address with the Mac's Bonjour name (`scutil --get LocalHostName`). The server deletes links older than 30 days when it starts, and restarts on each app launch so an update reaches it. The hook adds the rule to each prompt while `file_links` is on in the state file.
-16. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkClaudeKit/state.json`: the on/off switch, and per session the level, the last level sent and its change id, the latest change id it has seen on the server, and the last 20 change ids it has sent or seen (the server keeps the id of the latest change; one the kit has never sent or seen is yours, so a server read taken just before one of the kit's own changes never counts as you), the session's process (a new one means it reopened), Manual, the latest reason and the name. Both lock it before writing.
+16. **Wait at the usage limit**: `install-hooks.py` adds `limit-hook.py` as a `PreToolUse` hook with an 8-day limit (longer than a weekly reset) and as a `UserPromptSubmit` hook. It reads your usage from `https://api.anthropic.com/api/oauth/usage`, the same read Claude Code's `/usage` makes, with the Claude Code login in the Keychain, and keeps it in `usage.json` in the Application Support folder for a minute (15 seconds when a limit is at 90% or more); one session reads at a time and the rest use the copy. A limit counts when its `is_active` is set and `extra_usage.is_enabled` says credits would be charged; a limit scoped to one model counts only when the session's transcript shows that model. At a limit, the `PreToolUse` hook adds the session to `limit_pauses` in the state file (with its process id, so the menu drops a closed session) and checks every 10 seconds until the reset time has passed and a fresh read shows the limit clear, or until credits are chosen (`limit_credits_all`, or `limit_credits[<session>]` with the reset time). Then it exits and the tool runs. When the session is stopped, Claude Code ends the hook and its row goes. The `UserPromptSubmit` hook blocks a message at the limit with the reset time, and for a message that is just "use credits" sets `limit_credits` for that session and tells Claude to go on with its task. The other hooks call `held()` before their own `claude -p` calls. `STTARK_KIT_DIR` and `STTARK_LIMIT_TEST` point it at a test folder and a fake usage read.
+17. **State** shared by the hook and the app is in `~/Library/Application Support/SttarkClaudeKit/state.json`: the on/off switch, and per session the level, the last level sent and its change id, the latest change id it has seen on the server, and the last 20 change ids it has sent or seen (the server keeps the id of the latest change; one the kit has never sent or seen is yours, so a server read taken just before one of the kit's own changes never counts as you), the session's process (a new one means it reopened), Manual, the latest reason and the name. Both lock it before writing.
 
 ### Building it yourself
 
@@ -337,6 +360,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Resources/hooks/claude-window.sh` | The `claude-window` command. |
 | `Resources/hooks/file-links.py` | The `claude-link` command and the Links to files server. |
 | `Sources/Waiting.swift` | The Waiting on you section and its notices. |
+| `Resources/hooks/limit-hook.py`, `Sources/Limit.swift` | Wait at the usage limit: the hook, and the menu's Usage limit reached rows and Use credits switch. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
 | `Resources/hooks/profile-sync.py`, `profile-hook.sh` | The profile instructions sync and its prompt hook. |
 | `tools/screenshot.swift` | Draws the menu image above from the app's own code, with sample sessions. |

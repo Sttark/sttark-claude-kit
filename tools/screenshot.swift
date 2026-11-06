@@ -39,6 +39,7 @@ struct Divider_: View {
             Row(title: "Rename report columns", right: "Low", check: true)
             Row(title: "Draft the press maintenance SOP", right: "Max · Manual")
             Divider_()
+            Row(title: "Use credits at the usage limit")
             Row(title: "Start sessions from the Claude app", check: true)
             Row(title: "Bypass permissions for server sessions", check: true)
             Row(title: "Approve Claude in Chrome", check: true)
@@ -79,7 +80,7 @@ struct Divider_: View {
                 menu.padding(.leading, 16).padding(.top, 4)
                 tip.padding(.leading, 452).padding(.top, 150)
             }
-            .frame(width: 790, height: 529, alignment: .topLeading)
+            .frame(width: 790, height: 553, alignment: .topLeading)
         }
         .background(Color(red: 0.973, green: 0.961, blue: 0.949))   // brand Beige-Light
 
