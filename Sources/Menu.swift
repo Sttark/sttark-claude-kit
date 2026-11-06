@@ -181,7 +181,7 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.addItem(sync)
         let rules = action("Sttark working rules", #selector(toggleWorkingRules))
         rules.state = WorkingRules.on ? .on : .off
-        rules.toolTip = "Puts Sttark's working rules in front of every prompt: answer first, a plan with a step count, work handed to agents, a task list for a prompt with several asks, Simplified Technical English, and more. When a reply isn't in Simplified Technical English, it goes back to Claude once with the words to fix. On unless you turn it off."
+        rules.toolTip = "Puts Sttark's working rules in front of every prompt: answer first, a plan with a step count, work handed to agents, a status table for a prompt with several asks, Simplified Technical English, and more. When a reply isn't in Simplified Technical English, it goes back to Claude once with the words to fix. On unless you turn it off."
         menu.addItem(rules)
         if ChromeApprover.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
