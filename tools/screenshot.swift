@@ -45,6 +45,7 @@ struct Divider_: View {
             Row(title: "Claude window in Chrome", check: true)
             Row(title: "Name sessions automatically", check: true)
             Row(title: "Sync Claude profile instructions", check: true)
+            Row(title: "Sttark working rules", check: true)
             Divider_()
             Row(title: "Sign in to Claude Code…")
             Row(title: "Open log")
@@ -78,7 +79,7 @@ struct Divider_: View {
                 menu.padding(.leading, 16).padding(.top, 4)
                 tip.padding(.leading, 452).padding(.top, 150)
             }
-            .frame(width: 790, height: 505, alignment: .topLeading)
+            .frame(width: 790, height: 529, alignment: .topLeading)
         }
         .background(Color(red: 0.973, green: 0.961, blue: 0.949))   // brand Beige-Light
 
