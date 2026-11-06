@@ -29,7 +29,7 @@ spend nothing at the limit either.
 
 Every pause, resume and choice is logged to ~/Library/Logs/sttark-claude-kit.log.
 """
-import atexit, datetime, fcntl, json, os, re, signal, subprocess, sys, time, urllib.error, urllib.request
+import atexit, datetime, glob, fcntl, json, os, re, signal, subprocess, sys, time, urllib.error, urllib.request
 from contextlib import contextmanager
 
 # STTARK_KIT_DIR and STTARK_LIMIT_TEST are for tests: a copy of the state folder, and a file that stands
@@ -283,86 +283,6 @@ def queued_credits(tp, pos):
     return False, pos + end
 
 
-MARK = '\u23f8 Paused'   # the start of a held session's name in the Claude app
-TITLES = os.environ.get('STTARK_LIMIT_TITLES')   # tests: a file that stands in for session names on the server
-
-
-def api(method, url, body=None):
-    r = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, method=method,
-                               headers={'Authorization': 'Bearer ' + token(), 'anthropic-version': '2023-06-01',
-                                        'anthropic-beta': 'ccr-byoc-2025-07-29', 'x-organization-uuid': org(),
-                                        'Content-Type': 'application/json'})
-    with urllib.request.urlopen(r, timeout=10) as resp:
-        return json.load(resp)
-
-
-def name_of(c):
-    """The session's name in the Claude app, or None when it can't be read."""
-    try:
-        if TITLES:
-            return json.load(open(TITLES)).get(c, '')
-        return api('GET', 'https://api.anthropic.com/v1/sessions/session_' + c.split('_', 1)[1]).get('title') or ''
-    except Exception:
-        return None
-
-
-def rename_to(c, t):
-    try:
-        if TITLES:
-            try:
-                d = json.load(open(TITLES))
-            except (OSError, ValueError):
-                d = {}
-            d[c] = t
-            json.dump(d, open(TITLES, 'w'))
-        else:
-            api('PATCH', 'https://api.anthropic.com/v1/sessions/session_' + c.split('_', 1)[1], {'title': t})
-        return True
-    except Exception as e:
-        log(f'rename failed: {e}')
-        return False
-
-
-def paused_name(base, until):
-    return f'{MARK} until {clock(until)} \u00b7 type "use credits" to go on \u00b7 {base or "Session"}'
-
-
-def base_name(t):
-    """A name without the pause mark."""
-    if t and t.startswith(MARK):
-        return t.rsplit(' \u00b7 ', 1)[-1] if t.count(' \u00b7 ') >= 2 else ''
-    return t or ''
-
-
-def show_pause(c, until):
-    """Put the pause in the session's name in the Claude app, where the person looks. Keeps the old name to
-    put back. When the app or the naming hook changes the name during the hold, the mark goes back on."""
-    if not c:
-        return
-    now = name_of(c)
-    if now is None:
-        return
-    want = paused_name(base_name(now), until)
-    if now != want:
-        with state() as s:
-            s.setdefault('limit_names', {})[c] = base_name(now)
-        rename_to(c, want)
-
-
-def clear_pause(c, sid):
-    """Put the old name back once no other hold in this session is waiting."""
-    if not c:
-        return
-    with state() as s:
-        others = [k for k, p in (s.get('limit_pauses') or {}).items() if k != sid and p.get('cse') == c]
-        if others:
-            return
-        base = (s.get('limit_names') or {}).pop(c, None)
-    now = name_of(c)
-    if now is not None and now.startswith(MARK):
-        rename_to(c, base_name(now) or base or 'Session')
-
-
 def org():
     with open(os.path.expanduser('~/.claude.json')) as f:
         return json.load(f)['oauthAccount']['organizationUuid']
@@ -404,65 +324,109 @@ def size(tp):
         return 0
 
 
-def wait(data, sid, name, until, what='step'):
-    """Hold this tool call (or message) until the limit resets or the person chooses credits."""
-    c, cwd, tp = cse(), data.get('cwd', ''), data.get('transcript_path')
-    pos = size(tp)
-    with state() as s:
-        t = title(s, c, cwd)
-        s.setdefault('limit_pauses', {})[sid] = {'since': time.time(), 'until': until, 'limit': name,
-                                                'cse': c, 'title': t, 'pid': os.getpid(), 'what': what}
-    atexit.register(drop, sid)
-    atexit.register(clear_pause, c, sid)   # runs first (last in, first out): other holds still listed
-    show_pause(c, until)
+CHUNK = int(os.environ.get('STTARK_LIMIT_CHUNK') or 540)   # the longest one wait command runs, under the Bash tool's 10-minute limit
+WAIT = os.path.expanduser('~/.local/bin/claude-limit-wait')
 
-    def stopped(*_):   # the turn was stopped (from the app, or the session closed): the row goes
-        log(f'end    {sid[:8]} pause ended: the turn was stopped')
+
+def wait_cmd(sid):
+    """The command Claude runs to wait, as Claude should type it."""
+    if not os.environ.get('STTARK_KIT_DIR'):
+        try:   # a short name, so the wait reads clearly in the Claude app
+            if os.path.realpath(WAIT) != os.path.realpath(__file__):
+                if os.path.lexists(WAIT):
+                    os.remove(WAIT)
+                os.symlink(os.path.realpath(__file__), WAIT)
+            return f'claude-limit-wait {sid}'
+        except OSError:
+            pass
+    return f'python3 "{os.path.realpath(__file__)}" wait {sid}'
+
+
+def line(until):
+    return f'Usage limit reached. I continue at {clock(until)}. Type use credits to continue now on credits.'
+
+
+def say(sid, name, until):
+    """What Claude is told at the limit: one line to the person, then the wait command, in the foreground."""
+    return (f'Sttark Claude Kit: the {name} usage limit is reached; it resets at {clock(until)}. '
+            'Usage credits are spent only if the person chooses them. Do this, and nothing else first: '
+            f'1) say exactly this one line: "{line(until)}" '
+            f'2) run this Bash command in the foreground with timeout 600000: {wait_cmd(sid)} '
+            '3) when it prints "WAIT AGAIN", run the same command again, with no other words. '
+            'When it prints "GO ON", go on with the task (retry the step that was stopped, if any). '
+            'Keep every reply until then to that one line or less.')
+
+
+def transcript_of(sid):
+    for tp in glob.glob(os.path.expanduser(f'~/.claude/projects/*/{sid}.jsonl')):
+        return tp
+    return None
+
+
+def wait_main(sid):
+    """claude-limit-wait <session id>: wait in the open until the limit resets or the person chooses credits.
+    Ends after CHUNK seconds so the Bash tool never times out; Claude then runs it again."""
+    c, tp = cse(), transcript_of(sid)
+    pos = size(tp)
+    w = wall(usage(), tp)
+    if not w or credits(sid):
+        print('GO ON: ' + ('usage credits were chosen.' if w else 'the usage limit is clear.'))
+        return
+    name, until = w
+    with state() as s:
+        s.setdefault('limit_pauses', {})[sid] = {'since': time.time(), 'until': until, 'limit': name, 'cse': c,
+                                                'title': title(s, c, os.getcwd()), 'pid': os.getpid(),
+                                                'what': 'wait'}
+    atexit.register(drop, sid)
+
+    def stopped(*_):
+        log(f'end    {sid[:8]} wait ended: the turn was stopped')
         sys.exit(0)
-    signal.signal(signal.SIGTERM, stopped)
-    signal.signal(signal.SIGHUP, stopped)
-    signal.signal(signal.SIGINT, stopped)
-    log(f'pause  {sid[:8]} {t[:40]!r} {what} at the {name} limit until {clock(until)}')
+    for g in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(g, stopped)
+    print(f'Waiting for the {name} usage limit to reset at {clock(until)}. '
+          'Type "use credits" to continue now on credits.', flush=True)
+    log(f'wait   {sid[:8]} at the {name} limit until {clock(until)}')
     started = asked = time.time()
-    while True:
+    while time.time() - started < CHUNK:
         time.sleep(TICK)
         found, pos = queued_credits(tp, pos)
         if not found and time.time() - asked >= TICK * 3:   # the server every 30 s
             asked = time.time()
             found = typed_credits(c, int(started * 1000))
-            if not found:
-                show_pause(c, until)   # the app sets its own name a few seconds after a first message
         if found:
             with state() as s:
                 s.setdefault('limit_credits', {})[sid] = until
-            log(f'credits {sid[:8]} "use credits" typed during the hold, until {clock(until)}')
+            log(f'credits {sid[:8]} "use credits" typed during the wait, until {clock(until)}')
+            print(f'GO ON: "use credits" was typed. This session uses usage credits until {clock(until)}.')
             return
-        s = peek()
-        if credits(sid, s):
-            log(f'credits {sid[:8]} goes on with usage credits after {int((time.time() - started) / 60)} min')
+        if credits(sid):
+            log(f'credits {sid[:8]} chosen in the menu')
+            print(f'GO ON: usage credits were chosen in the Kit menu, until {clock(until)}.')
             return
-        if time.time() >= until:
-            w = wall(usage(max_age=TICK), tp)   # just after the reset: read again soon, in case it lags
-        else:
-            w = wall(usage(), tp)   # a cache refresh every minute catches a limit that resets early
+        w = wall(usage(max_age=TICK) if time.time() >= until else usage(), tp)
         if not w:
             log(f'resume {sid[:8]} the {name} limit reset, after {int((time.time() - started) / 60)} min')
+            print(f'GO ON: the {name} usage limit reset.')
             return
-        if w[1] != until:
-            name, until = w
-            with state() as s:
-                p = (s.get('limit_pauses') or {}).get(sid)
-                if p:
-                    p.update(until=until, limit=name)
-            show_pause(c, until)
+        name, until = w
+    print(f'WAIT AGAIN: still at the {name} usage limit until {clock(until)}.')
+
+
+def is_wait(cmd):
+    return bool(re.search(r'(claude-limit-wait|limit-hook\.py"? wait)\b', cmd or ''))
 
 
 def on_tool(data):
     sid = data.get('session_id', '')
+    if data.get('tool_name') == 'Bash' and is_wait((data.get('tool_input') or {}).get('command')):
+        return   # the wait itself always runs
     w = wall(usage(), data.get('transcript_path'))
     if not w or credits(sid):
         return
-    wait(data, sid, *w)
+    log(f'stop   {sid[:8]} {data.get("tool_name")} at the {w[0]} limit until {clock(w[1])}')
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                                             'permissionDecisionReason': say(sid, *w)}}))
 
 
 def on_prompt(data):
@@ -484,10 +448,14 @@ def on_prompt(data):
     w = wall(usage(), data.get('transcript_path'))
     if not w or credits(sid):
         return
-    wait(data, sid, *w, what='message')   # the message goes to Claude when the hold ends; nothing is lost
+    log(f'message {sid[:8]} at the {w[0]} limit until {clock(w[1])}: Claude says so and waits')
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext':
+                      say(sid, *w) + ' After "GO ON", answer the message the person just sent.'}}))
 
 
 def main():
+    if (len(sys.argv) >= 3 and sys.argv[1] == 'wait') or os.path.basename(sys.argv[0]) == 'claude-limit-wait':
+        return wait_main(sys.argv[-1])
     try:
         data = json.load(sys.stdin)
     except ValueError:

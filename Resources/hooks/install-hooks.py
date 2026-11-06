@@ -99,7 +99,7 @@ def set_working(hooks, on):
 
 
 LIMIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'limit-hook.py')
-LIMIT_WAIT = 8 * 24 * 3600  # seconds a tool call may wait for a reset: past the longest (weekly) limit
+LIMIT_WAIT = 60  # the hooks only check and answer; the wait runs as a visible command (claude-limit-wait)
 
 
 def is_limit(cmd):
@@ -115,7 +115,7 @@ def set_limit(hooks, on):
         groups = [g for g in groups if g.get('hooks')]
         if on:
             groups.append({'hooks': [{'type': 'command', 'command': f'"{LIMIT}"',
-                                      'timeout': LIMIT_WAIT}]})   # both can hold until the reset
+                                      'timeout': LIMIT_WAIT}]})
         if groups:
             hooks[event] = groups
         else:
