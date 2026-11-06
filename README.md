@@ -15,7 +15,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Gives you a link to open a file Claude made, instead of a path | [Links to files](#links-to-files) |
 | Answers Claude for Chrome's permission prompts | [Approve Claude in Chrome](#approve-claude-in-chrome) |
 | Copies your Claude profile instructions into Claude Code | [Sync Claude profile instructions](#sync-claude-profile-instructions) |
-| Puts Sttark's working rules in front of every prompt, and sends a reply back once when it isn't in Simplified Technical English | [Sttark working rules](#sttark-working-rules) |
+| Puts Sttark's working rules in front of every prompt, and checks each reply for Simplified Technical English | [Sttark working rules](#sttark-working-rules) |
 | Gives sessions in Sttark's app repos the Sttark app rules | [Sttark app rules](#sttark-app-rules) |
 
 Everything except effort, the Sttark working rules and the Sttark app rules is off until you turn it on in the menu. It updates itself when a new version is released here.
@@ -252,11 +252,11 @@ Claude names each new Claude Code session with a long description of the first t
 
 How Claude works for people at Sttark, in every session. The rules go in front of every prompt, so a running session follows them too. They say, in short: visuals over text; answer the question first, and a question is not an instruction; give the plan in two lines with a step count, then start without asking; do a clear, undoable step and report it, and ask only before a step that deletes, sends, publishes or spends; the shortest reply that fully answers; hand any task of more than a few tool calls to a subagent in the background and keep the chat for direction, one agent per task when there are several; when one prompt holds several asks, put them in Claude Code's own task list first, so they show in the app, and report each one as done, open or dropped at every end of turn; pull before repo work; usability first in UI; full Asana URLs; no em-dashes; end each turn with where things stand; and write replies in ASD-STE100 Simplified Technical English.
 
-A rule in the context is a request. The last one also gets a check: when Claude finishes a reply, the reply's prose goes to a quick side call (Haiku) that names the words and sentences that clearly break Simplified Technical English, and says whether the reply ends by asking for a go it did not need. On a miss, the reply goes back to Claude once, with the list, and Claude rewrites it before the turn ends. Once only: the rewrite is never checked again, so there is no loop. Replies with no prose (code only) are not checked, and any failure of the check lets the reply through.
+A rule in the context is a request. The last one also gets a check: when Claude finishes a reply, the reply's prose goes to a quick side call (Haiku) that names the words and sentences that clearly break Simplified Technical English, and says whether the reply ends by asking for a go it did not need. The check never sends a reply back: you have already seen the reply, so a rewrite would only show it twice. A miss is saved for that session and goes in front of its next prompt ("Your last reply had words that are not STE: ... Use the approved words from now on."), then it is cleared. Replies with no prose (code only) are not checked, and any failure of the check saves nothing.
 
 - On for everyone when the app installs. Turn it off with the switch; the app remembers and leaves it off through updates.
 - The rules text lives in `Resources/hooks/working-rules-hook.py` in this repo. To change a rule for everyone, change it there and open a pull request.
-- The check is a short Haiku call after each reply, a few seconds while you read it. Each check is logged, with lines starting `ste`.
+- The check is a short Haiku call that runs in the background after each reply, so it never holds up the turn. Misses wait in `~/Library/Application Support/SttarkClaudeKit/working-notes.json`. Each check is logged, with lines starting `ste`.
 
 ## Sttark app rules
 
