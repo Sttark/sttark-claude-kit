@@ -10,9 +10,12 @@ minute or less, shared by every session through a cache file). At the limit it
 waits, with no model calls, until the limit resets, then lets the tool run and
 the session goes on with its task by itself.
 
-UserPromptSubmit: a message sent at the limit is stopped with the reset time and
-how to use credits. A message of just "use credits" lets that session use usage
-credits until the limit resets, and Claude goes on with the task.
+UserPromptSubmit: a message sent at the limit holds the same way, and goes to
+Claude when the limit resets, so nothing typed is lost. A message of just "use
+credits" lets that session use usage credits until the limit resets, and Claude
+goes on with the task. Claude Code queues a message typed while a hold runs and
+runs its hooks only after the hold ends, so a hold also watches the session's
+transcript for a queued "use credits" and lets the session go on at once.
 
 Credits are used only when the person chooses them: "Use credits at the usage
 limit" in the app's menu (every session), "Use credits" on a waiting session's
@@ -224,13 +227,47 @@ def drop(sid):
             s['limit_pauses'] = p
 
 
-def wait(data, sid, name, until):
-    """Hold this tool call until the limit resets or the person chooses credits."""
+def asked_credits(text):
+    return isinstance(text, str) and re.sub(r'[^a-z ]', '', text.lower()).strip() == 'use credits'
+
+
+def queued_credits(tp, pos):
+    """(found, new position): found is True when "use credits" was queued in the transcript after pos.
+    Claude Code writes a queue-operation line the moment a message is typed, even while a hook holds the turn."""
+    try:
+        with open(tp, 'rb') as f:
+            f.seek(pos)
+            chunk = f.read()
+    except (OSError, TypeError):
+        return False, pos
+    end = chunk.rfind(b'\n') + 1
+    for line in chunk[:end].splitlines():
+        if b'queue-operation' not in line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if d.get('operation') == 'enqueue' and asked_credits(d.get('content')):
+            return True, pos + end
+    return False, pos + end
+
+
+def size(tp):
+    try:
+        return os.path.getsize(tp)
+    except (OSError, TypeError):
+        return 0
+
+
+def wait(data, sid, name, until, what='step'):
+    """Hold this tool call (or message) until the limit resets or the person chooses credits."""
     c, cwd, tp = cse(), data.get('cwd', ''), data.get('transcript_path')
+    pos = size(tp)
     with state() as s:
         t = title(s, c, cwd)
         s.setdefault('limit_pauses', {})[sid] = {'since': time.time(), 'until': until, 'limit': name,
-                                                'cse': c, 'title': t, 'pid': os.getpid()}
+                                                'cse': c, 'title': t, 'pid': os.getpid(), 'what': what}
     atexit.register(drop, sid)
 
     def stopped(*_):   # the turn was stopped (from the app, or the session closed): the row goes
@@ -239,10 +276,16 @@ def wait(data, sid, name, until):
     signal.signal(signal.SIGTERM, stopped)
     signal.signal(signal.SIGHUP, stopped)
     signal.signal(signal.SIGINT, stopped)
-    log(f'pause  {sid[:8]} {t[:40]!r} at the {name} limit until {clock(until)}')
+    log(f'pause  {sid[:8]} {t[:40]!r} {what} at the {name} limit until {clock(until)}')
     started = time.time()
     while True:
         time.sleep(TICK)
+        found, pos = queued_credits(tp, pos)
+        if found:
+            with state() as s:
+                s.setdefault('limit_credits', {})[sid] = until
+            log(f'credits {sid[:8]} "use credits" typed during the hold, until {clock(until)}')
+            return
         s = peek()
         if credits(sid, s):
             log(f'credits {sid[:8]} goes on with usage credits after {int((time.time() - started) / 60)} min')
@@ -272,8 +315,7 @@ def on_tool(data):
 
 def on_prompt(data):
     sid = data.get('session_id', '')
-    asked = re.sub(r'[^a-z ]', '', (data.get('prompt') or '').lower()).strip()
-    if asked == 'use credits':
+    if asked_credits(data.get('prompt')):
         u = usage(max_age=0)
         w = wall(u, data.get('transcript_path'))
         until = w[1] if w else time.time() + 5 * 3600
@@ -290,10 +332,7 @@ def on_prompt(data):
     w = wall(usage(), data.get('transcript_path'))
     if not w or credits(sid):
         return
-    log(f'stop   {sid[:8]} message sent at the {w[0]} limit, until {clock(w[1])}')
-    print(json.dumps({'decision': 'block', 'reason':
-        f'Paused: your {w[0]} usage limit is reached, so this message was not sent and no usage credits were used. '
-        f'The limit resets at {clock(w[1])}. Send it again after that, or send "use credits" to go on now with usage credits.'}))
+    wait(data, sid, *w, what='message')   # the message goes to Claude when the hold ends; nothing is lost
 
 
 def main():
