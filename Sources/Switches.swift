@@ -90,6 +90,21 @@ enum Names {
     }
 }
 
+/// "Sttark working rules": the rules hook in front of every prompt and the STE check at the end of every reply.
+/// On by default: install-hooks.py adds both on every launch unless the switch left its off marker.
+enum WorkingRules {
+    static var on: Bool {
+        let out = Updater.run("/usr/bin/python3", [Bypass.installer, "--status"]).1
+        let d = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Bool]
+        return d?["working"] ?? false
+    }
+
+    static func set(_ on: Bool) {
+        let r = Updater.run("/usr/bin/python3", [Bypass.installer, "--working", on ? "on" : "off"]).1
+        note("working rules: \(r.trimmingCharacters(in: .whitespacesAndNewlines))")
+    }
+}
+
 /// "Sync Claude profile instructions": copies the instructions from the Claude app's Profile settings into
 /// ~/.claude/CLAUDE.md every 15 minutes, and puts them in front of every prompt with a hook.
 /// The sync needs two Python add-ons (curl_cffi to get past Cloudflare, cryptography to read the Claude

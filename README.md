@@ -15,9 +15,10 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Gives you a link to open a file Claude made, instead of a path | [Links to files](#links-to-files) |
 | Answers Claude for Chrome's permission prompts | [Approve Claude in Chrome](#approve-claude-in-chrome) |
 | Copies your Claude profile instructions into Claude Code | [Sync Claude profile instructions](#sync-claude-profile-instructions) |
+| Puts Sttark's working rules in front of every prompt, and sends a reply back once when it isn't in Simplified Technical English | [Sttark working rules](#sttark-working-rules) |
 | Gives sessions in Sttark's app repos the Sttark app rules | [Sttark app rules](#sttark-app-rules) |
 
-Everything except effort and the Sttark app rules is off until you turn it on in the menu. It updates itself when a new version is released here.
+Everything except effort, the Sttark working rules and the Sttark app rules is off until you turn it on in the menu. It updates itself when a new version is released here.
 
 ![The menu: Auto effort, Model, each session with its level and a hover tip with the reason, then the switches, Open log, Check for updates](docs/menu.png)
 
@@ -58,6 +59,7 @@ Click the gauge:
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). Off until you turn it on. |
 | **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. |
 | **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). Off until you turn it on. |
+| **Sttark working rules** | See [below](#sttark-working-rules). On until you turn it off. |
 | **Claude window in Chrome** | See [below](#claude-window-in-chrome). Off until you turn it on. |
 | **Links to files** | See [below](#links-to-files). Off until you turn it on. |
 | **Name sessions automatically** | See [below](#name-sessions-automatically). Off until you turn it on. |
@@ -86,6 +88,7 @@ Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
 | `paused` | Auto effort is off. |
 | `skip` | Not a Remote Control session, so it can't be changed. |
 | `rules` | The Sttark app rules: added to a session, or the saved copy refreshed. |
+| `ste` | The working rules' check of a finished reply: ok, sent back with the list, or error. |
 | `error` | Something failed. The level was left as it was. |
 
 To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
@@ -245,6 +248,16 @@ Claude names each new Claude Code session with a long description of the first t
 - It also sets the name in the Claude app, after the app's own automatic title lands, so the app shows it too.
 - It runs alongside the effort check, so it adds no wait. Each name is logged, with lines starting `name`.
 
+## Sttark working rules
+
+How Claude works for people at Sttark, in every session. The rules go in front of every prompt, so a running session follows them too. They say, in short: visuals over text; answer the question first, and a question is not an instruction; give the plan in two lines with a step count, then start without asking; do a clear, undoable step and report it, and ask only before a step that deletes, sends, publishes or spends; the shortest reply that fully answers; hand any task of more than a few tool calls to a subagent in the background and keep the chat for direction, one agent per task when there are several; when one prompt holds several asks, put them in Claude Code's own task list first, so they show in the app, and report each one as done, open or dropped at every end of turn; pull before repo work; usability first in UI; full Asana URLs; no em-dashes; end each turn with where things stand; and write replies in ASD-STE100 Simplified Technical English.
+
+A rule in the context is a request. The last one also gets a check: when Claude finishes a reply, the reply's prose goes to a quick side call (Haiku) that names the words and sentences that clearly break Simplified Technical English, and says whether the reply ends by asking for a go it did not need. On a miss, the reply goes back to Claude once, with the list, and Claude rewrites it before the turn ends. Once only: the rewrite is never checked again, so there is no loop. Replies with no prose (code only) are not checked, and any failure of the check lets the reply through.
+
+- On for everyone when the app installs. Turn it off with the switch; the app remembers and leaves it off through updates.
+- The rules text lives in `Resources/hooks/working-rules-hook.py` in this repo. To change a rule for everyone, change it there and open a pull request.
+- The check is a short Haiku call after each reply, a few seconds while you read it. Each check is logged, with lines starting `ste`.
+
 ## Sttark app rules
 
 When a session works in one of Sttark's app repos, Sttark Claude Kit adds the five Apps chapters of the Sttark Brand and App Guidelines (Building Web Apps, Look, Pages and Behavior, Sign-in and Access, Checks) to the session, with one line before them: follow them for any UI work, and run the Checks chapter's Before you ship list. It's on for everyone; there's no switch, since it only reads.
@@ -265,7 +278,7 @@ After you sign in, the server picks up the new login by itself the next time it 
 
 ## Cost
 
-Each effort check is one short call to the model picked under **Model** (the newest Sonnet unless you change it): about 2 to 5 seconds before a prompt starts, plus about a second and a half when the level changes. The checks at 10, 25 and 50 steps, the naming check, and the Waiting on you check (once per finished reply) run alongside or in the background and don't slow the work. All of them count toward your Claude plan's usage like any other Claude Code call.
+Each effort check is one short call to the model picked under **Model** (the newest Sonnet unless you change it): about 2 to 5 seconds before a prompt starts, plus about a second and a half when the level changes. The checks at 10, 25 and 50 steps, the naming check, and the Waiting on you check (once per finished reply) run alongside or in the background and don't slow the work. The working rules' check of each finished reply is one short Haiku call, a few seconds after the reply shows. All of them count toward your Claude plan's usage like any other Claude Code call.
 
 ## Troubleshooting
 
@@ -320,6 +333,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Resources/hooks/bypass-hook.sh` | The Bypass permissions hook. |
 | `Resources/hooks/name-hook.py` | The session naming hook. |
 | `Resources/hooks/app-rules-hook.py` | The Sttark app rules hook and its refresh. |
+| `Resources/hooks/working-rules-hook.py` | The Sttark working rules: the text in front of every prompt, and the check of each reply. |
 | `Resources/hooks/claude-window.sh` | The `claude-window` command. |
 | `Resources/hooks/file-links.py` | The `claude-link` command and the Links to files server. |
 | `Sources/Waiting.swift` | The Waiting on you section and its notices. |

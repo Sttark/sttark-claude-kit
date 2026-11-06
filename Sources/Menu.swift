@@ -179,6 +179,10 @@ final class Controller: NSObject, NSMenuDelegate {
         sync.toolTip = "Copies the instructions from your Claude profile into Claude Code and puts them in front of every prompt, so running sessions see edits too."
             + (ProfileSync.on ? (ProfileSync.lastResult.map { "\n\nLast sync: " + $0 } ?? "") : "")
         menu.addItem(sync)
+        let rules = action("Sttark working rules", #selector(toggleWorkingRules))
+        rules.state = WorkingRules.on ? .on : .off
+        rules.toolTip = "Puts Sttark's working rules in front of every prompt: answer first, a plan with a step count, work handed to agents, a task list for a prompt with several asks, Simplified Technical English, and more. When a reply isn't in Simplified Technical English, it goes back to Claude once with the words to fix. On unless you turn it off."
+        menu.addItem(rules)
         if ChromeApprover.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
@@ -258,6 +262,7 @@ final class Controller: NSObject, NSMenuDelegate {
 
     @objc func toggleFileLinks() { FileLinks.set(!FileLinks.on) }
     @objc func toggleNames() { Names.set(!Names.on) }
+    @objc func toggleWorkingRules() { WorkingRules.set(!WorkingRules.on) }
 
     @objc func toggleProfile() {
         if ProfileSync.on { ProfileSync.stop(); return }

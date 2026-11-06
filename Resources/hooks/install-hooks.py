@@ -7,8 +7,10 @@ hook that went missing comes back.
 automatically"), --profile on|off the profile instructions hook (the "Sync Claude
 profile instructions" switch), and --bypass on|off the bypass hook (the "Bypass permissions for
 server sessions" switch) and leaves the effort hook alone. The app rules hook
-(app-rules-hook.py, no switch) goes in with the effort hook. --status prints which are
-on. Other settings and hooks are left as they are, and a backup is saved
+(app-rules-hook.py, no switch) goes in with the effort hook, and so do the working rules
+hooks (working-rules-hook.py, the "Sttark working rules" switch, on by default) unless
+--working off was run, which leaves a marker in the app's folder; --working on removes it.
+--status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
 import json, os, shutil, sys, time
@@ -59,6 +61,34 @@ def set_rules(hooks, on):
         if on and event == 'SessionStart':
             groups.append({'matcher': 'compact',
                            'hooks': [{'type': 'command', 'command': f'"{RULES}" --compacted', 'timeout': 10}]})
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
+WORKING = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'working-rules-hook.py')
+WORKING_OFF = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/working-rules.off')
+
+
+def is_working(cmd):
+    return 'working-rules-hook.py' in cmd
+
+
+def set_working(hooks, on):
+    """The rules in front of every prompt, right after the person's own instructions when the profile hook
+    is on, and the STE check when a reply ends."""
+    for event in ('UserPromptSubmit', 'Stop'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_working(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on and event == 'UserPromptSubmit':
+            after = [i for i, g in enumerate(groups) if any(is_profile(h.get('command', '')) for h in g['hooks'])]
+            groups.insert(after[0] + 1 if after else 0,
+                          {'hooks': [{'type': 'command', 'command': f'"{WORKING}"', 'timeout': 10}]})
+        if on and event == 'Stop':
+            groups.append({'hooks': [{'type': 'command', 'command': f'"{WORKING}" --check', 'timeout': 60}]})
         if groups:
             hooks[event] = groups
         else:
@@ -127,7 +157,8 @@ def main():
                           'bypass': has(s, 'PermissionRequest', is_bypass),
                           'profile': has(s, 'UserPromptSubmit', is_profile),
                           'names': has(s, 'UserPromptSubmit', is_names),
-                          'rules': has(s, 'UserPromptSubmit', is_rules)}))
+                          'rules': has(s, 'UserPromptSubmit', is_rules),
+                          'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working)}))
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -141,11 +172,24 @@ def main():
     if '--profile' in sys.argv:
         set_profile(hooks, sys.argv[sys.argv.index('--profile') + 1] == 'on')
         return save(s, before, 'profile ' + sys.argv[sys.argv.index('--profile') + 1])
+    if '--working' in sys.argv:
+        on = sys.argv[sys.argv.index('--working') + 1] == 'on'
+        if on:
+            try:
+                os.remove(WORKING_OFF)
+            except OSError:
+                pass
+        else:
+            os.makedirs(os.path.dirname(WORKING_OFF), exist_ok=True)
+            open(WORKING_OFF, 'w').close()
+        set_working(hooks, on)
+        return save(s, before, 'working ' + ('on' if on else 'off'))
     if remove:
         set_bypass(hooks, False)
         set_profile(hooks, False)
         set_names(hooks, False)
     set_rules(hooks, not remove)
+    set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])
         for g in groups:  # drop every copy, old paths included
