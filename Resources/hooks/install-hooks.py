@@ -10,6 +10,8 @@ server sessions" switch) and leaves the effort hook alone. The app rules hook
 (app-rules-hook.py, no switch) goes in with the effort hook, and so do the working rules
 hooks (working-rules-hook.py, the "Sttark working rules" switch, on by default) unless
 --working off was run, which leaves a marker in the app's folder; --working on removes it.
+The usage limit hook (limit-hook.py) also goes in with the effort hook; the menu's "Use credits at
+the usage limit" switch is a setting it reads, not a hook change.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -96,6 +98,30 @@ def set_working(hooks, on):
             hooks.pop(event, None)
 
 
+LIMIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'limit-hook.py')
+LIMIT_WAIT = 8 * 24 * 3600  # seconds a tool call may wait for a reset: past the longest (weekly) limit
+
+
+def is_limit(cmd):
+    return 'limit-hook.py' in cmd
+
+
+def set_limit(hooks, on):
+    """Before every tool call, and on every message: wait at the usage limit instead of spending credits."""
+    for event in ('PreToolUse', 'UserPromptSubmit'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_limit(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            groups.append({'hooks': [{'type': 'command', 'command': f'"{LIMIT}"',
+                                      'timeout': LIMIT_WAIT if event == 'PreToolUse' else 30}]})
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
 def ours(cmd):
     return cmd.rstrip('"').endswith('effort-hook.py')
 
@@ -159,7 +185,8 @@ def main():
                           'profile': has(s, 'UserPromptSubmit', is_profile),
                           'names': has(s, 'UserPromptSubmit', is_names),
                           'rules': has(s, 'UserPromptSubmit', is_rules),
-                          'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working)}))
+                          'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
+                          'limit': has(s, 'PreToolUse', is_limit)}))
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -190,6 +217,7 @@ def main():
         set_profile(hooks, False)
         set_names(hooks, False)
     set_rules(hooks, not remove)
+    set_limit(hooks, not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])

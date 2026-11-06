@@ -266,7 +266,24 @@ def list_models():
     print(json.dumps(out))
 
 
+AT_LIMIT = 'NO - skipped at the usage limit'
+
+
+def at_limit():
+    """True at the usage limit when no one chose usage credits (limit-hook.py): the Kit's own side calls to
+    Claude are skipped then, so they spend nothing."""
+    try:
+        spec = importlib.util.spec_from_file_location('limit', os.path.join(HERE, 'limit-hook.py'))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m.held()
+    except Exception:
+        return False
+
+
 def judge(ask, system=RULES):
+    if at_limit():
+        return None, AT_LIMIT
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID',
                                 'CLAUDE_EFFORT'))}
@@ -830,6 +847,9 @@ def on_prompt(data, sid):
         log(f'error  {sid} judge failed: {e!r} | {snippet}')
         return
     secs = time.time() - t0
+    if answer == AT_LIMIT:
+        log(f'skip   {sid} at the usage limit, level left as it is')
+        return
     if not level:
         log(f'error  {sid} unreadable answer {answer!r} | {snippet}')
         return
@@ -899,6 +919,8 @@ def on_tool(data, sid):
         log(f'error  {sid} recheck at {calls} failed: {e!r} | {snippet}')
         return
     secs = time.time() - t0
+    if answer == AT_LIMIT:
+        return
     if not level:
         log(f'error  {sid} recheck unreadable {answer!r} | {snippet}')
         return

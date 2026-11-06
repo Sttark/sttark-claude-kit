@@ -239,7 +239,22 @@ def start_refresh():
                      start_new_session=True)
 
 
+def at_limit():
+    """True at the usage limit when no one chose usage credits (limit-hook.py)."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'limit', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'limit-hook.py'))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m.held()
+    except Exception:
+        return False
+
+
 def refresh():
+    if at_limit():
+        return  # tried again after the reset; nothing is spent at the usage limit
     os.makedirs(DIR, exist_ok=True)
     with open(os.path.join(DIR, 'refresh.lock'), 'w') as lock:
         try:
