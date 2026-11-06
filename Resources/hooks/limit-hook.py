@@ -43,6 +43,8 @@ URL = 'https://api.anthropic.com/api/oauth/usage'
 FRESH = 60       # seconds a usage read is good for
 FRESH_NEAR = 15  # ... when a limit is at 90% or more, so the pause starts soon after the limit
 TICK = 10        # seconds between checks while a session waits
+SESSIONS = 'https://api.anthropic.com/v1/code/sessions/'
+EVENTS = os.environ.get('STTARK_LIMIT_EVENTS')   # tests: a file that stands in for the session's server events
 NAMES = {'session': '5-hour', 'weekly_all': 'weekly'}
 
 
@@ -253,6 +255,40 @@ def queued_credits(tp, pos):
     return False, pos + end
 
 
+def org():
+    with open(os.path.expanduser('~/.claude.json')) as f:
+        return json.load(f)['oauthAccount']['organizationUuid']
+
+
+def typed_credits(c, since_ms):
+    """True when "use credits" was typed in the Claude app after since_ms. Read from the session's events on
+    the server, which have every message the app sends, also before Claude Code writes its transcript (a new
+    session whose first message waits). Newest events come first."""
+    if not c:
+        return False
+    try:
+        if EVENTS:
+            with open(EVENTS) as f:
+                data = json.load(f)
+        else:
+            r = urllib.request.Request(SESSIONS + c + '/events?limit=30', headers={
+                'Authorization': 'Bearer ' + token(), 'anthropic-version': '2023-06-01',
+                'anthropic-beta': 'ccr-byoc-2025-07-29', 'x-organization-uuid': org()})
+            with urllib.request.urlopen(r, timeout=10) as resp:
+                data = json.load(resp)
+    except Exception:
+        return False
+    for e in data.get('data') or []:
+        p = e.get('payload') or {}
+        if e.get('source') != 'client' or e.get('event_type') != 'user':
+            continue
+        if (p.get('server_received_wall_ms') or 0) < since_ms:
+            continue
+        if asked_credits((p.get('message') or {}).get('content')):
+            return True
+    return False
+
+
 def size(tp):
     try:
         return os.path.getsize(tp)
@@ -277,10 +313,13 @@ def wait(data, sid, name, until, what='step'):
     signal.signal(signal.SIGHUP, stopped)
     signal.signal(signal.SIGINT, stopped)
     log(f'pause  {sid[:8]} {t[:40]!r} {what} at the {name} limit until {clock(until)}')
-    started = time.time()
+    started = asked = time.time()
     while True:
         time.sleep(TICK)
         found, pos = queued_credits(tp, pos)
+        if not found and time.time() - asked >= TICK * 3:   # the server every 30 s
+            asked = time.time()
+            found = typed_credits(c, int(started * 1000))
         if found:
             with state() as s:
                 s.setdefault('limit_credits', {})[sid] = until
