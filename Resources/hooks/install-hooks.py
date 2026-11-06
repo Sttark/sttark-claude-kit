@@ -115,7 +115,7 @@ def set_limit(hooks, on):
         groups = [g for g in groups if g.get('hooks')]
         if on:
             groups.append({'hooks': [{'type': 'command', 'command': f'"{LIMIT}"',
-                                      'timeout': LIMIT_WAIT if event == 'PreToolUse' else 30}]})
+                                      'timeout': LIMIT_WAIT}]})   # both can hold until the reset
         if groups:
             hooks[event] = groups
         else:
