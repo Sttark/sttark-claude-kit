@@ -39,9 +39,11 @@ STATE = os.path.join(DIR, 'state.json')
 USAGE = os.path.join(DIR, 'usage.json')
 TEST = os.environ.get('STTARK_LIMIT_TEST')
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
-URL = 'https://api.anthropic.com/api/oauth/usage'
+URL = os.environ.get('STTARK_LIMIT_URL') or 'https://api.anthropic.com/api/oauth/usage'   # tests: a stand-in server
 FRESH = 60       # seconds a usage read is good for
 FRESH_NEAR = 15  # ... when a limit is at 90% or more, so the pause starts soon after the limit
+BACKOFF = 120    # seconds to wait after a failed usage read, doubling each time ...
+BACKOFF_MAX = 900  # ... up to 15 minutes
 TICK = 10        # seconds between checks while a session waits
 SESSIONS = 'https://api.anthropic.com/v1/code/sessions/'
 EVENTS = os.environ.get('STTARK_LIMIT_EVENTS')   # tests: a file that stands in for the session's server events
@@ -87,7 +89,7 @@ def fetch():
     if TEST:
         with open(TEST) as f:
             return json.load(f)
-    r = urllib.request.Request(URL, headers={'Authorization': 'Bearer ' + token(),
+    r = urllib.request.Request(URL, headers={'Authorization': 'Bearer ' + ('test' if os.environ.get('STTARK_LIMIT_URL') else token()),
                                              'anthropic-beta': 'oauth-2025-04-20',
                                              'Content-Type': 'application/json'})
     with urllib.request.urlopen(r, timeout=10) as resp:
@@ -108,7 +110,9 @@ def fresh_for(u):
 
 def usage(max_age=None):
     """The latest usage read, from the cache when it's no older than max_age (by default a minute, 15 seconds
-    near a limit). One process reads at a time; the others use the cache. None when there's no read at all."""
+    near a limit). One process reads at a time; the others use the cache. After a failed read (a 429, say) no
+    process reads again until the back-off ends (Retry-After, or 2 min doubling to 15 min), and every caller
+    gets the last good read meanwhile. None when there's no read at all."""
     try:
         c = json.load(open(USAGE))
     except (OSError, ValueError):
@@ -116,26 +120,48 @@ def usage(max_age=None):
     u = c.get('usage')
     if u and time.time() - c.get('at', 0) < (fresh_for(u) if max_age is None else max_age):
         return u
+    if time.time() < c.get('retry_at', 0):
+        return u   # backing off after a failed read: keep the last good one
     os.makedirs(DIR, exist_ok=True)
     with open(USAGE + '.lock', 'w') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return u   # another session is reading it now
+        try:   # read the cache again under the lock: another process may have just read or backed off
+            c = json.load(open(USAGE))
+        except (OSError, ValueError):
+            pass
+        u = c.get('usage')
+        if time.time() < c.get('retry_at', 0) or (
+                u and time.time() - c.get('at', 0) < (fresh_for(u) if max_age is None else max_age)):
+            return u
         try:
             u = fetch()
         except (OSError, ValueError, KeyError, subprocess.CalledProcessError, urllib.error.URLError) as e:
-            if not c.get('error_logged'):
-                log(f'usage read failed: {e}')
-                c['error_logged'] = True
-                c['at'] = time.time()   # don't retry on every tool call
-                json.dump(c, open(USAGE, 'w'))
+            fails = c.get('fails', 0) + 1
+            after = 0
+            if isinstance(e, urllib.error.HTTPError):
+                try:
+                    after = int(e.headers.get('Retry-After') or 0)
+                except (TypeError, ValueError):
+                    after = 0
+            wait_s = max(after, min(BACKOFF * 2 ** (fails - 1), BACKOFF_MAX))
+            c.update(fails=fails, retry_at=time.time() + wait_s)
+            if fails == 1 or after:
+                log(f'usage read failed: {e}; next read in {wait_s // 60 or 1} min, '
+                    + ('using the last read' if u else 'no read yet'))
+            put(c)
             return u
-        tmp = USAGE + '.tmp'
-        with open(tmp, 'w') as f:
-            json.dump({'at': time.time(), 'usage': u}, f)
-        os.replace(tmp, USAGE)
+        put({'at': time.time(), 'usage': u})
         return u
+
+
+def put(c):
+    tmp = USAGE + f'.{os.getpid()}.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(c, f)
+    os.replace(tmp, USAGE)
 
 
 def session_model(transcript):
@@ -163,6 +189,8 @@ def wall(u, transcript=None):
     for l in u.get('limits') or []:
         if not (l.get('is_active') or (l.get('percent') or 0) >= 100):
             continue
+        if l.get('resets_at') and stamp(l.get('resets_at')) <= time.time():
+            continue   # an old read: this limit has reset since
         scope = ((l.get('scope') or {}).get('model') or {}).get('display_name')
         if scope:
             if model is None:
@@ -255,6 +283,86 @@ def queued_credits(tp, pos):
     return False, pos + end
 
 
+MARK = '\u23f8 Paused'   # the start of a held session's name in the Claude app
+TITLES = os.environ.get('STTARK_LIMIT_TITLES')   # tests: a file that stands in for session names on the server
+
+
+def api(method, url, body=None):
+    r = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, method=method,
+                               headers={'Authorization': 'Bearer ' + token(), 'anthropic-version': '2023-06-01',
+                                        'anthropic-beta': 'ccr-byoc-2025-07-29', 'x-organization-uuid': org(),
+                                        'Content-Type': 'application/json'})
+    with urllib.request.urlopen(r, timeout=10) as resp:
+        return json.load(resp)
+
+
+def name_of(c):
+    """The session's name in the Claude app, or None when it can't be read."""
+    try:
+        if TITLES:
+            return json.load(open(TITLES)).get(c, '')
+        return api('GET', 'https://api.anthropic.com/v1/sessions/session_' + c.split('_', 1)[1]).get('title') or ''
+    except Exception:
+        return None
+
+
+def rename_to(c, t):
+    try:
+        if TITLES:
+            try:
+                d = json.load(open(TITLES))
+            except (OSError, ValueError):
+                d = {}
+            d[c] = t
+            json.dump(d, open(TITLES, 'w'))
+        else:
+            api('PATCH', 'https://api.anthropic.com/v1/sessions/session_' + c.split('_', 1)[1], {'title': t})
+        return True
+    except Exception as e:
+        log(f'rename failed: {e}')
+        return False
+
+
+def paused_name(base, until):
+    return f'{MARK} until {clock(until)} \u00b7 type "use credits" to go on \u00b7 {base or "Session"}'
+
+
+def base_name(t):
+    """A name without the pause mark."""
+    if t and t.startswith(MARK):
+        return t.rsplit(' \u00b7 ', 1)[-1] if t.count(' \u00b7 ') >= 2 else ''
+    return t or ''
+
+
+def show_pause(c, until):
+    """Put the pause in the session's name in the Claude app, where the person looks. Keeps the old name to
+    put back. When the app or the naming hook changes the name during the hold, the mark goes back on."""
+    if not c:
+        return
+    now = name_of(c)
+    if now is None:
+        return
+    want = paused_name(base_name(now), until)
+    if now != want:
+        with state() as s:
+            s.setdefault('limit_names', {})[c] = base_name(now)
+        rename_to(c, want)
+
+
+def clear_pause(c, sid):
+    """Put the old name back once no other hold in this session is waiting."""
+    if not c:
+        return
+    with state() as s:
+        others = [k for k, p in (s.get('limit_pauses') or {}).items() if k != sid and p.get('cse') == c]
+        if others:
+            return
+        base = (s.get('limit_names') or {}).pop(c, None)
+    now = name_of(c)
+    if now is not None and now.startswith(MARK):
+        rename_to(c, base_name(now) or base or 'Session')
+
+
 def org():
     with open(os.path.expanduser('~/.claude.json')) as f:
         return json.load(f)['oauthAccount']['organizationUuid']
@@ -305,6 +413,8 @@ def wait(data, sid, name, until, what='step'):
         s.setdefault('limit_pauses', {})[sid] = {'since': time.time(), 'until': until, 'limit': name,
                                                 'cse': c, 'title': t, 'pid': os.getpid(), 'what': what}
     atexit.register(drop, sid)
+    atexit.register(clear_pause, c, sid)   # runs first (last in, first out): other holds still listed
+    show_pause(c, until)
 
     def stopped(*_):   # the turn was stopped (from the app, or the session closed): the row goes
         log(f'end    {sid[:8]} pause ended: the turn was stopped')
@@ -320,6 +430,8 @@ def wait(data, sid, name, until, what='step'):
         if not found and time.time() - asked >= TICK * 3:   # the server every 30 s
             asked = time.time()
             found = typed_credits(c, int(started * 1000))
+            if not found:
+                show_pause(c, until)   # the app sets its own name a few seconds after a first message
         if found:
             with state() as s:
                 s.setdefault('limit_credits', {})[sid] = until
@@ -342,6 +454,7 @@ def wait(data, sid, name, until, what='step'):
                 p = (s.get('limit_pauses') or {}).get(sid)
                 if p:
                     p.update(until=until, limit=name)
+            show_pause(c, until)
 
 
 def on_tool(data):
