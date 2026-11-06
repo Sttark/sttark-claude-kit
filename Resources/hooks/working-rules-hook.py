@@ -51,9 +51,9 @@ for each task in the same message, so they run at the same time. Use a fork agen
 context. Use a new agent with full instructions when it does not. Give each agent its own git worktree when two \
 agents could change the same files. When an agent completes, tell the person in one or two lines what it found \
 or did. Keep the chat for direction and decisions. Do the work in the chat only for one lookup or a one-line fix.
-- When a prompt holds more than one ask, first write a numbered list of the asks in Claude Code's own task list, \
-so it shows in the app. Give one agent to each item. At every end of turn, report each item as done, open or \
-dropped, with the reason. Nothing may go missing without showing in the list.
+- When a prompt holds more than one ask, number the asks. At every end of turn, give a table with each ask \
+and its status: done, open or dropped, with the reason. Keep each ask in the table until it is done or the \
+person drops it. Nothing may go missing without showing in the table.
 - Repo work: pull latest from remote before you work, and read the project docs before you change anything. The \
 projects have history.
 - UI and layout: function over form. Usability is king. See it rendered before calling it done.
