@@ -6,20 +6,21 @@ UserPromptSubmit (no argument): puts the rules below in front of every prompt, a
 with a person's own instructions. No model call; it costs nothing per prompt. The rules are the text
 in RULES here: to change them, change this file and open a pull request.
 
-Stop (--check): the last rule says replies are written in ASD-STE100 Simplified Technical English. A
-rule in the context is a request; this is the check. When Claude finishes a reply, the reply's prose
-goes to a quick side call (Haiku, with hooks off) that names the words and sentences that clearly break
-STE, or answers OK. On a break, the reply is sent back to Claude once, with the list, and Claude
-rewrites it before the turn ends. Once only: Claude Code sets stop_hook_active on the second stop of the
-same turn, and that one always passes, so there is never a loop. Replies with no prose (code only, or
-under a few words) are not checked. Any failure (no Claude Code, a slow answer, an unreadable one)
-lets the reply through and is logged.
+Stop (--check, runs in the background): the last rule says replies are written in ASD-STE100 Simplified
+Technical English. A rule in the context is a request; this is the check. When Claude finishes a reply, the
+reply's prose goes to a quick side call (Haiku, with hooks off) that names the words and sentences that
+clearly break STE, or answers OK. The check never sends a reply back: a reply the person has already seen
+can't be changed, so a send-back only shows a second copy of it. A miss is saved for the session instead
+and goes in front of the session's next prompt, so the next reply uses the approved words. Replies with no
+prose (code only, or under a few words) are not checked. Any failure (no Claude Code, a slow answer, an
+unreadable one) is logged and nothing is saved.
 
 Logged to ~/Library/Logs/sttark-claude-kit.log, lines starting "ste".
 """
-import json, os, re, subprocess, sys, time
+import fcntl, json, os, re, subprocess, sys, time
 
 LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
+NOTES = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/working-notes.json')  # misses per session
 STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')  # the kit's fixed copy, when the server is on
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
 MODEL = 'haiku'     # Claude Code's alias for the newest Haiku: fast and cheap, enough for a word check
@@ -84,7 +85,7 @@ Lean toward OK here too.
 Answer with the single word OK, or a list of at most 8 items, one per line, each "word or phrase: the approved \
 word to use" or "sentence too long: its first five words...". When the ending asks for a go, add one line \
 that is exactly: ASKS FOR A GO. Nothing else."""
-GO = 'Do not ask for a go. Do the work now, then report.'
+GO = 'Your last reply asked for a go it did not need. Do not ask for a go: do the work, then report.'
 
 NOTE = re.compile(r'<(system-reminder|command-[a-z-]+|local-command-[a-z-]+)>.*?</\1>', re.S)
 FENCE = re.compile(r'```.*?```', re.S)
@@ -93,6 +94,23 @@ FENCE = re.compile(r'```.*?```', re.S)
 def log(line):
     with open(LOG, 'a') as f:
         f.write(time.strftime('%F %T ') + 'ste    ' + line + '\n')
+
+
+def notes(change):
+    """Read and change the saved misses under a lock: {session id: [note, ...]}. Returns what change returns."""
+    os.makedirs(os.path.dirname(NOTES), exist_ok=True)
+    with open(NOTES, 'a+') as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        try:
+            all_ = json.loads(f.read() or '{}')
+        except ValueError:
+            all_ = {}
+        out = change(all_)
+        f.seek(0)
+        f.truncate()
+        f.write(json.dumps(all_))
+        return out
 
 
 def text_of(content):
@@ -150,9 +168,10 @@ def ask(text):
 
 
 def check(data):
-    sid = (data.get('session_id') or '')[:8]
+    full = data.get('session_id') or ''
+    sid = full[:8]
     if data.get('stop_hook_active'):
-        return  # the rewrite after a send-back: let it through, so a reply is sent back once at most
+        return  # another hook sent this reply back; its rewrite isn't checked again
     text = prose(last_reply(data.get('transcript_path') or ''))
     if len(text) < MIN_PROSE:
         return
@@ -171,13 +190,22 @@ def check(data):
     items = [l for l in lines if l.upper().rstrip('.') not in ('ASKS FOR A GO', 'OK')][:8]
     if (not items and not asks) or len(answer) > 1200:  # not the list asked for: let the reply through
         return log('%s error unreadable answer %r (%.1fs)' % (sid, answer[:80], secs))
-    reason = 'Sttark working rules: '
+    note = []
     if items:
-        reason += 'the reply is not STE. Rewrite it and send again. Fix: ' + '; '.join(items) + '. '
+        note.append('Your last reply had words that are not STE: ' + '; '.join(items)
+                    + '. Use the approved words from now on.')
     if asks:
-        reason += GO
-    log('%s sent back (%.1fs): %s' % (sid, secs, '; '.join(items + (['asks for a go'] if asks else []))))
-    print(json.dumps({'decision': 'block', 'reason': reason.strip()}))
+        note.append(GO)
+    if full:
+        notes(lambda a: a.__setitem__(full, (a.get(full, []) + [' '.join(note)])[-3:]))
+    log('%s noted for the next prompt (%.1fs): %s'
+        % (sid, secs, '; '.join(items + (['asks for a go'] if asks else []))))
+
+
+def pending(data):
+    """The saved misses for this session, cleared as they are read."""
+    full = data.get('session_id') or ''
+    return notes(lambda a: a.pop(full, [])) if full else []
 
 
 def main():
@@ -189,8 +217,14 @@ def main():
         return
     if '--check' in sys.argv:
         return check(data)
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit',
-                                             'additionalContext': LEAD + '\n\n' + RULES}}))
+    text = LEAD + '\n\n' + RULES
+    try:
+        missed = pending(data)
+    except OSError:
+        missed = []
+    if missed:
+        text += '\n\nFrom the check of your last reply: ' + ' '.join(missed)
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': text}}))
 
 
 if __name__ == '__main__':

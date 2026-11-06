@@ -88,7 +88,8 @@ def set_working(hooks, on):
             groups.insert(after[0] + 1 if after else 0,
                           {'hooks': [{'type': 'command', 'command': f'"{WORKING}"', 'timeout': 10}]})
         if on and event == 'Stop':
-            groups.append({'hooks': [{'type': 'command', 'command': f'"{WORKING}" --check', 'timeout': 60}]})
+            groups.append({'hooks': [{'type': 'command', 'command': f'"{WORKING}" --check', 'timeout': 60,
+                                      'async': True}]})
         if groups:
             hooks[event] = groups
         else:
