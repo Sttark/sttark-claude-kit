@@ -187,7 +187,7 @@ def wall(u, transcript=None):
     model = None
     hit = []
     for l in u.get('limits') or []:
-        if not (l.get('is_active') or (l.get('percent') or 0) >= 100):
+        if (l.get('percent') or 0) < 100:   # is_active marks the window that applies now, not a reached limit
             continue
         if l.get('resets_at') and stamp(l.get('resets_at')) <= time.time():
             continue   # an old read: this limit has reset since
