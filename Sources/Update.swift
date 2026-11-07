@@ -2,32 +2,46 @@ import AppKit
 import ServiceManagement
 import UserNotifications
 
-/// Looks for a newer version on GitHub, says so once, and installs it in place with one click.
+/// Looks for a newer version on GitHub every hour and installs it by itself, in place, with no click.
+/// It waits while the menu or a dialog is open, never takes the screen, and says nothing when it works.
+/// Only a failed install shows a notice; clicking it, or Update to … in the menu, tries again.
 /// The state and the hooks live outside the app, so they stay as they are.
 final class Updater: NSObject, UNUserNotificationCenterDelegate {
     static let repo = "Sttark/sttark-claude-kit"
     static let asset = "SttarkClaudeKit.zip"
+    /// Where the latest release is read; tools/update-test.sh points it at a fake release.
+    static var feed = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
+    static var firstCheck: TimeInterval = 20
+    static var retryBusy: TimeInterval = 60
+    /// A release that failed to install by itself is tried again on its own at most this often.
+    static var retryFailed: TimeInterval = 6 * 3600
 
     struct Release { let build: Int; let version: String; let url: URL }
     private(set) var available: Release?
     private(set) var installing = false
     private var lastCheck = Date.distantPast
+    private var retryPending = false
     var changed: () -> Void = {}
+    /// True while the person is in the menu or a dialog, so the app doesn't restart under them.
+    var busy: () -> Bool = { NSApp.modalWindow != nil }
+    /// Shows a notice. tools/update-test.sh swaps it for a log line, so a test never asks for notice permission.
+    var notify: (_ id: String, _ title: String, _ body: String) -> Void = Updater.post
 
     static var build: Int { Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? 0 }
     static var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?" }
 
     func start() {
         UNUserNotificationCenter.current().delegate = self
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { self.check() }
-        Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in self?.check() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.firstCheck) { self.check(force: true) }
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.check(force: true) }
     }
 
     /// Also called when the menu opens; at most once an hour unless asked.
+    /// With `done` (Check for updates in the menu) the caller decides what to do; without it a new version installs by itself.
     func check(force: Bool = false, done: ((String) -> Void)? = nil) {
         guard force || Date().timeIntervalSince(lastCheck) > 3600 else { return }
         lastCheck = Date()
-        var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(Self.repo)/releases/latest")!)
+        var req = URLRequest(url: Self.feed)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 20
         URLSession.shared.dataTask(with: req) { data, _, _ in
@@ -39,8 +53,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
                 guard j != nil else { done?("Couldn't reach GitHub. Try again later."); return }
                 if build > Self.build, let link, let url = URL(string: link) {
                     self.available = Release(build: build, version: tag, url: url)
-                    self.notifyOnce()
-                    done?("Version \(tag) is ready.")
+                    if let done { done("Version \(tag) is ready.") } else { self.installByItself() }
                 } else {
                     self.available = nil
                     done?("You have the latest version (\(Self.version)).")
@@ -50,16 +63,41 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
         }.resume()
     }
 
-    private func notifyOnce() {
-        guard let r = available, UserDefaults.standard.integer(forKey: "notifiedBuild") < r.build else { return }
-        UserDefaults.standard.set(r.build, forKey: "notifiedBuild")
+    /// Installs the new version unless the person is in the menu or a dialog (then again in a minute),
+    /// or this same version already failed to install by itself in the last few hours.
+    func installByItself() {
+        guard let r = available, !installing else { return }
+        let d = UserDefaults.standard
+        if d.integer(forKey: "autoFailedBuild") == r.build,
+           Date().timeIntervalSince1970 - d.double(forKey: "autoFailedAt") < Self.retryFailed { return }
+        if busy() {
+            guard !retryPending else { return }
+            retryPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.retryBusy) {
+                self.retryPending = false
+                self.installByItself()
+            }
+            return
+        }
+        install(byItself: true)
+    }
+
+    /// Only when an update failed to install by itself, once per version: click it to try again.
+    private func notifyFailed(_ r: Release) {
+        guard UserDefaults.standard.integer(forKey: "failNotifiedBuild") < r.build else { return }
+        UserDefaults.standard.set(r.build, forKey: "failNotifiedBuild")
+        notify("update", "Sttark Claude Kit \(r.version) didn't install",
+               "Click to try again. It takes a few seconds and keeps your settings.")
+    }
+
+    static func post(_ id: String, _ title: String, _ body: String) {
         let c = UNUserNotificationCenter.current()
         c.requestAuthorization(options: [.alert]) { ok, _ in
             guard ok else { return }
             let n = UNMutableNotificationContent()
-            n.title = "Sttark Claude Kit \(r.version) is ready"
-            n.body = "Click to update. It takes a few seconds and keeps your settings."
-            c.add(UNNotificationRequest(identifier: "update", content: n, trigger: nil))
+            n.title = title
+            n.body = body
+            c.add(UNNotificationRequest(identifier: id, content: n, trigger: nil))
         }
     }
 
@@ -79,11 +117,12 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
     }
 
     /// Download, check it's signed by us, swap it in where this copy sits, and start it.
-    func install() {
+    /// By itself it never shows a dialog: a failure goes to the log and a notice, and the menu keeps Update to ….
+    func install(byItself: Bool = false) {
         guard let r = available, !installing else { return }
         installing = true
         changed()
-        note("update: downloading \(r.version)")
+        note("update: downloading \(r.version)\(byItself ? " by itself" : "")")
         URLSession.shared.downloadTask(with: r.url) { zip, _, error in
             let result: String? = {
                 guard let zip else { return "The download failed: \(error?.localizedDescription ?? "no file")" }
@@ -109,6 +148,12 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
                     note("update failed: \(result)")
                     self.installing = false
                     self.changed()
+                    if byItself {
+                        UserDefaults.standard.set(r.build, forKey: "autoFailedBuild")
+                        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "autoFailedAt")
+                        self.notifyFailed(r)
+                        return
+                    }
                     let a = NSAlert()
                     a.messageText = "Update didn't install"
                     a.informativeText = result + "\n\nYou can also download it from github.com/\(Self.repo)/releases."
@@ -119,7 +164,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
                 note("update: installed \(r.version), restarting")
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: "/bin/sh")
-                p.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
+                p.arguments = ["-c", "sleep 1; /usr/bin/open -g \"$0\"", Bundle.main.bundlePath]
                 try? p.run()
                 NSApp.terminate(nil)
             }
