@@ -64,7 +64,7 @@ enum Limit {
         let names = ["session": "5-hour", "weekly_all": "weekly"]
         var best: (String, Date)? = nil
         for l in u["limits"] as? [[String: Any]] ?? [] {
-            guard (l["is_active"] as? Bool ?? false) || ((l["percent"] as? Double) ?? 0) >= 100,
+            guard ((l["percent"] as? Double) ?? 0) >= 100,
                   (l["scope"] as? [String: Any]) == nil,   // a model's own limit only holds sessions on that model
                   let r = l["resets_at"] as? String,
                   let d = iso.date(from: r) ?? ISO8601DateFormatter().date(from: r), d > Date() else { continue }
