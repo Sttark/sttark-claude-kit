@@ -43,7 +43,9 @@ This app used to be called Sttark Effort. Install Sttark Claude Kit once by hand
 
 ## Updates
 
-The app checks for a new version a few times a day. When there is one, you get a notice: click it, or choose **Update to …** at the top of the menu. The app downloads the new version, swaps it in and restarts in a few seconds. Your settings, and the Accessibility permission for the Chrome approver, stay as they are. **Check for updates** in the menu checks right away.
+The app checks for a new version every hour and installs it by itself: you don't click anything. It downloads the new version, checks that it's signed by Sttark, swaps it in and restarts in a few seconds, in the background. Sessions keep running, because they don't run inside the app. If the menu or one of the app's dialogs is open, it waits until you close it. Your settings, and the Accessibility permission for the Chrome approver, stay as they are.
+
+You see a notice only when an update fails to install. Click it, or choose **Update to …** at the top of the menu, to try again; the app also tries again by itself after 6 hours. **Check for updates** in the menu checks right away and installs a new version at once.
 
 ## Using it
 
@@ -67,7 +69,8 @@ Click the gauge:
 | **Links to files** | See [below](#links-to-files). Off until you turn it on. |
 | **Name sessions automatically** | See [below](#name-sessions-automatically). Off until you turn it on. |
 | **Sign in to Claude Code…** | Opens Terminal and starts Claude Code's sign-in; you finish in the browser. Hover it to see when your login runs out. See [below](#claude-code-login). |
-| **Check for updates** | Looks for a new version now. Hidden while an update is waiting. |
+| **Update to …** | Shows while a new version waits for the menu to close, or after one failed to install by itself. Installs it now. |
+| **Check for updates** | Looks for a new version now and installs it. Hidden while an update is waiting. |
 
 Sessions show for 12 hours after their last activity. Archived sessions drop off within a minute.
 
@@ -102,7 +105,7 @@ To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
 - **Checks again partway through.** At 10, 25 and 50 steps into a task, the model looks at the work so far. If builds keep failing or the cause is still unknown, it raises the level, up to Max for a task that's stuck at Extra. If the hard part is done and the rest is repeat edits, it lowers it. UI work stays at High or above until Claude has looked at the result and judged it, since that look is where the design gets decided.
 - **You can take over.** Turn **Auto effort** off for every session, or click one session to set it to Manual. If you change a session's effort yourself in the Claude app, Sttark Claude Kit notices and switches that session to Manual on its own.
 - **Shows its reasons.** The menu lists each session with its level; hover one for the latest reason. Every decision is logged.
-- **Updates itself** when a new version is released here.
+- **Updates itself** within an hour of a new version being released here, with no click.
 
 ## Waiting on you
 
@@ -367,6 +370,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Resources/hooks/limit-hook.py`, `Sources/Limit.swift` | Wait at the usage limit: the hook, and the menu's Usage limit reached rows and Use credits switch. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
 | `Resources/hooks/profile-sync.py`, `profile-hook.sh` | The profile instructions sync and its prompt hook. |
+| `tools/update-test.sh` | Tests the update that installs by itself: the real `Sources/Update.swift` in a stand-in app (`tools/update-test/main.swift`) with its own ID, against fake releases in a temporary folder. It checks that a new version waits while the menu is open, then installs and restarts with no notice; that a version not signed like the app fails with one notice, no dialog and no second try; and that the same version does nothing. The installed app isn't touched. |
 | `tools/screenshot.swift` | Draws the menu image above from the app's own code, with sample sessions. |
 | `Sources/State.swift` | Reads and writes the shared state; installs the hooks. |
 | `Sources/Update.swift` | Checks GitHub for a new version and installs it. |

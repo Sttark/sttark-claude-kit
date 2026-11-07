@@ -9,6 +9,7 @@ final class Controller: NSObject, NSMenuDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let updater = Updater()
     var setupResult = ""
+    var menuOpen = false
 
     func start() {
         setupResult = Setup.install()
@@ -22,6 +23,7 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.autoenablesItems = false
         item.menu = menu
         updater.changed = { [weak self] in self?.refreshIcon() }
+        updater.busy = { [weak self] in self?.menuOpen == true || NSApp.modalWindow != nil }
         updater.start()
         State.refreshModels()
         Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in State.refreshModels() }
@@ -54,9 +56,12 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        menuOpen = true
         updater.check()
         build(menu)
     }
+
+    func menuDidClose(_ menu: NSMenu) { menuOpen = false }
 
     func build(_ menu: NSMenu) {
         menu.removeAllItems()
@@ -366,14 +371,15 @@ final class Controller: NSObject, NSMenuDelegate {
 
     @objc func update() { updater.install() }
 
+    /// A new version installs right away; otherwise a dialog says why not.
     @objc func checkUpdates() {
         updater.check(force: true) { msg in
+            if self.updater.available != nil { self.updater.install(); return }
             let a = NSAlert()
-            a.messageText = self.updater.available == nil ? "No update" : "Update ready"
+            a.messageText = "No update"
             a.informativeText = msg
-            if self.updater.available != nil { a.addButton(withTitle: "Update now"); a.addButton(withTitle: "Later") }
             NSApp.activate(ignoringOtherApps: true)
-            if a.runModal() == .alertFirstButtonReturn && self.updater.available != nil { self.updater.install() }
+            a.runModal()
         }
     }
 
