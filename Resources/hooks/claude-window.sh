@@ -8,7 +8,7 @@
 # giving a tab its address by script brings Chrome forward, so this never does. The one step that brings Chrome
 # forward is making a window: when the Claude window is gone (closed, Chrome quit, a restart), the next command
 # makes it, starting Chrome hidden first if it isn't running, puts the app you were in back in front at once
-# (Chrome is in front for about a fifth of a second), then goes on.
+# (Chrome is in front for less than half a second), then goes on.
 #
 #   claude-window go <url>      open a page in this session's tab, wait for it to load, print its title and URL
 #   claude-window url           print the current title and URL
