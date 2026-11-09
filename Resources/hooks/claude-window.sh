@@ -41,7 +41,7 @@ front_app() {  # the bundle ID of the app in front
 }
 
 open_window() {  # make the Claude window when it's gone, then put the app that was in front back at once
-  local before after out
+  local before after out back
   zmodload zsh/system
   mkdir -p "$tabs" && : >> "$tabs/.window-lock"
   zsystem flock -t 60 "$tabs/.window-lock" || return 1  # sessions asking at the same moment still get one window
@@ -66,13 +66,14 @@ tell application "Google Chrome"
 end tell
 OSA
   )
-  after=$(front_app)
+  after=$(front_app) back=""
   if [[ -n $before && $before != "$chrome_id" && $after == "$chrome_id" ]]; then
     osascript -e "tell application id \"$before\" to activate" >/dev/null 2>&1
+    back="; put $before back in front"
   fi
   case $out in
     there)  return 0 ;;
-    opened) log "Claude window: opened; ${before:-the app in front} put back in front" ;;
+    opened) log "Claude window: opened$back" ;;
     *)      log "Claude window: couldn't open: $out"; return 1 ;;
   esac
 }
