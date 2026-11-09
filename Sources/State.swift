@@ -150,6 +150,15 @@ enum Setup {
             try? fm.copyItem(at: src.appendingPathComponent(name), to: to)
             try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: to.path)
         }
+        // the orchestrator's skills and agents: a fresh copy each launch, which install-hooks.py puts in
+        // ~/.claude when the Orchestrator switch is on
+        for kind in ["skills", "agents"] {
+            let to = supportDir.appendingPathComponent(kind)
+            try? fm.removeItem(at: to)
+            if let from = Bundle.main.resourceURL?.appendingPathComponent(kind), fm.fileExists(atPath: from.path) {
+                try? fm.copyItem(at: from, to: to)
+            }
+        }
         let out = Updater.run("/usr/bin/python3", [hooksDir.appendingPathComponent("install-hooks.py").path])
         let r = out.1.trimmingCharacters(in: .whitespacesAndNewlines)
         if r != "unchanged" { note("hooks: \(r)") }

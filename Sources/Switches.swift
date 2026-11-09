@@ -105,6 +105,17 @@ enum WorkingRules {
     }
 }
 
+/// "Orchestrator": off by default. On, the orchestrator skills and agents go into ~/.claude, so every
+/// Claude Code session has them. The switch lives in state.json; install-hooks.py makes the copies match it.
+enum Orchestrator {
+    static var on: Bool { State.read()["orchestrator"] as? Bool ?? false }
+
+    static func set(_ on: Bool) {
+        let r = Updater.run("/usr/bin/python3", [Bypass.installer, "--orchestrator", on ? "on" : "off"]).1
+        note("orchestrator: \(r.trimmingCharacters(in: .whitespacesAndNewlines))")
+    }
+}
+
 /// "Sync Claude profile instructions": copies the instructions from the Claude app's Profile settings into
 /// ~/.claude/CLAUDE.md every 15 minutes, and puts them in front of every prompt with a hook.
 /// The sync needs two Python add-ons (curl_cffi to get past Cloudflare, cryptography to read the Claude

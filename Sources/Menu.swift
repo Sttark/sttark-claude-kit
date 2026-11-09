@@ -197,6 +197,10 @@ final class Controller: NSObject, NSMenuDelegate {
         rules.state = WorkingRules.on ? .on : .off
         rules.toolTip = "Puts Sttark's working rules in front of every prompt: answer first, a plan with a step count, work handed to agents, a status table for a prompt with several asks, Simplified Technical English, and more. When a reply isn't in Simplified Technical English, the words to fix go in front of the session's next prompt. On unless you turn it off."
         menu.addItem(rules)
+        let orch = action("Orchestrator", #selector(toggleOrchestrator))
+        orch.state = Orchestrator.on ? .on : .off
+        orch.toolTip = "Adds the orchestrator skills and agents to Claude Code, so every session can plan the work, ask questions where the task is unclear, hand the work to agents and check what they did. Off unless you turn it on."
+        menu.addItem(orch)
         if ChromeApprover.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
@@ -322,6 +326,7 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleFileLinks() { FileLinks.set(!FileLinks.on) }
     @objc func toggleNames() { Names.set(!Names.on) }
     @objc func toggleWorkingRules() { WorkingRules.set(!WorkingRules.on) }
+    @objc func toggleOrchestrator() { Orchestrator.set(!Orchestrator.on) }
 
     @objc func toggleProfile() {
         if ProfileSync.on { ProfileSync.stop(); return }

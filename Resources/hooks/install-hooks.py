@@ -12,10 +12,15 @@ hooks (working-rules-hook.py, the "Sttark working rules" switch, on by default) 
 --working off was run, which leaves a marker in the app's folder; --working on removes it.
 The usage limit hook (limit-hook.py) also goes in with the effort hook; the menu's "Use credits at
 the usage limit" switch is a setting it reads, not a hook change.
+--orchestrator on|off sets the "Orchestrator" switch (off by default, kept as "orchestrator" in the
+app's state.json) and copies the orchestrator skills and agents into ~/.claude/skills and ~/.claude/agents,
+or takes them out. Every run without a switch brings the copies in line with the switch; --remove takes
+them out. Only copies this script made are replaced or removed (listed in orchestrator-installed.json);
+a skill or agent of the same name that someone put there by hand is left alone.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
-import json, os, shutil, sys, time
+import fcntl, json, os, shutil, sys, time
 
 SETTINGS = os.path.expanduser('~/.claude/settings.json')
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'effort-hook.py')
@@ -122,6 +127,101 @@ def set_limit(hooks, on):
             hooks.pop(event, None)
 
 
+KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # the app's folder: hooks/ sits in it
+KIT_STATE = os.path.join(KIT, 'state.json')
+ORCH_SRC = {'skills': os.path.join(KIT, 'skills'), 'agents': os.path.join(KIT, 'agents')}
+ORCH_DEST = {k: os.path.expanduser(f'~/.claude/{k}') for k in ORCH_SRC}
+ORCH_MANIFEST = os.path.join(KIT, 'orchestrator-installed.json')
+
+
+def orchestrator_on():
+    try:
+        return json.load(open(KIT_STATE)).get('orchestrator') is True
+    except (OSError, ValueError):
+        return False
+
+
+def set_orchestrator_state(on):
+    """The switch, in state.json, under the lock the app and the hooks share."""
+    os.makedirs(KIT, exist_ok=True)
+    with open(KIT_STATE + '.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            s = json.load(open(KIT_STATE))
+        except (OSError, ValueError):
+            s = {}
+        s['orchestrator'] = on
+        tmp = KIT_STATE + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(s, f, indent=1)
+        os.replace(tmp, KIT_STATE)
+
+
+def sync_orchestrator(on):
+    """Copies each skill folder and agent file in, or takes out the ones this script put in.
+    Returns a short word for the log, or None when nothing changed."""
+    try:
+        made = json.load(open(ORCH_MANIFEST))
+    except (OSError, ValueError):
+        made = []
+    want, skipped = [], []
+    if on:
+        for kind, src in ORCH_SRC.items():
+            for name in sorted(os.listdir(src)) if os.path.isdir(src) else []:
+                if name.startswith('.') or (kind == 'skills' and not os.path.isdir(os.path.join(src, name))):
+                    continue
+                if kind == 'agents' and not name.endswith('.md'):
+                    continue
+                dest = os.path.join(ORCH_DEST[kind], name)
+                if os.path.lexists(dest) and dest not in made:
+                    skipped.append(dest)
+                    continue
+                want.append((os.path.join(src, name), dest))
+    changed = False
+    for dest in made:
+        if dest not in [d for _, d in want] and os.path.lexists(dest):
+            shutil.rmtree(dest) if os.path.isdir(dest) and not os.path.islink(dest) else os.remove(dest)
+            changed = True
+    for src, dest in want:
+        if os.path.isdir(src):
+            if os.path.isdir(dest) and same_tree(src, dest):
+                continue
+            if os.path.lexists(dest):
+                shutil.rmtree(dest)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copytree(src, dest)
+        else:
+            if os.path.isfile(dest) and open(src, 'rb').read() == open(dest, 'rb').read():
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy2(src, dest)
+        changed = True
+    now = [d for _, d in want]
+    if now != made:
+        if now:
+            with open(ORCH_MANIFEST, 'w') as f:
+                json.dump(now, f, indent=1)
+        elif os.path.exists(ORCH_MANIFEST):
+            os.remove(ORCH_MANIFEST)
+    word = None
+    if changed:
+        word = f'orchestrator {"on" if on else "off"}: {len(now)} skills and agents in ~/.claude'
+    if skipped:
+        word = (word or 'orchestrator') + '; left alone, not ours: ' + ', '.join(skipped)
+    return word
+
+
+def same_tree(a, b):
+    def files(root):
+        out = {}
+        for d, _, fs in os.walk(root):
+            for f in fs:
+                p = os.path.join(d, f)
+                out[os.path.relpath(p, root)] = open(p, 'rb').read()
+        return out
+    return files(a) == files(b)
+
+
 def ours(cmd):
     return cmd.rstrip('"').endswith('effort-hook.py')
 
@@ -186,7 +286,13 @@ def main():
                           'names': has(s, 'UserPromptSubmit', is_names),
                           'rules': has(s, 'UserPromptSubmit', is_rules),
                           'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
-                          'limit': has(s, 'PreToolUse', is_limit)}))
+                          'limit': has(s, 'PreToolUse', is_limit),
+                          'orchestrator': orchestrator_on()}))
+        return
+    if '--orchestrator' in sys.argv:
+        on = sys.argv[sys.argv.index('--orchestrator') + 1] == 'on'
+        set_orchestrator_state(on)
+        print(sync_orchestrator(on) or 'unchanged')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -216,6 +322,9 @@ def main():
         set_bypass(hooks, False)
         set_profile(hooks, False)
         set_names(hooks, False)
+    word = sync_orchestrator(orchestrator_on() and not remove)
+    if word:
+        print(word)
     set_rules(hooks, not remove)
     set_limit(hooks, not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))

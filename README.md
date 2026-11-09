@@ -18,6 +18,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Copies your Claude profile instructions into Claude Code | [Sync Claude profile instructions](#sync-claude-profile-instructions) |
 | Puts Sttark's working rules in front of every prompt, and checks each reply for Simplified Technical English | [Sttark working rules](#sttark-working-rules) |
 | Gives sessions in Sttark's app repos the Sttark app rules | [Sttark app rules](#sttark-app-rules) |
+| Adds the orchestrator skills and agents to Claude Code (test branch only) | [Orchestrator](#orchestrator) |
 
 Effort, Waiting on you, the wait at the usage limit, the login warnings, the Claude window in Chrome, the Sttark working rules and the Sttark app rules are on from the start. Everything else is off until you turn it on in the menu. It updates itself when a new version is released here.
 
@@ -73,6 +74,7 @@ The items, from the top:
 | **Name sessions automatically** | See [below](#name-sessions-automatically). Off until you turn it on. |
 | **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). Off until you turn it on. Hover it to see the last sync. |
 | **Sttark working rules** | See [below](#sttark-working-rules). On until you turn it off. |
+| **Orchestrator** | See [below](#orchestrator). Off until you turn it on. |
 | **Needs Accessibility permission…** (only when needed) | Shows while **Approve Claude in Chrome** is on and macOS hasn't allowed it to click. Opens the Accessibility settings. |
 | **Sign in to Claude Code…** | Opens Terminal and starts Claude Code's sign-in; you finish in the browser. Hover it to see when your login runs out. See [below](#claude-code-login). |
 | **Open log** | Opens the full log in Console. |
@@ -300,6 +302,16 @@ A rule in the context is a request. The last one also gets a check: when Claude 
 - The rules text lives in `Resources/hooks/working-rules-hook.py` in this repo. To change a rule for everyone, change it there and open a pull request.
 - The check is a short Haiku call that runs in the background after each reply, so it never holds up the turn. Misses wait in `~/Library/Application Support/SttarkClaudeKit/working-notes.json`. Each check is logged, with lines starting `ste`.
 
+## Orchestrator
+
+On the `orchestrator` branch only, while it is tested. One main agent takes any task: it asks questions where the task is unclear, gives the work to agents and checks what they did.
+
+- Turn it on in the menu. The app copies the orchestrator skills to `~/.claude/skills/` and its agents to `~/.claude/agents/`, so every Claude Code session has them. Turn it off and the app takes out the copies it made.
+- A skill or agent of the same name that you put there yourself is left alone, and the log says so.
+- The skills and agents live in `Resources/skills/` and `Resources/agents/` in this repo. `Resources/skills/UPSTREAM.md` says where each came from: [cgraves09/claude-orchestrate-skill](https://github.com/cgraves09/claude-orchestrate-skill) (Unlicense) and the `grilling` skill from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT, notice in `Resources/skills/grilling/LICENSE`).
+- The branch build does not update itself, so a release does not replace it. The menu shows **Orchestrator branch: updates off**.
+- Each change is logged, with lines starting `orchestrator`.
+
 ## Sttark app rules
 
 When a session works in one of Sttark's app repos, Sttark Claude Kit adds the five Apps chapters of the Sttark Brand and App Guidelines (Building Web Apps, Look, Pages and Behavior, Sign-in and Access, Checks) to the session, with one line before them: follow them for any UI work, and run the Checks chapter's Before you ship list. It's on for everyone; there's no switch, since it only reads.
@@ -330,7 +342,7 @@ Each effort check is one short call to the model picked under **Model** (the new
 
 ## Uninstall
 
-Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.sh`](uninstall.sh). It takes the hooks out of Claude Code's settings, stops the Chrome approver, the profile sync, the night job, the file link server and the server if they were turned on here, removes the fixed copy of Claude Code and the `claude-window`, `claude-link` and `claude-limit-wait` commands, and deletes the app and its folder in Application Support. The logs stay.
+Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.sh`](uninstall.sh). It takes the hooks out of Claude Code's settings, stops the Chrome approver, the profile sync, the night job, the file link server and the server if they were turned on here, takes out the orchestrator skills and agents it put in `~/.claude`, removes the fixed copy of Claude Code and the `claude-window`, `claude-link` and `claude-limit-wait` commands, and deletes the app and its folder in Application Support. The logs stay.
 
 ## How it works
 
@@ -386,12 +398,14 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Resources/hooks/name-hook.py` | The session naming hook. |
 | `Resources/hooks/app-rules-hook.py` | The Sttark app rules hook and its refresh. |
 | `Resources/hooks/working-rules-hook.py` | The Sttark working rules: the text in front of every prompt, and the check of each reply. |
+| `Resources/skills/`, `Resources/agents/` | The orchestrator skills and agents, copied into `~/.claude` when the Orchestrator switch is on. |
 | `Resources/hooks/profile-sync.py`, `Resources/hooks/profile-hook.sh` | The profile instructions sync and its prompt hook. |
 | `Resources/hooks/claude-window.sh` | The `claude-window` command. |
 | `Resources/hooks/file-links.py` | The `claude-link` command and the Links to files server. |
 | `Helpers/ChromeApprover.swift` | The Chrome approver helper. `--dump` prints what it sees without clicking. |
 | `build.sh`, `install.sh`, `uninstall.sh` | Build the app, build and install it, and remove it. |
 | `tools/model-test/` | The model test: `sample.py`, `run.py`, `score.py`. |
+| `tools/hook-event-test.sh` | Checks with real `claude -p` runs that the hook events the orchestrator needs work on this Claude Code version. |
 | `tools/limit-claude-test.sh` | Tests the usage limit wait with a real `claude -p` run, on copies: a test state folder, a fake usage read and only this repo's limit hook. |
 | `tools/limit-429-test.py` | Tests the usage read's back-off against a local stand-in server that answers `429`. |
 | `tools/update-test.sh` | Tests the update that installs by itself: the real `Sources/Update.swift` in a stand-in app (`tools/update-test/main.swift`) with its own ID, against fake releases in a temporary folder. It checks that a new version waits while the menu is open, then installs and restarts with no notice; that a version not signed like the app fails with one notice, no dialog and no second try; and that the same version does nothing. The installed app isn't touched. |
