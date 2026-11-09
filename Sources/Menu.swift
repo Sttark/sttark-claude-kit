@@ -183,7 +183,7 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.addItem(links)
         let names = action("Name sessions automatically", #selector(toggleNames))
         names.state = Names.on ? .on : .off
-        names.toolTip = "Gives each Claude Code session a short handle for its project or area, in the style of your own names. Never changes a name once set."
+        names.toolTip = "Gives each Claude Code session a short handle for its project or area, in the style of your own names. When the work moves to another topic, it renames a session it named. It never changes a name you set."
         menu.addItem(names)
         let sync = action(ProfileSync.settingUp ? "Sync Claude profile instructions: setting up…" : "Sync Claude profile instructions",
                           #selector(toggleProfile), enabled: !ProfileSync.settingUp)
@@ -193,7 +193,7 @@ final class Controller: NSObject, NSMenuDelegate {
         menu.addItem(sync)
         let rules = action("Sttark working rules", #selector(toggleWorkingRules))
         rules.state = WorkingRules.on ? .on : .off
-        rules.toolTip = "Puts Sttark's working rules in front of every prompt: answer first, a plan with a step count, work handed to agents, a status table for a prompt with several asks, Simplified Technical English, and more. When a reply isn't in Simplified Technical English, it goes back to Claude once with the words to fix. On unless you turn it off."
+        rules.toolTip = "Puts Sttark's working rules in front of every prompt: answer first, a plan with a step count, work handed to agents, a status table for a prompt with several asks, Simplified Technical English, and more. When a reply isn't in Simplified Technical English, the words to fix go in front of the session's next prompt. On unless you turn it off."
         menu.addItem(rules)
         if ChromeApprover.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))

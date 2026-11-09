@@ -331,7 +331,7 @@ Each effort check is one short call to the model picked under **Model** (the new
 
 ## Uninstall
 
-Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.sh`](uninstall.sh). It takes the hooks out of Claude Code's settings, stops the Chrome approver, the profile sync, the night job, the file link server and the server if they were turned on here, removes the fixed copy of Claude Code and the `claude-window` and `claude-link` commands, and deletes the app and its folder in Application Support. The logs stay.
+Turn **Auto effort** off to pause it. To remove it completely, run [`uninstall.sh`](uninstall.sh). It takes the hooks out of Claude Code's settings, stops the Chrome approver, the profile sync, the night job, the file link server and the server if they were turned on here, removes the fixed copy of Claude Code and the `claude-window`, `claude-link` and `claude-limit-wait` commands, and deletes the app and its folder in Application Support. The logs stay.
 
 ## How it works
 

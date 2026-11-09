@@ -7,15 +7,19 @@ credits, a session waits instead:
 
 PreToolUse: before each tool call the hook checks the limit (one usage read a
 minute or less, shared by every session through a cache file). At the limit it
-waits, with no model calls, until the limit resets, then lets the tool run and
-the session goes on with its task by itself.
+denies the tool call with a reason that tells Claude to say one line about the
+limit and run `claude-limit-wait <session id>` in the foreground, then try the
+step again. That command is a link in ~/.local/bin to this file, which the hook
+makes. It shows as a running command, waits with no model calls until the limit
+resets or credits are chosen, prints why it ended, and the session goes on. After
+9 minutes it prints WAIT AGAIN and Claude runs it again, so it stays under the
+Bash tool's 10-minute limit.
 
-UserPromptSubmit: a message sent at the limit holds the same way, and goes to
-Claude when the limit resets, so nothing typed is lost. A message of just "use
-credits" lets that session use usage credits until the limit resets, and Claude
-goes on with the task. Claude Code queues a message typed while a hold runs and
-runs its hooks only after the hold ends, so a hold also watches the session's
-transcript for a queued "use credits" and lets the session go on at once.
+UserPromptSubmit: a message sent at the limit goes through with the same
+instruction, so nothing typed is lost. A message of just "use credits" lets that
+session use usage credits until the limit resets, and Claude goes on with the
+task. While the wait command runs, it watches the session's transcript and events
+for a queued "use credits" and ends at once when it finds one.
 
 Credits are used only when the person chooses them: "Use credits at the usage
 limit" in the app's menu (every session), "Use credits" on a waiting session's

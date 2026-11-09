@@ -6,7 +6,8 @@ the long description Claude generates. On each prompt, if the session has no cus
 passes the name in `session_title` once one is set, by you or by this hook), a quick side call reads the
 prompt and the conversation so far and picks a handle. It reuses one of your existing handles when the
 session belongs to the same area. If it can't tell yet what the session is about, it waits for a later
-prompt. Once a session has a name, this never changes it.
+prompt. It looks again at a name it chose after the 3rd, 6th and 12th prompt and every 12th after that,
+and renames the session when the work has moved to another topic. It never changes a name you set.
 
 Every handle it sees on a named session is remembered, so new names follow your own. Decisions go to the
 same log as the effort checks, ~/Library/Logs/sttark-claude-kit.log.
