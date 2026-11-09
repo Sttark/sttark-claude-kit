@@ -37,3 +37,17 @@ Files copied (destination ← source):
 - Resources/skills/grilling/SKILL.md ← skills/productivity/grilling/SKILL.md
 - Resources/skills/grilling/agents/openai.yaml ← skills/productivity/grilling/agents/openai.yaml
 - Resources/skills/grilling/LICENSE ← LICENSE
+
+## Sttark changes
+
+The files below differ from the upstream copies. The decision IDs come from the Orchestrator plan.
+
+- Resources/skills/orchestrate/SKILL.md: Frame calls `grilling` only for unclear criteria or a real design fork, else a two-line plan and start (D7, D20, D21); `page-check` is the UI test in Sttark app repos; inline limit and inline guard hook (D6/D22); never a fork agent (D4); `validator` verifies and only its verdict comes back (D5); final report uses the asks table with an Evidence column (D8); new "Sttark precedence" section.
+- Resources/skills/orchestrator-delegation/SKILL.md: inline limit of 2 tool calls and about 2k tokens, inline guard hook, background subagents (D6/D22); explicit "never a fork agent" line (D4); `validator` checks claims and only its verdict comes back (D5).
+- Resources/skills/grilling/SKILL.md: fact lookups inline within the D22 limit, else the `researcher` agent; a round is a real question, not a request for a go (D21).
+- Resources/skills/tdd-protocol/SKILL.md: `page-check` is the UI test in Sttark app repos (D7); the `validator` sees the gate output, the main thread gets only its verdict (D5).
+- Resources/skills/validation-and-evidence/SKILL.md: only the validator verdict comes back (D5); evidence goes in the asks table Evidence column (D8).
+- Resources/skills/familiarize/SKILL.md: reading goes to `researcher` agents and map writing to `implementer`, not Explore or fork agents (D4, D6); user brief uses the Sttark reply format (D8).
+- Resources/skills/context-and-state/SKILL.md: resume lookups go to a `researcher`, test runs to a `validator` (D6/D22, D5).
+- Resources/skills/workflow-patterns/SKILL.md: inline threshold in the selection matrix and fan-out sizing matches D6/D22.
+- Resources/agents/validator.md: report is the only output that reaches the main thread; short excerpts, no whole logs (D5).

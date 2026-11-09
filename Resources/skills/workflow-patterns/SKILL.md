@@ -23,7 +23,7 @@ How to shape multi-agent work. Each pattern says when it wins, how big to make i
 ## Pattern catalog
 
 ### Fan-out (independent shards)
-Split work into shards with no dependencies between them; launch all at once; collect results. Wins when shards are truly independent (per-file review, per-module survey, per-ticket triage). Size: 3–6 for routine, up to ~15 for audits; below 3 the coordination overhead beats doing it inline. Failure mode: hidden shared state — two shards editing the same file, or both claiming the same resource (see the migration-numbering collision in "Paid-for lessons" below). If shards write, pre-partition what each may touch.
+Split work into shards with no dependencies between them; launch all at once; collect results. Wins when shards are truly independent (per-file review, per-module survey, per-ticket triage). Size: 3–6 for routine, up to ~15 for audits; below 3 shards, use one agent instead of a fan-out. Failure mode: hidden shared state — two shards editing the same file, or both claiming the same resource (see the migration-numbering collision in "Paid-for lessons" below). If shards write, pre-partition what each may touch.
 
 ### Pipeline (per-item stages, no barrier)
 Each item flows through its own stage sequence (implement → verify → review → merge) independently — item 2 starts while item 1 is still in review. No global barrier waiting for all items to finish a stage. Wins for a batch of similar items (tickets) where per-item latency matters. Size: stages × items; keep in-flight items ≤ 3–4 unless isolation is airtight. Failure mode: cross-item ordering dependencies (stacked migrations, shared schema) — one reference workflow deliberately ran tickets SERIALLY so migrations stacked cleanly off freshly-merged main. If items share ordered state, serialize the items and pipeline only within each.
@@ -50,7 +50,7 @@ Each agent builds its item in an isolated `git worktree` on its own branch; the 
 
 | Task shape | Pattern | Typical size |
 |---|---|---|
-| Trivial edit, one file, low stakes | none — do it inline, solo | 0 extra agents |
+| Trivial edit: at most 2 tool calls, result under ~2k tokens | none — do it inline, solo | 0 extra agents |
 | Survey/read many independent areas | fan-out | 3–6 sonnet/haiku |
 | Batch of similar independent items | pipeline (serialize if state is ordered) | 3–4 in flight |
 | One deliverable, quality-gated | generator + validator | 2–3 |

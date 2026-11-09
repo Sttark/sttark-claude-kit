@@ -44,14 +44,15 @@ Rules:
   DIDN'T fail, and why the fix changes the behavior, you don't have the mechanism yet. Keep
   digging before claiming done.
 - **Evidence is quoted, not summarized.** Paste the relevant lines of output into the report.
+  In the reply to the person, the evidence goes in the Evidence column of the Sttark asks table.
   "Tests pass" without the count and command is an assertion, not evidence.
 - **Run the app when the claim is behavioral.** Use the built-in `verify` skill to launch the
   app and observe the behavior — that observation is one evidence source under this standard.
 
 ## The standing validator pass
 
-Every non-trivial build ends with an INDEPENDENT validator agent — never the builder checking
-its own homework. The builder has motivated reasoning about its own diff; a fresh agent with
+Every non-trivial build ends with an INDEPENDENT `validator` agent — never the builder checking
+its own homework. Only its verdict comes back to the main thread, not its logs. The builder has motivated reasoning about its own diff; a fresh agent with
 only the acceptance criteria does not. Scale per workflow-patterns: one sonnet-class validator
 for routine builds; the adversarial patterns below for high-stakes work.
 

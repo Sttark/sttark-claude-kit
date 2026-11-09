@@ -21,6 +21,7 @@ Tests-first is the default lifecycle for product and library code — a standing
 - **Default for all product/library code** — new features, bug fixes, behavior-changing refactors — in any repo.
 - Applies even when the repo has **no test harness yet**: standing one up is part of the job, not a reason to skip (see "Standing up a harness" below).
 - **Exempt:** content/video work, throwaway one-off scripts, and pure research tasks.
+- **Sttark app repos:** `page-check` is the UI test.
 - **Local conventions win.** If the repo defines its own test process, follow that. The table below is an index, not a substitute for reading the repo's own docs.
 
 ## The protocol
@@ -37,7 +38,7 @@ Tests-first is the default lifecycle for product and library code — a standing
 
 ## The completion gate
 
-Nothing is "done" without pasted passing output in the conversation, PR, or ticket. Claimed-green is not green — an orchestrator must see the output, not a summary of it. One real project's done-criteria are the reference shape:
+Nothing is "done" without passing output that someone other than the builder observed. Claimed-green is not green. The `validator` agent re-runs the gate and sees the output. Only its verdict, with short evidence lines, comes back to the main thread, not its logs. One real project's done-criteria are the reference shape:
 
 - `tsc` clean
 - `build:types` clean

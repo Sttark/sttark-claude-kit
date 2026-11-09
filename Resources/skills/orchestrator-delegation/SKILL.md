@@ -19,17 +19,22 @@ The main session is the orchestrator: it decomposes work, launches subagents, an
 
 ## Delegate vs inline
 
-**Do it inline (no subagent)** when the task is:
-- A trivial edit, rename, or config tweak you can make in one or two tool calls
+**Do it inline (no subagent)** only when it takes at most 2 tool calls and the result is under about 2k tokens (about 8,000 characters), and the task is:
+- A trivial edit, rename, or config tweak
 - Conversation, judgment calls, or anything requiring context only available in this session
 - A single-file read or a question answerable from files already in context
 - The final synthesis/merge step itself — the orchestrator always owns that
 
-**Delegate to a subagent** when the task:
+**Delegate to a background subagent** when the task:
+- Needs more than a few tool calls
 - Needs more than ~3 files of context-gathering before any edit (exploration burns orchestrator context; a researcher agent returns a distilled summary instead)
 - Is parallelizable — independent tickets, independent review lenses, independent research questions
 - Is adversarial review — a fresh agent with no authorship bias catches what the author-session cannot (see validation-and-evidence)
 - Is a long build/test cycle whose intermediate output you don't need to watch (use `background: true` or a backgrounded shell run)
+
+When Orchestrator is on, a hook (the inline guard) enforces this in the main thread. It denies a 3rd lookup. It denies edits bigger than 3 lines, except to the day log, the state file and NEXT-type files. It denies long Bash runs (builds, test suites, installs).
+
+**Agent type.** Never use a fork agent. Delegate only to the named, tool-limited agents (`implementer`, `ops`, `researcher`, `validator`, `visual-check`), with a full brief.
 
 Scale to stakes: solo for trivial work, 3-6 agents for routine builds, 3-5 review lenses added per item merging to main, 15-30+ reserved for audits and hard-to-reverse work. Sizing guidance and pattern selection live in workflow-patterns.
 
@@ -87,9 +92,9 @@ Worked templates for every task type live in delegate-prompts — that skill own
 
 ## Verify, don't trust
 
-Delegate output is never accepted on the builder's word. The orchestrator (or a dedicated validator agent) independently checks every returned claim:
+Delegate output is never accepted on the builder's word. The `validator` agent independently checks every returned claim. Only its verdict comes back to the main thread, not its logs:
 
-- "Tests pass" → the orchestrator or validator re-runs the test command
+- "Tests pass" → the validator re-runs the test command
 - "File updated" → read the file
 - "Researched X, answer is Y" → spot-check at least one cited source
 - Builds destined for the main branch get an adversarial review pass by a fresh agent that did not write the code

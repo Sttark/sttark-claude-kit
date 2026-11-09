@@ -19,8 +19,9 @@ Run this **before writing any code**.
 
 ## Procedure
 
-Work the phases in order. On a large repo, parallelize Phases 2–3 with several
-Explore agents (one per area) instead of searching serially.
+Work the phases in order. The main thread does not read the repo itself: send the
+reading phases to background `researcher` agents (several in parallel on a large repo,
+one per area) and the map writing to an `implementer`. Never use a fork agent.
 
 ### Phase 1 — Human-written context
 
@@ -106,7 +107,8 @@ Then **create or augment the root `CLAUDE.md`**:
 
 ### Phase 7 — Brief the user
 
-Give a tight spoken summary — assume they want to act on it immediately:
+Give a tight summary in the Sttark reply format (the asks table with an Evidence
+column, Simplified Technical English, no recap). Assume they want to act on it immediately:
 
 - What the project is; the stack + versions.
 - The structure, in 2–3 sentences.
@@ -122,7 +124,7 @@ Give a tight spoken summary — assume they want to act on it immediately:
   training data is stale relative to the repo.
 - **Don't pollute.** Generated maps go under `docs/repo-map/`. Never overwrite
   human-written docs or a meaningful existing `CLAUDE.md` — augment only.
-- **Be fast.** Parallelize with Explore agents on anything large.
+- **Be fast.** Parallelize with `researcher` agents on anything large.
 - **Leave it better.** After `familiarize`, the next session — yours or a
   teammate's — starts already oriented.
 - **Read-only until asked.** Familiarize explores and writes maps; it does not

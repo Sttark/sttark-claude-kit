@@ -17,6 +17,8 @@ app's state.json) and copies the orchestrator skills and agents into ~/.claude/s
 or takes them out. Every run without a switch brings the copies in line with the switch; --remove takes
 them out. Only copies this script made are replaced or removed (listed in orchestrator-installed.json);
 a skill or agent of the same name that someone put there by hand is left alone.
+The inline guard hooks (inline-guard.py: PreToolUse, PostToolUse and UserPromptSubmit) go in only while the
+Orchestrator switch is on, and come out when it is off and with --remove.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -211,6 +213,28 @@ def sync_orchestrator(on):
     return word
 
 
+GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inline-guard.py')
+
+
+def is_guard(cmd):
+    return 'inline-guard.py' in cmd
+
+
+def set_guard(hooks, on):
+    """The inline guard: with the Orchestrator switch on, the main agent gives worker jobs to subagents."""
+    for event in ('PreToolUse', 'PostToolUse', 'UserPromptSubmit'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_guard(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            groups.append({'hooks': [{'type': 'command', 'command': f'"{GUARD}"', 'timeout': 10}]})
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
 def same_tree(a, b):
     def files(root):
         out = {}
@@ -287,12 +311,18 @@ def main():
                           'rules': has(s, 'UserPromptSubmit', is_rules),
                           'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
                           'limit': has(s, 'PreToolUse', is_limit),
-                          'orchestrator': orchestrator_on()}))
+                          'orchestrator': orchestrator_on(),
+                          'guard': has(s, 'PreToolUse', is_guard)}))
         return
     if '--orchestrator' in sys.argv:
         on = sys.argv[sys.argv.index('--orchestrator') + 1] == 'on'
         set_orchestrator_state(on)
-        print(sync_orchestrator(on) or 'unchanged')
+        word = sync_orchestrator(on)
+        before = json.dumps(s, sort_keys=True)
+        set_guard(s.setdefault('hooks', {}), on)
+        if save(s, before, None):
+            word = (word + '; ' if word else '') + 'guard ' + ('on' if on else 'off')
+        print(word or 'unchanged')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -327,6 +357,7 @@ def main():
         print(word)
     set_rules(hooks, not remove)
     set_limit(hooks, not remove)
+    set_guard(hooks, orchestrator_on() and not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])
@@ -345,11 +376,14 @@ def main():
 
 
 def save(s, before, what):
+    """Writes the settings when they changed and prints what (or 'unchanged'); prints nothing when what
+    is None. True when it wrote."""
     if not s.get('hooks'):
         s.pop('hooks', None)
     if json.dumps(s, sort_keys=True) == before:
-        print('unchanged')
-        return
+        if what is not None:
+            print('unchanged')
+        return False
     os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
     if os.path.exists(SETTINGS):
         shutil.copy2(SETTINGS, SETTINGS + time.strftime('.bak-effort-%Y%m%d-%H%M%S'))
@@ -358,7 +392,9 @@ def save(s, before, what):
         json.dump(s, f, indent=2)
         f.write('\n')
     os.replace(tmp, SETTINGS)
-    print(what)
+    if what is not None:
+        print(what)
+    return True
 
 
 if __name__ == '__main__':

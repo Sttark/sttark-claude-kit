@@ -64,6 +64,52 @@ needed, one line.
 - Write replies in ASD-STE100 Simplified Technical English. Before you send a reply, check each word against the \
 STE dictionary. Replace each word that is not approved."""
 
+KIT = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
+
+# With the Orchestrator switch on, these rules take the place of the kit rules that start the same way, so a
+# session never gets two answers (plan D10). The orchestrator skills in Resources/skills say the same.
+ORCHESTRATOR_RULES = {
+    '- Before building,': """\
+- Before building, give the plan in two lines plus a step count, then start in the same turn. Giving the plan \
+is not asking. If the work grows past that step count, stop and check in. Write the tests first where the repo \
+has tests. In a Sttark app repo, page-check is the UI test.""",
+    '- Work like a manager,': """\
+- Work like a manager, not a worker (Orchestrator is on). Give work of more than a few tool calls, or more than \
+about 3 files of context, to a named background agent (implementer, ops, researcher, validator, visual-check) \
+with a full brief. Never use a fork agent. Do the work in the chat only when it takes at most 2 tool calls and \
+the result is under about 2k tokens: the inline guard stops more. When the person gives several tasks, start \
+one agent for each task in the same message. Give each agent its own git worktree when two agents could change \
+the same files. The validator agent checks all delegated work, and only its verdict comes back to the chat. \
+When an agent completes, tell the person in one or two lines what it found or did. Keep the chat for direction \
+and decisions.
+- Ask questions with the grilling skill only when the acceptance criteria are unclear or there is a real design \
+fork. A grilling round is a real question, not asking for a go. When the item is clear, give the plan and start.""",
+    '- When a prompt holds more than one ask,': """\
+- When a prompt holds more than one ask, number the asks. At every end of turn, give a table with each ask, \
+its status (done, open or dropped, with the reason) and the evidence (tests, page-check, PR, validator \
+verdict). Keep each ask in the table until it is done or the person drops it. Nothing may go missing without \
+showing in the table.""",
+}
+
+
+def orchestrator_on():
+    try:
+        return json.load(open(os.path.join(KIT, 'state.json'))).get('orchestrator') is True
+    except (OSError, ValueError):
+        return False
+
+
+def rules(orchestrator=None):
+    """The rules text: RULES, with the orchestrator's rules in place of the ones they replace when it is on."""
+    if not (orchestrator_on() if orchestrator is None else orchestrator):
+        return RULES
+    out = []
+    for rule in re.split(r'\n(?=- )', RULES):
+        swap = next((v for k, v in ORCHESTRATOR_RULES.items() if rule.startswith(k)), None)
+        out.append(swap or rule)
+    return '\n'.join(out)
+
+
 CHECK = """You check a reply for ASD-STE100 Simplified Technical English. The rules that matter:
 - Only approved words, each with its one approved meaning. Common words that are not approved: caveat, utilize, \
 leverage, ensure, in order to, prior to, robust, seamless, facilitate, implement (as "do"), perform (use "do"), \
@@ -80,7 +126,8 @@ Also look at how the reply ends. A second rule: Claude does not ask for a go bef
 can be undone. A reply that ends by asking permission for such a step ("say the word and I will build it", \
 "give me the go", "want me to...?", "shall I...?") breaks it. It is fine to ask before a step that deletes, \
 sends, publishes or spends money, or when two ways lead to different work and the choice is the person's. \
-Lean toward OK here too.
+Lean toward OK here too. A round of numbered questions about what to build, each with a recommended answer \
+(a grilling round), is a real question, not asking for a go.
 
 Answer with the single word OK, or a list of at most 8 items, one per line, each "word or phrase: the approved \
 word to use" or "sentence too long: its first five words...". When the ending asks for a go, add one line \
@@ -232,7 +279,7 @@ def main():
         return
     if '--check' in sys.argv:
         return check(data)
-    text = LEAD + '\n\n' + RULES
+    text = LEAD + '\n\n' + rules()
     try:
         missed = pending(data)
     except OSError:

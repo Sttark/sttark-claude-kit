@@ -72,7 +72,7 @@ Good habits worth keeping wherever you see them: date-stamp status blocks, use a
 
 ## Resume protocol — fresh session in a repo with prior work
 
-Run in this order; each step is skipped only if the source doesn't exist:
+Run in this order; each step is skipped only if the source doesn't exist. The steps take more than 2 lookups, so send them to a background `researcher` agent and act on its summary. Test runs go to a `validator`.
 
 1. **Repo CLAUDE.md** — conventions, hard rules, and any session ritual it mandates (some repos mandate "read this file + NEXT.md"; some redirect to AGENTS.md — follow the indirection). Per-repo rituals override this generic protocol where they conflict.
 2. **NEXT.md** — the ledger. This tells you what "Now" is. Read a LEARNED.md too if the repo has one.

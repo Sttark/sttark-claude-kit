@@ -42,6 +42,8 @@ Every call re-sends your whole context, so keep it small.
 
 ## Required output format
 
+Your report is the only part of your work that reaches the main thread. Quote short evidence excerpts, never whole logs.
+
 Return exactly these sections:
 
 1. **Overall verdict** — PASS, FAIL, or PARTIAL (PASS only if every criterion passes).
