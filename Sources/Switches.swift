@@ -183,15 +183,15 @@ enum ProfileSync {
 
 /// "Claude window in Chrome": one Chrome window named "Claude", in the person's own signed-in profile, where the
 /// claude-window tool gives each session its own tab, opened in a way that doesn't bring Chrome in front of
-/// whatever the person is typing in. Opening the window is the one moment Chrome comes forward, so
-/// it only happens when the person clicks, or on its own once they've been away from the keyboard for a minute;
-/// the app puts the app they were using back in front right after.
+/// whatever the person is typing in. Making the window is the one step that brings Chrome forward, so it happens
+/// only when the window is gone and a session needs it (or the person clicks), and claude-window puts the app they
+/// were in back in front at once.
 enum ChromeWindow {
     static var on: Bool { UserDefaults.standard.bool(forKey: "claudeWindow") }
 
     /// On unless the person turned it off: a registered default is never stored, so a stored false still wins.
     /// Runs after Migrate.beforeStart, which carries over only the settings that read as unset. On launch, the app
-    /// installs the tool and tells the hooks for an "on" read either way; the window itself comes from keepOpen.
+    /// installs the tool and tells the hooks for an "on" read either way; the window comes when a session needs it.
     static func registerDefault() { UserDefaults.standard.register(defaults: ["claudeWindow": true]) }
     static var tool: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude-window") }
     static var chromeRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty }
@@ -210,49 +210,17 @@ enum ChromeWindow {
         try? fm.createSymbolicLink(at: tool, withDestinationURL: hooksDir.appendingPathComponent("claude-window.sh"))
     }
 
+    /// The same step a session takes when it needs the window: make it, starting Chrome hidden if it isn't running,
+    /// and put the app in front back at once. claude-window logs it.
     static func open() {
-        let back = NSWorkspace.shared.frontmostApplication
-        let r = Updater.run("/usr/bin/osascript", ["-e", """
-            tell application "Google Chrome"
-              set w to make new window
-              set given name of w to "Claude"
-              set URL of active tab of w to "about:blank"
-              return id of w
-            end tell
-            """])
-        note("Claude window: \(r.0 == 0 ? "opened" : "couldn't open: " + r.1.trimmingCharacters(in: .whitespacesAndNewlines))")
-        back?.activate()
+        DispatchQueue.global().async { Updater.run("/bin/zsh", [hooksDir.appendingPathComponent("claude-window.sh").path, "open"]) }
     }
 
-    /// Seconds since the last key press, click or mouse move.
-    static var idle: Double {
-        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
-    }
-
-    /// Every 30 seconds: with the switch on, a Claude window that's gone (closed by mistake, Chrome quit, or a
-    /// restart) comes back. Opening it brings Chrome forward, so it waits until no one has typed or moved the mouse
-    /// for a minute, and puts the app that was in front back. A Chrome that isn't running is started hidden first.
-    static func keepOpen() {
-        if on && chromeRunning { cleanTabs() }
-        guard on, idle >= 60 else { return }
-        if !chromeRunning {
-            guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else { return }
-            let c = NSWorkspace.OpenConfiguration()
-            c.activates = false
-            c.hides = true
-            NSWorkspace.shared.openApplication(at: app, configuration: c) { _, _ in }
-            note("Claude window: Chrome wasn't running; started it to reopen the window")
-            return  // the next check, once Chrome is up, opens the window
-        }
-        if !exists {
-            note("Claude window: was closed; reopening")
-            open()
-        }
-    }
-
-    /// Each session has its own tab in the Claude window. This closes the tabs whose session's process ended or
-    /// that went unused for 30 minutes; see cleanup in claude-window.sh.
+    /// Every 30 seconds: each session has its own tab in the Claude window. This closes the tabs whose session's
+    /// process ended or that went unused for 30 minutes; see cleanup in claude-window.sh. A window that's gone isn't
+    /// made here: claude-window makes it the moment a session needs it, so nothing comes forward when nothing asked.
     static func cleanTabs() {
+        guard on, chromeRunning else { return }
         DispatchQueue.global().async {
             Updater.run("/bin/zsh", [hooksDir.appendingPathComponent("claude-window.sh").path, "cleanup"])
         }
