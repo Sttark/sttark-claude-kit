@@ -9,6 +9,9 @@ import UserNotifications
 final class Updater: NSObject, UNUserNotificationCenterDelegate {
     static let repo = "Sttark/sttark-claude-kit"
     static let asset = "SttarkClaudeKit.zip"
+    /// Off on the `orchestrator` branch, so the official release does not replace this test build.
+    /// Turn it back on before the branch goes to `main`.
+    static let enabled = false
     /// Where the latest release is read; tools/update-test.sh points it at a fake release.
     static var feed = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
     static var firstCheck: TimeInterval = 20
@@ -32,6 +35,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
 
     func start() {
         UNUserNotificationCenter.current().delegate = self
+        guard Self.enabled else { note("update: off on this build"); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.firstCheck) { self.check(force: true) }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.check(force: true) }
     }
@@ -39,6 +43,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
     /// Also called when the menu opens; at most once an hour unless asked.
     /// With `done` (Check for updates in the menu) the caller decides what to do; without it a new version installs by itself.
     func check(force: Bool = false, done: ((String) -> Void)? = nil) {
+        guard Self.enabled else { done?("Updates are off on this build."); return }
         guard force || Date().timeIntervalSince(lastCheck) > 3600 else { return }
         lastCheck = Date()
         var req = URLRequest(url: Self.feed)
@@ -119,7 +124,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
     /// Download, check it's signed by us, swap it in where this copy sits, and start it.
     /// By itself it never shows a dialog: a failure goes to the log and a notice, and the menu keeps Update to ….
     func install(byItself: Bool = false) {
-        guard let r = available, !installing else { return }
+        guard Self.enabled, let r = available, !installing else { return }
         installing = true
         changed()
         note("update: downloading \(r.version)\(byItself ? " by itself" : "")")

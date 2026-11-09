@@ -70,7 +70,9 @@ final class Controller: NSObject, NSMenuDelegate {
         // read once: the checks below run commands that let the update check's answer land mid-build
         let installing = updater.installing, available = updater.available
         menu.addItem(caption("Sttark Claude Kit \(Updater.version)"))
-        if installing {
+        if !Updater.enabled {
+            menu.addItem(caption("Orchestrator branch: updates off"))
+        } else if installing {
             menu.addItem(caption("Updating…"))
         } else if let r = available {
             let u = action("Update to \(r.version)", #selector(update))
@@ -203,7 +205,7 @@ final class Controller: NSObject, NSMenuDelegate {
         sign.toolTip = Login.tip
         menu.addItem(sign)
         menu.addItem(action("Open log", #selector(openLog)))
-        if available == nil && !installing { menu.addItem(action("Check for updates", #selector(checkUpdates))) }
+        if Updater.enabled && available == nil && !installing { menu.addItem(action("Check for updates", #selector(checkUpdates))) }
         menu.addItem(.separator())
         menu.addItem(action("Quit", #selector(quit), key: "q"))
     }
