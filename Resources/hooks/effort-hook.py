@@ -94,8 +94,7 @@ BROWSER_RULE = ("Browser rule from Sttark Claude Kit: when you need the person's
                 "It gives this session its own tab there, so other sessions can't move your page; run claude-window "
                 "done when you've finished with the browser. Never open a tab or window any other way and never bring "
                 "Chrome to the front: that takes the person's screen while they're typing. If there's no Claude "
-                "window, it reopens by itself once they've been away from the keyboard for a minute; if you can't "
-                "wait, ask them to click Open Claude window in the Sttark Claude Kit menu.")
+                "window, claude-window makes one by itself and goes on.")
 
 FILE_RULE = ("Files from Sttark Claude Kit: when you give the person a file on this Mac (a picture, page, PDF, "
              "spreadsheet, anything they'd open), run claude-link <path> and give them the link it prints, as a "

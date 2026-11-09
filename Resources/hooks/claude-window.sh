@@ -4,8 +4,11 @@
 # Works only in the Chrome window named "Claude" that Sttark Claude Kit opens ("Claude window in Chrome" in its
 # menu). Each Claude Code session gets its own tab there, so sessions never move each other's pages. A session's
 # tab becomes the window's front tab whenever the session uses it, so sites that only work in the front tab do.
-# It never opens windows and never activates Chrome: a new window, or Chrome coming forward, takes the screen
-# from whatever you're typing in. Opening, switching and closing tabs, and running JavaScript, don't.
+# Opening, switching and closing tabs, and running JavaScript, leave Chrome behind whatever you're typing in;
+# giving a tab its address by script brings Chrome forward, so this never does. The one step that brings Chrome
+# forward is making a window: when the Claude window is gone (closed, Chrome quit, a restart), the next command
+# makes it, starting Chrome hidden first if it isn't running, puts the app you were in back in front at once
+# (Chrome is in front for about a fifth of a second), then goes on.
 #
 #   claude-window go <url>      open a page in this session's tab, wait for it to load, print its title and URL
 #   claude-window url           print the current title and URL
@@ -14,25 +17,83 @@
 #   claude-window done          close this session's tab (when you're finished with the browser)
 #
 # A tab nobody closed is closed for you once its session's process ends or it goes unused for 30 minutes
-# (Sttark Claude Kit runs `claude-window cleanup` every 30 seconds).
+# (Sttark Claude Kit runs `claude-window cleanup` every 30 seconds; its Open Claude window runs `claude-window open`).
 #
 # Needs Chrome's View > Developer > Allow JavaScript from Apple Events.
 set -uo pipefail
 cmd=${1:-}
-[[ -n $cmd ]] || { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[[ -n $cmd ]] || { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 # One file per session: "<tab id> <session process id>". The file's time is the tab's last use.
 tabs="$HOME/Library/Application Support/SttarkClaudeKit/claude-window-tabs"
 session=${CLAUDE_CODE_SESSION_ID:-${CLAUDE_PID:-terminal}}
 mine="$tabs/$session"
 unused_limit=1800  # seconds
+chrome_id=com.google.Chrome
+logfile="$HOME/Library/Logs/sttark-claude-kit.log"
 
-if ! pgrep -xq "Google Chrome"; then
+log() { print -r -- "$(date '+%F %T') window $*" >> "$logfile" 2>/dev/null }
+
+chrome_running() { [[ -n $(lsappinfo find bundleid="$chrome_id" 2>/dev/null) ]] }
+
+front_app() {  # the bundle ID of the app in front
+  lsappinfo info -only bundleid "$(lsappinfo front)" 2>/dev/null | sed -n 's/.*="\(.*\)"/\1/p'
+}
+
+open_window() {  # make the Claude window when it's gone, then put the app that was in front back at once
+  local before after out
+  zmodload zsh/system
+  mkdir -p "$tabs" && : >> "$tabs/.window-lock"
+  zsystem flock -t 60 "$tabs/.window-lock" || return 1  # sessions asking at the same moment still get one window
+  before=$(front_app)
+  if ! chrome_running; then
+    rm -f "$tabs"/*(N)  # Chrome quit, so every tab is gone
+    open -g -j -b "$chrome_id" || { log "Claude window: couldn't start Chrome"; return 1; }  # in the background, hidden
+    for i in {1..60}; do
+      chrome_running && osascript -e 'tell application "Google Chrome" to count windows' >/dev/null 2>&1 && break
+      sleep 0.5
+    done
+    log "Chrome wasn't running; started it hidden"
+  fi
+  # Making a window brings Chrome forward (tested: a plain window, a minimized one and Chrome's --new-window all
+  # do), so the app that was in front goes back right after. Only this step does it, and only when the window is gone.
+  out=$(osascript <<'OSA' 2>&1
+tell application "Google Chrome"
+  if (count of (every window whose given name is "Claude")) > 0 then return "there"
+  set w to make new window
+  set given name of w to "Claude"
+  return "opened"
+end tell
+OSA
+  )
+  after=$(front_app)
+  if [[ -n $before && $before != "$chrome_id" && $after == "$chrome_id" ]]; then
+    osascript -e "tell application id \"$before\" to activate" >/dev/null 2>&1
+  fi
+  case $out in
+    there)  return 0 ;;
+    opened) log "Claude window: opened; ${before:-the app in front} put back in front" ;;
+    *)      log "Claude window: couldn't open: $out"; return 1 ;;
+  esac
+}
+
+if ! chrome_running; then
   [[ $cmd == cleanup ]] && { rm -rf "$tabs"; exit 0; }  # Chrome quit, so every tab is gone
-  echo "Chrome isn't open. Sttark Claude Kit starts it and reopens the Claude window once no one has used the keyboard or mouse for a minute, or open Chrome and click Open Claude window in its menu." >&2; exit 1
+  [[ $cmd == done ]] && { rm -f "$mine"; echo "Closed this session's tab."; exit 0; }
 fi
 
-chrome() {  # chrome <op> [tab id] [javascript]: work on the Claude window; never activates Chrome
+chrome() {  # chrome <op> [tab id] [javascript]: work on the Claude window, making it first if it's gone
+  local out rc
+  [[ $1 == ids || $1 == close ]] || chrome_running || open_window
+  out=$(chrome_raw "$@" 2>&1); rc=$?
+  if [[ $out == *NO_CLAUDE_WINDOW* && $1 != ids && $1 != close ]] && open_window; then
+    out=$(chrome_raw "$@" 2>&1); rc=$?
+  fi
+  if (( rc == 0 )); then print -r -- "$out"; else print -r -- "$out" >&2; fi
+  return $rc
+}
+
+chrome_raw() {  # never activates Chrome
   osascript - "$@" <<'OSA'
 on run argv
   set op to item 1 of argv
@@ -74,7 +135,7 @@ OSA
 
 explain() {  # turn a failure from chrome() into a plain message
   case $1 in
-    *NO_CLAUDE_WINDOW*) echo "There's no Chrome window named Claude. Sttark Claude Kit reopens it once no one has used the keyboard or mouse for a minute, or click Open Claude window in its menu." >&2 ;;
+    *NO_CLAUDE_WINDOW*) echo "There's no Chrome window named Claude and making one failed; the Sttark Claude Kit log says why." >&2 ;;
     *"Apple Events"*|*"JavaScript"*) echo "Chrome blocks scripts: turn on View > Developer > Allow JavaScript from Apple Events." >&2 ;;
     *) echo "$1" >&2 ;;
   esac
@@ -149,5 +210,6 @@ case $cmd in
     fi
     echo "Closed this session's tab." ;;
   cleanup) cleanup ;;
+  open) open_window ;;
   *)    echo "unknown command: $cmd (use go, url, text, js or done)" >&2; exit 2 ;;
 esac
