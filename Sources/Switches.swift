@@ -188,6 +188,11 @@ enum ProfileSync {
 /// the app puts the app they were using back in front right after.
 enum ChromeWindow {
     static var on: Bool { UserDefaults.standard.bool(forKey: "claudeWindow") }
+
+    /// On unless the person turned it off: a registered default is never stored, so a stored false still wins.
+    /// Runs after Migrate.beforeStart, which carries over only the settings that read as unset. On launch, the app
+    /// installs the tool and tells the hooks for an "on" read either way; the window itself comes from keepOpen.
+    static func registerDefault() { UserDefaults.standard.register(defaults: ["claudeWindow": true]) }
     static var tool: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude-window") }
     static var chromeRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty }
 

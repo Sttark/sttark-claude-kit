@@ -19,7 +19,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Puts Sttark's working rules in front of every prompt, and checks each reply for Simplified Technical English | [Sttark working rules](#sttark-working-rules) |
 | Gives sessions in Sttark's app repos the Sttark app rules | [Sttark app rules](#sttark-app-rules) |
 
-Effort, Waiting on you, the wait at the usage limit, the login warnings, the Sttark working rules and the Sttark app rules are on from the start. Everything else is off until you turn it on in the menu. It updates itself when a new version is released here.
+Effort, Waiting on you, the wait at the usage limit, the login warnings, the Claude window in Chrome, the Sttark working rules and the Sttark app rules are on from the start. Everything else is off until you turn it on in the menu. It updates itself when a new version is released here.
 
 ![The menu: Auto effort, Model, each session with its level and a hover tip with the reason, then the switches, Open log, Check for updates](docs/menu.png)
 
@@ -67,7 +67,7 @@ The items, from the top:
 | **Start sessions from the Claude app** | Sets this Mac up so you can start Claude Code sessions from the Claude app. See [below](#start-sessions-from-the-claude-app). Hover it to see the folder sessions start in. |
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). Off until you turn it on. |
 | **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. |
-| **Claude window in Chrome** | See [below](#claude-window-in-chrome). Off until you turn it on. |
+| **Claude window in Chrome** | See [below](#claude-window-in-chrome). On until you turn it off. |
 | **Open Claude window** (only when it's closed) | Shows while the switch above is on, Chrome runs and the Claude window is closed. Opens it now. |
 | **Links to files** | See [below](#links-to-files). Off until you turn it on. |
 | **Name sessions automatically** | See [below](#name-sessions-automatically). Off until you turn it on. |
@@ -244,7 +244,7 @@ The Claude app has a box for instructions to Claude in **Settings > Profile**. C
 
 When Claude uses your browser, it usually opens tabs or windows the way Claude in Chrome does, and Chrome jumps in front of whatever you're typing in: your cursor goes, and your keystrokes land in Chrome. That happens even with a window behind others.
 
-With this switch on, Sttark Claude Kit opens one Chrome window named **Claude**, in your own profile with all your logins, and installs `claude-window`, a small command Claude Code sessions use to work in it without taking your screen. Each session gets its own tab in that window, so sessions working at the same time never move each other's pages:
+This switch is on until you turn it off. While it's on, Sttark Claude Kit opens one Chrome window named **Claude**, in your own profile with all your logins, and installs `claude-window`, a small command Claude Code sessions use to work in it without taking your screen. Each session gets its own tab in that window, so sessions working at the same time never move each other's pages:
 
 ```
 claude-window go https://example.com    open a page in this session's tab and wait for it to load
