@@ -128,9 +128,21 @@ for name, d in [('npm test', pre('a2', 'npm test')),
                 ('cat claude-window.sh', pre('a2', 'cat Resources/hooks/claude-window.sh')),
                 ('git commit message', pre('a2', 'git commit -m "fix claude-window go"')),
                 ('Read tool', pre('a2', tool='Read')),
+                ('osascript notification', pre('a2', 'osascript -e \'display notification "x"\'')),
                 ('mcp other tool', pre('a2', tool='mcp__asana__get_task'))]:
     out, dt, _ = run(d)
     check('%s: allowed, not delayed' % name, out is None and dt < 0.7 and lock()['holder'] == 'a1')
+
+# osascript that names Chrome counts
+for name, c in [('osascript -e Google Chrome', 'osascript -e \'tell application "Google Chrome" to get URL of active tab of front window\''),
+                ('osascript heredoc Google Chrome', 'osascript <<EOF\ntell application "Google Chrome"\nactivate\nend tell\nEOF')]:
+    out, dt, _ = run(pre('a2', c))
+    check('%s by a second agent: denied' % name, denied(out) and dt >= 0.7)
+run(pre('a1', DONE))
+out, _, _ = run(pre('a2', 'osascript -e \'tell application "Google Chrome" to quit\''))
+check('osascript Chrome takes the lock', out is None and lock()['holder'] == 'a2')
+run(pre('a2', DONE))
+run(pre('a1', GO))
 
 # MCP chrome tool counts
 out, dt, _ = run(pre('a2', tool='mcp__claude-in-chrome__navigate'))

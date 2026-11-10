@@ -56,6 +56,17 @@ Sttark context
 - Sttark app repo only: read the app chapters that apply (<KIT_DIR>/app-rules/chapters.json). Run page-check before you report UI work, and include its output.
 ```
 
+## Skill to use (specialist briefs)
+
+When the unit goes to a specialist agent, the brief carries this field:
+
+```
+SKILL TO USE: <skill name, for example anthropic-skills:bom-folder-check, or "none">
+PASS: 1 (propose only, write nothing)   |   2 (starts with "PASS 2: approved", then the approved proposal quoted exactly)
+```
+
+For a named specialist, the field repeats the skill it already has. For the general `specialist` agent, it is the only way the agent knows which skill to load.
+
 ## Template 1 — implement-to-tests
 
 Use when failing tests already exist (written by you, a test-author delegate, or per tdd-protocol) and the delegate's only job is making them green.

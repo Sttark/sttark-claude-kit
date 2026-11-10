@@ -46,6 +46,9 @@ Repeat a whole round (e.g. a full bug-hunt fan-out) until a round produces zero 
 ### Parallel worktree builds
 Each agent builds its item in an isolated `git worktree` on its own branch; the orchestrator integrates serially afterward. Proven: four tickets built in parallel worktrees, each gated by a hard opus-class adversarial review plus a full test loop before PR. Wins when items are code-independent and wall-clock time matters. Size: 3–5 worktrees; beyond that integration review becomes the bottleneck. Failure modes: (a) shared sequential resources — migration numbers, journal files — collide (see the migration-numbering collision in "Paid-for lessons" below); (b) integration conflicts pile up — rebase each branch onto main serially, re-running tests after each. **Per-project rules can forbid this pattern entirely — check first (see below).**
 
+### Two-pass approval
+For a skill that needs approval mid-task (Asana updates, strategy reconciliation, Onshape deletions, supplier payments, messages to a supplier). Pass 1 (default): a specialist agent never writes, sends, deletes or pays, and returns a PROPOSAL with every change listed. The orchestrator shows the proposal to the person as a real question and waits. Pass 2: a NEW agent whose brief starts "PASS 2: approved" and quotes the approved proposal exactly. It does only that and reports each change as done or failed. Asana writes stay off during work unless the person approves a pass 2. Failure mode: a pass 2 that carries over the pass 1 agent's context and does more than the quote.
+
 ## Selection matrix
 
 | Task shape | Pattern | Typical size |

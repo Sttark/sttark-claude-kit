@@ -163,7 +163,8 @@ def main():
             return log('allow, page-check output found (%d UI files)' % len(ui))
         names = [os.path.basename(f) for f in ui[:5]]
         reason = ('You changed UI files (%s%s) and your report has no page-check output. Run page-check (%s) '
-                  'and paste its output, then finish.' % (', '.join(names), ', ...' if len(ui) > 5 else '',
+                  'and paste its output, then finish. If you have no Bash tool, say in your report that you could not '
+                  'run page-check.' % (', '.join(names), ', ...' if len(ui) > 5 else '',
                                                            script_in(cwd)))
         print(json.dumps({'decision': 'block', 'reason': reason}))
         log('block, %d UI files: %s' % (len(ui), ', '.join(names)))

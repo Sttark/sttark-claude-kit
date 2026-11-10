@@ -7,7 +7,8 @@ session share that tab. This hook lets one browsing agent at a time use it. A se
 It makes no model calls.
 
 A browser call is a Bash command that runs `claude-window` (also after the prefixes in shell_commands.py; any subcommand except `done`) or any
-`mcp__claude-in-chrome__*` tool. The holder is the pair (session_id, agent_id), and the main agent (no agent_id)
+`mcp__claude-in-chrome__*` tool, or a Bash command that runs `osascript` with a script that names Chrome (`Google Chrome`
+or `Chrome`; also a heredoc script). The holder is the pair (session_id, agent_id), and the main agent (no agent_id)
 is the holder "main".
 
 PreToolUse:
@@ -106,6 +107,16 @@ def window_calls(cmd):
     return out
 
 
+def chrome_script(cmd):
+    """True when a Bash command runs osascript with a script that names Chrome (in -e text or in a heredoc)."""
+    for part in commands(cmd):
+        words = strip_prefix(part).split()
+        if words and os.path.basename(words[0].strip('"\'')) == 'osascript':
+            if 'chrome' in part.lower() or ('<<' in part and 'chrome' in cmd.lower()):
+                return True
+    return False
+
+
 def kind(tool, ti):
     """'use' for a browser call, 'done' for a claude-window done, None for anything else."""
     if tool in AGENTS:
@@ -116,6 +127,8 @@ def kind(tool, ti):
         subs = window_calls((ti or {}).get('command'))
         if subs:
             return 'done' if all(x == 'done' for x in subs) else 'use'
+        if chrome_script((ti or {}).get('command')):
+            return 'use'
     return None
 
 

@@ -90,6 +90,10 @@ A subagent starts with zero context: no conversation history, no knowledge of wh
 
 Worked templates for every task type live in delegate-prompts — that skill owns the full anatomy; this checklist is the minimum bar.
 
+## Specialty routing
+
+Match each unit to the skill descriptions your session lists. Use a named specialist agent whose skill fits, else the general `specialist` agent with the skill name in the brief, else a core agent. Org skills (`anthropic-skills:<name>`) are only in Code tab sessions. A skill that needs approval mid-task runs in two passes: pass 1 returns a PROPOSAL and writes nothing; pass 2 is a new agent whose brief starts "PASS 2: approved" and quotes the approved proposal. Details: orchestrate, Route.
+
 ## Verify, don't trust
 
 Delegate output is never accepted on the builder's word. The `validator` agent independently checks every returned claim. Only its verdict comes back to the main thread, not its logs:
