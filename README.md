@@ -29,7 +29,7 @@ It only works on sessions that run through **Remote Control**: the ones you star
 
 ## Install
 
-You need a Mac on macOS 14 or later, with [Claude Code](https://code.claude.com/docs/en/setup) installed and signed in (`claude` at `~/.local/bin/claude`).
+You need a Mac on macOS 14 or later, with [Claude Code](https://code.claude.com/docs/en/setup) installed and signed in (`claude` at `~/.local/bin/claude`). The kit needs Claude Code installed in Terminal. The Claude app alone is not enough, because its own copy of Claude Code is not signed in for hooks. If you only use the app, click **Claude Code isn't installed: Install…** in the menu, or run `curl -fsSL https://claude.ai/install.sh | bash` in Terminal.
 
 1. Download **SttarkClaudeKit.zip** from the [latest release](https://github.com/Sttark/sttark-claude-kit/releases/latest) and open it.
 2. Drag **SttarkClaudeKit** into your **Applications** folder, then open it.
@@ -57,6 +57,7 @@ The items, from the top:
 |---|---|
 | **Sttark Claude Kit 1.…** | The version you have. |
 | **Update to …** | Shows while a new version waits for the menu to close, or after one failed to install by itself. Installs it now. **Updating…** shows in its place while an update installs. |
+| **Claude Code isn't installed: Install…** (only when it's missing) | Shows when there is no Claude Code at `~/.local/bin/claude`. Opens Terminal and installs it. See [below](#claude-code-login). |
 | **Claude login ends …: Sign in…** (only near the end) | Shows within 3 days of the end of your Claude Code login, or when Claude Code is signed out. See [below](#claude-code-login). |
 | **Waiting on you** (rows, when there are any) | Sessions that need you or that you haven't opened since Claude finished. Click one to open it. See [below](#waiting-on-you). |
 | **Usage limit reached** (only at the limit) | When the limit resets, and each session holding for it. Click one to let it go on now with usage credits. See [below](#wait-at-the-usage-limit). |
@@ -315,6 +316,8 @@ When a session works in one of Sttark's app repos, Sttark Claude Kit adds the fi
 ## Claude Code login
 
 Claude Code's sign-in lasts about a month. When it runs out, every Claude Code session and the server for **Start sessions from the Claude app** stop working until you sign in again, and nothing tells you. Sttark Claude Kit checks the end date every hour and warns you 3 days, 1 day and 2 hours before, and right away if Claude Code is signed out. Click the notice, or **Sign in to Claude Code…** in the menu: Terminal opens and starts the sign-in, and you finish it in the browser. Within 3 days of the end, the sign-in item also shows at the top of the menu.
+
+Without Claude Code at `~/.local/bin/claude`, the STE check, Auto effort, session names and the app rules refresh can't run. The menu shows **Claude Code isn't installed: Install…** at the top. Each of these hooks logs one line an hour, like `ste    1a2b3c4d skipped: no Claude Code at ~/.local/bin/claude (menu: Install Claude Code)`, and skips its model call.
 
 After you sign in, the server picks up the new login by itself the next time it starts. If it stopped because the login ran out, macOS restarts it within seconds.
 

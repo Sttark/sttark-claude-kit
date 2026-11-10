@@ -107,6 +107,22 @@ def log(line):
         f.write(time.strftime('%F %T ') + line + '\n')
 
 
+def cli_missing(tag, sid=''):
+    """True when there is no Claude Code to call. Logs one line an hour per hook, not one per call."""
+    if os.access(CLAUDE, os.X_OK):
+        return False
+    mark = os.path.join(os.path.dirname(STATE), 'no-claude-code.' + tag.strip())
+    try:
+        if time.time() - os.path.getmtime(mark) < 3600:
+            return True
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(mark), exist_ok=True)
+    open(mark, 'w').close()
+    log('%-6s %s skipped: no Claude Code at ~/.local/bin/claude (menu: Install Claude Code)' % (tag, sid or '-'))
+    return True
+
+
 @contextmanager
 def state():
     """The shared state, read and written under a lock (the app uses it too):
@@ -266,6 +282,7 @@ def list_models():
 
 
 AT_LIMIT = 'NO - skipped at the usage limit'
+NO_CLI = 'NO - skipped, no Claude Code'
 
 
 def at_limit():
@@ -283,6 +300,8 @@ def at_limit():
 def judge(ask, system=RULES):
     if at_limit():
         return None, AT_LIMIT
+    if not os.access(CLAUDE, os.X_OK):
+        return None, NO_CLI
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID',
                                 'CLAUDE_EFFORT'))}
@@ -849,6 +868,9 @@ def on_prompt(data, sid):
     if answer == AT_LIMIT:
         log(f'skip   {sid} at the usage limit, level left as it is')
         return
+    if answer == NO_CLI:
+        cli_missing('skip', sid)
+        return
     if not level:
         log(f'error  {sid} unreadable answer {answer!r} | {snippet}')
         return
@@ -918,7 +940,9 @@ def on_tool(data, sid):
         log(f'error  {sid} recheck at {calls} failed: {e!r} | {snippet}')
         return
     secs = time.time() - t0
-    if answer == AT_LIMIT:
+    if answer in (AT_LIMIT, NO_CLI):
+        if answer == NO_CLI:
+            cli_missing('skip', sid)
         return
     if not level:
         log(f'error  {sid} recheck unreadable {answer!r} | {snippet}')

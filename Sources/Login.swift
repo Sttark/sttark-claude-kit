@@ -74,6 +74,24 @@ enum Login {
         }
     }
 
+    static let missingTip = "Sttark Claude Kit calls Claude Code at ~/.local/bin/claude. Without it, the STE check, Auto effort and the app rules refresh do nothing. Click to open Terminal and install it."
+
+    /// Opens Terminal with Claude Code's install command, for a Mac that has only the Claude app.
+    static func installClaudeCode() {
+        let f = supportDir.appendingPathComponent("Install Claude Code.command")
+        let script = """
+        #!/bin/zsh
+        # Started from the Sttark Claude Kit menu: installs Claude Code. Then use Sign in to Claude Code in the menu.
+        curl -fsSL https://claude.ai/install.sh | bash
+        echo
+        echo "Done. You can close this window."
+        """
+        try? script.write(to: f, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: f.path)
+        note("Claude Code install started")
+        NSWorkspace.shared.open(f)
+    }
+
     /// Opens Terminal with Claude Code's sign-in command. It opens the browser, where you finish.
     static func signIn() {
         let f = supportDir.appendingPathComponent("Sign in to Claude Code.command")

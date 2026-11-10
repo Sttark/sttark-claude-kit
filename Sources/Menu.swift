@@ -77,6 +77,13 @@ final class Controller: NSObject, NSMenuDelegate {
             u.attributedTitle = NSAttributedString(string: "Update to \(r.version)", attributes: [.font: font(14, true)])
             menu.addItem(u)
         }
+        if !Setup.claudeFound {
+            let t = "Claude Code isn't installed: Install…"
+            let i = action(t, #selector(installClaudeCode))
+            i.attributedTitle = NSAttributedString(string: t, attributes: [.font: font(14, true)])
+            i.toolTip = Login.missingTip
+            menu.addItem(i)
+        }
         if let warn = Login.urgent {
             let l = action(warn, #selector(signIn))
             l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true)])
@@ -127,7 +134,6 @@ final class Controller: NSObject, NSMenuDelegate {
             pick.toolTip = "The model that picks the effort level. The newest Haiku and Sonnet models."
             menu.addItem(pick)
         }
-        if !Setup.claudeFound { menu.addItem(caption("Claude Code isn't installed at ~/.local/bin/claude.")) }
 
         menu.addItem(.separator())
         let sessions = State.sessions()
@@ -313,6 +319,7 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     @objc func signIn() { Login.signIn() }
+    @objc func installClaudeCode() { Login.installClaudeCode() }
     @objc func openWaiting(_ sender: NSMenuItem) { Waiting.open(sender.representedObject as? String ?? "") }
     @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
     @objc func openChromeWindow() { ChromeWindow.open() }

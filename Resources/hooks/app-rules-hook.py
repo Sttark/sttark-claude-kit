@@ -262,6 +262,8 @@ def refresh():
         except OSError:
             return  # another refresh is running
         open(TRIED, 'w').close()
+        if not os.access(CLAUDE, os.X_OK):
+            return log('refresh skipped: no Claude Code at ~/.local/bin/claude (menu: Install Claude Code)')  # TRIED limits this to one line an hour
         t = time.time()
         prompt = (f'Call {TOOL} once for each of these paths, in this order, and then reply "done":\n'
                   + '\n'.join(f'{GUIDE}/{n}' for n in CHAPTERS))
