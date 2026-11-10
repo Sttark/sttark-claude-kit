@@ -63,3 +63,9 @@ The files below differ from the upstream copies. The decision IDs come from the 
 - P2: delegate-prompts block: repo rule is now read the docs first and do not pull, switch branches or reset unless the brief says so.
 - P2: orchestrator-delegation, workflow-patterns, validation-and-evidence: merges stay serial and happen only after the person types `approve <action>` (Phase 8).
 - I5: orchestrate step 5 now names `page-check` / the built-in `run` skill instead of `verify`.
+- Phase 4, Resources/agents/validator.md: Sttark repo checklist (re-run tests and `page-check`, "Before you ship" list, "Every change has a name on it", `DESIGN-DECISIONS.md`); checklists per kind (D26); fixed last-line `VERDICT: PASS | <item> | <evidence>` or `VERDICT: FAIL | <item> | <gap>`.
+- Phase 4, Resources/skills/validation-and-evidence/SKILL.md: verdict line format, kick back to an implementer with the gap, short mirror of the Sttark checklist, `app-review.yml` stays the final gate on a Sttark app PR.
+- Phase 4, Resources/skills/orchestrate/SKILL.md: step 6 kicks a FAIL back to an implementer with the gap from the verdict line and per-criterion list, then the validator re-checks.
+- Phase 4, Resources/skills/delegate-prompts/SKILL.md: validator template (Template 5) adds kind and item, and ends with the fixed `VERDICT:` last line.
+- Phase 4, Resources/agents/validator.md: checklist now lists the "Before you ship" items (Checks chapter) and the "Every change has a name on it" rule (Sign in and access chapter), from app rules revision 63; the validator still reads the live chapters file.
+- Phase 4 fixes: delegate-prompts Template 4 (adversarial reviewer) last line is now `REVIEW: CLEAN | FINDINGS`, so only the validator's last line starts with `VERDICT:`; validator.md writes PARTIAL as `VERDICT: FAIL | <item> | partial: <gap>`; validation-and-evidence: an implementer fixes a FAIL; orchestrate step 6: em-dash removed.

@@ -1,7 +1,7 @@
 # Orchestrator plan: issues log
 
 Issues, conflicts and gaps found while the orchestrator plan was built, with the recommended fix and the
-point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-09, after the I21 fix.
+point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-09, after Phase 4.
 
 **Rule:** at the start of each phase, and before the merge to `main`, read this file and raise every open item
 whose "Raise at" matches. Give the recommended fix and ask for a decision only where one is needed. Update the
@@ -15,6 +15,8 @@ status here when it is decided or fixed.
 | I4 | Phase 0 | The updater is off on the branch (`Updater.enabled = false` in `Sources/Update.swift`), and the menu says so. `tools/update-test.sh` cannot pass with it off. | Set `Updater.enabled = true` and remove the menu line in the merge PR. Run `tools/update-test.sh`. | Merge to `main` |
 | I20 | This log | `CLAUDE.md` on this branch holds the rule to raise these items. It must not reach `main` as it is. | Remove the orchestrator lines from `CLAUDE.md` in the merge PR, or keep only lines that are true on `main`. | Merge to `main` (D38) |
 | I22 | Fixes | The validator's P3 finding is fixed, but the guard still lets one call of cost 2 through as the first call (for example `head -1 a b c d`). This is by design (2 lookups per item). | No change. | Before the org rollout (with D33) |
+| I23 | Phase 4 | The UI guard's page-check output check also accepts the markers "page views" and "nothing to check" near the script name, so a sentence such as "I did not run page-check; no page views to look at." passes. | Accept "page views" and "nothing to check" only inside a code block or on a line that starts like page-check's own output; add tests. | Phase 7 start (with the hook work there) |
+| I24 | Phase 4 | The UI guard asks the implementer to run page-check. That works only when the agent has Bash; the kit's `implementer` has it, but a project agent without Bash cannot answer the block. | No change for the kit agents. Say in the block reason that an agent without Bash must report that it could not run page-check. | Phase 6 start (specialist agents) |
 
 ## Decided or fixed
 
@@ -24,6 +26,7 @@ status here when it is decided or fixed.
 | D-b | Phase 1 | With Orchestrator on before Phase 2, the kit rules and the skill rules disagreed. | Fixed in Phase 2: the working rules hook swaps the conflicting rules. |
 | D-c | Phase 2 | The test "read any 3 files" passed with one Bash call, so it did not test the guard. | Decided: the guard counts calls by design. The test now forces one Read call per file. See I9 for the file count. |
 | D-d | Phase 2 | The lookup limit of 2 per item. | Decided by Cole: keep it as it is. See I10. |
+| D-e | Phase 4 | The app rules cache (`app-rules/chapters.json`) was empty on Cole's Mac. | Not a fault: it fills on the first prompt in a Sttark app repo. Filled with the hook's own gh check (revision 63). |
 | I1 | Phase 0 | The org skills (`mt-*`, `bom-folder-check`, `onshape-asana-update`) come from the Claude app as a per-session plugin named `anthropic-skills:<name>`. They are not in `~/.claude/skills`, so a `claude` session started in Terminal does not see them. | Fixed: README note added. Routing itself is Phase 6 (D28). |
 | I2 | Phase 2 | The kit hooks need Claude Code at `~/.local/bin/claude`. Without it, the STE check, Auto effort and the app rules refresh fail with `FileNotFoundError` and nobody is told. Fixed on Cole's Mac by installing Claude Code in Terminal. Other people who use only the Claude app have the same problem. The same code is on `main`. | PR https://github.com/Sttark/sttark-claude-kit/pull/75 open: menu Install item and one log line. App CLI fallback rejected because that copy is not signed in for headless use (D37). PR head 3cf5308, validator PASS; waiting for review and merge. |
 | I5 | Phase 1 | The upstream skills refer to skills the kit does not ship: `verify` (`orchestrate`), deep-research (`researcher.md`). `code-review` is a Claude Code built-in. | Fixed: verify, deep-research and code-review mapped in the skill text. |

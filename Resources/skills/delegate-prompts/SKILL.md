@@ -194,8 +194,8 @@ READ-ONLY plus running commands: never edit files, never git checkout/reset/stas
 
 OUTPUT CONTRACT — your final message is data, not conversation:
 LENS: <lens>
-VERDICT: PASS | FINDINGS
-FINDINGS (most severe first, empty if PASS):
+REVIEW: CLEAN | FINDINGS
+FINDINGS (most severe first, empty if CLEAN):
 - [P1|P2|P3] <one-line defect> | <file:line> | <concrete failure scenario: input/state ->
   wrong outcome> | <evidence: code excerpt or command output>
 Severity: use the canonical P1/P2/P3 rubric from validation-and-evidence verbatim (P1 = would
@@ -208,8 +208,8 @@ Example finding:
   query lacks the deleted-row filter present in every sibling router
 
 Before returning: (1) is every finding anchored to file:line with a concrete failure
-scenario, not a style opinion? (2) did you stay inside your lens? (3) if VERDICT is
-PASS, did you actually attempt the attack list, and can you say what you tried?
+scenario, not a style opinion? (2) did you stay inside your lens? (3) if REVIEW is
+CLEAN, did you actually attempt the attack list, and can you say what you tried?
 ```
 
 ## Template 5 — validator
@@ -236,17 +236,25 @@ pasted output proves it passed once, not that it passes now. You are read-only p
 running commands: never edit files, never git checkout/reset/stash outside
 <ABS_WORKTREE_PATH>, and use absolute paths in every command.
 
+KIND AND ITEM
+- Kind: <code | UI | draft | Asana proposal | BOM check | research> (use the checklist for it in your agent file)
+- Item: <ITEM NAME, exact>
+
 OUTPUT CONTRACT — your final message is data, not conversation:
-VERDICT: PASS | FAIL
+OVERALL: PASS | FAIL
 PER-CRITERION:
 1. PASS|FAIL — <evidence: command + last lines of real output, or file:line read>
 2. ...
 DISCREPANCIES: <anywhere the builder's claims and your observations diverge>
 RISKS: <anything true-but-worrying the criteria didn't cover; omit if none>
+LAST LINE, exactly one line, nothing after it (no | inside a field):
+VERDICT: PASS | <ITEM NAME, exact> | <evidence, one line>
+or
+VERDICT: FAIL | <ITEM NAME, exact> | <gap, one line>
 
 Before returning: (1) did you re-run every runnable check rather than trust pasted
-output? (2) does each criterion line carry its own evidence? (3) is VERDICT derivable
-from the per-criterion lines alone?
+output? (2) does each criterion line carry its own evidence? (3) is the VERDICT line
+derivable from the per-criterion lines alone, and is it the last line?
 ```
 
 ## Template 6 — refactor

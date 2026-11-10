@@ -48,7 +48,7 @@ Run these phases in order. Small tasks compress several into one pass; hard-to-r
 
 **6. Kick back or integrate.** Each unit lands in one of two states:
    - **Meets the bar** → integrate it. The final merge/synthesis step is always yours, never a subagent's.
-   - **Misses the bar** → back to a subagent with the *specific* gap named (the failing assertion, the unread edge case, the missing evidence). Re-verify the redo with the same rigor. If a unit fails twice, it's mis-scoped, not the model's fault — decompose it further rather than escalating the model or fixing it yourself (see orchestrator-delegation).
+   - **Misses the bar** → back to an implementer with the *specific* gap named (the gap from the validator's `VERDICT: FAIL` line and its per-criterion list: the failing assertion, the unread edge case, the missing evidence). Then the validator checks again; only its verdict comes back to the main thread. Re-verify the redo with the same rigor. If a unit fails twice, it's mis-scoped, not the model's fault: decompose it further rather than escalating the model or fixing it yourself (see orchestrator-delegation).
 
 **7. Report with evidence.** Use the Sttark asks table: each ask is done, open or dropped, with the reason, plus an Evidence column (test counts, commands run, what you observed). Give the shortest reply that fully answers, in ASD-STE100 Simplified Technical English, with no recap. "Done" without evidence is confident guessing. If something was skipped or a test failed, say so plainly.
 

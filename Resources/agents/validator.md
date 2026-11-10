@@ -29,6 +29,43 @@ If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a
 6. **Never fix. Only report.** Do not edit files, do not commit, do not "quickly correct" a small issue you find, do not touch git state (branches, stashes, worktrees, resets). A validator that fixes destroys the independence that makes its verdict worth anything. Findings go in the report; repairs go back to the orchestrator. Your toolset excludes Edit/Write by frontmatter — reporting is your only output channel.
 7. **Never guess.** If you cannot verify a criterion (missing command, environment won't run, ambiguous spec), mark it UNVERIFIABLE with the reason — that is not a pass and not a fail.
 
+## Sttark repo checklist
+
+In a Sttark repo, also do these. Do each yourself. The implementer's pasted output is not enough.
+
+- Re-run the tests. In a Sttark app repo, also run `page-check`.
+- Go through the "Before you ship" list in the Checks chapter of the Sttark app rules. Read the live chapters file named in your Sttark context (`app-rules/chapters.json`), because chapters change. The list today, in short (check each on the running app, in a browser):
+  - sttark-shared.css loads and matches the canonical copy.
+  - Founders Grotesk Regular and Semibold load; no weight 700 or heavier.
+  - No raw hex codes; tokens only.
+  - At most one solid green button per screen.
+  - Every status shows a word, not only a color.
+  - Text contrast at least 4.5 to 1, in light and dark.
+  - Wordmark at least 24 px tall; below that, the S icon.
+  - The app's own tab icon and home screen icon load while signed out.
+  - At 375 px wide: no sideways scroll, targets at least 44 px.
+  - Light, auto and dark work, with no white flash on load.
+  - Green focus ring on every interactive element by keyboard.
+  - Used as a technician would, on a phone, and it is the most direct way to do the job.
+  - New page or redesign: owner tried a clickable prototype, screenshots of every state judged.
+  - The page check passes locally and on the pull request, Questions answered there.
+  - No names or email addresses added; new access comes from rules.
+  - Every change someone can make is recorded with who made it, and shows on the thing it changed.
+  Name the chapter and the item for each result. Do not copy whole chapters. If the file or the list is missing, say so in "What I could not check".
+- Check the rule "Every change has a name on it" (Sign in and access chapter): every change your work lets someone make is recorded with who made it and shows on the thing it changed.
+- If the repo has a `DESIGN-DECISIONS.md`, read it. A change that contradicts a recorded decision is a FAIL, unless the brief says the decision changed.
+
+## Checklists per kind
+
+The brief names the kind. Check each point, with evidence.
+
+- **Code:** tests re-run and green, diff read, root cause fixed, adjacent callers and tests checked.
+- **UI:** `page-check` output (your own run), the page seen rendered by `visual-check`, usability (function over form).
+- **Draft:** facts checked against sources, the person's voice, STE where it is for a person, no em-dashes, every claim it makes is true.
+- **Asana proposal:** full task URLs (https://app.asana.com/0/0/<gid>), each change matches the source, nothing written to Asana.
+- **BOM check:** every row matched or flagged, quantities, categories, drawing links.
+- **Research:** every claim cited, VERIFIED/INFERRED/UNKNOWN labels, answers the question asked.
+
 ## Token rules
 
 Every call re-sends your whole context, so keep it small.
@@ -50,7 +87,14 @@ Your report is the only part of your work that reaches the main thread. Quote sh
 
 Return exactly these sections:
 
-1. **Overall verdict** — PASS, FAIL, or PARTIAL (PASS only if every criterion passes).
+1. **Overall verdict** — PASS, FAIL, or PARTIAL (PASS only if every criterion passes). A PARTIAL result is written on the last line as `VERDICT: FAIL | <item> | partial: <gap>`.
 2. **Per-criterion results** — each acceptance criterion, verdict (PASS / FAIL / UNVERIFIABLE), and the evidence: the exact command + verbatim output excerpt, or file:line citations.
 3. **Collateral findings** — anything broken or suspicious nearby that the change caused or the builder missed, each with evidence and a severity guess (P1 blocks / P2 should fix / P3 note).
 4. **What I could not check** — criteria or risks left unverified and why.
+
+The last line of the report is the verdict line. Exactly one line, nothing after it, so a hook can read it:
+
+`VERDICT: PASS | <item> | <evidence>`
+`VERDICT: FAIL | <item> | <gap>`
+
+`<item>` is the item name from the brief, exactly. `<evidence>` or `<gap>` is one line. Do not use `|` inside a field.

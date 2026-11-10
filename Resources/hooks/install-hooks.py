@@ -19,7 +19,9 @@ them out. Only copies this script made are replaced or removed (listed in orches
 a skill or agent of the same name that someone put there by hand is left alone.
 The inline guard hooks (inline-guard.py: PreToolUse, PostToolUse and UserPromptSubmit) go in only while the
 Orchestrator switch is on, and come out when it is off and with --remove. So does the subagent rules hook
-(subagent-rules-hook.py: SubagentStart), which gives subagents the worker rules.
+(subagent-rules-hook.py: SubagentStart), which gives subagents the worker rules, and the page-check guard
+(ui-check-guard.py: SubagentStop, matcher implementer), which blocks an implementer once when it changed
+UI files and reports no page-check output.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -276,6 +278,28 @@ def set_subrules(hooks, on):
         hooks.pop('SubagentStart', None)
 
 
+UICHECK = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ui-check-guard.py')
+
+
+def is_uicheck(cmd):
+    return 'ui-check-guard.py' in cmd
+
+
+def set_uicheck(hooks, on):
+    """The page-check guard for implementers, added at SubagentStop, with the Orchestrator switch on."""
+    groups = hooks.get('SubagentStop', [])
+    for g in groups:
+        g['hooks'] = [h for h in g.get('hooks', []) if not is_uicheck(h.get('command', ''))]
+    groups = [g for g in groups if g.get('hooks')]
+    if on:
+        groups.append({'matcher': 'implementer',
+                       'hooks': [{'type': 'command', 'command': f'"{UICHECK}"', 'timeout': 10}]})
+    if groups:
+        hooks['SubagentStop'] = groups
+    else:
+        hooks.pop('SubagentStop', None)
+
+
 def same_tree(a, b):
     def files(root):
         out = {}
@@ -354,7 +378,8 @@ def main():
                           'limit': has(s, 'PreToolUse', is_limit),
                           'orchestrator': orchestrator_on(),
                           'guard': has(s, 'PreToolUse', is_guard),
-                          'subrules': has(s, 'SubagentStart', is_subrules)}))
+                          'subrules': has(s, 'SubagentStart', is_subrules),
+                          'uicheck': has(s, 'SubagentStop', is_uicheck)}))
         return
     if '--orchestrator' in sys.argv:
         on = sys.argv[sys.argv.index('--orchestrator') + 1] == 'on'
@@ -363,9 +388,10 @@ def main():
         before = json.dumps(s, sort_keys=True)
         set_guard(s.setdefault('hooks', {}), on)
         set_subrules(s['hooks'], on)
+        set_uicheck(s['hooks'], on)
         save(s, before, None)
         state_word = 'on' if on else 'off'
-        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}')
+        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -402,6 +428,7 @@ def main():
     set_limit(hooks, not remove)
     set_guard(hooks, orchestrator_on() and not remove)
     set_subrules(hooks, orchestrator_on() and not remove)
+    set_uicheck(hooks, orchestrator_on() and not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])

@@ -75,11 +75,19 @@ TASK
    the criteria.
 
 OUTPUT: per-criterion PASS/FAIL table with evidence, then a list of nearby breakage
-with severity (P1/P2/P3), then a one-line verdict: SHIP / FIX FIRST.
+with severity (P1/P2/P3), then the final VERDICT line (format below).
 ```
 
-A FAIL or P1 from the validator blocks the done claim. The builder (or a repair agent) fixes,
+A FAIL or P1 from the validator blocks the done claim. An implementer fixes,
 then the validator re-runs — the same validator context re-checks; don't grade your own retry.
+
+Every validator report ends with one line, the last line, in this format: `VERDICT: PASS | <item> | <evidence>` or `VERDICT: FAIL | <item> | <gap>`. The brief names the item. A hook reads this line.
+
+Kick back: a FAIL goes back to an implementer with the gap from the verdict line and the validator's per-criterion list. Then the validator checks again. Only the verdict comes back to the main thread.
+
+In a Sttark repo the validator also: re-runs the tests and, in an app repo, `page-check`; goes through the "Before you ship" list in the Checks chapter of the app rules; checks "Every change has a name on it"; and treats a change that contradicts `DESIGN-DECISIONS.md` as a FAIL. The checklists per kind (code, UI, draft, Asana proposal, BOM check, research) are in the `validator` agent file.
+
+On a Sttark app PR, `app-review.yml` (the AI review on the PR) stays the final gate. The validator pass does not replace it.
 
 ## Adversarial review for high-stakes changes
 

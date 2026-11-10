@@ -229,7 +229,7 @@ check('install, switch off: no guard entries', guard_events() == [])
 check('--status guard false', json.loads(install('--status'))['guard'] is False)
 out = install('--orchestrator', 'on')
 check('--orchestrator on: guard entries in all three events', guard_events() == ALL)
-check('--orchestrator on: output says guard on, subrules on', out.endswith('guard on, subrules on'))
+check('--orchestrator on: output says guard on, subrules on, uicheck on', out.endswith('guard on, subrules on, uicheck on'))
 pre, post, ups = (guard_groups(e)[0] for e in ('PreToolUse', 'PostToolUse', 'UserPromptSubmit'))
 check('PreToolUse matcher set',
       pre['matcher'] == '^(Read|Grep|Glob|Bash|WebFetch|WebSearch|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|mcp__.*)$')
@@ -249,7 +249,7 @@ check('launch run, switch on: guard entries kept, one copy each',
 check('launch run with nothing new: unchanged', install() == 'unchanged')
 out = install('--orchestrator', 'off')
 check('--orchestrator off: guard entries out', guard_events() == [])
-check('--orchestrator off: output says guard off, subrules off', out.endswith('guard off, subrules off'))
+check('--orchestrator off: output says guard off, subrules off, uicheck off', out.endswith('guard off, subrules off, uicheck off'))
 json.dump({'orchestrator': True}, open(os.path.join(ikit, 'state.json'), 'w'))   # switched on by hand
 install()
 check('launch run brings guard entries in line with the switch (on)', guard_events() == ALL)
