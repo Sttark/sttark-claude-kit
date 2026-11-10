@@ -838,7 +838,8 @@ def keep(dry=False):
         except Exception as e:
             log(f'keep   {sid} couldn\'t read where it left off: {e!r}'[:200])
         if not start_alone(a['transcript']):
-            continue   # no Claude Code to start it with; tried again after KEEP_RETRY
+            a['at'] = now   # no Claude Code to start it with; tried again after KEEP_RETRY
+            continue
         a.update(at=now, tries=0)
         log(f'start  {sid} "{title}" ran on its own, had stopped, and {KEEP_MOVE} wakes didn\'t start it; started it on its own again')
 
