@@ -25,6 +25,9 @@ UI files and reports no page-check output. So does the browser lock (browser-loc
 matcher for Bash and the Claude in Chrome tools, and SubagentStop), which lets one browsing agent at a time use
 the browser. So does the day log (daylog.py --hook: SubagentStop with matcher validator, Stop and SessionStart), which
 records the validator's verdict, blocks a turn until the day log has the entry, and restores the state after /clear.
+So does the production guard (prod-guard.py: PreToolUse with a matcher for Bash and MCP tools, UserPromptSubmit and
+SubagentStop), which denies pushes to main, merges, deploys and production migrations until the person types
+`approve <action>`.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -331,6 +334,33 @@ def set_browser(hooks, on):
             hooks.pop(event, None)
 
 
+PROD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'prod-guard.py')
+PROD_MATCH = '^(Bash|mcp__.*)$'
+
+
+def is_prod(cmd):
+    return 'prod-guard.py' in cmd
+
+
+def set_prod(hooks, on):
+    """The production guard: PreToolUse (Bash and MCP tools), UserPromptSubmit (approve <action>) and
+    SubagentStop (frees a pass 2 agent), with the Orchestrator switch on."""
+    for event in ('PreToolUse', 'UserPromptSubmit', 'SubagentStop'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_prod(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            group = {'hooks': [{'type': 'command', 'command': f'"{PROD}"', 'timeout': 10}]}
+            if event == 'PreToolUse':
+                group = {'matcher': PROD_MATCH, **group}
+            groups.append(group)
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
 DAYLOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'daylog.py')
 
 
@@ -513,7 +543,9 @@ def main():
                           'daylog': has(s, 'SubagentStop', is_daylog) and has(s, 'Stop', is_daylog)
                                     and has(s, 'SessionStart', is_daylog),
                           'daylog_allow': ALLOW_RULE in ((s.get('permissions') or {}).get('allow') or []),
-                          'rotation': has(s, 'UserPromptSubmit', is_rotation)}))
+                          'rotation': has(s, 'UserPromptSubmit', is_rotation),
+                          'prod': has(s, 'PreToolUse', is_prod) and has(s, 'UserPromptSubmit', is_prod)
+                                  and has(s, 'SubagentStop', is_prod)}))
         return
     if '--orchestrator' in sys.argv:
         on = sys.argv[sys.argv.index('--orchestrator') + 1] == 'on'
@@ -527,9 +559,10 @@ def main():
         set_daylog(s['hooks'], on)
         set_daylog_allow(s, on)
         set_rotation(s['hooks'], on)
+        set_prod(s['hooks'], on)
         save(s, before, None)
         state_word = 'on' if on else 'off'
-        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}, daylog {state_word}, rotation {state_word}')
+        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}, daylog {state_word}, rotation {state_word}, prod {state_word}')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -571,6 +604,7 @@ def main():
     set_daylog(hooks, orchestrator_on() and not remove)
     set_daylog_allow(s, orchestrator_on() and not remove)
     set_rotation(hooks, orchestrator_on() and not remove)
+    set_prod(hooks, orchestrator_on() and not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])

@@ -283,7 +283,7 @@ check('switch off: no daylog entries', all(entries(e) == [] for e in ('SubagentS
 check('--status daylog false', json.loads(install('--status'))['daylog'] is False)
 stop_before = cmds('Stop')
 out = install('--orchestrator', 'on')
-check('--orchestrator on: output ends with daylog on, rotation on', out.endswith('daylog on, rotation on'))
+check('--orchestrator on: output ends with daylog on, rotation on', out.endswith('daylog on, rotation on, prod on'))
 sg, st, ss = entries('SubagentStop'), entries('Stop'), entries('SessionStart')
 check('SubagentStop: one entry, matcher validator, quoted command with --hook',
       len(sg) == 1 and sg[0]['matcher'] == 'validator' and sg[0]['hooks'][0]['command'].startswith('"')
@@ -298,7 +298,7 @@ check('launch run keeps one entry each', len(entries('SubagentStop')) == 1 and l
       and len(entries('SessionStart')) == 1)
 check('other hooks stay in order', cmds('Stop')[0] == 'other-stop.sh' and cmds('SubagentStop')[0] == 'other-hook.sh')
 out = install('--orchestrator', 'off')
-check('--orchestrator off: removed, output says daylog off, rotation off', out.endswith('daylog off, rotation off')
+check('--orchestrator off: removed, output says daylog off, rotation off', out.endswith('daylog off, rotation off, prod off')
       and all(entries(e) == [] for e in ('SubagentStop', 'Stop', 'SessionStart')))
 check('other Stop and SubagentStop hooks left alone', cmds('Stop')[0] == 'other-stop.sh' and 'other-hook.sh' in cmds('SubagentStop'))
 check('the working-rules Stop hook is still there after off', any('working-rules-hook.py' in c for c in cmds('Stop')))
@@ -380,6 +380,24 @@ install('--orchestrator', 'off')
 check('save: backups made in one second do not overwrite each other',
       len([f for f in os.listdir(os.path.dirname(SET)) if f.startswith('settings.json.bak-effort-')]) >= baks + 2)
 
+# ---- I28: a worktree uses the main repo's name ----
+def git(*a, cwd):
+    subprocess.run(['git', '-C', cwd] + list(a), check=True, capture_output=True,
+                   env=dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t', GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t'))
+
+
+MAIN = git_repo('mainrepo')
+git('commit', '--allow-empty', '-q', '-m', 'x', cwd=MAIN)
+WT = os.path.join(tmp, 'feature-wt')
+git('worktree', 'add', '-q', '-b', 'feat', WT, cwd=MAIN)
+os.makedirs(os.path.join(MAIN, 'sub'))
+for where, label in ((MAIN, 'main repo'), (os.path.join(MAIN, 'sub'), 'main repo subfolder'), (WT, 'worktree')):
+    cli('add', '--kind', 'done', '--text', 'WT %s | chore | PASS | evidence: e' % label, cwd=where)
+heads = re.findall(r'^## (.*)$', day(), re.M)
+check('worktree: section is the main repo name, not the worktree folder', 'mainrepo' in heads and 'feature-wt' not in heads)
+check('worktree: all three runs land in one section', day().split('## mainrepo\n')[1].split('\n## ')[0].count('| WT ') == 3)
+check('worktree: --repo default and show work from the worktree', 'WT worktree' in cli('show', cwd=WT)[1] or 'WT worktree' in day())
+
 # ---- rotation install ----
 def rot():
     return [c for c in cmds('UserPromptSubmit') if 'rotation-hook.py' in c]
@@ -387,7 +405,7 @@ def rot():
 
 check('rotation: none after --remove; --status rotation false', rot() == [] and json.loads(install('--status'))['rotation'] is False)
 def others():
-    return [c for c in cmds('UserPromptSubmit') if 'rotation-hook.py' not in c and 'inline-guard.py' not in c]
+    return [c for c in cmds('UserPromptSubmit') if 'rotation-hook.py' not in c and 'inline-guard.py' not in c and 'prod-guard.py' not in c]
 
 
 install()

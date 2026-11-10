@@ -24,7 +24,7 @@ Day log: KIT/daylog/YYYY-MM-DD.md, one file per local day (it ends at local midn
 
     ## General  (only when it has a line)
 
-One section per repo (the basename of `git rev-parse --show-toplevel` of the working folder; `General` outside
+One section per repo (the basename of `git rev-parse --show-toplevel` of the working folder, or the main repo's folder name in a worktree; `General` outside
 a repo; General is written last). Subsections come in the order above and exist only when they have a line. A
 new day's file starts with the Open items of the most recent earlier file, per repo (missing days are skipped).
 Every write takes a lock (`<file>.lock`), because two sessions can write the same day.
@@ -102,6 +102,12 @@ def repo_of(cwd=None):
                            capture_output=True, text=True, timeout=3)
         top = r.stdout.strip()
         if r.returncode == 0 and top:
+            # a worktree uses the main repo's name: its common git folder is <main>/.git
+            c = subprocess.run(['git', '-C', cwd or os.getcwd(), 'rev-parse', '--git-common-dir'],
+                               capture_output=True, text=True, timeout=3)
+            common = os.path.realpath(os.path.join(cwd or os.getcwd(), c.stdout.strip())) if c.returncode == 0 and c.stdout.strip() else ''
+            if os.path.basename(common) == '.git':
+                return os.path.basename(os.path.dirname(common))
             return os.path.basename(top)
     except Exception:
         pass

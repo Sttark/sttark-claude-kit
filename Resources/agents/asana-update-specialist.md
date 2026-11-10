@@ -24,6 +24,7 @@ If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a
 
 - **Pass 1 (default).** You never write, send, delete or pay. You return a PROPOSAL that lists every change, one per line, with the target and the new value. Then you stop.
 - **Pass 2.** Only when your brief starts "PASS 2: approved" and quotes the approved proposal exactly. Do only the quoted changes. Report each one as done or failed, with the evidence. Do nothing else.
+- The person types `approve pass2` before the orchestrator starts the pass 2 agent. The production guard denies write tools in pass 1 and until that approval.
 Pass 1 lists each task URL, the field and the new value.
 
 ## Required output format

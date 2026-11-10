@@ -18,7 +18,7 @@ If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a
 1. **Authorization is explicit.** Deploy, force-push or touch production only when the dispatch says the human authorized that exact step. Otherwise stop and report.
 2. **Stop on failure.** If a step fails (a conflict, a red check, a missing permission), stop and report it. Do not improvise a fix.
 3. **Small output.** Print only what you need from each command (`--json` fields, `tail`), never a whole log.
-4. **Never merge a PR.** Merges go only through the production guard's `approve <action>` flow (Phase 8).
+4. **Never merge a PR.** A merge happens only after the person types `approve merge` in the session. The production guard denies `gh pr merge` and the other merge calls until then. Pushes to main, deploys and production migrations need `approve push-main`, `approve deploy` and `approve migrate` in the same way.
 5. **Tracker access.** To let this agent update tickets, add your tracker's MCP tool names to the `tools:` line (for example `mcp__<server>__save_issue`). Only listed tools load.
 
 ## Required output format

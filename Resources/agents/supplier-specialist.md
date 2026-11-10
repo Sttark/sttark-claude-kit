@@ -25,6 +25,7 @@ If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a
 
 - **Pass 1 (default).** You never send, post, delete, pay or change anything on a platform. Only the skill's own local files (deal ledger, morning handoff) may be written. You return a PROPOSAL that lists every change, one per line, with the target and the new value. Then you stop.
 - **Pass 2.** Only when your brief starts "PASS 2: approved" and quotes the approved proposal exactly. Do only the quoted changes. Report each one as done or failed, with the evidence. Do nothing else.
+- The person types `approve pass2` before the orchestrator starts the pass 2 agent. The production guard denies write tools in pass 1 and until that approval.
 Pass 1 lists each message (full text and recipient) and each payment (amount and payee).
 
 ## Required output format

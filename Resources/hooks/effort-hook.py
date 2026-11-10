@@ -510,12 +510,15 @@ def track():
         bucket, last = d.get('status_bucket'), d.get('last_event_at') or ''
         working = bucket == 'working' or d.get('worker_status') == 'running'
         archived = d.get('status') == 'archived'
-        needs, why = False, ''
+        needs, why, prod = False, '', False
         # opened on any device (the Claude app's own record), or seen on this Mac's screen since Claude last wrote
         seen = not d.get('unread') or seen_since(shown.get(sid, []), last)
         # once you open a session it stops waiting on you, even if it's still asking, until Claude writes again
         if not archived and not working and not seen:
-            if bucket == 'blocked':
+            pw = sessions.get(sid, {}).get('prod_wait')  # prod-guard.py denied an action; cleared when the person approves it
+            if isinstance(pw, dict) and pw.get('action') and time.time() - pw.get('at', 0) < 86400:
+                needs, why, prod = True, 'Approval needed: ' + str(pw['action']), True
+            elif bucket == 'blocked':
                 needs, why = True, 'waiting on your answer or permission'
             else:
                 if old.get('judged') == last:  # this reply was already judged
@@ -526,7 +529,7 @@ def track():
         unseen = not seen and not archived and not working
         info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working, 'unseen': unseen,
                 'archived': archived, 'unread': bool(d.get('unread')), 'seen': seen, 'needs': needs, 'why': why,
-                'judged': last, 'last_event_at': last, 'checked': time.time()}
+                'judged': '' if prod else last, 'last_event_at': last, 'checked': time.time()}
         with state() as s:
             x = s['sessions'].setdefault(sid, {})
             x['app'] = info

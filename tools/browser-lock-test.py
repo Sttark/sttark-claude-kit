@@ -286,7 +286,7 @@ install()
 check('install, switch off: no browser entries', groups('PreToolUse') == [] and groups('SubagentStop') == [])
 check('--status browser false', json.loads(install('--status'))['browser'] is False)
 out = install('--orchestrator', 'on')
-check('--orchestrator on: output ends with "browser on"', out.endswith('uicheck on, browser on, daylog on, rotation on'))
+check('--orchestrator on: output ends with "browser on"', out.endswith('uicheck on, browser on, daylog on, rotation on, prod on'))
 pg, sg = groups('PreToolUse'), groups('SubagentStop')
 check('PreToolUse: one entry, matcher, quoted command, timeout over WAIT',
       len(pg) == 1 and pg[0]['matcher'] == '^(Bash|Agent|Task|mcp__claude-in-chrome__.*)$'
@@ -301,7 +301,7 @@ check('launch run keeps one entry each', len(groups('PreToolUse')) == 1 and len(
 check('launch run with nothing new: unchanged', install() == 'unchanged')
 out = install('--orchestrator', 'off')
 check('--orchestrator off: entries removed, output ends with "browser off"',
-      groups('PreToolUse') == [] and groups('SubagentStop') == [] and out.endswith('uicheck off, browser off, daylog off, rotation off'))
+      groups('PreToolUse') == [] and groups('SubagentStop') == [] and out.endswith('uicheck off, browser off, daylog off, rotation off, prod off'))
 check('other hooks left alone',
       any(h.get('command') == 'other-hook.sh' for g in json.load(open(SET))['hooks']['PreToolUse'] for h in g['hooks'])
       and any(h.get('command') == 'other-stop.sh' for g in json.load(open(SET))['hooks']['SubagentStop'] for h in g['hooks']))
