@@ -1,7 +1,7 @@
 # Orchestrator plan: issues log
 
 Issues, conflicts and gaps found while the orchestrator plan was built, with the recommended fix and the
-point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-09, after Phase 5.
+point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-10, after the shared splitter fix.
 
 **Rule:** at the start of each phase, and before the merge to `main`, read this file and raise every open item
 whose "Raise at" matches. Give the recommended fix and ask for a decision only where one is needed. Update the
@@ -28,6 +28,7 @@ status here when it is decided or fixed.
 | D-c | Phase 2 | The test "read any 3 files" passed with one Bash call, so it did not test the guard. | Decided: the guard counts calls by design. The test now forces one Read call per file. See I9 for the file count. |
 | D-d | Phase 2 | The lookup limit of 2 per item. | Decided by Cole: keep it as it is. See I10. |
 | D-e | Phase 4 | The app rules cache (`app-rules/chapters.json`) was empty on Cole's Mac. | Not a fault: it fills on the first prompt in a Sttark app repo. Filled with the hook's own gh check (revision 63). |
+| D-f | Phase 5 | The inline guard accepted fewer command prefixes than the browser lock, so `timeout 600 npm test` in the main thread was not seen as a long run. | Fixed: one shared module `shell_commands.py` holds the splitter and the prefix list for both hooks. Validator: PASS. |
 | I1 | Phase 0 | The org skills (`mt-*`, `bom-folder-check`, `onshape-asana-update`) come from the Claude app as a per-session plugin named `anthropic-skills:<name>`. They are not in `~/.claude/skills`, so a `claude` session started in Terminal does not see them. | Fixed: README note added. Routing itself is Phase 6 (D28). |
 | I2 | Phase 2 | The kit hooks need Claude Code at `~/.local/bin/claude`. Without it, the STE check, Auto effort and the app rules refresh fail with `FileNotFoundError` and nobody is told. Fixed on Cole's Mac by installing Claude Code in Terminal. Other people who use only the Claude app have the same problem. The same code is on `main`. | PR https://github.com/Sttark/sttark-claude-kit/pull/75 open: menu Install item and one log line. App CLI fallback rejected because that copy is not signed in for headless use (D37). PR head 3cf5308, validator PASS; waiting for review and merge. |
 | I5 | Phase 1 | The upstream skills refer to skills the kit does not ship: `verify` (`orchestrate`), deep-research (`researcher.md`). `code-review` is a Claude Code built-in. | Fixed: verify, deep-research and code-review mapped in the skill text. |

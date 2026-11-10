@@ -41,7 +41,7 @@ AGENTS = {'Agent', 'Task'}
 ALLOWED_DIRS = [os.path.join(DIR, 'daylog'), os.path.join(DIR, 'orchestrator', 'state')]
 
 # Long Bash runs: builds, test suites, installs. Each pattern is matched at the start of one command in the
-# line (split at ; && || | and new lines, after VAR=value, sudo, time, env, nohup). Add a pattern here.
+# line (split at ; && || | and new lines, after the prefixes in shell_commands.py). Add a pattern here.
 LONG_RUNS = [
     r'(npm|pnpm|yarn|bun)\s+(run\s+)?(install|i|ci|add|test|build)\b',
     r'npx\s+(jest|vitest|playwright|tsc)\b',
@@ -59,7 +59,6 @@ LONG_RUNS = [
     r'((ba|z)?sh\s+)?\S*\b(build|install)\.sh\b',
 ]
 LONG_RE = re.compile(r'(?:' + '|'.join(LONG_RUNS) + r')')
-PREFIX_RE = re.compile(r'^(?:(?:\w+=\S*|sudo|time|env|nohup|exec)\s+)*')
 
 # Read-type commands: the options that take a value (the next word is not a file).
 READ_CMDS = {'cat': set(), 'head': {'-n', '-c'}, 'tail': {'-n', '-c'}, 'sed': {'-e', '-f'}, 'less': {'-p', '-P'},
@@ -104,6 +103,23 @@ def switch_on():
     except (OSError, ValueError, AttributeError):
         return False
 
+try:   # the shared command splitter, next to this file; if it cannot be loaded, the hook logs and allows
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location('shell_commands', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shell_commands.py'))
+    SC = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(SC)
+    SC_ERR = None
+except Exception as _e:
+    SC, SC_ERR = None, _e
+
+
+def commands(cmd):
+    return SC.commands(cmd, log)
+
+
+def strip_prefix(part):
+    return SC.strip_prefix(part)
+
 
 def is_lookup(tool):
     if tool in LOOKUPS:
@@ -113,76 +129,10 @@ def is_lookup(tool):
     return False
 
 
-SHELLS = {'bash', 'sh', 'zsh'}
-NOTED = []   # one parse line per hook run
-NESTED_RE = re.compile(r'\$\(([^()]*)\)|`([^`]*)`')
-
-
-def commands(cmd, depth=0):
-    """The commands in a Bash command line, as strings. Splits at ; & | and new lines, and at ( ) and backticks
-    (which open a nested command), but not inside quotes ('...', "...", $'...'). A nested command in double
-    quotes ($(...) or backticks) and the text after `bash -c`, `sh -c` or `zsh -c` are split too.
-    (The same function is in browser-lock.py and inline-guard.py.)"""
-    if not isinstance(cmd, str) or depth > 4:
-        return []
-    out, buf, quote, i, n = [], [], None, 0, len(cmd)
-
-    def end():
-        seg = ''.join(buf).strip()
-        buf.clear()
-        if seg:
-            out.append(seg)
-    while i < n:
-        c = cmd[i]
-        if quote:
-            buf.append(c)
-            if c == '\\' and quote != "'" and i + 1 < n:
-                buf.append(cmd[i + 1])
-                i += 1
-            elif c == quote:
-                quote = None
-        elif c == '\\' and i + 1 < n:
-            buf.append(c + cmd[i + 1])
-            i += 1
-        elif c == "'" or c == '"':
-            quote = c
-            buf.append(c)
-        elif c == '$' and cmd[i + 1:i + 2] == "'":
-            quote = "'"
-            buf.append("$'")
-            i += 1
-        elif c in ';|\n(`)' or (c == '&' and cmd[i - 1:i] not in ('>', '<') and cmd[i + 1:i + 2] != '>'):
-            end()
-        else:
-            buf.append(c)
-        i += 1
-    end()
-    if quote and depth == 0 and not NOTED:   # an open quote: the command is not split, and the call is let through
-        NOTED.append(1)
-        log(f'parse  unbalanced quote: {cmd[:60]!r}')
-    more = []
-    for seg in out:
-        for m in NESTED_RE.finditer(seg):
-            more += commands(m.group(1) or m.group(2), depth + 1)
-        try:
-            words = shlex.split(seg)
-        except ValueError:
-            continue
-        while words and (re.match(r'^\w+=', words[0]) or words[0] in ('sudo', 'env', 'nohup', 'exec', 'time', 'command')
-                         or (words[0].startswith('-') and len(words) > 1)):
-            words = words[1:]
-        if words and os.path.basename(words[0]) in SHELLS:
-            for k, w in enumerate(words[1:-1], 1):
-                if re.match(r'^-\w*c$', w):
-                    more += commands(words[k + 1], depth + 1)
-                    break
-    return out + more
-
-
 def long_run(cmd):
     """The part of a Bash command that is a long run, or None."""
     for part in commands(cmd):
-        part = PREFIX_RE.sub('', part.strip().lstrip('('))
+        part = strip_prefix(part)
         if LONG_RE.match(part):
             return part[:60]
     return None
@@ -192,7 +142,7 @@ def read_files(cmd):
     """The number of files the read-type commands in a Bash command are given. A glob counts as GLOB_FILES."""
     total = 0
     for part in commands(cmd):
-        part = PREFIX_RE.sub('', part.strip().lstrip('('))
+        part = strip_prefix(part)
         try:
             words = shlex.split(part)
         except ValueError:
@@ -337,6 +287,8 @@ def main():
         return
     if not isinstance(data, dict) or data.get('agent_id') or not switch_on():
         return
+    if SC is None:
+        return log(f'error  shell_commands.py not loaded: {SC_ERR}')
     try:
         event = data.get('hook_event_name')
         if event == 'PreToolUse':

@@ -6,7 +6,7 @@ The browser is one shared resource. `claude-window` gives each session its own t
 session share that tab. This hook lets one browsing agent at a time use it. A second one waits, then is denied.
 It makes no model calls.
 
-A browser call is a Bash command that runs `claude-window` (also after timeout, time, env, nohup, exec, sudo or VAR=x; any subcommand except `done`) or any
+A browser call is a Bash command that runs `claude-window` (also after the prefixes in shell_commands.py; any subcommand except `done`) or any
 `mcp__claude-in-chrome__*` tool. The holder is the pair (session_id, agent_id), and the main agent (no agent_id)
 is the holder "main".
 
@@ -21,7 +21,7 @@ The lock is kept per session in state.json under "browser", under the lock the a
 Any error is logged and the call is let through. STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder;
 STTARK_BROWSER_IDLE, STTARK_BROWSER_WAIT and STTARK_BROWSER_POLL change the times (tests use them).
 """
-import fcntl, json, os, re, shlex, sys, time
+import fcntl, json, os, sys, time
 from contextlib import contextmanager
 
 DIR = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
@@ -42,74 +42,7 @@ POLL = num('STTARK_BROWSER_POLL', 2)     # seconds between checks while waiting
 KEEP = 86400                             # seconds an entry is kept
 
 MCP_PREFIX = 'mcp__claude-in-chrome__'
-PREFIX_RE = re.compile(r'^(?:(?:\w+=\S*|sudo(?:\s+-\S+)*|time|env(?:\s+-\S+)*|nohup|exec|command|g?timeout\s+(?:-\S+\s+(?:(?=\d\S*\s+\d)\S+\s+)?)*\d\S*)\s+)*')
 AGENTS = {'Agent', 'Task'}
-
-
-SHELLS = {'bash', 'sh', 'zsh'}
-NOTED = []   # one parse line per hook run
-NESTED_RE = re.compile(r'\$\(([^()]*)\)|`([^`]*)`')
-
-
-def commands(cmd, depth=0):
-    """The commands in a Bash command line, as strings. Splits at ; & | and new lines, and at ( ) and backticks
-    (which open a nested command), but not inside quotes ('...', "...", $'...'). A nested command in double
-    quotes ($(...) or backticks) and the text after `bash -c`, `sh -c` or `zsh -c` are split too.
-    (The same function is in browser-lock.py and inline-guard.py.)"""
-    if not isinstance(cmd, str) or depth > 4:
-        return []
-    out, buf, quote, i, n = [], [], None, 0, len(cmd)
-
-    def end():
-        seg = ''.join(buf).strip()
-        buf.clear()
-        if seg:
-            out.append(seg)
-    while i < n:
-        c = cmd[i]
-        if quote:
-            buf.append(c)
-            if c == '\\' and quote != "'" and i + 1 < n:
-                buf.append(cmd[i + 1])
-                i += 1
-            elif c == quote:
-                quote = None
-        elif c == '\\' and i + 1 < n:
-            buf.append(c + cmd[i + 1])
-            i += 1
-        elif c == "'" or c == '"':
-            quote = c
-            buf.append(c)
-        elif c == '$' and cmd[i + 1:i + 2] == "'":
-            quote = "'"
-            buf.append("$'")
-            i += 1
-        elif c in ';|\n(`)' or (c == '&' and cmd[i - 1:i] not in ('>', '<') and cmd[i + 1:i + 2] != '>'):
-            end()
-        else:
-            buf.append(c)
-        i += 1
-    end()
-    if quote and depth == 0 and not NOTED:   # an open quote: the command is not split, and the call is let through
-        NOTED.append(1)
-        log(f'parse  unbalanced quote: {cmd[:60]!r}')
-    more = []
-    for seg in out:
-        for m in NESTED_RE.finditer(seg):
-            more += commands(m.group(1) or m.group(2), depth + 1)
-        try:
-            words = shlex.split(seg)
-        except ValueError:
-            continue
-        while words and (re.match(r'^\w+=', words[0]) or words[0] in ('sudo', 'env', 'nohup', 'exec', 'time', 'command')
-                         or (words[0].startswith('-') and len(words) > 1)):
-            words = words[1:]
-        if words and os.path.basename(words[0]) in SHELLS:
-            for k, w in enumerate(words[1:-1], 1):
-                if re.match(r'^-\w*c$', w):
-                    more += commands(words[k + 1], depth + 1)
-                    break
-    return out + more
 
 
 def log(line):
@@ -118,6 +51,23 @@ def log(line):
             f.write(time.strftime('%F %T ') + 'browser ' + line + '\n')
     except OSError:
         pass
+
+try:   # the shared command splitter, next to this file; if it cannot be loaded, the hook logs and allows
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location('shell_commands', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shell_commands.py'))
+    SC = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(SC)
+    SC_ERR = None
+except Exception as _e:
+    SC, SC_ERR = None, _e
+
+
+def commands(cmd):
+    return SC.commands(cmd, log)
+
+
+def strip_prefix(part):
+    return SC.strip_prefix(part)
 
 
 @contextmanager
@@ -150,7 +100,7 @@ def window_calls(cmd):
     """The subcommands of every claude-window run in a Bash command ('' when it has none)."""
     out = []
     for part in commands(cmd):
-        words = PREFIX_RE.sub('', part.strip()).split()
+        words = strip_prefix(part).split()
         if words and os.path.basename(words[0].strip('"\'')) == 'claude-window':
             out.append(words[1] if len(words) > 1 else '')
     return out
@@ -245,6 +195,8 @@ def main():
         return
     if not isinstance(data, dict) or not switch_on():
         return
+    if SC is None:
+        return log(f'error  shell_commands.py not loaded: {SC_ERR}')
     try:
         event = data.get('hook_event_name')
         if event == 'PreToolUse':

@@ -130,11 +130,13 @@ check('edits do not count as lookups', tool('Read', file_path='/a') is None)
 for cmd in ['npm install', 'pnpm test', 'yarn build', 'npm run build', 'npm ci', 'pytest -q', 'python3 -m pytest tests',
             'swift build', 'swift test', 'xcodebuild -scheme X', 'make', 'cargo test', 'go build ./...',
             'pip install requests', 'brew install jq', './gradlew assemble', './build.sh', './install.sh',
-            'cd /r && make all', 'FOO=1 sudo npm install', 'bash build.sh']:
+            'cd /r && make all', 'FOO=1 sudo npm install', 'bash build.sh',
+            'timeout 600 npm test', 'gtimeout -k 5 60 swift build', 'command make build', 'FOO=1 npm test',
+            'sudo -E make install', 'env -i PATH=/bin npm ci']:
     run('UserPromptSubmit')
     check(f'long run denied as 1st call: {cmd}', denied(tool('Bash', command=cmd), OPS))
 run('UserPromptSubmit')
-for cmd in ['git status', 'ls -la', 'grep -n make Makefile']:
+for cmd in ['git status', 'ls -la', 'grep -n make Makefile', 'echo timeout make build', 'git commit -m "timeout 5 make"']:
     check(f'short Bash allowed: {cmd}', tool('Bash', command=cmd) is None)
     run('UserPromptSubmit')
 check('denied long run not counted', [tool('Bash', command='make'), tool('Read', file_path='/a'),
@@ -165,7 +167,8 @@ def count():
 for cmd, cost in [('head -1 a b c', 1), ('head -1 a b c d', 2), ('cat *.md', 2), ('grep x a b c d e', 1),
                   ('head -n 5 a b c', 1), ('tail -n 5 a', 1), ('sed -n 1,5p a b c d', 2),
                   ('wc -l a b c d', 2), ('cat a b | head -1', 1), ('cat a b c && wc -l d', 2), ('nl a', 1),
-                  ('ls a b c d e f', 1), ('cat a >/dev/null', 1)]:
+                  ('ls a b c d e f', 1), ('cat a >/dev/null', 1),
+                  ('timeout 5 head -1 a b c d', 2), ('command cat *.md', 2)]:
     fresh()
     check(f'file count {cost} lookup(s): {cmd}', tool('Bash', command=cmd) is None and count() == cost)
 fresh()
