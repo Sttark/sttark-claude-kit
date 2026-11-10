@@ -54,6 +54,8 @@ Run these phases in order. Small tasks compress several into one pass; hard-to-r
 
 ## Autonomy rails (these still bind)
 
+The browser is one shared resource. Start only one browsing agent at a time; queue the others. A hook makes a second browsing agent wait, then denies it. The main thread runs `claude-window done` before it hands browser work to an agent.
+
 Orchestrating doesn't relax your safety rails. Build, test, and open PRs autonomously — but **merge** only through the production guard's `approve <action>` flow (Phase 8), and only after the verify gate passes. Agents never merge; `ops` never merges a PR. Anything prod-touching — prod migrations, secrets, deploys, payments — **always** stops for the user's explicit confirmation, regardless of confidence. Per-project scope locks and "ask first" rules beat this skill's autonomy. Can't ask? Skip the item and flag it.
 
 ## When NOT to orchestrate

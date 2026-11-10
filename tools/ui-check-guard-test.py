@@ -161,7 +161,7 @@ install()
 check('install, switch off: no uicheck entry', groups() == [])
 check('--status uicheck false', json.loads(install('--status'))['uicheck'] is False)
 out = install('--orchestrator', 'on')
-check('--orchestrator on: output names uicheck', out.endswith('guard on, subrules on, uicheck on'))
+check('--orchestrator on: output names uicheck', out.endswith('guard on, subrules on, uicheck on, browser on'))
 check('--orchestrator on: one entry, matcher implementer, command quoted',
       len(groups()) == 1 and groups()[0]['matcher'] == 'implementer'
       and groups()[0]['hooks'][0]['command'].startswith('"') and groups()[0]['hooks'][0]['command'].endswith('ui-check-guard.py"'))
@@ -169,7 +169,7 @@ check('--status uicheck true', json.loads(install('--status'))['uicheck'] is Tru
 install()
 check('launch run keeps one entry', len(groups()) == 1)
 out = install('--orchestrator', 'off')
-check('--orchestrator off: entry removed, output names uicheck', groups() == [] and out.endswith('uicheck off'))
+check('--orchestrator off: entry removed, output names uicheck', groups() == [] and out.endswith('uicheck off, browser off'))
 check('other SubagentStop hooks left alone',
       any(h.get('command') == 'other-hook.sh' for g in json.load(open(SET))['hooks']['SubagentStop'] for h in g['hooks']))
 install('--orchestrator', 'on')

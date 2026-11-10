@@ -111,6 +111,7 @@ One-line rules — the canonical incident catalog with full details is workflow-
 - **Give agents explicit absolute paths** — a sandboxed execution environment can strip PATH for write/git commands.
 - **Record what you launched (branches, worktree paths) in your working ledger** — background task handles can be lost across a context compaction; see context-and-state.
 - **Pre-assign shared serial resources (migrations, ports, slugs) before fan-out.**
+- **The browser is one shared resource.** Start only one browsing agent at a time; queue the others. A hook makes a second browsing agent wait, then denies it. The main thread runs `claude-window done` before it hands browser work to an agent.
 
 ## Scope
 

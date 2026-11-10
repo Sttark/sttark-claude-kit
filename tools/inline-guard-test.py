@@ -140,6 +140,19 @@ for cmd in ['git status', 'ls -la', 'grep -n make Makefile']:
 check('denied long run not counted', [tool('Bash', command='make'), tool('Read', file_path='/a'),
                                        tool('Read', file_path='/a')][1:] == [None, None])
 
+# Quotes and nesting in the command splitter
+for cmd in ['git commit -m "note; make build"', "git commit -m 'a && npm install'", 'git commit -m "x\nnpm test\ny"',
+            "echo $'a;make'", 'echo "a | pytest"', 'cat a 2>&1 | head -1']:
+    run('UserPromptSubmit')
+    check(f'quoted text is not a long run: {cmd!r}', tool('Bash', command=cmd) is None)
+for cmd in ['(make)', 'echo $(npm install)', 'echo `make`', 'bash -c "make build"', "sh -c 'cd x && npm test'",
+            'sleep 1 & make', 'echo "$(make)"']:
+    run('UserPromptSubmit')
+    check(f'nested long run denied: {cmd!r}', denied(tool('Bash', command=cmd), OPS))
+run('UserPromptSubmit')
+check('unbalanced quote: allowed', tool('Bash', command='echo "open; make') is None)
+check('unbalanced quote: logged once', sum('guard  parse' in l for l in open(LOG).read().splitlines()) == 1)
+
 # File count: read-type Bash commands count more than one lookup for many files
 def fresh():
     run('UserPromptSubmit')
@@ -155,6 +168,9 @@ for cmd, cost in [('head -1 a b c', 1), ('head -1 a b c d', 2), ('cat *.md', 2),
                   ('ls a b c d e f', 1), ('cat a >/dev/null', 1)]:
     fresh()
     check(f'file count {cost} lookup(s): {cmd}', tool('Bash', command=cmd) is None and count() == cost)
+fresh()
+tool('Bash', command='git commit -m "a; cat b c d e f g h"')
+check('quoted file names are not counted', count() == 1)
 fresh()
 tool('Bash', command='head -1 a b c d')
 check('4 files then a 2nd call: denied', denied(tool('Read', file_path='/a'), LOOK))
@@ -229,7 +245,7 @@ check('install, switch off: no guard entries', guard_events() == [])
 check('--status guard false', json.loads(install('--status'))['guard'] is False)
 out = install('--orchestrator', 'on')
 check('--orchestrator on: guard entries in all three events', guard_events() == ALL)
-check('--orchestrator on: output says guard on, subrules on, uicheck on', out.endswith('guard on, subrules on, uicheck on'))
+check('--orchestrator on: output says guard on, subrules on, uicheck on, browser on', out.endswith('guard on, subrules on, uicheck on, browser on'))
 pre, post, ups = (guard_groups(e)[0] for e in ('PreToolUse', 'PostToolUse', 'UserPromptSubmit'))
 check('PreToolUse matcher set',
       pre['matcher'] == '^(Read|Grep|Glob|Bash|WebFetch|WebSearch|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|mcp__.*)$')
@@ -249,7 +265,7 @@ check('launch run, switch on: guard entries kept, one copy each',
 check('launch run with nothing new: unchanged', install() == 'unchanged')
 out = install('--orchestrator', 'off')
 check('--orchestrator off: guard entries out', guard_events() == [])
-check('--orchestrator off: output says guard off, subrules off, uicheck off', out.endswith('guard off, subrules off, uicheck off'))
+check('--orchestrator off: output says guard off, subrules off, uicheck off, browser off', out.endswith('guard off, subrules off, uicheck off, browser off'))
 json.dump({'orchestrator': True}, open(os.path.join(ikit, 'state.json'), 'w'))   # switched on by hand
 install()
 check('launch run brings guard entries in line with the switch (on)', guard_events() == ALL)

@@ -21,7 +21,9 @@ The inline guard hooks (inline-guard.py: PreToolUse, PostToolUse and UserPromptS
 Orchestrator switch is on, and come out when it is off and with --remove. So does the subagent rules hook
 (subagent-rules-hook.py: SubagentStart), which gives subagents the worker rules, and the page-check guard
 (ui-check-guard.py: SubagentStop, matcher implementer), which blocks an implementer once when it changed
-UI files and reports no page-check output.
+UI files and reports no page-check output. So does the browser lock (browser-lock.py: PreToolUse with a
+matcher for Bash and the Claude in Chrome tools, and SubagentStop), which lets one browsing agent at a time use
+the browser.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -300,6 +302,34 @@ def set_uicheck(hooks, on):
         hooks.pop('SubagentStop', None)
 
 
+BROWSER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser-lock.py')
+BROWSER_MATCH = '^(Bash|Agent|Task|mcp__claude-in-chrome__.*)$'
+BROWSER_TIMEOUT = 60   # must be more than browser-lock.py's WAIT (50 seconds)
+
+
+def is_browser(cmd):
+    return 'browser-lock.py' in cmd
+
+
+def set_browser(hooks, on):
+    """The browser lock: one browsing agent at a time, with the Orchestrator switch on."""
+    for event in ('PreToolUse', 'SubagentStop'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_browser(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            group = {'hooks': [{'type': 'command', 'command': f'"{BROWSER}"',
+                                'timeout': BROWSER_TIMEOUT if event == 'PreToolUse' else 10}]}
+            if event == 'PreToolUse':
+                group = {'matcher': BROWSER_MATCH, **group}
+            groups.append(group)
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
 def same_tree(a, b):
     def files(root):
         out = {}
@@ -379,7 +409,8 @@ def main():
                           'orchestrator': orchestrator_on(),
                           'guard': has(s, 'PreToolUse', is_guard),
                           'subrules': has(s, 'SubagentStart', is_subrules),
-                          'uicheck': has(s, 'SubagentStop', is_uicheck)}))
+                          'uicheck': has(s, 'SubagentStop', is_uicheck),
+                          'browser': has(s, 'PreToolUse', is_browser) and has(s, 'SubagentStop', is_browser)}))
         return
     if '--orchestrator' in sys.argv:
         on = sys.argv[sys.argv.index('--orchestrator') + 1] == 'on'
@@ -389,9 +420,10 @@ def main():
         set_guard(s.setdefault('hooks', {}), on)
         set_subrules(s['hooks'], on)
         set_uicheck(s['hooks'], on)
+        set_browser(s['hooks'], on)
         save(s, before, None)
         state_word = 'on' if on else 'off'
-        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}')
+        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -429,6 +461,7 @@ def main():
     set_guard(hooks, orchestrator_on() and not remove)
     set_subrules(hooks, orchestrator_on() and not remove)
     set_uicheck(hooks, orchestrator_on() and not remove)
+    set_browser(hooks, orchestrator_on() and not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])

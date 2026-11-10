@@ -1,7 +1,7 @@
 # Orchestrator plan: issues log
 
 Issues, conflicts and gaps found while the orchestrator plan was built, with the recommended fix and the
-point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-09, after Phase 4.
+point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-09, after Phase 5.
 
 **Rule:** at the start of each phase, and before the merge to `main`, read this file and raise every open item
 whose "Raise at" matches. Give the recommended fix and ask for a decision only where one is needed. Update the
@@ -17,6 +17,7 @@ status here when it is decided or fixed.
 | I22 | Fixes | The validator's P3 finding is fixed, but the guard still lets one call of cost 2 through as the first call (for example `head -1 a b c d`). This is by design (2 lookups per item). | No change. | Before the org rollout (with D33) |
 | I23 | Phase 4 | The UI guard's page-check output check also accepts the markers "page views" and "nothing to check" near the script name, so a sentence such as "I did not run page-check; no page views to look at." passes. | Accept "page views" and "nothing to check" only inside a code block or on a line that starts like page-check's own output; add tests. | Phase 7 start (with the hook work there) |
 | I24 | Phase 4 | The UI guard asks the implementer to run page-check. That works only when the agent has Bash; the kit's `implementer` has it, but a project agent without Bash cannot answer the block. | No change for the kit agents. Say in the block reason that an agent without Bash must report that it could not run page-check. | Phase 6 start (specialist agents) |
+| I25 | Phase 5 | The browser lock and the inline guard treat a heredoc body line that starts with `claude-window` (or a long-run command) as a command. The agent only waits or is told to delegate; nothing gets through. | Skip heredoc bodies in the splitter if it becomes a nuisance. | Before the org rollout |
 
 ## Decided or fixed
 
