@@ -605,6 +605,9 @@ def start_alone(transcript):
     cid = os.path.basename(transcript)[:-len('.jsonl')]
     stable = os.path.expanduser('~/.local/share/claude/stable/claude')
     claude = stable if os.access(stable, os.X_OK) else CLAUDE
+    if not os.access(claude, os.X_OK):
+        cli_missing('keep', cid[:8])   # logs once an hour
+        return None
     home = os.path.expanduser('~')
     env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
            'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
@@ -702,7 +705,8 @@ def move(c, seq):
         return None
     point_at(transcript, sid, seq)
     before = len(links(transcript))
-    start_alone(transcript)
+    if not start_alone(transcript):
+        return None   # no Claude Code to start it with
     new = new_link(transcript, after=before)
     if new == sid:
         log(f'reattach {sid} "{title}" the server won\'t start it (unarchived), so it runs on its own on the same link, from {seq}')
@@ -774,7 +778,8 @@ def keep(dry=False):
             point_at(a['transcript'], sid, waiting_since_reply(chat_events(sid))[0])
         except Exception as e:
             log(f'keep   {sid} couldn\'t read where it left off: {e!r}'[:200])
-        start_alone(a['transcript'])
+        if not start_alone(a['transcript']):
+            continue   # no Claude Code to start it with; tried again after KEEP_RETRY
         a['at'] = now
         log(f'start  {sid} "{a.get("title", "")}" runs on its own and had stopped; started it again')
 
