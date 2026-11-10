@@ -18,7 +18,8 @@ or takes them out. Every run without a switch brings the copies in line with the
 them out. Only copies this script made are replaced or removed (listed in orchestrator-installed.json);
 a skill or agent of the same name that someone put there by hand is left alone.
 The inline guard hooks (inline-guard.py: PreToolUse, PostToolUse and UserPromptSubmit) go in only while the
-Orchestrator switch is on, and come out when it is off and with --remove.
+Orchestrator switch is on, and come out when it is off and with --remove. So does the subagent rules hook
+(subagent-rules-hook.py: SubagentStart), which gives subagents the worker rules.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -235,6 +236,27 @@ def set_guard(hooks, on):
             hooks.pop(event, None)
 
 
+SUBRULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'subagent-rules-hook.py')
+
+
+def is_subrules(cmd):
+    return 'subagent-rules-hook.py' in cmd
+
+
+def set_subrules(hooks, on):
+    """The worker rules for subagents, added at SubagentStart, with the Orchestrator switch on."""
+    groups = hooks.get('SubagentStart', [])
+    for g in groups:
+        g['hooks'] = [h for h in g.get('hooks', []) if not is_subrules(h.get('command', ''))]
+    groups = [g for g in groups if g.get('hooks')]
+    if on:
+        groups.append({'hooks': [{'type': 'command', 'command': f'"{SUBRULES}"', 'timeout': 10}]})
+    if groups:
+        hooks['SubagentStart'] = groups
+    else:
+        hooks.pop('SubagentStart', None)
+
+
 def same_tree(a, b):
     def files(root):
         out = {}
@@ -312,7 +334,8 @@ def main():
                           'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
                           'limit': has(s, 'PreToolUse', is_limit),
                           'orchestrator': orchestrator_on(),
-                          'guard': has(s, 'PreToolUse', is_guard)}))
+                          'guard': has(s, 'PreToolUse', is_guard),
+                          'subrules': has(s, 'SubagentStart', is_subrules)}))
         return
     if '--orchestrator' in sys.argv:
         on = sys.argv[sys.argv.index('--orchestrator') + 1] == 'on'
@@ -320,6 +343,7 @@ def main():
         word = sync_orchestrator(on)
         before = json.dumps(s, sort_keys=True)
         set_guard(s.setdefault('hooks', {}), on)
+        set_subrules(s['hooks'], on)
         if save(s, before, None):
             word = (word + '; ' if word else '') + 'guard ' + ('on' if on else 'off')
         print(word or 'unchanged')
@@ -358,6 +382,7 @@ def main():
     set_rules(hooks, not remove)
     set_limit(hooks, not remove)
     set_guard(hooks, orchestrator_on() and not remove)
+    set_subrules(hooks, orchestrator_on() and not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])

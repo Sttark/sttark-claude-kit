@@ -50,4 +50,6 @@ The files below differ from the upstream copies. The decision IDs come from the 
 - Resources/skills/familiarize/SKILL.md: reading goes to `researcher` agents and map writing to `implementer`, not Explore or fork agents (D4, D6); user brief uses the Sttark reply format (D8).
 - Resources/skills/context-and-state/SKILL.md: resume lookups go to a `researcher`, test runs to a `validator` (D6/D22, D5).
 - Resources/skills/workflow-patterns/SKILL.md: inline threshold in the selection matrix and fan-out sizing matches D6/D22.
+- Resources/skills/delegate-prompts/SKILL.md: new "Sttark context block" (worker rules in short form, plus the app-repo lines) for briefs, as a fallback when the SubagentStart hook does not run.
+- Resources/agents/*.md (all five): one line: in a Sttark repo with no Sttark context in the context or the brief, return BLOCKED.
 - Resources/agents/validator.md: report is the only output that reaches the main thread; short excerpts, no whole logs (D5).

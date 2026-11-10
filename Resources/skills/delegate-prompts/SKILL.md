@@ -40,6 +40,21 @@ If a drafted prompt is missing any element, it is not ready to dispatch.
 - **Model per dispatch**: set the model explicitly on every dispatch. A mid-tier model for research, review lenses and small fixes; the strongest model only for the main build and the final validation. An unset model inherits the orchestrator's, which is usually the most expensive one.
 - **Split oversized tasks**: a delegated build once stalled repeatedly because the task was too large for one pass. If a template's placeholders won't fit one coherent task ("implement X **and** Y **and** migrate Z"), stop and split into multiple dispatches — no prompt fixes a task that doesn't fit in one pass.
 
+## Sttark context block
+
+In a Sttark repo, the Sttark Claude Kit hook gives each subagent the Sttark worker rules at start, with the line "Sttark context: present." When the hook does not run, the brief must carry the rules itself. Add this block to every brief for work in a Sttark repo (remote under github.com/Sttark). Agents return BLOCKED when neither the hook text nor this block is there.
+
+```
+STTARK CONTEXT
+- Don't know it? Search. Don't guess.
+- Repo work: pull latest from remote before you work. Read the project docs before you change anything.
+- When the brief gives an example, treat it as one instance of a pattern. Fix every instance.
+- UI: usability first. See it rendered before you call it done.
+- Asana tasks: give the full URL, https://app.asana.com/0/0/[task_gid].
+- No em-dashes or double hyphens in text a person reads. Code, CLI flags and file syntax are exempt.
+- Sttark app repo only: read the app chapters that apply (<KIT_DIR>/app-rules/chapters.json). Run page-check before you report UI work, and include its output.
+```
+
 ## Template 1 — implement-to-tests
 
 Use when failing tests already exist (written by you, a test-author delegate, or per tdd-protocol) and the delegate's only job is making them green.
@@ -276,6 +291,7 @@ NOTES: <bugs noticed but NOT fixed, follow-up suggestions; omit if none>
 
 ## Adapting a template
 
+- In a Sttark repo, add the Sttark context block to the CONTEXT section.
 - Fill every `<PLACEHOLDER>`; an unfilled placeholder means the orchestrator hasn't done its context-gathering job yet.
 - Keep the five elements intact when trimming. The first thing people cut — the self-verification checklist — is the cheapest quality gate in the whole system.
 - One task per dispatch. If the TASK section grows an "and", split it.
