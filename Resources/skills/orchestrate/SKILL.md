@@ -44,7 +44,7 @@ Run these phases in order. Small tasks compress several into one pass; hard-to-r
 
    Launch independent units **in parallel** (multiple agent calls in one turn). For the *shape* of the fan-out — pipeline, generator+validator, review lenses, tournament, loop-until-dry, parallel worktrees — see **workflow-patterns**.
 
-**5. Verify — this is you, and it's adversarial.** When a unit comes back, treat the claim as a hypothesis and try to break it. A `validator` agent re-runs the tests, reads the diff, and runs the app where behavior is the proof (the `verify` skill). Only its verdict comes back to the main thread, not its logs. For anything merging to main or hard to reverse, add independent review lenses — a fresh `validator` agent with no authorship bias catches what the builder structurally cannot. Sizing: solo check for trivial work, 3-5 lenses for main-line merges, more for audits (validation-and-evidence + workflow-patterns).
+**5. Verify — this is you, and it's adversarial.** When a unit comes back, treat the claim as a hypothesis and try to break it. A `validator` agent re-runs the tests, reads the diff, and runs the app where behavior is the proof (`page-check` in a Sttark app repo, the built-in `run` skill elsewhere). Only its verdict comes back to the main thread, not its logs. For anything merging to main or hard to reverse, add independent review lenses — a fresh `validator` agent with no authorship bias catches what the builder structurally cannot. Sizing: solo check for trivial work, 3-5 lenses for main-line merges, more for audits (validation-and-evidence + workflow-patterns).
 
 **6. Kick back or integrate.** Each unit lands in one of two states:
    - **Meets the bar** → integrate it. The final merge/synthesis step is always yours, never a subagent's.
@@ -54,7 +54,7 @@ Run these phases in order. Small tasks compress several into one pass; hard-to-r
 
 ## Autonomy rails (these still bind)
 
-Orchestrating doesn't relax your safety rails. Build, test, and open PRs autonomously — but **merge** only where a per-project standing authorization exists, and only after the verify gate passes. Anything prod-touching — prod migrations, secrets, deploys, payments — **always** stops for the user's explicit confirmation, regardless of confidence. Per-project scope locks and "ask first" rules beat this skill's autonomy. Can't ask? Skip the item and flag it.
+Orchestrating doesn't relax your safety rails. Build, test, and open PRs autonomously — but **merge** only through the production guard's `approve <action>` flow (Phase 8), and only after the verify gate passes. Agents never merge; `ops` never merges a PR. Anything prod-touching — prod migrations, secrets, deploys, payments — **always** stops for the user's explicit confirmation, regardless of confidence. Per-project scope locks and "ask first" rules beat this skill's autonomy. Can't ask? Skip the item and flag it.
 
 ## When NOT to orchestrate
 
@@ -85,4 +85,4 @@ This file is the sequence. Each phase hands off — invoke the referenced skill 
 | Evidence bar, validator pass, adversarial review, severity | validation-and-evidence |
 | Where state lives, resume, working ledger | context-and-state |
 | New/unfamiliar repo before any code | familiarize |
-| Running the app to observe behavior as proof | verify (built-in) |
+| Running the app to observe behavior as proof | page-check (Sttark app repo) or run (built-in) |

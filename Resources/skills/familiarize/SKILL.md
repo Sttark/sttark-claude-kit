@@ -76,7 +76,7 @@ Open real files; never infer architecture from folder names alone. Determine:
 ### Phase 5 — Current external docs
 
 - For each major framework + version, pull the **current** official docs via
-  WebFetch/WebSearch — training data drifts, and version-specific APIs matter.
+  a `researcher` agent (web research) — training data drifts, and version-specific APIs matter.
   Note anything that changed from older versions.
 - Cross-reference any installed skills that match the stack (a framework skill,
   an ORM skill, a monorepo skill) and note they apply.

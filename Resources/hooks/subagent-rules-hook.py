@@ -31,7 +31,8 @@ MARKER = 'Sttark context: present.'
 # subagent) the text to use in its place.
 WORKER = [
     ("- Don't know it?", None),
-    ('- Repo work:', None),
+    ('- Repo work:', '- Repo work: read the project docs before you change anything. Do not pull, switch '
+                     'branches or reset unless your brief says so.'),
     ('- When the person gives an example', None),
     ('- UI and layout:', None),
     ('- Asana tasks:', None),
@@ -96,6 +97,8 @@ def main():
     try:
         data = json.load(sys.stdin)
     except ValueError:
+        return
+    if not isinstance(data, dict):
         return
     agent = data.get('agent_type') or '?'
     try:

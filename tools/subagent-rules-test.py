@@ -31,6 +31,11 @@ def run(cwd, agent='implementer'):
     return json.loads(r.stdout) if r.stdout.strip() else None
 
 
+def run_raw(raw):
+    r = subprocess.run([sys.executable, HOOK], input=raw, capture_output=True, text=True, env=ENV)
+    return r.returncode, r.stdout.strip()
+
+
 def text_of(out):
     return ((out or {}).get('hookSpecificOutput') or {}).get('additionalContext') or ''
 
@@ -60,10 +65,11 @@ out = run(plain)
 t = text_of(out)
 check('output form: SubagentStart additionalContext',
       out is not None and out['hookSpecificOutput']['hookEventName'] == 'SubagentStart' and t)
-WORKER = ["Don't know it? Search. Don't guess.", 'Repo work: pull latest', 'treat it as one instance of a pattern. Fix every instance',
+WORKER = ["Don't know it? Search. Don't guess.", 'Repo work: read the project docs before you change anything. Do not pull, switch branches or reset unless your brief says so.', 'treat it as one instance of a pattern. Fix every instance',
           'UI and layout: function over form', 'Asana tasks: give the full URL', 'No em-dashes or double hyphens in text a person reads']
 for w in WORKER:
     check('worker rule present: ' + w[:40], w in t)
+check('repo-work rule: no pull-latest wording', 'pull latest' not in t)
 check('6 rule lines', len([l for l in t.splitlines() if l.startswith('- ')]) == 6)
 for p in ['Simplified Technical English', 'asks table', 'number the asks', 'two lines plus a step count', 'Answer the person',
           'Shortest reply', 'End of turn', 'Work like a manager', 'Visuals are better', 'A question is not an instruction']:
@@ -72,6 +78,11 @@ check('lead line', t.startswith('Sttark worker rules (from Sttark Claude Kit), f
 check('marker line present', 'Sttark context: present.' in t.splitlines())
 check('plain repo: no chapters pointer, no page-check line', 'chapters.json' not in t and 'page-check' not in t)
 check('outside any repo: no pointer', 'chapters.json' not in text_of(run(tmp)))
+
+# Valid JSON that is not an object: exit 0, no output
+for raw in ('[]', '"x"', '5', 'null', 'true'):
+    check('non-object JSON %s: exit 0, no output' % raw, run_raw(raw) == (0, ''))
+check('bad JSON: exit 0, no output', run_raw('{') == (0, ''))
 
 # A Sttark app repo
 ta = text_of(run(app, 'validator'))
@@ -124,7 +135,8 @@ def sub():
 install()
 check('install, switch off: no SubagentStart entry', sub() == [])
 check('--status subrules false', json.loads(install('--status'))['subrules'] is False)
-install('--orchestrator', 'on')
+out = install('--orchestrator', 'on')
+check('--orchestrator on: output says guard on, subrules on', out.endswith('guard on, subrules on'))
 check('--orchestrator on: SubagentStart entry added', len(sub()) == 1)
 check('--status subrules true', json.loads(install('--status'))['subrules'] is True)
 install()

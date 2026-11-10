@@ -135,6 +135,7 @@ KIT_STATE = os.path.join(KIT, 'state.json')
 ORCH_SRC = {'skills': os.path.join(KIT, 'skills'), 'agents': os.path.join(KIT, 'agents')}
 ORCH_DEST = {k: os.path.expanduser(f'~/.claude/{k}') for k in ORCH_SRC}
 ORCH_MANIFEST = os.path.join(KIT, 'orchestrator-installed.json')
+ORCH_SKIPPED = os.path.join(KIT, 'orchestrator-skipped.json')   # the last list of "left alone, not ours" paths
 
 
 def orchestrator_on():
@@ -209,12 +210,27 @@ def sync_orchestrator(on):
     word = None
     if changed:
         word = f'orchestrator {"on" if on else "off"}: {len(now)} skills and agents in ~/.claude'
-    if skipped:
-        word = (word or 'orchestrator') + '; left alone, not ours: ' + ', '.join(skipped)
+    try:
+        last = json.load(open(ORCH_SKIPPED))
+    except (OSError, ValueError):
+        last = []
+    if skipped != last:   # say it only when the list changes
+        if skipped:
+            with open(ORCH_SKIPPED, 'w') as f:
+                json.dump(skipped, f, indent=1)
+            word = (word or 'orchestrator') + '; left alone, not ours: ' + ', '.join(skipped)
+        elif os.path.exists(ORCH_SKIPPED):
+            os.remove(ORCH_SKIPPED)
     return word
 
 
 GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inline-guard.py')
+# Matchers (regex, anchored): Python starts only for the tools the guard acts on. UserPromptSubmit has none.
+GUARD_LOOKUPS = 'Read|Grep|Glob|Bash|WebFetch|WebSearch'
+GUARD_MATCH = {
+    'PreToolUse': f'^({GUARD_LOOKUPS}|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|mcp__.*)$',
+    'PostToolUse': f'^({GUARD_LOOKUPS}|mcp__.*)$',
+}
 
 
 def is_guard(cmd):
@@ -229,7 +245,10 @@ def set_guard(hooks, on):
             g['hooks'] = [h for h in g.get('hooks', []) if not is_guard(h.get('command', ''))]
         groups = [g for g in groups if g.get('hooks')]
         if on:
-            groups.append({'hooks': [{'type': 'command', 'command': f'"{GUARD}"', 'timeout': 10}]})
+            group = {'hooks': [{'type': 'command', 'command': f'"{GUARD}"', 'timeout': 10}]}
+            if event in GUARD_MATCH:
+                group = {'matcher': GUARD_MATCH[event], **group}
+            groups.append(group)
         if groups:
             hooks[event] = groups
         else:
@@ -344,9 +363,9 @@ def main():
         before = json.dumps(s, sort_keys=True)
         set_guard(s.setdefault('hooks', {}), on)
         set_subrules(s['hooks'], on)
-        if save(s, before, None):
-            word = (word + '; ' if word else '') + 'guard ' + ('on' if on else 'off')
-        print(word or 'unchanged')
+        save(s, before, None)
+        state_word = 'on' if on else 'off'
+        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)

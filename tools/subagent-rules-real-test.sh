@@ -22,7 +22,7 @@ echo "--- reply"; cat reply.txt
 echo "--- log"; cat kit.log 2>/dev/null
 R=$(cat reply.txt)
 ok=1
-for w in "Search. Don't guess" "pull latest" "Fix every instance" "UI and layout" "Asana" "No em-dashes" "Sttark context: present."; do
+for w in "Search. Don't guess" "Do not pull, switch branches or reset unless your brief says so" "Fix every instance" "UI and layout" "Asana" "No em-dashes" "Sttark context: present."; do
   case "$R" in *"$w"*) ;; *) echo "MISSING: $w"; ok=0;; esac
 done
 [ $ok = 1 ] && echo "PASS" || echo "FAIL"

@@ -7,7 +7,10 @@ stops the main agent from doing a worker's job. It makes no model calls. A hook 
 input has an agent_id) is always let through.
 
 PreToolUse:
-- Lookups (Read, Grep, Glob, Bash, WebFetch, WebSearch, and MCP read tools): 2 per item. The 3rd is denied.
+- Lookups (Read, Grep, Glob, Bash, WebFetch, WebSearch, and MCP read tools): 2 per item. A call is denied when
+  the count so far plus its own cost is over 2.
+  A Bash command that reads many files (cat, head, tail, sed -n, less, more, wc, nl) counts as more than one
+  lookup: 1 for 1 to 3 files, 2 for 4 to 6, and so on. A glob counts as 4 files.
   Only calls that were let through count. The count starts again when the person sends a prompt
   (UserPromptSubmit) and when the main agent starts an agent (the Agent or Task tool).
 - Long Bash runs (builds, test suites, installs: LONG_RUNS below) are denied, also as the 1st call.
@@ -19,14 +22,14 @@ Counts are kept per session in state.json under "guard", under the lock the app 
 Every deny and every note is logged to ~/Library/Logs/sttark-claude-kit.log, with lines starting `guard`.
 STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and a test log.
 """
-import difflib, fcntl, json, os, re, sys, time
+import difflib, fcntl, json, os, re, shlex, sys, time
 from contextlib import contextmanager
 
 DIR = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
 STATE = os.path.join(DIR, 'state.json')
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 
-MAX_LOOKUPS = 2      # lookups per item; the next one is denied
+MAX_LOOKUPS = 2      # lookups per item; a call that takes the count over this is denied
 MAX_LINES = 3        # the biggest fix the main agent makes itself
 BIG_RESULT = 8000    # characters: a lookup result bigger than this gets a note
 KEEP = 86400         # seconds a session's count is kept
@@ -57,6 +60,12 @@ LONG_RUNS = [
 ]
 LONG_RE = re.compile(r'(?:' + '|'.join(LONG_RUNS) + r')')
 PREFIX_RE = re.compile(r'^(?:(?:\w+=\S*|sudo|time|env|nohup|exec)\s+)*')
+
+# Read-type commands: the options that take a value (the next word is not a file).
+READ_CMDS = {'cat': set(), 'head': {'-n', '-c'}, 'tail': {'-n', '-c'}, 'sed': {'-e', '-f'}, 'less': {'-p', '-P'},
+             'more': {'-n', '-p'}, 'wc': set(), 'nl': {'-b', '-n', '-w', '-s', '-v', '-i', '-l', '-d', '-f', '-h'}}
+FILE_GROUP = 3       # files per lookup
+GLOB_FILES = 4       # a glob counts as this many files
 
 DENY_LOOKUP = 'Delegate this. Write a brief and start an agent.'
 DENY_EDIT = 'Delegate to implementer.'
@@ -111,6 +120,44 @@ def long_run(cmd):
         if LONG_RE.match(part):
             return part[:60]
     return None
+
+
+def read_files(cmd):
+    """The number of files the read-type commands in a Bash command are given. A glob counts as GLOB_FILES."""
+    total = 0
+    for part in re.split(r'&&|\|\||[;|\n]', cmd or ''):
+        part = PREFIX_RE.sub('', part.strip().lstrip('('))
+        try:
+            words = shlex.split(part)
+        except ValueError:
+            words = part.split()
+        if not words or os.path.basename(words[0]) not in READ_CMDS:
+            continue
+        name, takes = os.path.basename(words[0]), READ_CMDS[os.path.basename(words[0])]
+        args, skip, script = [], False, name == 'sed'
+        for w in words[1:]:
+            if skip:
+                skip = False
+            elif w.startswith('-') and len(w) > 1:
+                skip = w in takes
+                if name == 'sed' and w in takes and w == '-e':
+                    script = False
+            elif re.match(r'^\d*[<>&]', w):
+                continue
+            elif script:
+                script = False
+            else:
+                args.append(w)
+        total += sum(GLOB_FILES if re.search(r'[*?\[]', a) else 1 for a in args)
+    return total
+
+
+def lookup_cost(tool, ti):
+    """The lookups a call counts as: 1, or more for a Bash command that reads many files."""
+    if tool != 'Bash':
+        return 1
+    files = read_files(ti.get('command'))
+    return max(1, -(-files // FILE_GROUP))
 
 
 def lines(text):
@@ -195,11 +242,13 @@ def on_tool(data):
     with state() as s:
         g = {k: v for k, v in (s.get('guard') or {}).items() if time.time() - v.get('at', 0) < KEEP}
         n = (g.get(sid) or {}).get('n', 0)
-        if n < MAX_LOOKUPS:
-            g[sid] = {'n': n + 1, 'at': time.time()}
+        cost = lookup_cost(tool, ti)
+        over = n + cost > MAX_LOOKUPS
+        if not over:
+            g[sid] = {'n': n + cost, 'at': time.time()}
         s['guard'] = g
-    if n >= MAX_LOOKUPS:
-        log(f'deny   {sid[:8]} {tool}: lookup {n + 1}, over {MAX_LOOKUPS} for this item')
+    if over:
+        log(f'deny   {sid[:8]} {tool}: lookup {n + cost}, over {MAX_LOOKUPS} for this item')
         deny(DENY_LOOKUP)
 
 

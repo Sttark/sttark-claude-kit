@@ -140,6 +140,34 @@ for cmd in ['git status', 'ls -la', 'grep -n make Makefile']:
 check('denied long run not counted', [tool('Bash', command='make'), tool('Read', file_path='/a'),
                                        tool('Read', file_path='/a')][1:] == [None, None])
 
+# File count: read-type Bash commands count more than one lookup for many files
+def fresh():
+    run('UserPromptSubmit')
+
+
+def count():
+    return json.load(open(os.path.join(KIT, 'state.json')))['guard']['s1']['n']
+
+
+for cmd, cost in [('head -1 a b c', 1), ('head -1 a b c d', 2), ('cat *.md', 2), ('grep x a b c d e', 1),
+                  ('head -n 5 a b c', 1), ('tail -n 5 a', 1), ('sed -n 1,5p a b c d', 2),
+                  ('wc -l a b c d', 2), ('cat a b | head -1', 1), ('cat a b c && wc -l d', 2), ('nl a', 1),
+                  ('ls a b c d e f', 1), ('cat a >/dev/null', 1)]:
+    fresh()
+    check(f'file count {cost} lookup(s): {cmd}', tool('Bash', command=cmd) is None and count() == cost)
+fresh()
+tool('Bash', command='head -1 a b c d')
+check('4 files then a 2nd call: denied', denied(tool('Read', file_path='/a'), LOOK))
+fresh()
+tool('Bash', command='head -1 a b c')
+check('3 files then a 2nd call: allowed', tool('Read', file_path='/a') is None)
+fresh()
+check('first call of 7 files (cost 3): denied', denied(tool('Bash', command='head -1 a b c d e f g'), LOOK))
+check('denied call not counted: a Read then passes', tool('Read', file_path='/a') is None)
+fresh()
+tool('Read', file_path='/a')
+check('1 lookup then a 4-file command (1+2>2): denied', denied(tool('Bash', command='head -1 a b c d'), LOOK))
+
 # PostToolUse: a note over 8,000 characters
 note = 'That lookup was too big for inline. Delegate the next one.'
 big = run('PostToolUse', tool_name='Read', tool_input={}, tool_response={'file': {'content': 'x' * 9000}})
@@ -190,19 +218,38 @@ def guard_events():
 
 
 ALL = ['PostToolUse', 'PreToolUse', 'UserPromptSubmit']
+
+
+def guard_groups(event):
+    return [g for g in json.load(open(SET))['hooks'][event]
+            if any('inline-guard.py' in h.get('command', '') for h in g['hooks'])]
+
 install()
 check('install, switch off: no guard entries', guard_events() == [])
 check('--status guard false', json.loads(install('--status'))['guard'] is False)
 out = install('--orchestrator', 'on')
 check('--orchestrator on: guard entries in all three events', guard_events() == ALL)
-check('--orchestrator on: output says guard on', 'guard on' in out)
+check('--orchestrator on: output says guard on, subrules on', out.endswith('guard on, subrules on'))
+pre, post, ups = (guard_groups(e)[0] for e in ('PreToolUse', 'PostToolUse', 'UserPromptSubmit'))
+check('PreToolUse matcher set',
+      pre['matcher'] == '^(Read|Grep|Glob|Bash|WebFetch|WebSearch|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|mcp__.*)$')
+check('PostToolUse matcher set', post['matcher'] == '^(Read|Grep|Glob|Bash|WebFetch|WebSearch|mcp__.*)$')
+check('UserPromptSubmit has no matcher', 'matcher' not in ups)
+import re
+for name, want in [('Read', 1), ('Bash', 1), ('Edit', 1), ('Agent', 1), ('Task', 1), ('mcp__x__get_y', 1),
+                   ('mcp__plugin_a_b__list', 1), ('NotebookEdit', 1), ('Thread', 0), ('Reader', 0), ('TodoWrite', 0)]:
+    check(f'PreToolUse matcher on {name}: {"match" if want else "no match"}',
+          bool(re.search(pre['matcher'], name)) == bool(want))
+check('PostToolUse matcher: lookups and mcp only',
+      all(re.search(post['matcher'], n) for n in ('Grep', 'mcp__a__b')) and not re.search(post['matcher'], 'Edit'))
 check('--status guard true', json.loads(install('--status'))['guard'] is True)
 install()
 check('launch run, switch on: guard entries kept, one copy each',
       guard_events() == ALL and json.dumps(json.load(open(SET))).count('inline-guard.py') == 3)
 check('launch run with nothing new: unchanged', install() == 'unchanged')
-install('--orchestrator', 'off')
+out = install('--orchestrator', 'off')
 check('--orchestrator off: guard entries out', guard_events() == [])
+check('--orchestrator off: output says guard off, subrules off', out.endswith('guard off, subrules off'))
 json.dump({'orchestrator': True}, open(os.path.join(ikit, 'state.json'), 'w'))   # switched on by hand
 install()
 check('launch run brings guard entries in line with the switch (on)', guard_events() == ALL)
@@ -214,6 +261,21 @@ install('--remove')
 check('--remove: guard entries out, switch on', guard_events() == [])
 check('other hooks left alone',
       any(h.get('command') == 'other-hook.sh' for g in json.load(open(SET))['hooks']['PreToolUse'] for h in g['hooks']))
+
+# "left alone, not ours": said once, then only when the list changes
+os.makedirs(os.path.join(ikit, 'skills', 'mine'))
+open(os.path.join(ikit, 'skills', 'mine', 'SKILL.md'), 'w').write('ours\n')
+os.makedirs(os.path.join(home, '.claude', 'skills', 'mine'))
+open(os.path.join(home, '.claude', 'skills', 'mine', 'SKILL.md'), 'w').write('theirs\n')
+install('--orchestrator', 'off')
+NOTE = 'left alone, not ours'
+check('same-named skill: said on the first run', NOTE in install('--orchestrator', 'on'))
+check('same-named skill: not said on the next run', NOTE not in install() and NOTE not in install('--orchestrator', 'on'))
+os.makedirs(os.path.join(ikit, 'skills', 'mine2'))
+open(os.path.join(ikit, 'skills', 'mine2', 'SKILL.md'), 'w').write('ours\n')
+os.makedirs(os.path.join(home, '.claude', 'skills', 'mine2'))
+check('same-named skill: said again when the list changes', NOTE in install())
+check('same-named skill: not said after that', NOTE not in install())
 
 shutil.rmtree(tmp)
 print(f'\n{len(passed)} passed, {len(failed)} failed')

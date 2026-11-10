@@ -11,7 +11,7 @@ description: >-
   model pinning, verify-not-trust — use orchestrator-delegation) or the prompt
   templates themselves (use delegate-prompts). Don't use for unattended/recurring
   operation — the built-in loop/schedule skills own that.
-  Don't use for research fan-outs on web topics — the deep-research skill owns those.
+  Don't use for research fan-outs on web topics — the `researcher` agent owns those.
 ---
 
 # Workflow patterns
@@ -67,11 +67,11 @@ Each agent builds its item in an isolated `git worktree` on its own branch; the 
 Each of these cost real time. Treat them as non-negotiable:
 
 1. **Pre-assign shared sequential resources before parallel builds.** Two worktree agents once both generated the same migration number because one ignored its reservation. Assign migration numbers / journal slots / port numbers in the launch prompt, and have the integration step verify the assignment held.
-2. **PR + merge stays OUT of workflows — the orchestrator does it serially.** Merges hit permission prompts, need conflict resolution (append-only journal files both sides touched), and must be recorded. Agents build and commit on branches; the orchestrating session opens PRs and merges one at a time.
+2. **PR + merge stays OUT of workflows — the orchestrator does it serially.** Merges hit permission prompts, need conflict resolution (append-only journal files both sides touched), and must be recorded. Agents build and commit on branches; the orchestrating session opens PRs and merges one at a time, each merge only after the person types `approve <action>` (the production guard, Phase 8).
 3. **Never delete-branch-on-merge unless the merge already succeeded.** Passed on a failed merge once, it closed the PR and deleted the branch anyway. Confirm mergeable, merge, and only then delete the branch. If not mergeable: stop, delete nothing.
 4. **Commit the working tree before launching any agents.** A subagent's `git checkout`/`git reset` once destroyed uncommitted ledger changes. The orchestrator's first act before a fan-out is a WIP-safe commit (or verifying `git status --porcelain` is clean).
 5. **Give agents absolute paths — the background sandbox strips PATH and resets cwd.** `cd` does not persist between calls; use `git -C <repo> ...` and full paths to binaries/repos in every agent prompt. (`~`-relative is fine in skills; expand to absolute in the actual prompts.)
-6. **Web research runs in the main session, or with a timeout fallback.** Web search once stalled inside subagents and burned hours before the workflow was declared dead. If a subagent must search the web, give it an explicit time budget and a "proceed without" fallback; prefer doing the search yourself and passing results in.
+6. **Web research goes to the `researcher` agent, with a timeout fallback.** Web search once stalled inside subagents and burned hours before the workflow was declared dead. Give it an explicit time budget and a "proceed without" fallback.
 7. **Split oversized single-pass tasks before delegating.** One workflow stalled because a single task was too large for one pass — it had to be split into smaller tickets. If a ticket needs more than one coherent test-first slice, split it into separate tickets first (in your issue tracker), then run the pattern per slice.
 
 ## Per-project rules constrain pattern choice

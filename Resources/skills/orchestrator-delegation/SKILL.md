@@ -106,8 +106,8 @@ Evidence standards, the validator pass, and done-criteria live in **validation-a
 One-line rules — the canonical incident catalog with full details is workflow-patterns → "Paid-for lessons":
 
 - **Commit the working tree before launching agents** — uncommitted orchestrator state is not safe from a subagent's `git checkout`/`reset`.
-- **Merges are done serially by the orchestrator, never by agents.**
-- **No open-ended web search inside subagents** — a research workflow once died on a web-search tool stalling inside a subagent; keep web-heavy research in the main session.
+- **Merges are done serially by the orchestrator, never by agents.** Each merge happens only after the person types `approve <action>` (the production guard, Phase 8).
+- **Web research goes to the `researcher` agent** — a research workflow once died on a web-search tool stalling inside a subagent, so give it a time budget and a "proceed without" fallback; send web research to the `researcher` agent.
 - **Give agents explicit absolute paths** — a sandboxed execution environment can strip PATH for write/git commands.
 - **Record what you launched (branches, worktree paths) in your working ledger** — background task handles can be lost across a context compaction; see context-and-state.
 - **Pre-assign shared serial resources (migrations, ports, slugs) before fan-out.**

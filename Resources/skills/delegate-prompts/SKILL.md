@@ -34,20 +34,20 @@ If a drafted prompt is missing any element, it is not ready to dispatch.
 ## Hard rules baked into the templates
 
 - **Absolute paths everywhere**: a sandboxed execution environment can strip PATH for write/git commands. Templates tell delegates to use absolute paths for the repo and to run commands from an explicit directory, never rely on cwd or PATH lookups working.
-- **No open-ended web search inside delegates**: a long research workflow once died on a web-search tool stalling inside a subagent. Research templates restrict delegates to repo files, local docs, and explicitly provided URLs via fetch; anything needing live web search stays in the orchestrator.
+- **Web search only in the `researcher` agent**: a long research workflow once died on a web-search tool stalling inside a subagent. Other delegates use repo files, local docs, and explicitly provided URLs; anything needing live web search goes to a `researcher` with a time budget.
 - **Worktree lockdown**: an implementation agent's `git checkout`/`reset` once reverted the orchestrator's own uncommitted state. Every code-touching template forbids `git checkout`, `git reset`, `git stash`, and branch switching outside the delegate's assigned worktree/branch.
 - **Index before grep**: agents default to grep and whole-file reads, and every extra search round re-sends the agent's full context. When the repo has a code-index or code-graph search tool, every brief's CONTEXT INJECTION names it and says: run it before any grep, from the repo or worktree root; read only the lines it returns; grep only for an exact symbol you already know. Index folders are often gitignored, so a fresh worktree has none: tell the delegate where the main checkout's index is, or use a tool that falls back to it.
 - **Model per dispatch**: set the model explicitly on every dispatch. A mid-tier model for research, review lenses and small fixes; the strongest model only for the main build and the final validation. An unset model inherits the orchestrator's, which is usually the most expensive one.
 - **Split oversized tasks**: a delegated build once stalled repeatedly because the task was too large for one pass. If a template's placeholders won't fit one coherent task ("implement X **and** Y **and** migrate Z"), stop and split into multiple dispatches — no prompt fixes a task that doesn't fit in one pass.
 
-## Sttark context block
+## Sttark context
 
-In a Sttark repo, the Sttark Claude Kit hook gives each subagent the Sttark worker rules at start, with the line "Sttark context: present." When the hook does not run, the brief must carry the rules itself. Add this block to every brief for work in a Sttark repo (remote under github.com/Sttark). Agents return BLOCKED when neither the hook text nor this block is there.
+In a Sttark repo, the Sttark Claude Kit hook gives each subagent the Sttark worker rules at start, with the line "Sttark context: present." When the hook does not run, the brief must carry the rules itself. Add this block to every brief for work in a Sttark repo (remote under github.com/Sttark). When the target repo is not the session's repo, always add it: the SubagentStart hook judges by the session's folder, so it may give the wrong repo's context. Agents return BLOCKED when neither the hook text nor this block is there.
 
 ```
-STTARK CONTEXT
+Sttark context
 - Don't know it? Search. Don't guess.
-- Repo work: pull latest from remote before you work. Read the project docs before you change anything.
+- Repo work: read the project docs before you change anything. Do not pull, switch branches or reset unless your brief says so.
 - When the brief gives an example, treat it as one instance of a pattern. Fix every instance.
 - UI: usability first. See it rendered before you call it done.
 - Asana tasks: give the full URL, https://app.asana.com/0/0/[task_gid].
@@ -151,9 +151,8 @@ WHERE TO LOOK FIRST
 git log for <PATH>, and any exact URLs the orchestrator provides for fetching>
 
 HARD RULES
-- Do NOT use open-ended web search — it stalls in subagents. You may fetch only the exact
-  URLs listed above. If the answer needs open-ended web research, return UNKNOWN and say
-  so; the orchestrator will handle it.
+- Web search can stall. If you search the web, keep to a time budget of <MINUTES> minutes.
+  If it stalls or finds nothing, return UNKNOWN for that part and say so.
 - Every claim in your answer must carry a citation: file:line, command + pasted output,
   or one of the provided URLs. An uncited claim is worthless.
 - Distinguish clearly: VERIFIED (you saw it) vs INFERRED (you deduced it) vs UNKNOWN.
@@ -291,7 +290,7 @@ NOTES: <bugs noticed but NOT fixed, follow-up suggestions; omit if none>
 
 ## Adapting a template
 
-- In a Sttark repo, add the Sttark context block to the CONTEXT section.
+- In a Sttark repo, add the Sttark context block to the CONTEXT section. When the target repo is not the session's repo, always add it.
 - Fill every `<PLACEHOLDER>`; an unfilled placeholder means the orchestrator hasn't done its context-gathering job yet.
 - Keep the five elements intact when trimming. The first thing people cut — the self-verification checklist — is the cheapest quality gate in the whole system.
 - One task per dispatch. If the TASK section grows an "and", split it.
@@ -303,7 +302,7 @@ This skill owns the delegate prompt TEXT: the anatomy and the six templates. It 
 
 ## Provenance and maintenance
 
-The five-element anatomy restates the sibling skill orchestrator-delegation's uplift doctrine in template form. The embedded hard rules (absolute paths, no open-ended web search in delegates, worktree lockdown, split oversized tasks) come from real incidents where skipping them cost real time; the templates encode the fix, not the story.
+The five-element anatomy restates the sibling skill orchestrator-delegation's uplift doctrine in template form. The embedded hard rules (absolute paths, web search only in the researcher agent, worktree lockdown, split oversized tasks) come from real incidents where skipping them cost real time; the templates encode the fix, not the story.
 
 Re-verify on drift:
 - `ls ~/.claude/skills/ | grep -E 'orchestrator-delegation|workflow-patterns|validation-and-evidence|tdd-protocol'` — cross-referenced siblings still exist

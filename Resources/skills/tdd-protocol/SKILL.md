@@ -8,7 +8,7 @@ description: >-
   standing up a test harness in a repo that has none. Trigger on "TDD", "test-first", "write
   the tests first", "add a test harness", "set up testing". Exempt work:
   content/video editing, throwaway scripts, pure research. Don't use for run-the-app
-  behavioral proof of a finished change — use the verify built-in; for evidence standards,
+  behavioral proof of a finished change — use page-check in a Sttark app repo, else the built-in run skill; for evidence standards,
   done-criteria, and the validator pass, use validation-and-evidence.
 ---
 
@@ -86,7 +86,7 @@ No harness is not an exemption. When the repo has product/library code and no te
 
 This skill covers the write-tests-first loop and the passing-output gate for code. It does **not** cover:
 
-- **Run-the-app behavioral proof** (launch it, click through it, screenshot it) — that is the `verify` built-in skill.
+- **Run-the-app behavioral proof** (launch it, click through it, screenshot it) — that is `page-check` in a Sttark app repo, else the built-in `run` skill.
 - **Evidence standards, done-criteria policy, and the independent validator pass** (a second agent adversarially checking claimed-done work) — that is **validation-and-evidence**. This skill produces the evidence; that one judges it.
 - **How to split test-writing across subagents or size a workflow** — **orchestrator-delegation** and **workflow-patterns**.
 - **Where the results get recorded** (issue-tracker status, ledger notes, build log) — keep the repo's own docs and issue tracker current as you go.

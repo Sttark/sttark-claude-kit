@@ -8,8 +8,8 @@ description: >-
   adversarial-review patterns (parallel lenses, hard opus gate, consensus review), P1/P2/P3
   severity discipline, and per-repo done-criteria. Trigger on "validate this", "is this
   actually done", "prove it works", "review before merge", "run the validator". Don't use for
-  actually running the app to observe behavior — that's the built-in verify skill (use it as
-  one evidence source). Don't use for plain diff review — that's the built-in code-review
+  actually running the app to observe behavior — that's page-check in a Sttark app repo, else the built-in run skill (use it as
+  one evidence source). Don't use for plain diff review — that's the Claude Code built-in code-review
   skill. Don't use for writing the tests themselves (tdd-protocol) or filing the bugs found
   (your issue tracker).
 ---
@@ -46,15 +46,15 @@ Rules:
 - **Evidence is quoted, not summarized.** Paste the relevant lines of output into the report.
   In the reply to the person, the evidence goes in the Evidence column of the Sttark asks table.
   "Tests pass" without the count and command is an assertion, not evidence.
-- **Run the app when the claim is behavioral.** Use the built-in `verify` skill to launch the
-  app and observe the behavior — that observation is one evidence source under this standard.
+- **Run the app when the claim is behavioral.** In a Sttark app repo use `page-check`; elsewhere use the built-in `run` skill. It launches the
+  app so you can observe the behavior — that observation is one evidence source under this standard.
 
 ## The standing validator pass
 
 Every non-trivial build ends with an INDEPENDENT `validator` agent — never the builder checking
 its own homework. Only its verdict comes back to the main thread, not its logs. The builder has motivated reasoning about its own diff; a fresh agent with
-only the acceptance criteria does not. Scale per workflow-patterns: one sonnet-class validator
-for routine builds; the adversarial patterns below for high-stakes work.
+only the acceptance criteria does not. Scale per workflow-patterns: one validator
+for routine builds (Opus for code and UI checks; Sonnet for draft, Asana proposal, BOM check and research checks; the orchestrator sets the model when it starts the validator); the adversarial patterns below for high-stakes work.
 
 Validator prompt skeleton (compact — the full uplifted template lives in delegate-prompts):
 
@@ -93,7 +93,7 @@ prompts in delegate-prompts):
   self-repair bounded, re-review.
 - **Hard opus review gate** (proven on a 4-ticket parallel worktree build): before any
   PR/merge, an opus-class adversarial review plus a full test loop must pass. The gate is
-  hard — no green, no merge. Merges stay serial in the orchestrating session.
+  hard — no green, no merge. Merges stay serial in the orchestrating session, each only after the person types `approve <action>` (the production guard, Phase 8).
 - **Consensus review** (proven on a large real codebase): for the highest stakes, a large
   fan-out of independent reviewers over the same code — a 29-agent consensus review once
   found several HIGH-severity issues a single pass had missed. Findings that multiple
@@ -135,8 +135,8 @@ bar. NEXT.md conventions live in context-and-state.
 ## Scope
 
 This skill owns the STANDARD for proof and the validator/adversarial PROCESS. It does not:
-run the app itself (built-in `verify` does that — its output feeds this standard), perform
-inline diff review (built-in `code-review`), write tests or define the TDD loop
+run the app itself (`page-check` in a Sttark app repo, else the built-in `run` skill; its output feeds this standard), perform
+inline diff review (`code-review`, a Claude Code built-in skill), write tests or define the TDD loop
 (tdd-protocol), choose fan-out sizes and workflow shapes (workflow-patterns), hold the full
 validator prompt templates (delegate-prompts), or manage your issue tracker.
 
