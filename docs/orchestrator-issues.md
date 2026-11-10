@@ -1,0 +1,42 @@
+# Orchestrator plan: issues log
+
+Issues, conflicts and gaps found while the orchestrator plan was built, with the recommended fix and the
+point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-09, after Phase 3.
+
+**Rule:** at the start of each phase, and before the merge to `main`, read this file and raise every open item
+whose "Raise at" matches. Give the recommended fix and ask for a decision only where one is needed. Update the
+status here when it is decided or fixed.
+
+## Open
+
+| # | Found in | Issue | Recommended fix | Raise at |
+|---|---|---|---|---|
+| I1 | Phase 0 | The org skills (`mt-*`, `bom-folder-check`, `onshape-asana-update`) come from the Claude app as a per-session plugin named `anthropic-skills:<name>`. They are not in `~/.claude/skills`, so a `claude` session started in Terminal does not see them. | The Phase 6 route step reads the skills the session has at run time, not a folder. Use the `anthropic-skills:` names. Say in the README that specialty routing to org skills works only in Code tab sessions. | Phase 6 start |
+| I2 | Phase 2 | The kit hooks need Claude Code at `~/.local/bin/claude`. Without it, the STE check, Auto effort and the app rules refresh fail with `FileNotFoundError` and nobody is told. Fixed on Cole's Mac by installing Claude Code in Terminal. Other people who use only the Claude app have the same problem. The same code is on `main`. | A separate PR to `main`: the three hooks (`working-rules-hook.py`, `effort-hook.py`, `app-rules-hook.py`) use the Claude app's own copy when `~/.local/bin/claude` is missing, and the menu warns when no CLI is found. | Now, as a separate PR to `main` (Cole's decision) |
+| I3 | Phase 0 | This Mac has no "Sttark Effort Signing" certificate, so the branch build is signed ad hoc. macOS asks again for the Chrome approver's Accessibility permission after each install. | No change on the branch. Releases from `main` are signed by CI. | Merge to `main` |
+| I4 | Phase 0 | The updater is off on the branch (`Updater.enabled = false` in `Sources/Update.swift`), and the menu says so. `tools/update-test.sh` cannot pass with it off. | Set `Updater.enabled = true` and remove the menu line in the merge PR. Run `tools/update-test.sh`. | Merge to `main` |
+| I5 | Phase 1 | The upstream skills refer to skills the kit does not ship: `verify` (`orchestrate`), deep-research (`researcher.md`). `code-review` is a Claude Code built-in. | Map each one: `verify` to `page-check` in Sttark app repos and to the built-in `run` skill elsewhere; deep-research to the `researcher` agent. Edit the skill text to match. | Phase 6 start |
+| I6 | Phase 1 | The `ops` agent may merge a PR "when the human has authorized that step". This conflicts with the production guard. | Remove merge from `ops.md`. Merges go only through the Phase 8 `approve <action>` flow. | Phase 8 start |
+| I7 | Phase 2 | `orchestrator-delegation` and `workflow-patterns` say web research stays in the main session. This conflicts with D6/D22 and the inline guard. The `researcher` agent has WebFetch but not WebSearch. | Add WebSearch to `researcher.md`. Change both skills so web research goes to the `researcher` agent. | Phase 6 start |
+| I8 | Phase 2 | `validation-and-evidence` says the validator is a Sonnet-class agent, but `validator.md` sets Opus. This changes cost. | Keep Opus for code and UI checks. Use Sonnet for draft, Asana proposal and research checks (D26). Make both files say the same. | Phase 4 start |
+| I9 | Phase 2 | The inline guard counts tool calls, not files. One Bash command can read many files (for example `head -1` on 3 files) and pass. The D6 rule "more than about 3 files of context" is not enforced. | Count the file paths in read-type Bash commands (`cat`, `head`, `tail`, `sed -n`, `less`). More than 3 counts as more than one lookup. | After a week of real use, before the org rollout |
+| I10 | Phase 2 | The lookup limit is 2 per item. Cole decided to keep it. Routine chores in the main thread (build, install, commit) must go to an agent, which adds time. | Keep it for now. If it slows work too much, add a phrase such as `look it up here` that turns the limit off for one prompt, the same pattern as `use credits`. | When Cole reports friction, and before the org rollout |
+| I11 | Phase 2 | The guard hooks have no matcher, so a Python process starts on every tool call in every session while Orchestrator is on. | Measure the time per call from the log. Add matchers for the counted tools if it is more than about 50 ms. | Before the org rollout |
+| I12 | Phase 3 | Claude Code gives the `SubagentStart` hook the main session's folder as `cwd`. A subagent that works in another repo or worktree gets the Sttark context of the main session's repo. | The `delegate-prompts` brief gives the target repo path and adds the Sttark context block when the target repo is not the session's repo. | Phase 4 start (small fixes batch) |
+| I13 | Phase 3 | The hook's app repo test also counts a new repo with no remote. The agents' BLOCKED line counts a repo as Sttark only when its remote is under `github.com/Sttark`. | Change the BLOCKED line to: a repo with a remote under `github.com/Sttark`, or a repo the hook marks as an app repo. | Phase 4 start (small fixes batch) |
+| I14 | Phase 3 | The fallback block heading in `delegate-prompts` is "STTARK CONTEXT", but the agent files look for a "Sttark context" section. | Use the same name, "Sttark context", in both places. | Phase 4 start (small fixes batch) |
+| I15 | Phase 3 | `subagent-rules-hook.py` exits 1 when the input is valid JSON but not an object. It does not block the subagent. | Check the type before `data.get`. Add a test. | Phase 4 start (small fixes batch) |
+| I16 | Phase 3 | `install-hooks.py --orchestrator on` prints only "guard on" and does not mention the subagent rules. | Print both, for example "guard on, subrules on". | Phase 4 start (small fixes batch) |
+| I17 | Phase 3 | Subagents get the rule "pull latest from remote before you work". An agent in a worktree or in the middle of a task could pull and change its branch. | For subagents, change the rule to: read the project docs before you change anything; do not pull, switch branches or reset unless the brief says so. | Phase 4 start (small fixes batch) |
+| I18 | Phase 1 | `grilling/agents/openai.yaml` was copied with the grilling skill. Claude Code does not use it. | Delete it, and note the deletion in `UPSTREAM.md`. | Phase 4 start (small fixes batch) |
+| I19 | Phase 1 | When someone has their own skill with the same name as an orchestrator skill, the log says "left alone, not ours" on every launch. | Log it only when the list of skipped skills changes. | Phase 7 (day log and state work) |
+| I20 | This log | `CLAUDE.md` on this branch holds the rule to raise these items. It must not reach `main` as it is. | Remove the orchestrator lines from `CLAUDE.md` in the merge PR, or keep only lines that are true on `main`. | Merge to `main` |
+
+## Decided or fixed
+
+| # | Found in | Issue | Result |
+|---|---|---|---|
+| D-a | Phase 0 | The headless CLI was not signed in, so the hook checks could not run. | Fixed: Cole signed in. `tools/hook-event-test.sh` passes 5 of 5. |
+| D-b | Phase 1 | With Orchestrator on before Phase 2, the kit rules and the skill rules disagreed. | Fixed in Phase 2: the working rules hook swaps the conflicting rules. |
+| D-c | Phase 2 | The test "read any 3 files" passed with one Bash call, so it did not test the guard. | Decided: the guard counts calls by design. The test now forces one Read call per file. See I9 for the file count. |
+| D-d | Phase 2 | The lookup limit of 2 per item. | Decided by Cole: keep it as it is. See I10. |
