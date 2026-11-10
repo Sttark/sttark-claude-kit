@@ -74,7 +74,7 @@ enum Login {
         }
     }
 
-    static let missingTip = "Sttark Claude Kit calls Claude Code at ~/.local/bin/claude. Without it, the STE check, Auto effort and the app rules refresh do nothing. Click to open Terminal and install it."
+    static let missingTip = "Sttark Claude Kit calls Claude Code at ~/.local/bin/claude. Without it, the STE check, Auto effort, session names and the app rules refresh do nothing. Click to open Terminal and install it."
 
     /// Opens Terminal with Claude Code's install command, for a Mac that has only the Claude app.
     static func installClaudeCode() {

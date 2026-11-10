@@ -100,12 +100,12 @@ def main():
     name_it(data, sid)
 
 
-def ask_model(system, ask):
+def ask_model(system, ask, sid=''):
     import subprocess
     if effort.at_limit():
         return ''   # no name for now: nothing is spent at the usage limit
-    if effort.cli_missing('name'):
-        return ''   # no name without Claude Code; the line is logged once an hour
+    if effort.cli_missing('name', (sid or '')[:8]):
+        return None   # no name without Claude Code; the line is logged once an hour
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
     env['EFFORT_JUDGE'] = '1'
@@ -142,10 +142,12 @@ def rename(data, sid, current):
            f'\n\nRecent conversation:\n{context or "(none)"}\n\nLatest message:\n{prompt[:2000]}\n\nKEEP or new name?')
     t0 = time.time()
     try:
-        name = ask_model(RENAMER, ask)
+        name = ask_model(RENAMER, ask, data.get('session_id') or sid)
     except Exception as e:
         effort.log(f'name   {sid[4:12]} recheck failed: {e!r}')
         return
+    if name is None:
+        return   # no Claude Code: already logged once an hour
     if not name or name.upper() in ('KEEP', 'WAIT') or len(name) > 40 or name == current:
         effort.log(f'name   {sid[4:12]} keeps "{current}" ({time.time() - t0:.1f}s)')
         return
@@ -177,10 +179,12 @@ def name_it(data, sid):
            f'Conversation so far:\n{context or "(none)"}\n\nLatest message:\n{prompt[:3000]}\n\nName?')
     t0 = time.time()
     try:
-        name = ask_model(NAMER, ask)
+        name = ask_model(NAMER, ask, data.get('session_id') or sid)
     except Exception as e:
         effort.log(f'name   {data.get("session_id", "")[:8]} failed: {e!r}')
         return
+    if name is None:
+        return   # no Claude Code: already logged once an hour
     snippet = re.sub(r'\s+', ' ', prompt)[:60]
     if not name or name.upper() == 'WAIT' or len(name) > 40:
         effort.log(f'name   {data.get("session_id", "")[:8]} wait ({time.time() - t0:.1f}s) | {snippet}')
