@@ -1,7 +1,7 @@
 # Orchestrator plan: issues log
 
 Issues, conflicts and gaps found while the orchestrator plan was built, with the recommended fix and the
-point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-09, after the I1 to I20 fixes.
+point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-09, after the I21 fix.
 
 **Rule:** at the start of each phase, and before the merge to `main`, read this file and raise every open item
 whose "Raise at" matches. Give the recommended fix and ask for a decision only where one is needed. Update the
@@ -14,7 +14,6 @@ status here when it is decided or fixed.
 | I3 | Phase 0 | This Mac has no "Sttark Effort Signing" certificate, so the branch build is signed ad hoc. macOS asks again for the Chrome approver's Accessibility permission after each install. | No change on the branch. Releases from `main` are signed by CI. | Merge to `main` |
 | I4 | Phase 0 | The updater is off on the branch (`Updater.enabled = false` in `Sources/Update.swift`), and the menu says so. `tools/update-test.sh` cannot pass with it off. | Set `Updater.enabled = true` and remove the menu line in the merge PR. Run `tools/update-test.sh`. | Merge to `main` |
 | I20 | This log | `CLAUDE.md` on this branch holds the rule to raise these items. It must not reach `main` as it is. | Remove the orchestrator lines from `CLAUDE.md` in the merge PR, or keep only lines that are true on `main`. | Merge to `main` (D38) |
-| I21 | I2 PR | `effort-hook.py` (about line 588) relaunches a session in `screen` with the CLI path and no check that the file exists. | Add the same missing-CLI check in PR #75. | Before PR #75 is merged |
 | I22 | Fixes | The validator's P3 finding is fixed, but the guard still lets one call of cost 2 through as the first call (for example `head -1 a b c d`). This is by design (2 lookups per item). | No change. | Before the org rollout (with D33) |
 
 ## Decided or fixed
@@ -26,7 +25,7 @@ status here when it is decided or fixed.
 | D-c | Phase 2 | The test "read any 3 files" passed with one Bash call, so it did not test the guard. | Decided: the guard counts calls by design. The test now forces one Read call per file. See I9 for the file count. |
 | D-d | Phase 2 | The lookup limit of 2 per item. | Decided by Cole: keep it as it is. See I10. |
 | I1 | Phase 0 | The org skills (`mt-*`, `bom-folder-check`, `onshape-asana-update`) come from the Claude app as a per-session plugin named `anthropic-skills:<name>`. They are not in `~/.claude/skills`, so a `claude` session started in Terminal does not see them. | Fixed: README note added. Routing itself is Phase 6 (D28). |
-| I2 | Phase 2 | The kit hooks need Claude Code at `~/.local/bin/claude`. Without it, the STE check, Auto effort and the app rules refresh fail with `FileNotFoundError` and nobody is told. Fixed on Cole's Mac by installing Claude Code in Terminal. Other people who use only the Claude app have the same problem. The same code is on `main`. | PR https://github.com/Sttark/sttark-claude-kit/pull/75 open: menu Install item and one log line. App CLI fallback rejected because that copy is not signed in for headless use (D37). |
+| I2 | Phase 2 | The kit hooks need Claude Code at `~/.local/bin/claude`. Without it, the STE check, Auto effort and the app rules refresh fail with `FileNotFoundError` and nobody is told. Fixed on Cole's Mac by installing Claude Code in Terminal. Other people who use only the Claude app have the same problem. The same code is on `main`. | PR https://github.com/Sttark/sttark-claude-kit/pull/75 open: menu Install item and one log line. App CLI fallback rejected because that copy is not signed in for headless use (D37). PR head 3cf5308, validator PASS; waiting for review and merge. |
 | I5 | Phase 1 | The upstream skills refer to skills the kit does not ship: `verify` (`orchestrate`), deep-research (`researcher.md`). `code-review` is a Claude Code built-in. | Fixed: verify, deep-research and code-review mapped in the skill text. |
 | I6 | Phase 1 | The `ops` agent may merge a PR "when the human has authorized that step". This conflicts with the production guard. | Fixed: merge removed from `ops.md`; merges only after `approve <action>`. |
 | I7 | Phase 2 | `orchestrator-delegation` and `workflow-patterns` say web research stays in the main session. This conflicts with D6/D22 and the inline guard. The `researcher` agent has WebFetch but not WebSearch. | Fixed: WebSearch added to `researcher.md`; web research goes to the researcher. |
@@ -42,3 +41,4 @@ status here when it is decided or fixed.
 | I17 | Phase 3 | Subagents get the rule "pull latest from remote before you work". An agent in a worktree or in the middle of a task could pull and change its branch. | Fixed: subagents get no pull, switch or reset unless the brief says so. |
 | I18 | Phase 1 | `grilling/agents/openai.yaml` was copied with the grilling skill. Claude Code does not use it. | Fixed: `openai.yaml` removed. |
 | I19 | Phase 1 | When someone has their own skill with the same name as an orchestrator skill, the log says "left alone, not ours" on every launch. | Fixed: skip note logged only when the list changes. |
+| I21 | I2 PR | `effort-hook.py` (about line 588) relaunches a session in `screen` with the CLI path and no check that the file exists. | Fixed in PR #75 (commits 05b309f and 3cf5308): `start_alone` skips the relaunch when Claude Code is missing; name-hook logs one line, not one per prompt. Validator: PASS. |
