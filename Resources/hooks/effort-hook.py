@@ -556,7 +556,7 @@ def track():
 
 KEEP_MAX = 30  # chats kept running at once; a `claude rc` server takes 32 by default
 KEEP_RETRY = 180  # seconds before waking the same chat again
-KEEP_MOVE = 2  # wakes that bring no process before the chat is started on its own (an unarchived one goes right away)
+KEEP_MOVE = 2  # wakes that bring no process before the chat is started on its own (an unarchived one goes right away); also the wakes a chat that ran on its own gets after a restart before it is started on its own again
 KEEP_PAUSE = 1800  # after a chat can't be started either way, seconds before trying again
 TRIGGERS = 'https://api.anthropic.com/v1/code/triggers'
 
@@ -616,6 +616,29 @@ def start_alone(transcript):
                     f"cd '{cwd or home}' && exec '{claude}' --resume {cid} --remote-control --permission-mode bypassPermissions"],
                    env=env)
     return cid
+
+
+def stood_down(name):
+    """Whether the chat in screen `name` was taken over elsewhere: Claude Code printed code 4090 and its status
+    line reads /rc failed. It stays open but answers nothing."""
+    import tempfile
+    fd, path = tempfile.mkstemp(prefix='kit-screen-')
+    os.close(fd)
+    text = ''
+    try:
+        subprocess.run(['/usr/bin/screen', '-S', name, '-p', '0', '-X', 'hardcopy', '-h', path], timeout=10)
+        for _ in range(25):  # screen writes the copy a moment after the command returns
+            time.sleep(0.2)
+            with open(path, 'rb') as f:
+                text = f.read().decode('utf-8', 'replace')
+            if text:
+                break
+    except Exception:
+        return False
+    finally:
+        os.unlink(path)
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return 'standing down (code 4090)' in ' '.join(text.split()) and bool(lines) and lines[-1].endswith('/rc failed')
 
 
 def chat_events(sid, pages=5):
@@ -726,13 +749,17 @@ def move(c, seq):
 
 
 def keep(dry=False):
-    """Every minute, from the app: keep every chat on this Mac running unless it's archived.
+    """Every minute, from the app: keep every chat on this Mac running unless it's archived, in one copy.
     A Mac restart ends every chat, and the server only starts a chat again when something reaches it. Each stopped
     chat gets its own effort level sent to it again, which makes the server start it on the same link with its
     whole conversation, and shows nothing in the chat.
     The server won't start a chat that was archived and then unarchived, so after KEEP_MOVE wakes that bring
-    nothing, move() starts it as a chat of its own on a new link. Those run outside the server, so after a restart
-    they're started again here, which brings back the same link.
+    nothing, move() starts it as a chat of its own (`alone`). After a restart those are woken through the server
+    first like any other chat; only after KEEP_MOVE wakes that bring nothing are they started on their own again,
+    which brings back the same link.
+    One chat, one copy: once the server runs a chat that was started on its own, or the copy it runs in was taken
+    over elsewhere (code 4090), that copy is quit and the chat is dropped from `alone`. A taken-over copy stays
+    open doing nothing, and while it lives, reminders for the chat are sent in a form only it reads, so they're lost.
     The server's environment (the place the Claude app lists for this Mac) is learned from the chats it runs,
     and remembered for after a restart."""
     import fcntl
@@ -760,19 +787,51 @@ def keep(dry=False):
     # chats running on their own. Stopping one (a restart) archives it, and starting it again brings it back on
     # the same link, so a stopped one is started again even when it shows as archived. Archived while it's still
     # running means the person archived it: it's stopped and forgotten.
+    by_id = {c['id']: c for c in chats}
     for sid, a in list(alone.items()):
         cid = os.path.basename(a['transcript'])[:-len('.jsonl')]
+        name, title = 'kit-' + cid[:8], a.get('title', '')
         up = f'--resume {cid}' in ps
+        if sid in running:  # the server runs it now: its own copy goes, so reminders reach the server's copy
+            if dry:
+                print(f'would hand over {sid} "{title}" to the server' + (f' and quit {name}' if up else ''))
+            else:
+                if up:
+                    subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                log(f'handover {sid} "{title}" the server runs it now' + (f'; quit its own copy ({name})' if up else ''))
+            alone.pop(sid)
+            continue
+        if up and stood_down(name):  # taken over elsewhere: open but doing nothing; the server wakes it below
+            if dry:
+                print(f'would quit {name}: {sid} "{title}" was taken over elsewhere (code 4090)')
+            else:
+                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                log(f'standdown {sid} "{title}" its own copy was taken over elsewhere (code 4090); quit {name}')
+            alone.pop(sid)
+            continue
         if status.get(sid) not in ('active', 'archived') or (up and status.get(sid) == 'archived' and now - a.get('at', 0) > 120):
             if not dry:
-                subprocess.run(['/usr/bin/screen', '-S', 'kit-' + cid[:8], '-X', 'quit'])
-                log(f'keep   {sid} "{a.get("title", "")}" archived or deleted in the Claude app; stopped it')
+                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                log(f'keep   {sid} "{title}" archived or deleted in the Claude app; stopped it')
             alone.pop(sid)
             continue
         if up or now - a.get('at', 0) < KEEP_RETRY:
             continue
+        tries = a.get('tries', 0)
+        if tries < KEEP_MOVE:  # stopped (a restart): the server first, like any other chat
+            c = by_id.get(sid, {})
+            meta, cfg = c.get('external_metadata') or {}, c.get('config') or {}
+            level = meta.get('effort_level') or cfg.get('effort_level') or 'high'
+            if dry:
+                print(f'would wake {sid} "{title}" at {level} (ran on its own; the server first)')
+                continue
+            code, text, _ = send(sid, level)
+            a.update(at=now, tries=tries + 1)
+            log(f'wake   {sid} "{title}" ran on its own and had stopped; sent {level} so the server starts it'
+                + ('' if 200 <= code < 300 else f' (failed {code}: {text[:120]})'))
+            continue
         if dry:
-            print(f'would start {sid} "{a.get("title", "")}" again on its own')
+            print(f'would start {sid} "{title}" again on its own')
             continue
         try:
             point_at(a['transcript'], sid, waiting_since_reply(chat_events(sid))[0])
@@ -780,8 +839,8 @@ def keep(dry=False):
             log(f'keep   {sid} couldn\'t read where it left off: {e!r}'[:200])
         if not start_alone(a['transcript']):
             continue   # no Claude Code to start it with; tried again after KEEP_RETRY
-        a['at'] = now
-        log(f'start  {sid} "{a.get("title", "")}" runs on its own and had stopped; started it again')
+        a.update(at=now, tries=0)
+        log(f'start  {sid} "{title}" ran on its own, had stopped, and {KEEP_MOVE} wakes didn\'t start it; started it on its own again')
 
     mine = [c for c in chats if c.get('environment_id') in envs and c.get('environment_kind') == 'bridge']
     stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running and c['id'] not in alone]
