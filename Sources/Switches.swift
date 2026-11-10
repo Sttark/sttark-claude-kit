@@ -112,7 +112,37 @@ enum Orchestrator {
 
     static func set(_ on: Bool) {
         let r = Updater.run("/usr/bin/python3", [Bypass.installer, "--orchestrator", on ? "on" : "off"]).1
+        linkDaylog(on)
         note("orchestrator: \(r.trimmingCharacters(in: .whitespacesAndNewlines))")
+    }
+
+    /// The claude-daylog command (the day log tool) is linked in ~/.local/bin while the switch is on.
+    static var daylogTool: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude-daylog") }
+
+    /// At launch: link when the switch is on; when off, remove the link only if it points at the kit's daylog.py.
+    static func syncDaylogLink() {
+        if on { linkDaylog(true); return }
+        let fm = FileManager.default
+        if let dest = try? fm.destinationOfSymbolicLink(atPath: daylogTool.path),
+           dest == hooksDir.appendingPathComponent("daylog.py").path {
+            try? fm.removeItem(at: daylogTool)
+        }
+    }
+
+    static func linkDaylog(_ on: Bool) {
+        let fm = FileManager.default
+        let script = hooksDir.appendingPathComponent("daylog.py")
+        let existing = try? fm.destinationOfSymbolicLink(atPath: daylogTool.path)
+        let present = fm.fileExists(atPath: daylogTool.path) || existing != nil
+        if present && existing != script.path {
+            if on { note("claude-daylog: \(daylogTool.path) is not ours; left alone") }
+            return
+        }
+        try? fm.removeItem(at: daylogTool)
+        guard on else { return }
+        try? fm.createDirectory(at: daylogTool.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.createSymbolicLink(at: daylogTool, withDestinationURL: script)
+        chmod(script.path, 0o755)
     }
 }
 

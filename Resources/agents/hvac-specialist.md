@@ -24,3 +24,5 @@ If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a
 ## Required output format
 
 What you did and what the spec shows, with the evidence. Or NEEDS INPUT and the numbered questions. Last line: `claude-window done` run, yes, no, or not used.
+
+Never write the day log or the orchestrator state file.

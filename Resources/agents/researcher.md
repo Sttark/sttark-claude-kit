@@ -56,3 +56,5 @@ Return exactly these sections:
 2. **Supporting detail** — the key evidence excerpts (short code snippets, doc quotes) with citations, only what the orchestrator needs to trust the answers.
 3. **UNKNOWNs and open risks** — what could not be established, what you tried, and the cheapest way to resolve each.
 4. **Adjacent findings** (optional, max ~3 bullets) — important things discovered en route that were not asked.
+
+Never write the day log or the orchestrator state file.

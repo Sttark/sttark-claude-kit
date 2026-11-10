@@ -98,6 +98,18 @@ check('mcp read tool denied as 3rd', denied(tool('mcp__x__search_code'), LOOK))
 run('UserPromptSubmit')
 check('mcp read tool allowed after reset', tool('mcp__x__list_issues') is None)
 
+# claude-daylog: never a lookup, never a long run
+run('UserPromptSubmit', 'dl', prompt='x')
+outs = [tool('Bash', 'dl', command=c) for c in ['claude-daylog add --repo x --kind done --text "a | b; make"',
+        'claude-daylog show', '~/.local/bin/claude-daylog open --item x', 'timeout 5 claude-daylog path --create',
+        'claude-daylog show && claude-daylog path']]
+check('claude-daylog commands are not lookups and not long runs', all(o is None for o in outs))
+check('claude-daylog did not count', 'dl' not in (json.load(open(os.path.join(KIT, 'state.json'))).get('guard') or {}))
+check('claude-daylog next to a lookup still counts', tool('Bash', 'dl', command='claude-daylog show; cat a') is None
+      and tool('Bash', 'dl', command='claude-daylog show; cat a') is None
+      and denied(tool('Bash', 'dl', command='claude-daylog show; cat a'), LOOK))
+check('claude-daylog next to a build is still a long run', denied(tool('Bash', 'dl2', command='claude-daylog show; make'), OPS))
+
 # Edits
 run('UserPromptSubmit')
 small_old = 'a\nb\nc\nd\ne\nf\n'
@@ -248,7 +260,7 @@ check('install, switch off: no guard entries', guard_events() == [])
 check('--status guard false', json.loads(install('--status'))['guard'] is False)
 out = install('--orchestrator', 'on')
 check('--orchestrator on: guard entries in all three events', guard_events() == ALL)
-check('--orchestrator on: output says guard on, subrules on, uicheck on, browser on', out.endswith('guard on, subrules on, uicheck on, browser on'))
+check('--orchestrator on: output says guard on, subrules on, uicheck on, browser on', out.endswith('guard on, subrules on, uicheck on, browser on, daylog on, rotation on'))
 pre, post, ups = (guard_groups(e)[0] for e in ('PreToolUse', 'PostToolUse', 'UserPromptSubmit'))
 check('PreToolUse matcher set',
       pre['matcher'] == '^(Read|Grep|Glob|Bash|WebFetch|WebSearch|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|mcp__.*)$')
@@ -268,7 +280,7 @@ check('launch run, switch on: guard entries kept, one copy each',
 check('launch run with nothing new: unchanged', install() == 'unchanged')
 out = install('--orchestrator', 'off')
 check('--orchestrator off: guard entries out', guard_events() == [])
-check('--orchestrator off: output says guard off, subrules off, uicheck off, browser off', out.endswith('guard off, subrules off, uicheck off, browser off'))
+check('--orchestrator off: output says guard off, subrules off, uicheck off, browser off', out.endswith('guard off, subrules off, uicheck off, browser off, daylog off, rotation off'))
 json.dump({'orchestrator': True}, open(os.path.join(ikit, 'state.json'), 'w'))   # switched on by hand
 install()
 check('launch run brings guard entries in line with the switch (on)', guard_events() == ALL)

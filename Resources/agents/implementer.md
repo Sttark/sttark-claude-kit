@@ -49,3 +49,5 @@ Return exactly these sections:
 3. **Test output** — the exact command you ran and its verbatim output (last ~30 lines if long, always including the pass/fail summary and exit status). Never paraphrase test results.
 4. **Acceptance criteria** — each criterion from the dispatch prompt, with met/not-met and the evidence.
 5. **UNKNOWNs and observations** — anything you could not resolve, plus out-of-scope issues you noticed but did not touch.
+
+Never write the day log or the orchestrator state file.

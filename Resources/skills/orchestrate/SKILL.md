@@ -54,6 +54,21 @@ Run these phases in order. Small tasks compress several into one pass; hard-to-r
 
 **7. Report with evidence.** Use the Sttark asks table: each ask is done, open or dropped, with the reason, plus an Evidence column (test counts, commands run, what you observed). Give the shortest reply that fully answers, in ASD-STE100 Simplified Technical English, with no recap. "Done" without evidence is confident guessing. If something was skipped or a test failed, say so plainly.
 
+## Day log and state
+
+Only you, the orchestrator, write the day log (`claude-daylog`), never a subagent. Write it only at these checkpoints:
+
+- A validator verdict comes back: `claude-daylog add --repo R --kind done` for PASS (with the evidence), `--kind kicked` for FAIL (with the gap and retry yes or no).
+- The person settles a decision (a grilling round or a choice): `--kind decision`, with the reason.
+- The person drops an item: `--kind dropped`, with the reason.
+- Rotation, or the person says the day is done: `claude-daylog open --repo R --item "<item | kind | state: ...>"` for every unfinished item.
+
+At each checkpoint, and before rotation, also overwrite the state file (`claude-daylog state-path --repo R`) with the Write tool: branch, worktrees, running agents, next command, current item, updated time. The Stop hook blocks the turn while a verdict has no day log entry.
+
+Rotation: when the rotation hook says so, wait for a clean stopping point (no running agents, no verdict without an entry). Write the state and the Open snapshot, then tell the person to run /clear. After /clear, read the restored state and go on.
+
+No Asana writes during work (D15).
+
 ## Autonomy rails (these still bind)
 
 The browser is one shared resource. Start only one browsing agent at a time; queue the others. A hook makes a second browsing agent wait, then denies it. The main thread runs `claude-window done` before it hands browser work to an agent.

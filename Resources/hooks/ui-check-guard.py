@@ -38,6 +38,10 @@ NOT_UI_NAME = re.compile(r'\.(test|spec)\.[a-z]+$|(^|/)(__tests__|tests?|e2e|api
 # Generic words such as ok, pass, fail or error do not count.
 CHECK_NAME = re.compile(r'page[- ]check|check-pages', re.I)
 CHECK_RESULT = re.compile(r'Every page passes|\d+ problems? \(|nothing to check|page views', re.I)
+# Outside a code block, only the strong markers count anywhere near the name. The weak words "page views" and
+# "nothing to check" count there only on a line that starts like page-check's own output (I23).
+STRONG = re.compile(r'Every page passes|\d+ problems? \(', re.I)
+OUTPUT_LINE = re.compile(r'\s*(Every page passes|No page changed|\d+ problems? \()', re.I)
 NEAR = 4                                              # lines around the script name that may hold the result
 SET_UP = ('scripts/page-check.mjs', '*/scripts/page-check.mjs', 'page-check/check-pages.mjs')
 
@@ -113,7 +117,10 @@ def has_check_output(texts):
     for t in texts:
         lines = t.splitlines()
         for i, ln in enumerate(lines):
-            if CHECK_NAME.search(ln) and CHECK_RESULT.search('\n'.join(lines[max(0, i - NEAR):i + NEAR + 1])):
+            if not CHECK_NAME.search(ln):
+                continue
+            near = lines[max(0, i - NEAR):i + NEAR + 1]
+            if STRONG.search('\n'.join(near)) or any(OUTPUT_LINE.match(x) and CHECK_RESULT.search(x) for x in near):
                 return True
         for k, blk in enumerate(t.split('```')):
             if k % 2 and CHECK_NAME.search(blk) and CHECK_RESULT.search(blk):

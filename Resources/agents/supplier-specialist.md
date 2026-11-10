@@ -30,3 +30,5 @@ Pass 1 lists each message (full text and recipient) and each payment (amount and
 ## Required output format
 
 Pass 1: supplier findings, then PROPOSAL, one change per line. Pass 2: each change as DONE or FAILED, with the evidence.
+
+Never write the day log or the orchestrator state file.

@@ -1,7 +1,7 @@
 # Orchestrator plan: issues log
 
 Issues, conflicts and gaps found while the orchestrator plan was built, with the recommended fix and the
-point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-10, after Phase 6.
+point where each one must come up. Status: open, decided or fixed. Last update: 2026-11-10, after Phase 7.
 
 **Rule:** at the start of each phase, and before the merge to `main`, read this file and raise every open item
 whose "Raise at" matches. Give the recommended fix and ask for a decision only where one is needed. Update the
@@ -15,10 +15,10 @@ status here when it is decided or fixed.
 | I4 | Phase 0 | The updater is off on the branch (`Updater.enabled = false` in `Sources/Update.swift`), and the menu says so. `tools/update-test.sh` cannot pass with it off. | Set `Updater.enabled = true` and remove the menu line in the merge PR. Run `tools/update-test.sh`. | Merge to `main` |
 | I20 | This log | `CLAUDE.md` on this branch holds the rule to raise these items. It must not reach `main` as it is. | Remove the orchestrator lines from `CLAUDE.md` in the merge PR, or keep only lines that are true on `main`. | Merge to `main` (D38) |
 | I22 | Fixes | The validator's P3 finding is fixed, but the guard still lets one call of cost 2 through as the first call (for example `head -1 a b c d`). This is by design (2 lookups per item). | No change. | Before the org rollout (with D33) |
-| I23 | Phase 4 | The UI guard's page-check output check also accepts the markers "page views" and "nothing to check" near the script name, so a sentence such as "I did not run page-check; no page views to look at." passes. | Accept "page views" and "nothing to check" only inside a code block or on a line that starts like page-check's own output; add tests. | Phase 7 start (with the hook work there) |
 | I25 | Phase 5 | The browser lock and the inline guard treat a heredoc body line that starts with `claude-window` (or a long-run command) as a command. The agent only waits or is told to delegate; nothing gets through. | Skip heredoc bodies in the splitter if it becomes a nuisance. | Before the org rollout |
 | I26 | Phase 6 | The browser lock sees Chrome AppleScript only when the script text is in the command (`-e` or heredoc). `osascript file.scpt` with no "chrome" in the name, piped stdin and `-e "$VAR"` are not seen. The org skill uses inline scripts. | Read the script file or variable when cheap; else accept. | Before the org rollout |
 | I27 | Phase 6 | Two-pass specialists that inherit MCP tools (asana-update, onshape-cleanup, supplier, strategy) still have their write tools in pass 1; only their text stops them, because MCP tool names carry a per-person connector id. | Add the production guard's deny for these writes in pass 1 (Phase 8), keyed by agent type and the "PASS 2: approved" brief. | Phase 8 start |
+| I28 | Phase 7 | The day log repo name is the basename of the git top folder, so a session started in a worktree folder writes under the worktree's name, not the repo's. | Use the main repo's name (`git rev-parse --git-common-dir`) for worktrees. | Phase 8 start |
 
 ## Decided or fixed
 
@@ -31,6 +31,7 @@ status here when it is decided or fixed.
 | D-e | Phase 4 | The app rules cache (`app-rules/chapters.json`) was empty on Cole's Mac. | Not a fault: it fills on the first prompt in a Sttark app repo. Filled with the hook's own gh check (revision 63). |
 | D-f | Phase 5 | The inline guard accepted fewer command prefixes than the browser lock, so `timeout 600 npm test` in the main thread was not seen as a long run. | Fixed: one shared module `shell_commands.py` holds the splitter and the prefix list for both hooks. Validator: PASS. |
 | D-g | Phase 6 | The kit's browser rule says claude-window only, but org skills use the Claude in Chrome tools or Chrome AppleScript. | Decided: an org skill's own browser method wins for its specialist; the browser lock covers claude-window, Claude in Chrome tools and Chrome AppleScript. |
+| D-h | Phase 7 | Nothing allowed the `claude-daylog` command, so every checkpoint would ask for permission and headless runs were denied. | Decided by Cole: with Orchestrator on, the kit adds `Bash(claude-daylog:*)` to Claude Code's allow list and removes it when off, only if the kit added it (tracked in daylog-allow-created.json). Validator: PASS. |
 | I24 | Phase 4 | The UI guard asks the implementer to run page-check. That works only when the agent has Bash. | Fixed: the ui-check-guard block reason tells an agent without Bash to say so. |
 | I1 | Phase 0 | The org skills (`mt-*`, `bom-folder-check`, `onshape-asana-update`) come from the Claude app as a per-session plugin named `anthropic-skills:<name>`. They are not in `~/.claude/skills`, so a `claude` session started in Terminal does not see them. | Fixed: README note added. The route step reads the session's listed skills; org skills `anthropic-skills:<name>` route only in Code tab sessions (D28). A real test in a Code tab session: bom-specialist had the bom-folder-check text at start with no tool calls, so `skills:` accepts the namespaced name. |
 | I2 | Phase 2 | The kit hooks need Claude Code at `~/.local/bin/claude`. Without it, the STE check, Auto effort and the app rules refresh fail with `FileNotFoundError` and nobody is told. Fixed on Cole's Mac by installing Claude Code in Terminal. Other people who use only the Claude app have the same problem. The same code is on `main`. | PR https://github.com/Sttark/sttark-claude-kit/pull/75 open: menu Install item and one log line. App CLI fallback rejected because that copy is not signed in for headless use (D37). PR head 3cf5308, validator PASS; waiting for review and merge. |
@@ -49,4 +50,5 @@ status here when it is decided or fixed.
 | I17 | Phase 3 | Subagents get the rule "pull latest from remote before you work". An agent in a worktree or in the middle of a task could pull and change its branch. | Fixed: subagents get no pull, switch or reset unless the brief says so. |
 | I18 | Phase 1 | `grilling/agents/openai.yaml` was copied with the grilling skill. Claude Code does not use it. | Fixed: `openai.yaml` removed. |
 | I19 | Phase 1 | When someone has their own skill with the same name as an orchestrator skill, the log says "left alone, not ours" on every launch. | Fixed: skip note logged only when the list changes. |
+| I23 | Phase 4 | The UI guard's page-check output check also accepted "page views" and "nothing to check" near the script name. | Fixed in Phase 7: they count only in page-check's own output lines. |
 | I21 | I2 PR | `effort-hook.py` (about line 588) relaunches a session in `screen` with the CLI path and no check that the file exists. | Fixed in PR #75 (commits 05b309f and 3cf5308): `start_alone` skips the relaunch when Claude Code is missing; name-hook logs one line, not one per prompt. Validator: PASS. |

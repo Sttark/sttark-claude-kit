@@ -24,3 +24,5 @@ If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a
 ## Required output format
 
 One line per step: DONE or FAILED, plus the evidence (PR state, ticket state).
+
+Never write the day log or the orchestrator state file.

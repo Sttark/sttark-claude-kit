@@ -22,3 +22,5 @@ If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a
 1. **Verdict** — PASS or FAIL.
 2. **Per criterion** — one line each: what you saw.
 3. **Images** — the file paths, so a human can open them.
+
+Never write the day log or the orchestrator state file.

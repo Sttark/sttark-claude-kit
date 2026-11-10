@@ -13,6 +13,8 @@ PreToolUse:
   lookup: 1 for 1 to 3 files, 2 for 4 to 6, and so on. A glob counts as 4 files.
   Only calls that were let through count. The count starts again when the person sends a prompt
   (UserPromptSubmit) and when the main agent starts an agent (the Agent or Task tool).
+- A Bash command that only runs `claude-daylog` (any subcommand) is not a lookup and never a long run: the
+  orchestrator writes the day log at checkpoints.
 - Long Bash runs (builds, test suites, installs: LONG_RUNS below) are denied, also as the 1st call.
 - Edit, Write, MultiEdit, NotebookEdit: let through for the day log, the orchestrator state files and NEXT
   files, and for a fix of 3 lines or less. Anything bigger is denied.
@@ -127,6 +129,12 @@ def is_lookup(tool):
     if tool.startswith('mcp__') and not tool.startswith('mcp__ccd_'):
         return tool.rsplit('__', 1)[-1].lower().startswith(MCP_READ)
     return False
+
+
+def only_daylog(cmd):
+    """True when every command in a Bash command line is claude-daylog (the day log tool)."""
+    parts = [strip_prefix(p).split() for p in commands(cmd)]
+    return bool(parts) and all(w and os.path.basename(w[0].strip('"\'')) == 'claude-daylog' for w in parts)
 
 
 def long_run(cmd):
@@ -249,6 +257,8 @@ def on_tool(data):
             deny(DENY_EDIT)
         return
     if tool == 'Bash':
+        if only_daylog(ti.get('command')):
+            return
         run = long_run(ti.get('command'))
         if run:
             log(f'deny   {sid[:8]} Bash long run: {run}')

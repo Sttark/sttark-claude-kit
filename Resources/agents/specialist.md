@@ -19,3 +19,5 @@ If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a
 ## Required output format
 
 What you did, the evidence, and UNKNOWN for what you could not confirm.
+
+Never write the day log or the orchestrator state file.

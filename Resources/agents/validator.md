@@ -98,3 +98,5 @@ The last line of the report is the verdict line. Exactly one line, nothing after
 `VERDICT: FAIL | <item> | <gap>`
 
 `<item>` is the item name from the brief, exactly. `<evidence>` or `<gap>` is one line. Do not use `|` inside a field.
+
+Never write the day log or the orchestrator state file.

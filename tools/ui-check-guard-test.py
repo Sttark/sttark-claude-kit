@@ -96,6 +96,12 @@ check('problems result near the name allows',
       run(tp=UI, last='page-check output:\n3 problems (5 with every page) on 12 page views') is None)
 check('result far from the name does not allow',
       run(tp=UI, last='page-check later.\n' + 'x\n' * 10 + 'Every page passes (1 page views)') is not None)
+check('I23: "no page views to look at" sentence blocks',
+      run(tp=UI, last='I did not run page-check; no page views to look at.') is not None)
+check('I23: "nothing to check I think" sentence blocks',
+      run(tp=UI, last='I skipped page-check, nothing to check I think.') is not None)
+check('I23: output line "No page changed; nothing to check." allows',
+      run(tp=UI, last='page-check output:\nNo page changed; nothing to check.') is None)
 check('denied edit does not count', run(tp=transcript('t7', [TSX], errors=(0,)), last='Done.') is None)
 check('failed edit does not count', run(tp=transcript('t8', [TSX], errors=(0,)), last='Done.') is None)
 check('one failed, one ok edit blocks', run(tp=transcript('t9', [TSX, os.path.join(APP, 'b.css')], errors=(0,)),
@@ -162,7 +168,7 @@ install()
 check('install, switch off: no uicheck entry', groups() == [])
 check('--status uicheck false', json.loads(install('--status'))['uicheck'] is False)
 out = install('--orchestrator', 'on')
-check('--orchestrator on: output names uicheck', out.endswith('guard on, subrules on, uicheck on, browser on'))
+check('--orchestrator on: output names uicheck', out.endswith('guard on, subrules on, uicheck on, browser on, daylog on, rotation on'))
 check('--orchestrator on: one entry, matcher implementer, command quoted',
       len(groups()) == 1 and groups()[0]['matcher'] == 'implementer'
       and groups()[0]['hooks'][0]['command'].startswith('"') and groups()[0]['hooks'][0]['command'].endswith('ui-check-guard.py"'))
@@ -170,7 +176,7 @@ check('--status uicheck true', json.loads(install('--status'))['uicheck'] is Tru
 install()
 check('launch run keeps one entry', len(groups()) == 1)
 out = install('--orchestrator', 'off')
-check('--orchestrator off: entry removed, output names uicheck', groups() == [] and out.endswith('uicheck off, browser off'))
+check('--orchestrator off: entry removed, output names uicheck', groups() == [] and out.endswith('uicheck off, browser off, daylog off, rotation off'))
 check('other SubagentStop hooks left alone',
       any(h.get('command') == 'other-hook.sh' for g in json.load(open(SET))['hooks']['SubagentStop'] for h in g['hooks']))
 install('--orchestrator', 'on')

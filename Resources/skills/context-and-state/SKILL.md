@@ -101,6 +101,12 @@ Update NEXT.md (and, for milestone-sized state, a deeper handoff doc) at these m
 
 A checkpoint is 2 minutes of writing that saves a 30-minute archaeology dig. When work completes, a good convention is: update the tracker status + append a build log entry + update NEXT.md, in that order.
 
+## Orchestrator day log and state file
+
+When the Orchestrator switch is on, the kit keeps two more stores. NEXT.md stays the repo's own notes. The kit state file (`claude-daylog state-path --repo R`, in the kit folder, not in the repo) is the orchestrator's in-flight state: branch, worktrees, running agents, next command, current item, updated time (D18). It does not replace NEXT.md.
+
+The day log (`claude-daylog`, one file per day) is written only by the orchestrator, never by a subagent, and only at these checkpoints: a validator verdict (Done for PASS, Kicked back for FAIL, with the evidence); a decision the person settles (with the reason); an item the person drops (with the reason); rotation or "the day is done" (Open: a snapshot of every unfinished item). Write the state file at each checkpoint and before rotation. Rotate at a clean stopping point (no running agents, no verdict without an entry): write state and the Open snapshot, then tell the person to run /clear. After /clear, read the restored state and go on. No Asana writes during work (D15).
+
 ## Repos without a NEXT.md
 
 If a repo has real multi-session work but no NEXT.md, create one with the standard skeleton and mention it. Don't create one for throwaway scripts or single-session tasks. For a repo you've never seen at all, run familiarize first — it owns onboarding and CLAUDE.md creation; this skill takes over once there's state worth resuming.

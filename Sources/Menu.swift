@@ -201,6 +201,11 @@ final class Controller: NSObject, NSMenuDelegate {
         orch.state = Orchestrator.on ? .on : .off
         orch.toolTip = "Adds the orchestrator skills and agents to Claude Code, so every session can plan the work, ask questions where the task is unclear, hand the work to agents and check what they did. Off unless you turn it on."
         menu.addItem(orch)
+        if Orchestrator.on {
+            let dl = action("Open today's log", #selector(openDayLog))
+            dl.toolTip = "Opens today's orchestrator day log: what was done, kicked back, decided, dropped and still open, per repo."
+            menu.addItem(dl)
+        }
         if ChromeApprover.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
@@ -368,6 +373,13 @@ final class Controller: NSObject, NSMenuDelegate {
         guard let id = sender.representedObject as? String else { return }
         State.setManual(id, sender.state == .on)
         refreshIcon()
+    }
+
+    @objc func openDayLog() {
+        let (code, out) = Updater.run("/usr/bin/python3", [hooksDir.appendingPathComponent("daylog.py").path, "path", "--create"])
+        let path = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard code == 0, !path.isEmpty else { note("day log: could not get the path (exit \(code))"); return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
     @objc func openLog() {

@@ -23,7 +23,8 @@ Orchestrator switch is on, and come out when it is off and with --remove. So doe
 (ui-check-guard.py: SubagentStop, matcher implementer), which blocks an implementer once when it changed
 UI files and reports no page-check output. So does the browser lock (browser-lock.py: PreToolUse with a
 matcher for Bash and the Claude in Chrome tools, and SubagentStop), which lets one browsing agent at a time use
-the browser.
+the browser. So does the day log (daylog.py --hook: SubagentStop with matcher validator, Stop and SessionStart), which
+records the validator's verdict, blocks a turn until the day log has the entry, and restores the state after /clear.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -330,6 +331,104 @@ def set_browser(hooks, on):
             hooks.pop(event, None)
 
 
+DAYLOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'daylog.py')
+
+
+def is_daylog(cmd):
+    return 'daylog.py' in cmd
+
+
+def set_daylog(hooks, on):
+    """The day log hooks, with the Orchestrator switch on: the verdict recorder (SubagentStop, validator), the
+    day log check when a turn ends (Stop) and the restore after /clear (SessionStart, matcher clear)."""
+    for event in ('SubagentStop', 'Stop', 'SessionStart'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_daylog(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            group = {'hooks': [{'type': 'command', 'command': f'"{DAYLOG}" --hook', 'timeout': 10}]}
+            if event == 'SubagentStop':
+                group = {'matcher': 'validator', **group}
+            elif event == 'SessionStart':
+                group = {'matcher': 'clear', **group}
+            groups.append(group)
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
+ALLOW_RULE = 'Bash(claude-daylog:*)'   # Claude Code's documented prefix form (same as 'Bash(claude-daylog *)')
+ALLOW_MADE = os.path.join(KIT, 'daylog-allow-created.json')   # what the kit added: rule_added, permissions_created, allow_created
+
+
+def set_daylog_allow(s, on):
+    """With the switch on, the day log command is in permissions.allow; the kit adds it only when missing and
+    records that. Off, the rule leaves only if the kit added it (a rule the person had stays). A permissions
+    object or allow list the kit created is dropped again when empty; the person's own stay."""
+    try:
+        made = json.load(open(ALLOW_MADE))
+        if not isinstance(made, dict):
+            made = {}
+    except (OSError, ValueError):
+        made = {}
+    perms = s.get('permissions')
+    if on:
+        if 'permissions' in s and not isinstance(perms, dict):
+            return   # not an object: leave it alone
+        if perms is None:
+            perms = s['permissions'] = {}
+            made['permissions_created'] = True
+        allow = perms.get('allow')
+        if allow is None:
+            allow = perms['allow'] = []
+            made['allow_created'] = True
+        if not isinstance(allow, list):
+            return
+        if ALLOW_RULE not in allow:
+            allow.append(ALLOW_RULE)
+            made['rule_added'] = True
+        else:
+            made.setdefault('rule_added', False)
+    else:
+        if made.get('rule_added') and isinstance(perms, dict) and isinstance(perms.get('allow'), list):
+            perms['allow'] = [r for r in perms['allow'] if r != ALLOW_RULE]
+            if not perms['allow'] and made.get('allow_created'):
+                del perms['allow']
+            if not perms and made.get('permissions_created'):
+                del s['permissions']
+        made = None
+    try:
+        if made:
+            json.dump(made, open(ALLOW_MADE, 'w'))
+        elif os.path.exists(ALLOW_MADE):
+            os.remove(ALLOW_MADE)
+    except OSError:
+        pass
+
+
+ROTATION = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rotation-hook.py')
+
+
+def is_rotation(cmd):
+    return 'rotation-hook.py' in cmd
+
+
+def set_rotation(hooks, on):
+    """The rotation reminder at UserPromptSubmit, with the Orchestrator switch on."""
+    groups = hooks.get('UserPromptSubmit', [])
+    for g in groups:
+        g['hooks'] = [h for h in g.get('hooks', []) if not is_rotation(h.get('command', ''))]
+    groups = [g for g in groups if g.get('hooks')]
+    if on:
+        groups.append({'hooks': [{'type': 'command', 'command': f'"{ROTATION}"', 'timeout': 10}]})
+    if groups:
+        hooks['UserPromptSubmit'] = groups
+    else:
+        hooks.pop('UserPromptSubmit', None)
+
+
 def same_tree(a, b):
     def files(root):
         out = {}
@@ -410,7 +509,11 @@ def main():
                           'guard': has(s, 'PreToolUse', is_guard),
                           'subrules': has(s, 'SubagentStart', is_subrules),
                           'uicheck': has(s, 'SubagentStop', is_uicheck),
-                          'browser': has(s, 'PreToolUse', is_browser) and has(s, 'SubagentStop', is_browser)}))
+                          'browser': has(s, 'PreToolUse', is_browser) and has(s, 'SubagentStop', is_browser),
+                          'daylog': has(s, 'SubagentStop', is_daylog) and has(s, 'Stop', is_daylog)
+                                    and has(s, 'SessionStart', is_daylog),
+                          'daylog_allow': ALLOW_RULE in ((s.get('permissions') or {}).get('allow') or []),
+                          'rotation': has(s, 'UserPromptSubmit', is_rotation)}))
         return
     if '--orchestrator' in sys.argv:
         on = sys.argv[sys.argv.index('--orchestrator') + 1] == 'on'
@@ -421,9 +524,12 @@ def main():
         set_subrules(s['hooks'], on)
         set_uicheck(s['hooks'], on)
         set_browser(s['hooks'], on)
+        set_daylog(s['hooks'], on)
+        set_daylog_allow(s, on)
+        set_rotation(s['hooks'], on)
         save(s, before, None)
         state_word = 'on' if on else 'off'
-        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}')
+        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}, daylog {state_word}, rotation {state_word}')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -462,6 +568,9 @@ def main():
     set_subrules(hooks, orchestrator_on() and not remove)
     set_uicheck(hooks, orchestrator_on() and not remove)
     set_browser(hooks, orchestrator_on() and not remove)
+    set_daylog(hooks, orchestrator_on() and not remove)
+    set_daylog_allow(s, orchestrator_on() and not remove)
+    set_rotation(hooks, orchestrator_on() and not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])
@@ -490,7 +599,11 @@ def save(s, before, what):
         return False
     os.makedirs(os.path.dirname(SETTINGS), exist_ok=True)
     if os.path.exists(SETTINGS):
-        shutil.copy2(SETTINGS, SETTINGS + time.strftime('.bak-effort-%Y%m%d-%H%M%S'))
+        stamp = time.strftime('.bak-effort-%Y%m%d-%H%M%S')
+        bak, n = SETTINGS + stamp, 1
+        while os.path.exists(bak):   # same second: keep both
+            bak, n = f'{SETTINGS}{stamp}-{n}', n + 1
+        shutil.copy2(SETTINGS, bak)
     tmp = SETTINGS + '.tmp'
     with open(tmp, 'w') as f:
         json.dump(s, f, indent=2)

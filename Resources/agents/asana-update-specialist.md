@@ -29,3 +29,5 @@ Pass 1 lists each task URL, the field and the new value.
 ## Required output format
 
 Pass 1: PROPOSAL, one change per line. Pass 2: each change as DONE or FAILED, with the evidence.
+
+Never write the day log or the orchestrator state file.
