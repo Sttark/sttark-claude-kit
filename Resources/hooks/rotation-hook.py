@@ -78,13 +78,26 @@ def window(tokens, model):
     return 1_000_000 if '[1m]' in model.lower() or tokens > 200_000 else 200_000
 
 
-def message(pct, moved):
+def saved_note(cwd):
+    """Says that questions and findings are saved automatically, and where the state file is."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import daylog
+        sp = daylog.state_path(daylog.repo_of(cwd or None))
+    except Exception:
+        sp = os.path.join(DIR, 'orchestrator', 'state', '<repo>.md')
+    return (f' Questions you asked the person and agent findings are saved automatically (next to the state file, '
+            f'in {sp[:-3]}.pending.md, full agent reports in {sp[:-3]}/findings/); the state file is {sp}.')
+
+
+def message(pct, moved, cwd=None):
     now = pct >= 80
     text = (f'{"Rotation now" if now else "Rotation"} (Sttark orchestrator): context {pct}% used'
             f'{", and the session moved to a new topic" if moved else ""}. '
             'At the next clean stopping point (no running agents, no validator verdict without a day log entry), '
             "write this repo's state file and the Open snapshot (`claude-daylog open --repo <repo> --item ...`), "
             'then tell the person to run /clear. After /clear the state and Open items are restored.')
+    text += saved_note(cwd)
     if now:
         text += ' Do it at the first clean stopping point; do not start new work first.'
     return text
@@ -130,7 +143,7 @@ def main():
     if fire:
         log(f'rotate {sid[:8]} context {pct}%{", renamed" if moved else ""}: told the agent')
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit',
-                                                 'additionalContext': message(pct, moved)}}))
+                                                 'additionalContext': message(pct, moved, data.get('cwd'))}}))
 
 
 if __name__ == '__main__':

@@ -23,8 +23,8 @@ Orchestrator switch is on, and come out when it is off and with --remove. So doe
 (ui-check-guard.py: SubagentStop, matcher implementer), which blocks an implementer once when it changed
 UI files and reports no page-check output. So does the browser lock (browser-lock.py: PreToolUse with a
 matcher for Bash and the Claude in Chrome tools, and SubagentStop), which lets one browsing agent at a time use
-the browser. So does the day log (daylog.py --hook: SubagentStop with matcher validator, Stop and SessionStart), which
-records the validator's verdict, blocks a turn until the day log has the entry, and restores the state after /clear.
+the browser. So does the day log (daylog.py --hook: SubagentStop, Stop, SessionStart, PostToolUse with matcher AskUserQuestion and UserPromptSubmit), which
+records the validator's verdict, blocks a turn until the day log has the entry, saves questions and agent findings, and restores them and the state after /clear.
 So does the production guard (prod-guard.py: PreToolUse with a matcher for Bash and MCP tools, UserPromptSubmit and
 SubagentStop), which denies pushes to main, merges, deploys and production migrations until the person types
 `approve <action>`.
@@ -369,19 +369,22 @@ def is_daylog(cmd):
 
 
 def set_daylog(hooks, on):
-    """The day log hooks, with the Orchestrator switch on: the verdict recorder (SubagentStop, validator), the
-    day log check when a turn ends (Stop) and the restore after /clear (SessionStart, matcher clear)."""
-    for event in ('SubagentStop', 'Stop', 'SessionStart'):
+    """The day log hooks, with the Orchestrator switch on: the verdict recorder and findings saver (SubagentStop,
+    all agents), the day log check and plain-text question saver when a turn ends (Stop), the restore at
+    SessionStart (startup, clear, compact, resume), the question saver (PostToolUse, AskUserQuestion) and the
+    resolver of saved questions (UserPromptSubmit)."""
+    matchers = {'SubagentStop': None, 'Stop': None, 'SessionStart': 'startup|clear|compact|resume',
+                'PostToolUse': 'AskUserQuestion', 'PostToolUseFailure': 'AskUserQuestion',
+                'UserPromptSubmit': None}
+    for event, matcher in matchers.items():
         groups = hooks.get(event, [])
         for g in groups:
             g['hooks'] = [h for h in g.get('hooks', []) if not is_daylog(h.get('command', ''))]
         groups = [g for g in groups if g.get('hooks')]
         if on:
             group = {'hooks': [{'type': 'command', 'command': f'"{DAYLOG}" --hook', 'timeout': 10}]}
-            if event == 'SubagentStop':
-                group = {'matcher': 'validator', **group}
-            elif event == 'SessionStart':
-                group = {'matcher': 'clear', **group}
+            if matcher:
+                group = {'matcher': matcher, **group}
             groups.append(group)
         if groups:
             hooks[event] = groups
@@ -540,8 +543,8 @@ def main():
                           'subrules': has(s, 'SubagentStart', is_subrules),
                           'uicheck': has(s, 'SubagentStop', is_uicheck),
                           'browser': has(s, 'PreToolUse', is_browser) and has(s, 'SubagentStop', is_browser),
-                          'daylog': has(s, 'SubagentStop', is_daylog) and has(s, 'Stop', is_daylog)
-                                    and has(s, 'SessionStart', is_daylog),
+                          'daylog': all(has(s, e, is_daylog) for e in ('SubagentStop', 'Stop', 'SessionStart', 'PostToolUse',
+                                                                 'PostToolUseFailure', 'UserPromptSubmit')),
                           'daylog_allow': ALLOW_RULE in ((s.get('permissions') or {}).get('allow') or []),
                           'rotation': has(s, 'UserPromptSubmit', is_rotation),
                           'prod': has(s, 'PreToolUse', is_prod) and has(s, 'UserPromptSubmit', is_prod)

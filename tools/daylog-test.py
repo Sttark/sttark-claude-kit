@@ -229,7 +229,7 @@ check('clear: lead line, state file and Open items',
       out['hookSpecificOutput']['hookEventName'] == 'SessionStart'
       and ctx.startswith('Restored after /clear (Sttark orchestrator):') and 'next command: start validator' in ctx
       and '- Bulk edit | feature | state: grilling round 2' in ctx)
-check('startup, resume and compact: nothing', all(start(s) is None for s in ('startup', 'resume', 'compact')))
+check('startup, resume and compact: nothing to restore (no pending items), nothing said', all(start(s, cwd=NOREPO) is None for s in ('startup', 'resume', 'compact')))
 ctx = start('clear', cwd=LABELS)['hookSpecificOutput']['additionalContext']
 check('clear in another repo: only its own Open items, no state file', 'Bulk edit' not in ctx and 'X | feature' in ctx
       and 'State file' not in ctx)
@@ -279,17 +279,20 @@ def cmds(event):
 
 
 install()
-check('switch off: no daylog entries', all(entries(e) == [] for e in ('SubagentStop', 'Stop', 'SessionStart')))
+check('switch off: no daylog entries', all(entries(e) == [] for e in ('SubagentStop', 'Stop', 'SessionStart', 'PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit')))
 check('--status daylog false', json.loads(install('--status'))['daylog'] is False)
 stop_before = cmds('Stop')
 out = install('--orchestrator', 'on')
 check('--orchestrator on: output ends with daylog on, rotation on', out.endswith('daylog on, rotation on, prod on'))
 sg, st, ss = entries('SubagentStop'), entries('Stop'), entries('SessionStart')
-check('SubagentStop: one entry, matcher validator, quoted command with --hook',
-      len(sg) == 1 and sg[0]['matcher'] == 'validator' and sg[0]['hooks'][0]['command'].startswith('"')
+check('SubagentStop: one entry, no matcher (all agents), quoted command with --hook',
+      len(sg) == 1 and 'matcher' not in sg[0] and sg[0]['hooks'][0]['command'].startswith('"')
       and sg[0]['hooks'][0]['command'].endswith('daylog.py" --hook'))
-check('Stop: one entry, no matcher; SessionStart: one entry, matcher clear',
-      len(st) == 1 and 'matcher' not in st[0] and len(ss) == 1 and ss[0]['matcher'] == 'clear')
+check('Stop: one entry, no matcher; SessionStart: one entry, matcher startup|clear|compact|resume',
+      len(st) == 1 and 'matcher' not in st[0] and len(ss) == 1 and ss[0]['matcher'] == 'startup|clear|compact|resume')
+pt, up, pf = entries('PostToolUse'), entries('UserPromptSubmit'), entries('PostToolUseFailure')
+check('PostToolUse: one daylog entry with matcher AskUserQuestion; UserPromptSubmit: one, no matcher',
+      len(pt) == 1 and pt[0]['matcher'] == 'AskUserQuestion' and len(pf) == 1 and pf[0]['matcher'] == 'AskUserQuestion' and len(up) == 1 and 'matcher' not in up[0])
 check('--status daylog true', json.loads(install('--status'))['daylog'] is True)
 check('the kit own Stop hook (working rules --check, async) and other Stop hooks are unaffected',
       any(c.endswith('working-rules-hook.py" --check') for c in cmds('Stop')) and 'other-stop.sh' in cmds('Stop'))
@@ -299,12 +302,12 @@ check('launch run keeps one entry each', len(entries('SubagentStop')) == 1 and l
 check('other hooks stay in order', cmds('Stop')[0] == 'other-stop.sh' and cmds('SubagentStop')[0] == 'other-hook.sh')
 out = install('--orchestrator', 'off')
 check('--orchestrator off: removed, output says daylog off, rotation off', out.endswith('daylog off, rotation off, prod off')
-      and all(entries(e) == [] for e in ('SubagentStop', 'Stop', 'SessionStart')))
+      and all(entries(e) == [] for e in ('SubagentStop', 'Stop', 'SessionStart', 'PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit')))
 check('other Stop and SubagentStop hooks left alone', cmds('Stop')[0] == 'other-stop.sh' and 'other-hook.sh' in cmds('SubagentStop'))
 check('the working-rules Stop hook is still there after off', any('working-rules-hook.py' in c for c in cmds('Stop')))
 install('--orchestrator', 'on')
 install('--remove')
-check('--remove removes them', all(entries(e) == [] for e in ('SubagentStop', 'Stop', 'SessionStart')))
+check('--remove removes them', all(entries(e) == [] for e in ('SubagentStop', 'Stop', 'SessionStart', 'PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit')))
 
 # ---- permission allow rule ----
 RULE = 'Bash(claude-daylog:*)'
@@ -405,7 +408,7 @@ def rot():
 
 check('rotation: none after --remove; --status rotation false', rot() == [] and json.loads(install('--status'))['rotation'] is False)
 def others():
-    return [c for c in cmds('UserPromptSubmit') if 'rotation-hook.py' not in c and 'inline-guard.py' not in c and 'prod-guard.py' not in c]
+    return [c for c in cmds('UserPromptSubmit') if 'rotation-hook.py' not in c and 'daylog.py' not in c and 'inline-guard.py' not in c and 'prod-guard.py' not in c]
 
 
 install()

@@ -57,8 +57,8 @@ Hooks (`daylog.py --hook`, event from the input; each does nothing while the swi
   (FAIL) for a line whose item field (the first field after the time) matches, ignoring case and spaces. Found:
   dropped from pending. Missing: blocks the turn and gives the claude-daylog command to run. An item blocks at
   most 2 times (stop_hook_active still checks and counts); after that it is logged and dropped. Any error: allow.
-- SessionStart with source `clear`: adds this repo's state file and today's Open items to the context.
-  Other sources: nothing.
+- SessionStart (startup, clear, compact, resume): adds the pending questions and findings (capture, see README item 27). Source `clear` also adds this repo's state file and today's Open items.
+  With nothing to restore it says nothing.
 
 Logged to ~/Library/Logs/sttark-claude-kit.log, with lines starting `daylog`. STTARK_KIT_DIR and STTARK_KIT_LOG
 point it at a test folder and a test log; STTARK_DAYLOG_DATE (YYYY-MM-DD) sets today's date (tests use it).
@@ -377,9 +377,18 @@ def parse_verdict(texts):
 
 
 def on_subagent_stop(data):
+    if not data.get('agent_type'):
+        return   # internal agents (prompt suggestions, /btw) have no type
+    texts = report_texts(data)
+    v = parse_verdict(texts) if data.get('agent_type') == 'validator' else None
+    try:
+        report = next((t for t in texts if t.strip()), '')
+        if report:
+            save_finding(data, report, v)
+    except Exception as e:
+        log('error capture finding %s: %s' % (type(e).__name__, str(e)[:160]))
     if data.get('agent_type') != 'validator':
         return
-    v = parse_verdict(report_texts(data))
     sid = data.get('session_id', '')
     if not v:
         return log('verdict %s: no VERDICT line in the validator report, nothing recorded' % sid[:8])
@@ -447,25 +456,389 @@ def on_stop(data):
 
 
 def on_session_start(data):
-    if data.get('source') != 'clear':
-        return
+    """Sources startup, clear, compact and resume: the pending items and findings. Source clear also: the
+    state file and today's Open items."""
     repo = repo_of(data.get('cwd'))
-    parts = []
-    try:
-        st = open(state_path(repo)).read().strip()
-        if st:
-            parts.append('State file (%s):\n%s' % (state_path(repo), st))
-    except OSError:
-        pass
-    opens = load()[1].get(repo, {}).get('Open', [])
-    if opens:
-        parts.append("Today's open items (%s):\n%s" % (repo, '\n'.join('- ' + x for x in opens)))
+    clear = data.get('source') == 'clear'
+    parts, opens, has_state = [], [], False
+    block = restore_block(repo)
+    if block:
+        parts.append(block)
+    if clear:
+        try:
+            st = open(state_path(repo)).read().strip()
+            if st:
+                has_state = True
+                parts.append('State file (%s):\n%s' % (state_path(repo), st))
+        except OSError:
+            pass
+        opens = load()[1].get(repo, {}).get('Open', [])
+        if opens:
+            parts.append("Today's open items (%s):\n%s" % (repo, '\n'.join('- ' + x for x in opens)))
     if not parts:
         return log('restore %s: nothing to restore' % repo)
-    text = 'Restored after /clear (Sttark orchestrator):\n' + '\n\n'.join(parts)
+    text = ('Restored after /clear' if clear else 'Restored at session start (%s)' % data.get('source')) \
+        + ' (Sttark orchestrator):\n' + '\n\n'.join(parts)
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': text}}))
-    log('restore %s: state %s, %d open items' % (repo, 'yes' if len(parts) and parts[0].startswith('State') else 'no',
-                                                 len(opens)))
+    log('restore %s: state %s, %d open items, pending %s' % (repo, 'yes' if has_state else 'no', len(opens),
+                                                             'yes' if block else 'no'))
+
+
+# ---- capture: questions and findings saved by hooks, restored after /clear ----
+# Kept in KIT/orchestrator/state/<repo>.pending.md (next to the state file, which the orchestrator overwrites
+# with its Write tool and so would wipe a section kept inside it). Older entries go to <repo>.archive.md.
+PENDING, FINDINGS = 'Pending with Cole', 'Findings'
+SECTIONS = (PENDING, FINDINGS)
+KEEP_ENTRIES = 20     # entries kept per section; older ones move to the archive file
+INJECT_CAP = 4000     # characters of pending items and findings injected at SessionStart
+EXCERPT_LINES = 15
+PROMPT_CHARS = 300
+NEED_RE = re.compile(r'what i need from you', re.I)
+NOTHING_RE = re.compile(r'^(nothing|none|no action|n/a)\b', re.I)
+KEEP_FINDINGS = 50    # files kept in findings/
+KEEP_ARCHIVE = 500    # entries kept in the archive file
+# A prompt that contains one of these did not come from the person typing (or is a slash command): it resolves nothing.
+NOT_TYPED = ['<task-notification>', '<agent-message', 'Another Claude session sent a message', '[SYSTEM NOTIFICATION',
+             '<side-sessions-event>', '<ci-monitor-event>', '<scheduled-task', '<command-name>']
+
+
+def typed(prompt):
+    """True when the prompt is something the person typed: not empty, not a slash command, no machine marker."""
+    t = str(prompt or '').strip()
+    return bool(t) and not t.startswith('/') and not any(m in t for m in NOT_TYPED)
+
+
+def pending_path(repo):
+    return state_path(repo)[:-3] + '.pending.md'
+
+
+def archive_path(repo):
+    return state_path(repo)[:-3] + '.archive.md'
+
+
+def stamp():
+    return '%s %s' % (today(), time.strftime('%H:%M'))
+
+
+def read_sections(path):
+    secs, sec = {s: [] for s in SECTIONS}, None
+    try:
+        text = open(path).read()
+    except OSError:
+        return secs
+    for ln in text.splitlines():
+        if ln.startswith('## ') and ln[3:].strip() in secs:
+            sec = ln[3:].strip()
+        elif sec and ln.startswith('- ['):
+            secs[sec].append(ln)
+        elif sec and secs[sec] and ln.startswith('  '):
+            secs[sec][-1] += '\n' + ln
+    return secs
+
+
+def trim_archive(path, new):
+    """Append entries to the archive file and keep the newest KEEP_ARCHIVE."""
+    try:
+        text = open(path).read()
+    except OSError:
+        text = ''
+    blocks, cur = [], None
+    for ln in (text + ('\n'.join(new) + '\n')).splitlines():
+        if re.match(r'^\((%s)\)$' % '|'.join(map(re.escape, SECTIONS)), ln):
+            cur = [ln]
+            blocks.append(cur)
+        elif cur is not None:
+            cur.append(ln)
+    with open(path, 'w') as f:
+        f.write(''.join('\n'.join(b) + '\n' for b in blocks[-KEEP_ARCHIVE:]))
+
+
+@contextmanager
+def locked_pending(repo):
+    """The repo's sections ({section: [entry text]}) under a lock; trimmed and written back on exit."""
+    path = pending_path(repo)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + '.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        secs = read_sections(path)
+        yield secs
+        old = []
+        for k in SECTIONS:
+            if len(secs[k]) > KEEP_ENTRIES:
+                old += ['(%s)\n%s' % (k, e) for e in secs[k][:-KEEP_ENTRIES]]
+                secs[k] = secs[k][-KEEP_ENTRIES:]
+        if old:
+            trim_archive(archive_path(repo), old)
+        out = ['# Pending with Cole and findings: ' + repo]
+        for k in SECTIONS:
+            out += ['', '## ' + k] + secs[k]
+        tmp = '%s.tmp%d' % (path, os.getpid())
+        with open(tmp, 'w') as f:
+            f.write('\n'.join(out) + '\n')
+        os.replace(tmp, path)
+
+
+def entry(head, *body):
+    """One entry: a head line, then indented lines (any line of `body` may hold several lines)."""
+    lines = []
+    for b in body:
+        lines += str(b).splitlines() or ['']
+    return '- [%s] %s' % (stamp(), head) + ''.join('\n  ' + l for l in lines)
+
+
+def is_open(e):
+    return 'status: unanswered' in e.split('\n', 1)[0]
+
+
+def string_answers(resp, qtexts):
+    """{question: answer} from text like `The user answered: "Q1"="A1", "Q2"="A2". Read the answers ...`. Each known
+    question is found as `"<question>"="`; its answer runs to the start of the next question's `", "<q>"="`, or for the
+    last one to the final `". ` (or the closing `"` / `".` at the end), so commas and quotes in an answer stay."""
+    marks = []
+    for q in qtexts:
+        i = resp.find('"%s"="' % q)
+        if q and i >= 0:
+            marks.append((i, q, i + len(q) + 4))
+    marks.sort()
+    out = {}
+    for n, (i, q, start) in enumerate(marks):
+        if n + 1 < len(marks):
+            end = marks[n + 1][0]
+            a = resp[start:end].rstrip()
+            a = re.sub(r'",?\s*$', '', a) if a.endswith(('",', '"')) else a
+        else:
+            rest = resp[start:]
+            j = rest.rfind('". ')
+            if j < 0:
+                j = rest.rfind('"', 0, len(rest) - (1 if rest.endswith('.') else 0)) if rest.rstrip().endswith(('"', '".')) else len(rest)
+            a = rest[:j] if j >= 0 else rest
+        a = a.strip()
+        if a:
+            out[q] = a
+    return out
+
+
+def answers_of(resp, questions):
+    """{question: answer} from an AskUserQuestion tool_response. The shape is not documented: a dict with
+    `answers` ({question: answer}) is read first, then text with "question"="answer" pairs."""
+    out = {}
+    if isinstance(resp, dict):
+        a = resp.get('answers')
+        if isinstance(a, dict):
+            out = {str(k): (', '.join(map(str, v)) if isinstance(v, list) else str(v)) for k, v in a.items() if v not in ('', None, [])}
+        elif isinstance(a, list):
+            for i, v in enumerate(a):
+                if v not in ('', None) and i < len(questions):
+                    out[questions[i].get('question', '')] = str(v)
+    elif isinstance(resp, str):
+        out = string_answers(resp, [str(q.get('question', '')) for q in questions])
+    return out
+
+
+def on_ask(data):
+    ti = data.get('tool_input')
+    qs = [q for q in (ti.get('questions') if isinstance(ti, dict) else None) or [] if isinstance(q, dict)]
+    if not qs:
+        return
+    # PostToolUseFailure (rejected, Esc) has no answer
+    ans = {} if data.get('hook_event_name') == 'PostToolUseFailure' else answers_of(data.get('tool_response'), qs)
+    repo = repo_of(data.get('cwd'))
+    with locked_pending(repo) as secs:
+        for q in qs:
+            text = str(q.get('question', ''))
+            opts = '; '.join((str(o.get('label', '')) + (' (%s)' % o['description'] if o.get('description') else ''))
+                             if isinstance(o, dict) else str(o) for o in q.get('options') or [])
+            a = ans.get(text)
+            secs[PENDING].append(entry('asked (AskUserQuestion) | status: ' + ('answered' if a else 'unanswered'),
+                                       'question: ' + text, 'options: ' + (opts or 'none'),
+                                       'answer: ' + (a if a else 'unanswered')))
+    log('capture %s: %d questions, %d answered' % (repo, len(qs), len(ans)))
+
+
+def safe_name(s):
+    return re.sub(r'[^A-Za-z0-9._-]', '_', str(s)) or 'agent'
+
+
+def excerpt(report, verdict):
+    lines = [l.rstrip() for l in report.splitlines() if l.strip()]
+    if verdict:
+        items = [l for l in lines if re.match(r'\s*([-*]|\d+[.)])\s', l)]
+        vl = [l for l in lines if l.strip().strip('`*').startswith('VERDICT:')]
+        return (vl[-1:] + items)[:EXCERPT_LINES]
+    return lines[:EXCERPT_LINES]
+
+
+def save_finding(data, report, verdict):
+    repo = repo_of(data.get('cwd'))
+    agent = data.get('agent_type') or 'agent'
+    item = verdict[1] if verdict else str(data.get('description') or '').strip() or \
+        next((l.strip() for l in report.splitlines() if l.strip()), '')[:80]
+    d = os.path.join(STATE_FILES, safe_name(repo if repo != GENERAL else GENERAL), 'findings')
+    os.makedirs(d, exist_ok=True)
+    base = '%s-%s' % (time.strftime('%Y%m%d-%H%M%S'), safe_name(agent))
+    path, n = os.path.join(d, base + '.md'), 1
+    while os.path.exists(path):
+        n += 1
+        path = os.path.join(d, '%s-%d.md' % (base, n))
+    with open(path, 'w') as f:
+        f.write('# %s | %s | %s\n\n%s\n' % (agent, item, stamp(), report))
+    for old in sorted(os.listdir(d))[:-KEEP_FINDINGS]:
+        try:
+            os.remove(os.path.join(d, old))
+        except OSError:
+            pass
+    with locked_pending(repo) as secs:
+        secs[FINDINGS].append(entry('%s | item: %s | full report: %s' % (agent, one_line(item), path),
+                                    *(excerpt(report, verdict) or ['(empty report)'])))
+    log('capture %s: finding from %s saved to %s' % (repo, agent, path))
+
+
+def norm(t):
+    return ' '.join(str(t).lower().split())
+
+
+def question_text(msg):
+    """The part of an assistant message that asks the person something, or ''. Ignored: fenced code, headings,
+    table rows, blockquotes, inline-code-only lines, and a "What I need from you" that says nothing is needed."""
+    lines, fence, keep = msg.rstrip().splitlines(), False, []
+    for l in lines:
+        st = l.strip()
+        if st.startswith('```') or st.startswith('~~~'):
+            fence = not fence
+            continue
+        if fence:
+            continue
+        keep.append(l)
+    for i, l in enumerate(keep):
+        if NEED_RE.search(l) and not l.strip().startswith(('|', '>')):
+            rest = NEED_RE.split(l, 1)[1].strip(' :-*#\t')
+            j = i + 1
+            while not rest and j < len(keep):
+                rest = keep[j].strip(' :-*#\t•')
+                j += 1
+            if NOTHING_RE.match(rest):
+                continue
+            return '\n'.join(keep[i:])[:1500]
+    qs = []
+    for l in keep:
+        st = l.strip()
+        if st.startswith(('#', '|', '>')) or re.fullmatch(r'`[^`]*`[*_.]*', st):
+            continue
+        if st.rstrip('*_`)"\'').endswith('?'):
+            qs.append(st)
+    return '\n'.join(qs)[:1500]
+
+
+def user_text(msg):
+    """The typed text of a transcript user message, or None for tool results and machine messages."""
+    c = msg.get('content')
+    if isinstance(c, list):
+        c = '\n'.join(b.get('text', '') for b in c if isinstance(b, dict) and b.get('type') == 'text')
+    return c if isinstance(c, str) and typed(c) else None
+
+
+def last_assistant_text(data):
+    """The last assistant text of this turn: last_assistant_message, else the assistant text after the last typed
+    user message in the transcript ('' when the turn has none)."""
+    m = data.get('last_assistant_message')
+    if isinstance(m, str) and m.strip():
+        return m
+    last = ''
+    try:
+        for line in open(os.path.expanduser(data.get('transcript_path'))):
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            msg = e.get('message') if isinstance(e, dict) else None
+            if not isinstance(msg, dict) or e.get('isSidechain'):
+                continue
+            if msg.get('role') == 'user':
+                if user_text(msg) is not None:
+                    last = ''
+                continue
+            if msg.get('role') != 'assistant':
+                continue
+            c = msg.get('content')
+            texts = [b.get('text', '') for b in c if isinstance(b, dict) and b.get('type') == 'text'] \
+                if isinstance(c, list) else ([c] if isinstance(c, str) else [])
+            if any(t.strip() for t in texts):
+                last = '\n'.join(t for t in texts if t.strip())
+    except (OSError, TypeError):
+        pass
+    return last
+
+
+def capture_stop(data):
+    if data.get('agent_id'):
+        return
+    q = question_text(last_assistant_text(data))
+    if not q:
+        return
+    repo = repo_of(data.get('cwd'))
+    with locked_pending(repo) as secs:
+        asked = [norm(l.split(':', 1)[1]) for e in secs[PENDING] if is_open(e) and 'AskUserQuestion' in e.split('\n', 1)[0]
+                 for l in e.splitlines() if l.startswith('  question:')]
+        lines = q.splitlines()
+        kept = [l for l in lines if not any(len(norm(l)) > 8 and (norm(l) in a or a in norm(l)) for a in asked if a)]
+        if not any('?' in l or not NEED_RE.search(l) for l in kept if l.strip()):
+            return   # everything was already asked with AskUserQuestion
+        q = '\n'.join(kept)
+        if any(is_open(e) and e.split('\n')[1:] == ['  ' + l for l in q.splitlines()] for e in secs[PENDING]):
+            return
+        secs[PENDING].append(entry('asked in plain text | status: unanswered', q))
+    log('capture %s: plain-text question saved' % repo)
+
+
+def resolve_prompt(data):
+    """A typed prompt answers the open questions: plain-text ones and unanswered AskUserQuestion ones."""
+    prompt = one_line(data.get('prompt') or '')[:PROMPT_CHARS]
+    if not typed(data.get('prompt')) or not prompt:
+        return
+    repo = repo_of(data.get('cwd'))
+    try:
+        if 'status: unanswered' not in open(pending_path(repo)).read():
+            return   # nothing open: no lock, no rewrite
+    except OSError:
+        return
+    with locked_pending(repo) as secs:
+        n, at = 0, time.strftime('%H:%M')
+        for i, e in enumerate(secs[PENDING]):
+            head, _, rest = e.partition('\n')
+            if is_open(e):
+                head = head.replace('status: unanswered', 'status: answered in prompt at %s' % at)
+                if 'AskUserQuestion' in head:
+                    rest = rest.replace('  answer: unanswered', '  answer (in prompt at %s, first %d chars): %s' % (at, PROMPT_CHARS, prompt))
+                    secs[PENDING][i] = head + '\n' + rest
+                else:
+                    secs[PENDING][i] = head + '\n' + rest + '\n  answer (first %d chars of the prompt): %s' % (PROMPT_CHARS, prompt)
+                n += 1
+    if n:
+        log('capture %s: %d questions marked answered' % (repo, n))
+
+
+def restore_block(repo):
+    """The pending items (unanswered first) and the last 5 findings pointers, capped at INJECT_CAP characters."""
+    secs = read_sections(pending_path(repo))
+    items = [e for e in secs[PENDING] if is_open(e)] + [e for e in secs[PENDING] if not is_open(e)][::-1]
+    finds = [e.split('\n', 1)[0] for e in secs[FINDINGS][-5:]][::-1]
+    if not items and not finds:
+        return ''
+    head = ['Pending with Cole (saved automatically; %s). Raise unanswered items before new work.' % pending_path(repo)]
+    out, used = list(head), len(head[0])
+    for e in items:
+        if used + len(e) + 1 > INJECT_CAP - 600:   # leave room for the findings pointers
+            e = e[:max(0, INJECT_CAP - 600 - used - 1)].rstrip()
+            if len(e) < 80:
+                out.append('(more entries in %s)' % pending_path(repo))
+                break
+            e += ' ...'
+        out.append(e)
+        used += len(e) + 1
+    if finds:
+        out.append('Latest findings (full reports are files):')
+        out += finds
+    return '\n'.join(out)[:INJECT_CAP]
 
 
 def hook():
@@ -480,7 +853,16 @@ def hook():
         if event == 'SubagentStop':
             on_subagent_stop(data)
         elif event == 'Stop':
+            try:
+                capture_stop(data)
+            except Exception as e:
+                log('error capture stop %s: %s' % (type(e).__name__, str(e)[:160]))
             on_stop(data)
+        elif event in ('PostToolUse', 'PostToolUseFailure'):
+            if data.get('tool_name') == 'AskUserQuestion':
+                on_ask(data)
+        elif event == 'UserPromptSubmit':
+            resolve_prompt(data)
         elif event == 'SessionStart':
             on_session_start(data)
     except Exception as e:   # never stop a session because of this hook
