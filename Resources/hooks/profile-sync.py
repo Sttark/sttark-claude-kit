@@ -71,57 +71,83 @@ def read_direct(want: str) -> str:
     return text
 
 
-def osa(script: str, *args: str) -> str:
-    r = subprocess.run(["osascript", "-e", script, *args],
+CHROME_AE = Path(__file__).resolve().with_name("chrome-ae.js")  # shared with claude-window.sh
+
+
+def own_chrome() -> str:
+    """The person's own Chrome: the main Google Chrome process no test tool started (Playwright, Puppeteer).
+    Scripts that name "Google Chrome" go to whichever copy macOS picks, often the test one, so every call
+    here goes to this process by its id. Empty when it isn't running; never launches Chrome."""
+    out = subprocess.run(["ps", "-axww", "-o", "pid=,args="], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        pid, _, args = line.strip().partition(" ")
+        if not (args.endswith("/Google Chrome.app/Contents/MacOS/Google Chrome")
+                or "/Google Chrome.app/Contents/MacOS/Google Chrome " in args):
+            continue
+        if any(f in args for f in ("--headless", "--remote-debugging-", "--enable-automation",
+                                   "--user-data-dir", "--test-type")):
+            continue
+        return pid
+    return ""
+
+
+def jxa(pid: str, body: str, *args: str) -> str:
+    """Run `body` (JavaScript for Automation with run(argv)) with the shared Apple event library."""
+    r = subprocess.run(["osascript", "-l", "JavaScript", "-", pid, *args],
+                       input=CHROME_AE.read_text() + "\n" + body,
                        capture_output=True, text=True, timeout=60)
     if r.returncode:
         raise RuntimeError(r.stderr.strip() or f"osascript exit {r.returncode}")
     return r.stdout.rstrip("\n")
 
 
-def in_tab(verb: str, wid: str, tid: str, *rest: str) -> str:
-    """Run `verb` against one tab, e.g. 'return loading of' or 'close'."""
-    tail = " javascript (item 3 of argv)" if rest else ""
-    return osa("on run argv\n"
-               f'tell application "Google Chrome" to {verb} tab id (item 2 of argv as integer) '
-               f"of window id (item 1 of argv as integer){tail}\n"
-               "end run", wid, tid, *rest)
+def in_tab(pid: str, wid: str, tid: str, code: str) -> str:
+    """Run JavaScript in one tab of the person's Chrome."""
+    return jxa(pid, """function run(a) {
+  PID = Number(a[0])
+  var w = obj('cwin', null, 'ID  ', D.descriptorWithInt32(Number(a[1])))
+  var t = obj('CrTb', w, 'ID  ', D.descriptorWithInt32(Number(a[2])))
+  var v = val(send('CrSu', 'ExJa', {'----': t, JvSc: str(a[3])}))
+  return v === undefined || v === null ? '' : String(v)
+}""", wid, tid, code)
 
 
-def get_json(wid: str, tid: str, path: str):
+def get_json(pid: str, wid: str, tid: str, path: str):
     """Same-origin GET from inside the tab, so it carries Chrome's cookies and clearance."""
     code = ("(()=>{const x=new XMLHttpRequest();x.open('GET',%s,false);x.send();"
             "return x.status+'\\n'+x.responseText})()" % json.dumps(path))
     for attempt in range(3):
-        status, _, body = in_tab("return execute", wid, tid, code).partition("\n")
+        status, _, body = in_tab(pid, wid, tid, code).partition("\n")
         if status == "200":
             return json.loads(body)
         time.sleep(2)  # a Cloudflare check may still be finishing in the tab
     raise RuntimeError(f"{path} gave HTTP {status} in Chrome")
 
 
-def read_through(wid: str, tid: str, want: str) -> str:
-    acct = get_json(wid, tid, "/api/account")
+def read_through(pid: str, wid: str, tid: str, want: str) -> str:
+    acct = get_json(pid, wid, tid, "/api/account")
     if acct.get("uuid") != want:
         raise RuntimeError(f"Chrome is signed in to {acct.get('email_address')}, "
                            "not the Claude app's account")
-    text = (get_json(wid, tid, "/api/account_profile").get("conversation_preferences") or "").strip()
+    text = (get_json(pid, wid, tid, "/api/account_profile").get("conversation_preferences") or "").strip()
     if not text:
         raise RuntimeError("the profile has no instructions")
     return text
 
 
-def claude_tabs() -> list:
-    out = osa('tell application "Google Chrome"\n'
-              'set out to ""\n'
-              'repeat with w in windows\n'
-              'repeat with t in tabs of w\n'
-              'if (URL of t starts with "https://claude.ai/") and not (loading of t) then '
-              'set out to out & (id of w) & " " & (id of t) & linefeed\n'
-              'end repeat\n'
-              'end repeat\n'
-              'return out\n'
-              'end tell')
+def claude_tabs(pid: str) -> list:
+    out = jxa(pid, """function run(a) {
+  PID = Number(a[0])
+  var out = [], n = count('cwin')
+  for (var i = 1; i <= n; i++) {
+    var w = nth('cwin', null, i), wid = get(prop('ID  ', w))
+    var ids = get(prop('ID  ', every('CrTb', w))) || [], urls = get(prop('URL ', every('CrTb', w))) || []
+    var busy = get(prop('ldng', every('CrTb', w))) || []
+    for (var j = 0; j < ids.length; j++)
+      if (String(urls[j]).indexOf('https://claude.ai/') === 0 && !busy[j]) out.push(wid + ' ' + ids[j])
+  }
+  return out.join('\\n')
+}""")
     return [line.split() for line in out.splitlines() if line.strip()]
 
 
@@ -135,11 +161,12 @@ def read_profile() -> str:
     except Exception as e:
         errors.append(f"direct: {e}")
     # Fallback: a claude.ai tab that is already open. Never open one.
-    # Checking this way never launches Chrome; `tell application` would.
-    if osa('return application "Google Chrome" is running') == "true":
-        for wid, tid in claude_tabs():
+    # Finding it by process id never launches Chrome, and never reaches a test tool's copy.
+    pid = own_chrome()
+    if pid:
+        for wid, tid in claude_tabs(pid):
             try:
-                return read_through(wid, tid, want)
+                return read_through(pid, wid, tid, want)
             except Exception as e:
                 errors.append(f"claude.ai tab: {e}")
     raise RuntimeError("; ".join(errors))
