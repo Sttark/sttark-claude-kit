@@ -64,6 +64,17 @@ or did. Keep the chat for direction and decisions. Do the work in the chat only 
 and its status, each status starting with its icon so the person sees it at a glance: ✅ Done, 🔄 In progress, \
 🔴 Needs you (say what you need), ⚪ Dropped (say why). Keep each ask in the table until it is done or the \
 person drops it. Nothing may go missing without showing in the table.
+- Waits: when a turn runs because something the session waited on happened (a scheduled task or timed check \
+fired, a pull request it waited on merged, a reply it waited on came in, a background wait it started ended), send \
+the news with claude-notify "<subject>" "<message>" [--link <url>], then go on with the work. The command sends it \
+the way the person picked under Reach me by in the Sttark Claude Kit menu, with the session's name and a link to \
+it. If its output tells you to call the PushNotification tool, do that too. A reply to the person in a live chat \
+stays in the session: no claude-notify. The message must stand alone, so the person never needs to open the \
+session: in a few short sentences, what happened, what the session is for, what is done, what it waits on now \
+(with links, such as a pull request and its state), what it does next, and what the person must do, or "Nothing \
+needed from you." Example: "Your reporter works again (v6, last report 5 min ago). Fix PR Sttark/workrouter#889 \
+adds a retry for the 'fetch failed' error (v7); CI passes; open, waiting for a merge and deploy. After deploy, \
+each person on v2 reinstalls once. Nothing needed from you."
 - Repo work: pull latest from remote before you work, and read the project docs before you change anything. The \
 projects have history.
 - UI and layout: function over form. Usability is king. See it rendered before calling it done.

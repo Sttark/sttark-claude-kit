@@ -27,6 +27,7 @@ struct MenuFacts {
     var profileSettingUp = false
     var profileLast: String? = nil
     var workingRules = false
+    var reach = Reach.Settings(ways: ["email"], email: "name@sttark.com", phone: "", chat: "")
 
     /// The real facts. Some of them run commands, which lets the update check's answer land part way through, so
     /// the update state is read first.
@@ -51,6 +52,7 @@ struct MenuFacts {
         f.profileSettingUp = ProfileSync.settingUp
         f.profileLast = ProfileSync.lastResult
         f.workingRules = WorkingRules.on
+        f.reach = Reach.settings()
         return f
     }
 }
@@ -95,6 +97,7 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
         Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in Server.keepChats() }
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in ChromeWindow.cleanTabs() }
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
@@ -189,6 +192,7 @@ final class Controller: NSObject, NSMenuDelegate {
         addSessions(menu, paused: paused)
 
         menu.addItem(.separator())
+        addReach(menu, f.reach)
         let credits = action("Use credits at the usage limit", #selector(toggleCredits))
         credits.state = Limit.creditsAll ? .on : .off
         credits.toolTip = (Limit.creditsAll
@@ -330,6 +334,60 @@ final class Controller: NSObject, NSMenuDelegate {
         case .hold(let n): return "It never uses usage credits, and holds when a limit reaches \(n)%."
         }
     }
+
+    // MARK: reach me by
+
+    /// "Reach me by": the ways a scheduled task's result gets to you, each with a check, then their settings.
+    func addReach(_ menu: NSMenu, _ r: Reach.Settings) {
+        let top = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        top.attributedTitle = row("Reach me by", Reach.summary(r), tagBold: false)
+        top.toolTip = "When something a session waited on happens (a timed check, a merge, a reply), it tells you this way, with the session's name and a link to it. Open it to pick."
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        sub.addItem(caption("When a session's wait ends, tell me by"))
+        let tips = [
+            "email": "Mail from alerts@sttark.com to \(r.email.isEmpty ? "your @sttark.com address" : r.email), in about a minute. Needs GitHub's gh, signed in.",
+            "push": "A push from the Claude app on your phone. Tap it to open the session.",
+            "chat": "A message in a Google Chat space you made for it, through the space's webhook.",
+            "text": r.phone.isEmpty ? "A text from Messages on this Mac." : "A text from Messages on this Mac to \(r.phone).",
+            "mac": "A notice on this Mac. Click it to open the session.",
+        ]
+        for way in Reach.ways {
+            let detail = way == "email" ? r.email : way == "text" ? r.phone : ""
+            let i = action("", #selector(toggleReach(_:)))
+            let need = Reach.missing(way, r)
+            i.attributedTitle = row(Reach.names[way]!, need ?? detail, tagBold: false)
+            i.state = r.ways.contains(way) ? .on : .off
+            i.representedObject = way
+            i.toolTip = tips[way]! + (need.map { " \($0): click to set it." } ?? "")
+            sub.addItem(i)
+        }
+        sub.addItem(.separator())
+        sub.addItem(action("Email address…", #selector(setReachEmail)))
+        sub.addItem(action("Phone number…", #selector(setReachPhone)))
+        sub.addItem(action("Google Chat webhook…", #selector(setReachChat)))
+        sub.addItem(.separator())
+        let t = action("Send a test", #selector(testReach), enabled: !r.ways.isEmpty)
+        t.toolTip = "Sends a test message every way that's checked, then says how each went."
+        sub.addItem(t)
+        top.submenu = sub
+        menu.addItem(top)
+    }
+
+    @objc func toggleReach(_ sender: NSMenuItem) {
+        guard let way = sender.representedObject as? String else { return }
+        let r = Reach.settings()
+        if !r.ways.contains(way), Reach.missing(way, r) != nil {
+            let got = way == "email" ? Reach.askEmail() : way == "text" ? Reach.askPhone() : way == "chat" ? Reach.askChat() : true
+            guard got else { return }
+        }
+        Reach.toggle(way)
+    }
+
+    @objc func setReachEmail() { _ = Reach.askEmail() }
+    @objc func setReachPhone() { _ = Reach.askPhone() }
+    @objc func setReachChat() { _ = Reach.askChat() }
+    @objc func testReach() { Reach.test() }
 
     // MARK: usage limit
 
