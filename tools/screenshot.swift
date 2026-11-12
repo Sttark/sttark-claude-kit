@@ -52,9 +52,14 @@ import AppKit
         // Reach me by, open: Email and a Mac notice picked, no phone or webhook set yet.
         let reach = NSMenu()
         reach.addItem(.separator())
+        c.addWaits(reach, [
+            Waits.Wait(id: "a", title: "Label press PR", what: "PR #12 merged", why: "Monday 5 PM: the reviewer merges within a day, and Friday is short", by: Date().addingTimeInterval(4 * 86400), back: false),
+            Waits.Wait(id: "b", title: "Supplier quote", what: "Email reply", why: "Tuesday noon: they answer in 1 to 2 days; the order waits on it", by: Date().addingTimeInterval(5 * 86400), back: false),
+        ])
+        reach.addItem(.separator())
         c.addReach(reach, Reach.Settings(ways: ["email", "mac"], email: "name@sttark.com", phone: "", chat: ""))
         let r = Array(reach.items.drop { $0.isSeparatorItem })
-        Draw.png(r, hot: 0, menuBar: false, to: "docs/reach.png")
+        Draw.png(r, hot: r.firstIndex { $0.attributedTitle?.string.hasPrefix("Reach me by") == true }, menuBar: false, to: "docs/reach.png")
     }
 }
 

@@ -98,6 +98,7 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in Server.keepChats() }
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in ChromeWindow.cleanTabs() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
@@ -162,6 +163,7 @@ final class Controller: NSObject, NSMenuDelegate {
             }
         }
         addLimit(menu)
+        addWaits(menu)
         menu.addItem(.separator())
 
         let auto = action("Auto effort", #selector(togglePaused))
@@ -334,6 +336,37 @@ final class Controller: NSObject, NSMenuDelegate {
         case .hold(let n): return "It never uses usage credits, and holds when a limit reaches \(n)%."
         }
     }
+
+    // MARK: waits
+
+    /// Sessions waiting on someone else, handed to the Kit: what each waits on and its deadline. They come back by
+    /// themselves; open one to bring it back now or to drop the wait.
+    func addWaits(_ menu: NSMenu, _ waits: [Waits.Wait] = Waits.list()) {
+        guard !waits.isEmpty else { return }
+        menu.addItem(.separator())
+        menu.addItem(caption(waits.count == 1 ? "1 session waits on someone else" : "\(waits.count) sessions wait on someone else"))
+        for w in waits {
+            let i = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            i.attributedTitle = row(w.title, w.what + (w.by.map { " · by \(Limit.clock($0))" } ?? ""), tagBold: false)
+            i.toolTip = (w.why.isEmpty ? "" : w.why + "\n\n") + "It comes back to your list, and you get a message, when this happens or at the deadline."
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            for line in wrap(w.why, 52).prefix(3) { sub.addItem(caption(line)) }
+            let now = action("Bring it back now", #selector(waitNow(_:)))
+            now.representedObject = w.id
+            now.toolTip = "Brings the session back to your list now, and it tells you where it stands."
+            sub.addItem(now)
+            let drop = action("Stop waiting", #selector(waitCancel(_:)))
+            drop.representedObject = w.id
+            drop.toolTip = "Drops this wait. The session stays where it is."
+            sub.addItem(drop)
+            i.submenu = sub
+            menu.addItem(i)
+        }
+    }
+
+    @objc func waitNow(_ sender: NSMenuItem) { if let id = sender.representedObject as? String { Waits.run(["--now", id]) } }
+    @objc func waitCancel(_ sender: NSMenuItem) { if let id = sender.representedObject as? String { Waits.run(["--cancel", id]) } }
 
     // MARK: reach me by
 

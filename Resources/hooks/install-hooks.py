@@ -104,8 +104,9 @@ LIMIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'limit-hook.py'
 LIMIT_WAIT = 60  # the hooks only check and answer; the wait runs as a visible command (claude-limit-wait)
 LIMIT_HOLD = 8 * 24 * 3600  # --hold: a session that holds at its own N% waits in this hook, past a weekly reset
 NOTIFY = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'notify.py')
+WAIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wait.py')
 # commands in ~/.local/bin, next to claude, and the script each points at
-LINKS = {'claude-limit-wait': LIMIT, 'claude-limit-mode': LIMIT, 'claude-notify': NOTIFY}
+LINKS = {'claude-limit-wait': LIMIT, 'claude-limit-mode': LIMIT, 'claude-notify': NOTIFY, 'claude-wait': WAIT}
 
 
 def is_limit(cmd):
@@ -133,7 +134,7 @@ def set_limit(hooks, on):
 
 
 def set_links(on):
-    """claude-limit-wait and claude-limit-mode (links to limit-hook.py) and claude-notify (notify.py) in
+    """claude-limit-wait and claude-limit-mode (links to limit-hook.py) and claude-notify (notify.py) and claude-wait (wait.py) in
     ~/.local/bin, next to claude. Removed on --remove, only when they point at this kit's copy."""
     home_bin = os.path.expanduser('~/.local/bin')
     for name, script in LINKS.items():
