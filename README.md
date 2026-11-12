@@ -46,7 +46,22 @@ Sttark Claude Kit replaces an earlier app named Sttark Effort. If you have Sttar
 
 The app checks for a new version 20 seconds after it starts, then every hour, and installs it by itself: you don't click anything. It downloads the new version, checks that it's signed by Sttark, swaps it in and restarts in a few seconds, in the background. Sessions keep running, because they don't run inside the app. If the menu or one of the app's dialogs is open, it waits until you close it. Your settings, and the Accessibility permission for the Chrome approver, stay as they are.
 
+After an update that brings something you'd notice, the Kit shows it once in a short [What's new](#whats-new) window.
+
 You see a notice only when an update fails to install. Click it, or choose **Update to …** at the top of the menu, to try again; the app also tries again by itself after 6 hours. **Check for updates** in the menu checks right away and installs a new version at once.
+
+### What's new
+
+When an update brings a change you'd notice, a short note explains it: what is new, what you do differently, and a picture. You see each note once.
+
+![The What's new window under the menu bar icon, which has a blue dot: two notes on cards, each with a title, a picture, a few sentences and a "What you do" line, then a green Got it button](docs/whats-new.png)
+
+*Drawn by the app's own code, with this repo's notes.*
+
+- **It never takes your screen.** The window doesn't make the app active or take the keyboard, so what you type goes on where it was. Until you've seen a note, the gauge has a blue dot, and the window waits for you to come back to the Mac: the screen unlocks or wakes, or you start to use it again after 5 minutes away. Opening the menu shows it too, when the menu closes.
+- Several new notes show together, newest first. **Got it** closes the window and marks them seen. **What's new** in the menu shows every note again.
+- What you have seen is `whats_new_seen` in the state file. A new install starts with every note seen.
+- Notes are `whats-new/*.md` in this repo, one per change, written in the same pull request as the change. See `AGENTS.md`.
 
 ## Using it
 
@@ -76,6 +91,7 @@ The items, from the top:
 | **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). Off until you turn it on. Hover it to see the last sync. |
 | **Sttark working rules** | See [below](#sttark-working-rules). On until you turn it off. |
 | **Needs Accessibility permission…** (only when needed) | Shows while **Approve Claude in Chrome** is on and macOS hasn't allowed it to click. Opens the Accessibility settings. |
+| **What's new** | Every What's new note, newest first. Shows "1 new" while one is unseen. See [above](#whats-new). |
 | **Sign in to Claude Code…** | Opens Terminal and starts Claude Code's sign-in; you finish in the browser. Hover it to see when your login runs out. See [below](#claude-code-login). |
 | **Open log** | Opens the full log in Console. |
 | **Check for updates** | Looks for a new version now and installs it. Hidden while an update is waiting. |
@@ -111,7 +127,7 @@ Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
 | `ste` | The working rules' check of a finished reply: ok, noted for the session's next prompt, or error. |
 | `agents` | The working rules' manager check: work that made more than 8 tool calls in the chat with no agent, noted for the session's next prompt. |
 | `stable` | The fixed copy of Claude Code and its night job. |
-| `app` | The menu bar app itself: switches turned on or off, updates, notices. |
+| `app` | The menu bar app itself: switches turned on or off, updates, notices, and What's new (`what's new:` shown, Got it). |
 | `error` | Something failed. The level was left as it was. |
 
 To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
@@ -472,7 +488,7 @@ The app is a small Swift menu bar app. Most of the work is done by Python and sh
 
 ### Releases
 
-Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `Info.plist`, `build.sh`) makes GitHub build, sign and publish a new release by itself (`.github/workflows/release.yml`). The version is 1 followed by the number of commits, so each one is higher than the last. The app installs a new release only if it's signed with the same certificate as the running copy, named "Sttark Effort Signing", and has the same app ID. The certificate is in the repo's secrets (`SIGN_P12`, `SIGN_P12_PASSWORD`). A change to anything else (this README, `tools`, the workflows) makes no release. It's self-made, not from Apple: it keeps the Chrome approver's Accessibility permission on through updates, but can't skip the Open Anyway step on a first install.
+Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `Info.plist`, `build.sh`, `whats-new`) makes GitHub build, sign and publish a new release by itself (`.github/workflows/release.yml`). The version is 1 followed by the number of commits, so each one is higher than the last. The app installs a new release only if it's signed with the same certificate as the running copy, named "Sttark Effort Signing", and has the same app ID. The certificate is in the repo's secrets (`SIGN_P12`, `SIGN_P12_PASSWORD`). A change to anything else (this README, `tools`, the workflows) makes no release. It's self-made, not from Apple: it keeps the Chrome approver's Accessibility permission on through updates, but can't skip the Open Anyway step on a first install.
 
 ### Files
 
@@ -488,6 +504,11 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Sources/Limit.swift`, `Resources/hooks/limit-hook.py` | Wait at the usage limit: the menu's holding rows, each session's own setting and the Use credits switch, and the hook, `claude-limit-wait` and `claude-limit-mode`. |
 | `Sources/Reach.swift`, `Resources/hooks/notify.py`, `Resources/hooks/notify-key.pem` | Reach me by: the menu, the settings, the app's notices and texts, and `claude-notify`. |
 | `Resources/hooks/wait.py` | `claude-wait`: waits handed to the Kit, the minute check, and bringing a session back. |
+| `Sources/WhatsNew.swift` | What's new: the window, the dot on the gauge, and when to show it. |
+| `whats-new/` | The What's new notes and their pictures, one per change. |
+| `tools/whats-new.py` | Checks the notes, builds them into the app (`build.sh` runs it), and on a pull request asks for a note when one looks needed. |
+| `tools/whats-new-pictures.swift` | Draws the notes' GIFs. |
+| `AGENTS.md`, `CLAUDE.md` | Notes for coding agents: when a change needs a What's new note, and how to write one. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
 | `Sources/Update.swift` | Checks GitHub for a new version and installs it by itself. |
 | `Sources/Migrate.swift` | Moves settings, state and switches over from Sttark Effort on the first launch. |
@@ -511,11 +532,12 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/wait-test.py` | Tests `claude-wait` on copies (a test state folder and log, nothing brought back or sent): the times it reads, `--by` and `--why`, the list and cancel, and the minute check ending a time wait, a deadline and a merged pull request. |
 | `tools/limit-429-test.py` | Tests the usage read's back-off against a local stand-in server that answers `429`. |
 | `tools/update-test.sh` | Tests the update that installs by itself: the real `Sources/Update.swift` in a stand-in app (`tools/update-test/main.swift`) with its own ID, against fake releases in a temporary folder. It checks that a new version waits while the menu is open, then installs and restarts with no notice; that a version not signed like the app fails with one notice, no dialog and no second try; and that the same version does nothing. The installed app isn't touched. |
-| `tools/screenshot.swift` | Draws the menu images (`docs/menu.png`, `docs/limit.png`, `docs/reach.png`) with the app's own menu code, from sample sessions in a temporary folder. |
+| `tools/screenshot.swift` | Draws the menu images (`docs/menu.png`, `docs/limit.png`, `docs/reach.png`) with the app's own menu code, from sample sessions in a temporary folder, and the What's new window (`docs/whats-new.png`) from this repo's notes. |
 | `tools/limit-menu-test.swift` | Tests the app's side of each session's usage setting on a temporary folder, with a stand-in state file and usage file: reading and writing the settings as the hooks do, the log lines, the holding rows, and when the limit counts as reached. |
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
 | `.github/workflows/release.yml` | Builds, signs and publishes a release. |
 | `.github/workflows/notify.yml` | Sends Reach me by's email. |
+| `.github/workflows/whats-new.yml` | On pull requests: fails a note that breaks the format; asks, never fails, when a change people notice has no note. |
 | `.github/workflows/app-review.yml`, `.github/workflows/page-check.yml` | The shared AI review and page check for Sttark web apps (below). |
 
 ## AI review for Sttark app pull requests

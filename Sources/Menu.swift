@@ -28,6 +28,9 @@ struct MenuFacts {
     var profileLast: String? = nil
     var workingRules = false
     var reach = Reach.Settings(ways: ["email"], email: "name@sttark.com", phone: "", chat: "")
+    /// What's new: how many notes there are, and how many this person hasn't seen.
+    var whatsNew = 0
+    var whatsNewUnseen = 0
 
     /// The real facts. Some of them run commands, which lets the update check's answer land part way through, so
     /// the update state is read first.
@@ -53,6 +56,8 @@ struct MenuFacts {
         f.profileLast = ProfileSync.lastResult
         f.workingRules = WorkingRules.on
         f.reach = Reach.settings()
+        f.whatsNew = WhatsNew.all.count
+        f.whatsNewUnseen = WhatsNew.unseen.count
         return f
     }
 }
@@ -100,34 +105,42 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
+        WhatsNew.start(anchor: { [weak self] in self?.item }, changed: { [weak self] in self?.refreshIcon() })
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
     }
 
-    /// A gauge showing the level of the session used last; a pause sign when auto effort is off.
+    /// A gauge showing the level of the session used last; a pause sign when auto effort is off. A dot while a
+    /// What's new note is unseen.
     func refreshIcon() {
         guard let b = item.button else { return }
         let last = State.sessions(hours: 1).first
-        if State.paused {
+        let new = WhatsNew.unseen
+        if State.paused && new.isEmpty {
             let img = NSImage(systemSymbolName: "pause.circle", accessibilityDescription: "Sttark Claude Kit: off")
             img?.isTemplate = true
             b.image = img
         } else {
-            b.image = GaugeIcon.image(last?.level)
+            b.image = GaugeIcon.image(State.paused ? nil : last?.level, dot: !new.isEmpty)
         }
-        b.toolTip = State.paused ? "Sttark Claude Kit: off for every session"
+        b.toolTip = (State.paused ? "Sttark Claude Kit: off for every session"
             : last.map { "Sttark Claude Kit: \($0.title) at \(levelNames[$0.level] ?? $0.level)\($0.manual ? " (Manual)" : "")" }
-            ?? "Sttark Claude Kit"
-        b.appearsDisabled = State.paused
+            ?? "Sttark Claude Kit")
+            + (new.isEmpty ? "" : "\n\nWhat's new: " + new.map(\.title).joined(separator: "; ") + ". It shows when you open the menu.")
+        b.appearsDisabled = State.paused && new.isEmpty
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         menuOpen = true
         updater.check()
+        WhatsNew.menuOpened()
         build(menu)
     }
 
-    func menuDidClose(_ menu: NSMenu) { menuOpen = false }
+    func menuDidClose(_ menu: NSMenu) {
+        menuOpen = false
+        WhatsNew.menuClosed()
+    }
 
     func build(_ menu: NSMenu) { build(menu, MenuFacts.current(updater)) }
 
@@ -251,6 +264,13 @@ final class Controller: NSObject, NSMenuDelegate {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
         menu.addItem(.separator())
+        let unseen = f.whatsNewUnseen
+        let news = action("", #selector(showWhatsNew))
+        news.attributedTitle = row("What's new", unseen == 0 ? "" : unseen == 1 ? "1 new" : "\(unseen) new", tagBold: unseen > 0)
+        news.toolTip = "Short notes on the changes you notice, newest first."
+            + (unseen > 0 ? " The new ones also show when this menu closes." : "")
+        news.isEnabled = f.whatsNew > 0
+        menu.addItem(news)
         let sign = action("Sign in to Claude Code…", #selector(signIn))
         sign.toolTip = f.loginTip
         menu.addItem(sign)
@@ -639,6 +659,7 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     @objc func update() { updater.install() }
+    @objc func showWhatsNew() { WhatsNew.showAll() }
 
     /// A new version installs right away; otherwise a dialog says why not.
     @objc func checkUpdates() {
@@ -660,27 +681,31 @@ final class Controller: NSObject, NSMenuDelegate {
 enum GaugeIcon {
     static let angles: [String: CGFloat] = ["low": 170, "medium": 130, "high": 90, "xhigh": 50, "max": 10]
 
-    static func image(_ level: String?) -> NSImage {
-        let w: CGFloat = 22, h: CGFloat = 15
+    /// `dot`: a What's new note is unseen. The dot is the brand's information blue, so the image can't be a
+    /// template one; it draws the gauge in the menu bar's own ink for its light or dark look instead.
+    static func image(_ level: String?, dot: Bool = false) -> NSImage {
+        let gw: CGFloat = 22, w: CGFloat = dot ? 27 : 22, h: CGFloat = 15
         let img = NSImage(size: NSSize(width: w, height: h), flipped: false) { _ in
+            let dark = NSAppearance.currentDrawing().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let ink: NSColor = dot ? (dark ? .white : .black) : .black
             let s: CGFloat = 19 / 556          // the icon's 1024 grid, fitted to the menu bar
-            let c = NSPoint(x: w / 2, y: 2.6)
+            let c = NSPoint(x: gw / 2, y: 2.6)
             let r = 250 * s
             func at(_ deg: CGFloat, _ len: CGFloat) -> NSPoint {
                 NSPoint(x: c.x + len * cos(deg * .pi / 180), y: c.y + len * sin(deg * .pi / 180))
             }
-            NSColor.black.set()
+            ink.set()
             let arc = NSBezierPath()
             arc.appendArc(withCenter: c, radius: r, startAngle: 0, endAngle: 180)
             arc.lineWidth = 56 * s
             arc.lineCapStyle = .round
             arc.stroke()
-            NSColor.black.withAlphaComponent(0.45).set()
+            ink.withAlphaComponent(0.45).set()
             for d in angles.values {
                 let p = at(d, r - 80 * s), dr = 18 * s
                 NSBezierPath(ovalIn: NSRect(x: p.x - dr, y: p.y - dr, width: 2 * dr, height: 2 * dr)).fill()
             }
-            NSColor.black.set()
+            ink.set()
             if let level, let d = angles[level] {
                 let n = NSBezierPath()
                 n.move(to: c)
@@ -691,10 +716,14 @@ enum GaugeIcon {
             }
             let hr = 58 * s
             NSBezierPath(ovalIn: NSRect(x: c.x - hr, y: c.y - hr, width: 2 * hr, height: 2 * hr)).fill()
+            if dot {
+                Tokens.infoMark.resolved(dark).setFill()
+                NSBezierPath(ovalIn: NSRect(x: w - 7.5, y: h - 8, width: 7, height: 7)).fill()
+            }
             return true
         }
-        img.isTemplate = true
-        img.accessibilityDescription = "Sttark Claude Kit" + (level.map { ": \($0)" } ?? "")
+        img.isTemplate = !dot
+        img.accessibilityDescription = "Sttark Claude Kit" + (level.map { ": \($0)" } ?? "") + (dot ? ", What's new" : "")
         return img
     }
 }

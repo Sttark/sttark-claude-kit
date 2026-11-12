@@ -3,6 +3,8 @@
 //   docs/menu.png   the whole menu, with one session's submenu open
 //   docs/limit.png  sessions holding at the usage limit, and a session's usage setting open
 //   docs/reach.png  Reach me by, open
+//   docs/whats-new.png  the What's new window under the menu bar icon and its dot, with this repo's notes
+//                       (STTARK_SHOT_DARK=1 also draws /tmp/whats-new-dark.png, and STTARK_SHOT_HEIGHT=<points> for a shorter screen)
 // The times are drawn in a time zone where it is late morning, so the sample reset times read the same on every run.
 // Run from the repo root:
 //   swiftc -parse-as-library -o /tmp/shot tools/screenshot.swift $(ls Sources/*.swift | grep -v main.swift) && /tmp/shot
@@ -60,6 +62,21 @@ import AppKit
         c.addReach(reach, Reach.Settings(ways: ["email", "mac"], email: "name@sttark.com", phone: "", chat: ""))
         let r = Array(reach.items.drop { $0.isSeparatorItem })
         Draw.png(r, hot: r.firstIndex { $0.attributedTitle?.string.hasPrefix("Reach me by") == true }, menuBar: false, to: "docs/reach.png")
+
+        // What's new: the notes in whats-new/, built as build.sh builds them into the app.
+        let notes = dir.appendingPathComponent("whats-new")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        p.arguments = ["tools/whats-new.py", "build", notes.path]
+        p.standardOutput = FileHandle.nullDevice
+        try! p.run()
+        p.waitUntilExit()
+        setenv("STTARK_WHATS_NEW_DIR", notes.path, 1)
+        let tall = CGFloat(Double(ProcessInfo.processInfo.environment["STTARK_SHOT_HEIGHT"] ?? "") ?? 10000)
+        Draw.whatsNew(WhatsNew.all, dark: false, maxHeight: tall, to: "docs/whats-new.png")
+        if ProcessInfo.processInfo.environment["STTARK_SHOT_DARK"] != nil {
+            Draw.whatsNew(WhatsNew.all, dark: true, maxHeight: tall, to: "/tmp/whats-new-dark.png")
+        }
     }
 }
 
@@ -220,6 +237,60 @@ enum Draw {
             y += h
         }
         return rects
+    }
+
+    /// The What's new window as it shows: the app's own view, drawn offscreen, under a menu bar with the icon and
+    /// its dot, with the window's rounded corners and shadow.
+    static func whatsNew(_ notes: [WhatsNew.Note], dark: Bool, maxHeight: CGFloat, to path: String) {
+        let look = NSAppearance(named: dark ? .darkAqua : .aqua)!
+        let view = NotesView(notes, button: "Got it") {}
+        view.appearance = look
+        let ph = min(view.fitHeight, maxHeight)
+        view.frame = NSRect(x: 0, y: 0, width: NotesPanel.width, height: ph)
+        view.layoutSubtreeIfNeeded()
+        let shot = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+        view.cacheDisplay(in: view.bounds, to: shot)
+        let panel = NSImage(size: view.bounds.size)
+        panel.addRepresentation(shot)
+
+        let w = NotesPanel.width + 48, h = 30 + 8 + ph + 32
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(w * 2), pixelsHigh: Int(h * 2), bitsPerSample: 8,
+                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = NSSize(width: w, height: h)
+        let base = NSGraphicsContext(bitmapImageRep: rep)!
+        base.cgContext.translateBy(x: 0, y: h)
+        base.cgContext.scaleBy(x: 1, y: -1)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: base.cgContext, flipped: true)
+        look.performAsCurrentDrawingAppearance {
+            (dark ? NSColor(white: 0.16, alpha: 1) : beige).setFill()
+            NSRect(x: 0, y: 0, width: w, height: h).fill()
+            (dark ? NSColor(white: 0.1, alpha: 1) : NSColor(white: 0.93, alpha: 1)).setFill()
+            NSRect(x: 0, y: 0, width: w, height: 30).fill()
+            let g = GaugeIcon.image("high", dot: true)
+            g.draw(in: NSRect(x: w - 24 - g.size.width - 6, y: 7.5, width: g.size.width, height: g.size.height), from: .zero,
+                   operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            let r = NSRect(x: 24, y: 38, width: NotesPanel.width, height: ph)
+            NSGraphicsContext.saveGraphicsState()
+            let sh = NSShadow()
+            sh.shadowColor = NSColor.black.withAlphaComponent(dark ? 0.5 : 0.22)
+            sh.shadowBlurRadius = 18
+            sh.shadowOffset = NSSize(width: 0, height: -8)
+            sh.set()
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: r, xRadius: 10, yRadius: 10).fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(roundedRect: r, xRadius: 10, yRadius: 10).addClip()
+            panel.draw(in: r, from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.black.withAlphaComponent(dark ? 0.6 : 0.15).setStroke()
+            NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10).stroke()
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
+        print("wrote \(path) (\(Int(w))×\(Int(h)) pt)")
     }
 
     static func png(_ items: [NSMenuItem], hot: Int?, menuBar: Bool, to path: String) {
