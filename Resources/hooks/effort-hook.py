@@ -23,9 +23,9 @@ Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time, uuid
 from contextlib import contextmanager
 
-LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
+LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 HERE = os.path.dirname(os.path.abspath(__file__))
-STATE = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/state.json')
+STATE = os.path.join(os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit'), 'state.json')
 CLAUDE_LOG = os.path.expanduser('~/Library/Logs/Claude/main.log')  # the Claude app's log: which session is open in it
 FRONT = os.path.join(os.path.dirname(STATE), 'claude-front.json')  # when the Claude app was in front, from the menu bar app
 CLAUDE = os.path.expanduser('~/.local/bin/claude')
@@ -893,6 +893,8 @@ def on_prompt(data, sid):
     if not prompt:
         return
     snippet = re.sub(r'\s+', ' ', prompt)[:80]
+    with state() as s:  # when this turn started: the Kit window's "Working for"
+        s['sessions'].setdefault(sid, {})['turn_at'] = time.time()
     st = peek()
     x = st.get('sessions', {}).get(sid, {})
     proc, launched = session_process()
@@ -1012,7 +1014,28 @@ def on_tool(data, sid):
         log(f'error  {sid} send {level} failed {status} {text[:120]} | {snippet}')
 
 
+def set_level(sid, level):
+    """The Kit window's effort pick: the person sets this session's level, so it goes to Manual, and the level goes
+    out the way the hook sends its own (the change id is kept, so the check never reads it as a pick in the app)."""
+    if level not in LEVELS:
+        print('Not a level: %s. One of %s.' % (level, ', '.join(LEVELS)), file=sys.stderr)
+        return 2
+    with state() as s:
+        s['sessions'].setdefault(sid, {})['manual'] = True
+    status, text, rid = send(sid, level)
+    if 200 <= status < 300:
+        with state() as s:
+            x = s['sessions'].setdefault(sid, {})
+            x.update(level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid, manual=True)
+        log(f'manual {sid} set to {level} in the Kit window; leaving this session alone')
+        return 0
+    log(f'error  {sid} send {level} from the Kit window failed {status} {text[:120]}')
+    return 1
+
+
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] == '--set':
+        sys.exit(set_level(sys.argv[2], sys.argv[3]))
     if sys.argv[1:] == ['--models']:
         list_models()
         return

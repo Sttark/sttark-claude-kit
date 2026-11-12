@@ -3,20 +3,35 @@
 // moves can add a function here the same way; a still picture can be any PNG or SVG.
 //   whats-new/hold-before-limit.gif   a session set to hold stops at 80% and goes on when the limit resets
 //   whats-new/session-inbox.gif       a session that waits is archived, then comes back with a message
+// Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
 //   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures
 import AppKit
 
 let W: CGFloat = 440, scale: CGFloat = 2
 
+/// The brand's tokens, light or dark: each picture is drawn twice, <slug>.gif and <slug>-dark.gif, and the app
+/// shows the one for the system's look.
 enum C {
     static func hex(_ v: UInt32) -> NSColor {
         NSColor(srgbRed: CGFloat(v >> 16 & 255) / 255, green: CGFloat(v >> 8 & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: 1)
     }
-    static let paper = hex(0xf8f5f2), card = hex(0xffffff), line = hex(0xe6e1da), ink = hex(0x000000), steel = hex(0x5b6570)
-    static let gray = hex(0xa3abb2), green = hex(0x00892f)
-    static let goodText = hex(0x007a2a), goodSoft = hex(0xe6f4ea), goodBorder = hex(0xb9dec4)
-    static let infoText = hex(0x035f93), infoSoft = hex(0xe8f1f8), infoBorder = hex(0xb6d3e8), infoMark = hex(0x0473b1)
+    static var dark = false
+    static func t(_ l: UInt32, _ d: UInt32) -> NSColor { hex(dark ? d : l) }
+    static var paper: NSColor { t(0xf8f5f2, 0x121417) }
+    static var card: NSColor { t(0xffffff, 0x1a1d21) }
+    static var line: NSColor { t(0xe6e1da, 0x2b2f34) }
+    static var ink: NSColor { t(0x000000, 0xe6e8ea) }
+    static var steel: NSColor { t(0x5b6570, 0x9aa3ad) }
+    static var gray: NSColor { t(0xa3abb2, 0x5b6570) }
+    static var green: NSColor { t(0x00892f, 0x00892f) }
+    static var goodText: NSColor { t(0x007a2a, 0x3cc46a) }
+    static var goodSoft: NSColor { t(0xe6f4ea, 0x17271e) }
+    static var goodBorder: NSColor { t(0xb9dec4, 0x2e4a3a) }
+    static var infoText: NSColor { t(0x035f93, 0x5aa9e0) }
+    static var infoSoft: NSColor { t(0xe8f1f8, 0x16222d) }
+    static var infoBorder: NSColor { t(0xb6d3e8, 0x24435c) }
+    static var infoMark: NSColor { t(0x0473b1, 0x5aa9e0) }
 }
 
 func font(_ size: CGFloat, _ semibold: Bool = false) -> NSFont {
@@ -26,11 +41,11 @@ func font(_ size: CGFloat, _ semibold: Bool = false) -> NSFont {
 
 /// Text at a point (top left), or wrapped in a box.
 @discardableResult
-func text(_ s: String, _ x: CGFloat, _ y: CGFloat, size: CGFloat = 14, bold: Bool = false, color: NSColor = C.ink,
+func text(_ s: String, _ x: CGFloat, _ y: CGFloat, size: CGFloat = 14, bold: Bool = false, color: NSColor? = nil,
           width: CGFloat? = nil, alpha: CGFloat = 1) -> CGFloat {
     let para = NSMutableParagraphStyle()
     para.lineSpacing = 2
-    let a = NSAttributedString(string: s, attributes: [.font: font(size, bold), .foregroundColor: color.withAlphaComponent(alpha),
+    let a = NSAttributedString(string: s, attributes: [.font: font(size, bold), .foregroundColor: (color ?? C.ink).withAlphaComponent(alpha),
                                                         .paragraphStyle: para])
     let w = width ?? ceil(a.size().width) + 2
     let r = a.boundingRect(with: NSSize(width: w, height: 400), options: [.usesLineFragmentOrigin])
@@ -42,11 +57,11 @@ func width(_ s: String, size: CGFloat, bold: Bool = false) -> CGFloat {
     NSAttributedString(string: s, attributes: [.font: font(size, bold)]).size().width
 }
 
-func card(_ r: NSRect, fill: NSColor = C.card, border: NSColor = C.line, radius: CGFloat = 6, lineWidth: CGFloat = 1) {
-    fill.setFill()
+func card(_ r: NSRect, fill: NSColor? = nil, border: NSColor? = nil, radius: CGFloat = 6, lineWidth: CGFloat = 1) {
+    (fill ?? C.card).setFill()
     let p = NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
     p.fill()
-    border.setStroke()
+    (border ?? C.line).setStroke()
     let b = NSBezierPath(roundedRect: r.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), xRadius: radius, yRadius: radius)
     b.lineWidth = lineWidth
     b.stroke()
@@ -223,5 +238,9 @@ func inboxPicture() -> [NSBitmapImageRep] {
     return out
 }
 
-gif(holdPicture(), to: "whats-new/hold-before-limit.gif")
-gif(inboxPicture(), to: "whats-new/session-inbox.gif")
+for dark in [false, true] {
+    C.dark = dark
+    let end = dark ? "-dark.gif" : ".gif"
+    gif(holdPicture(), to: "whats-new/hold-before-limit" + end)
+    gif(inboxPicture(), to: "whats-new/session-inbox" + end)
+}
