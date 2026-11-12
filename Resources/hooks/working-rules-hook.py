@@ -15,12 +15,20 @@ and goes in front of the session's next prompt, so the next reply uses the appro
 prose (code only, or under a few words) are not checked. Any failure (no Claude Code, a slow answer, an
 unreadable one) is logged and nothing is saved.
 
-Logged to ~/Library/Logs/sttark-claude-kit.log, lines starting "ste".
+The same Stop hook also checks the manager rule, with no model call: when the work since the person's last
+message made more than 8 tool calls in the chat and started no agent, a note goes in front of the next prompt.
+
+Logged to ~/Library/Logs/sttark-claude-kit.log, lines starting "ste" (the reply check) and "agents" (the
+manager check).
 """
 import fcntl, json, os, re, subprocess, sys, time
 
-LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
-NOTES = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/working-notes.json')  # misses per session
+# STTARK_KIT_DIR and STTARK_KIT_LOG are for tests: a copy of the state folder and of the log.
+LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
+NOTES = os.path.join(os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit'),
+                     'working-notes.json')  # misses per session
+MANAGER_MAX = 8     # tool calls a turn may make in the chat with no agent before the manager check notes it
+AGENT_TOOLS = ('Agent', 'Task', 'SendMessage', 'Workflow')  # starting or steering an agent
 STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')  # the kit's fixed copy, when the server is on
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
 MODEL = 'haiku'     # Claude Code's alias for the newest Haiku: fast and cheap, enough for a word check
@@ -46,7 +54,8 @@ recaps of what you just did, closing offers, "let me know if". Never end with co
 - Don't know it? Search. Don't guess.
 - Run the tool, show the result, then comment. No narration mid-task.
 - Work like a manager, not a worker. Give each task that takes more than a few tool calls to a subagent that \
-runs in the background, then come back to the person immediately. When they give several tasks, start one agent \
+runs in the background, then come back to the person immediately. Reading, research, design and checks are tasks \
+too: start the agent before your third tool call on that work, not after the work has grown. When they give several tasks, start one agent \
 for each task in the same message, so they run at the same time. Use a fork agent when the task needs the chat \
 context. Use a new agent with full instructions when it does not. Give each agent its own git worktree when two \
 agents could change the same files. When an agent completes, tell the person in one or two lines what it found \
@@ -92,9 +101,9 @@ NOTE = re.compile(r'<(system-reminder|command-[a-z-]+|local-command-[a-z-]+)>.*?
 FENCE = re.compile(r'```.*?```', re.S)
 
 
-def log(line):
+def log(line, tag='ste    '):
     with open(LOG, 'a') as f:
-        f.write(time.strftime('%F %T ') + 'ste    ' + line + '\n')
+        f.write(time.strftime('%F %T ') + tag + line + '\n')
 
 
 def notes(change):
@@ -144,6 +153,65 @@ def last_reply(path):
             if t.strip():
                 parts.append(t)
     return NOTE.sub('', '\n'.join(reversed(parts))).strip()
+
+
+def is_prompt(e):
+    """A turn start: a message from the person or a task notification, not a tool result or a meta line."""
+    if e.get('type') != 'user' or e.get('isMeta') or e.get('isSidechain'):
+        return False
+    c = (e.get('message') or {}).get('content')
+    if isinstance(c, list):
+        return any(isinstance(b, dict) and b.get('type') == 'text' for b in c) and not any(
+            isinstance(b, dict) and b.get('type') == 'tool_result' for b in c)
+    return isinstance(c, str)
+
+
+def is_person(e):
+    return is_prompt(e) and not text_of((e.get('message') or {}).get('content')).lstrip().startswith(
+        '<task-notification>')
+
+
+def chat_calls(path):
+    """(tool calls the session made itself since the person's last message, of them made before the turn that
+    just ended, whether any of them started or steered an agent). Subagent lines (sidechain) don't count."""
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 4000000))
+            lines = f.read().decode('utf-8', 'replace').splitlines()
+    except (OSError, TypeError):
+        return 0, 0, False
+    calls, before, agent = 0, 0, False
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get('isSidechain'):
+            continue
+        if is_person(e):
+            calls, before, agent = 0, 0, False
+        elif is_prompt(e):  # a task notification starts a new turn of the same piece of work
+            before = calls
+        elif e.get('type') == 'assistant':
+            for b in (e.get('message') or {}).get('content') or []:
+                if isinstance(b, dict) and b.get('type') == 'tool_use':
+                    calls += 1
+                    agent = agent or b.get('name') in AGENT_TOOLS
+    return calls, before, agent
+
+
+def manager_check(data):
+    """No model call: a turn that made more than MANAGER_MAX tool calls in the chat with no agent gets a note
+    in front of the session's next prompt. Noted once, in the turn that passed the count."""
+    full = data.get('session_id') or ''
+    calls, before, agent = chat_calls(data.get('transcript_path') or '')
+    if agent or calls <= MANAGER_MAX or before > MANAGER_MAX or not full:
+        return
+    notes(lambda a: a.__setitem__(full, (a.get(full, []) + [
+        'This work made %d tool calls in the chat and started no agent. Give work of more than a few tool calls '
+        'to a background agent, and keep the chat for the person.' % calls])[-3:]))
+    log('%s %d tool calls in the chat, no agent: noted for the next prompt' % (full[:8], calls), 'agents ')
 
 
 def prose(text):
@@ -234,6 +302,10 @@ def main():
     except ValueError:
         return
     if '--check' in sys.argv:
+        try:
+            manager_check(data)
+        except Exception as e:
+            log('%s error manager check %s: %s' % ((data.get('session_id') or '')[:8], type(e).__name__, e), 'agents ')
         return check(data)
     text = LEAD + '\n\n' + RULES
     try:
