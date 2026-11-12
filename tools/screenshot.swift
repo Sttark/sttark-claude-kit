@@ -99,7 +99,7 @@ enum Sample {
             "c41d9e08-sample-0003": ["sid": "c41d9e08-sample-0003", "cse": "cse_01Sample0000000000000003", "title": "Site map plan",
                                      "limit": "5-hour", "since": now - 3000, "until": fiveHour.timeIntervalSince1970, "pid": pid,
                                      "what": "hold", "mode": "hold", "at": 80, "percent": 81],
-            "c41d9e08-sample-0003/a1b2c3": ["sid": "c41d9e08-sample-0003", "agent": "a1b2c3", "cse": "cse_01Sample0000000000000003",
+            "c41d9e08-sample-0003/toolu_01Sample0001": ["sid": "c41d9e08-sample-0003", "agent": "a1b2c3", "cse": "cse_01Sample0000000000000003",
                                             "title": "Site map plan", "limit": "5-hour", "since": now - 2990,
                                             "until": fiveHour.timeIntervalSince1970, "pid": pid, "what": "hold", "mode": "hold", "at": 80, "percent": 81],
             "2b8c6d31-sample-0005": ["sid": "2b8c6d31-sample-0005", "cse": "cse_01Sample0000000000000005", "title": "Inventory photo cleanup",

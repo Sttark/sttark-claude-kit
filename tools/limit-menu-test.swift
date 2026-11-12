@@ -58,6 +58,80 @@ import Foundation
         check("an old row without mode is a wait at 100%", !old.hold && old.at == 100)
         check("dead row removed from the file", (State.read()["limit_pauses"] as! [String: Any])["33333333-dead"] == nil)
 
+        // the log's short id, the hooks' rule
+        check("short id: first 8 of the session id", Limit.short(sid: "abcdef12-3456", cse: "cse_01Zzzzzzzz") == "abcdef12")
+        check("short id: 8 after cse_ for a session known only by its cse", Limit.short(sid: "", cse: "cse_01AbCdEfGhIj") == "01AbCdEf")
+
+        // A state file as the hooks write it (Python's json.dump: ints and floats, null, keys with "/"), with entries
+        // that are not dictionaries next to good ones. A held call is keyed "<sid>/<tool call id>", with `agent` set
+        // for an agent's call; the wait command's own loop "<sid>" or "<sid>/<agent>".
+        let py = "abcdef12-3456-7890-abcd-ef1234567890"
+        let pid = Int(getpid())
+        let n0 = Int(now)
+        let pyState = """
+        {"limit_credits_all": false, "limit_credits": {"77777777-cccc": \(now + 1000), "passed": \(n0 - 10), "odd": "x"}, \
+        "limit_modes": {"cse_01PyFixture0000000001": {"mode": "hold", "at": 75, "by": "typed", "set_at": \(now - 5), \
+        "sid": "\(py)", "cse": "cse_01PyFixture0000000001", "title": "Py session"}, \
+        "bad-entry": "not a dict", "also-bad": [1, 2], \
+        "77777777-cccc": {"mode": "credits", "by": "command", "set_at": \(n0), "sid": "77777777-cccc"}}, \
+        "limit_pauses": {\
+        "\(py)/toolu_main1": {"since": \(now - 100.5), "until": \(now + 600.25), "limit": "5-hour", "cse": "cse_01PyFixture0000000001", \
+        "title": "Py session", "pid": \(pid), "what": "hold", "sid": "\(py)", "agent": null, "mode": "hold", "at": 75, "percent": 77.0}, \
+        "\(py)/toolu_ag1a": {"since": \(now - 90), "until": \(now + 700), "limit": "5-hour", "title": "Py session", "pid": \(pid), \
+        "what": "hold", "sid": "\(py)", "agent": "agent-one", "mode": "hold", "at": 75, "percent": 77}, \
+        "\(py)/toolu_ag1b": {"since": \(now - 80), "until": \(now + 700), "limit": "5-hour", "title": "Py session", "pid": \(pid), \
+        "what": "hold", "sid": "\(py)", "agent": "agent-one", "mode": "hold", "at": 75, "percent": 77}, \
+        "\(py)/toolu_ag2": {"since": \(now - 70), "until": \(now + 650), "limit": "5-hour", "title": "Py session", "pid": \(pid), \
+        "what": "hold", "sid": "\(py)", "agent": "agent-two", "mode": "hold", "at": 75}, \
+        "\(py)/toolu_dead": {"since": \(now - 60), "until": \(now + 9000), "limit": "5-hour", "title": "Py session", "pid": 999999, \
+        "what": "hold", "sid": "\(py)", "agent": "agent-three", "mode": "hold", "at": 75}, \
+        "99999999-dddd/agent-x": {"since": \(n0 - 50), "until": \(n0 + 60), "limit": "weekly", "title": "Agent only", "pid": \(pid), \
+        "what": "wait", "sid": "99999999-dddd", "agent": "agent-x", "mode": "follow", "at": 100, "percent": 100}, \
+        "88888888-eeee": {"since": \(n0 - 40), "until": \(n0 + 30), "title": "No sid field", "pid": \(pid)}, \
+        "bad-row": "nope"}}
+        """
+        try! pyState.data(using: .utf8)!.write(to: dir.appendingPathComponent("state.json"))
+        check("Python entry found by its sid field (keyed by cse)", Limit.mode(Limit.Target(sid: py, cse: "", title: "")) == .hold(75))
+        check("Python entry found by cse", Limit.mode(Limit.Target(sid: "", cse: "cse_01PyFixture0000000001", title: "")) == .hold(75))
+        check("bad entries hide nothing: an int set_at entry still reads", Limit.mode(Limit.Target(sid: "77777777-cccc", cse: "", title: "")) == .credits)
+        let pw = Limit.waiting
+        check("Python rows: one row per session, the bad row left out", pw.count == 3
+              && Set(pw.map(\.sid)) == [py, "99999999-dddd", "88888888-eeee"])
+        if let r = pw.first(where: { $0.sid == py }) {
+            check("the session's own held call is its row (agent null)", r.hold && r.at == 75 && r.percent == 77 && r.since.timeIntervalSince1970 == now - 100.5)
+            check("agents counted once each: two parallel calls of one agent, and a second agent", r.agents == 2)
+            check("until is the latest of its live rows (not the dead one's)", r.until.timeIntervalSince1970 == now + 700)
+        } else { check("Python session row present", false) }
+        if let r = pw.first(where: { $0.sid == "99999999-dddd" }) {
+            check("an agent's own wait, with no row of the session: shown, one agent", !r.hold && r.at == 100 && r.agents == 1 && r.title == "Agent only")
+        } else { check("agent-only session row present", false) }
+        if let r = pw.first(where: { $0.sid == "88888888-eeee" }) {
+            check("a row with no sid field: the key names the session", r.agents == 0 && !r.hold)
+        } else { check("row without sid present", false) }
+        let left = State.read()["limit_pauses"] as? [String: Any] ?? [:]
+        check("a dead call drops only its own row", left["\(py)/toolu_dead"] == nil && left["\(py)/toolu_main1"] != nil
+              && left["\(py)/toolu_ag1a"] != nil && left["\(py)/toolu_ag1b"] != nil && left["\(py)/toolu_ag2"] != nil
+              && left["99999999-dddd/agent-x"] != nil && left["bad-row"] != nil)
+
+        // the switch and the click write `limit` lines, as the hooks do, not `app` lines
+        let before = ((try? String(contentsOf: dir.appendingPathComponent("log"), encoding: .utf8)) ?? "").split(separator: "\n").count
+        Limit.setCreditsAll(true)
+        check("switch on", Limit.creditsAll)
+        Limit.setCreditsAll(false)
+        let row = Limit.waiting.first { $0.sid == py }!
+        Limit.useCredits(row)
+        let credits = State.read()["limit_credits"] as? [String: Any] ?? [:]
+        check("Use credits: this session until its reset, other sessions kept, passed ones dropped",
+              Limit.num(credits[py]) == row.until.timeIntervalSince1970 && Limit.num(credits["77777777-cccc"]) == now + 1000
+              && credits["passed"] == nil)
+        let newLines = ((try? String(contentsOf: dir.appendingPathComponent("log"), encoding: .utf8)) ?? "")
+            .split(separator: "\n").dropFirst(before).map(String.init)
+        newLines.forEach { print($0) }
+        check("switch and click: three `limit` lines, no `app` line", newLines.count == 3 && newLines.allSatisfy { $0.dropFirst(20).hasPrefix("limit  credits ") })
+        check("switch on line", newLines.first?.hasSuffix("limit  credits every session uses credits at the limit, except one set to hold (menu)") == true)
+        check("switch off line", newLines.dropFirst().first?.hasSuffix("limit  credits every session waits at the limit, except one set to use credits (menu)") == true)
+        check("click line, with the short id", newLines.last?.hasSuffix("limit  credits abcdef12 uses credits until \(Limit.clock(row.until)) (menu)") == true)
+
         // the stand-in usage file: the menu says "Usage limit reached" only at 100% with credits on the account
         func usage(_ percent: Int, credits: Bool = true, scoped: Bool = false, resetsIn: Double = 3600) {
             let f = ISO8601DateFormatter()
