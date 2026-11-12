@@ -6,6 +6,10 @@ picture for dark mode as whats-new/<slug>-dark.gif; the app shows the one for th
 
     # Title in sentence case
 
+    **Icon:** an SF Symbol's name, for the What's new sheet (macwindow, pause.circle, tray)
+
+    **In short:** one line for the sheet, at most 15 words.
+
     Two to four short sentences in ASD-STE100 Simplified Technical English: what is new.
 
     **What you do:** what the person does differently, with the exact words of the menu and the commands.
@@ -36,6 +40,9 @@ CHECK_NAME = "What's new note"
 SLUG = re.compile(r'^[a-z0-9]+(-[a-z0-9]+)*$')
 PICTURE = re.compile(r'^!\[([^\]]*)\]\(([^)\s]+)\)$')
 DO = '**What you do:**'
+ICON = '**Icon:**'
+SHORT = '**In short:**'
+SYMBOL = re.compile(r'^[a-z0-9]+(\.[a-z0-9]+)*$')
 MONTHS = r'(January|February|March|April|May|June|July|August|September|October|November|December|' \
          r'Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)'
 DATES = [
@@ -67,13 +74,17 @@ def parse(path):
     paras = [p.strip() for p in re.split(r'\n\s*\n', text.strip()) if p.strip()]
     if not paras or not paras[0].startswith('# ') or '\n' in paras[0]:
         raise ValueError('the first line must be "# Title", alone in its paragraph')
-    note = {'id': slug, 'title': paras[0][2:].strip(), 'text': [], 'do': '', 'picture': '', 'alt': ''}
+    note = {'id': slug, 'title': paras[0][2:].strip(), 'text': [], 'do': '', 'picture': '', 'alt': '', 'icon': '', 'summary': ''}
     for p in paras[1:]:
         m = PICTURE.match(p)
         if m:
             if note['picture']:
                 raise ValueError('one picture only')
             note['alt'], note['picture'] = m.group(1).strip(), m.group(2)
+        elif p.startswith(ICON):
+            note['icon'] = p[len(ICON):].strip()
+        elif p.startswith(SHORT):
+            note['summary'] = ' '.join(p[len(SHORT):].split())
         elif p.startswith(DO):
             if note['do']:
                 raise ValueError('one "%s" paragraph only' % DO)
@@ -120,6 +131,12 @@ def problems(path):
         if len(s.split()) > 20:
             out.append('a sentence in "What you do" has %d words; 20 at most (STE): "%s..."'
                        % (len(s.split()), ' '.join(s.split()[:5])))
+    if not SYMBOL.match(n['icon']):
+        out.append('no "%s" line with an SF Symbol name for the sheet, such as macwindow' % ICON)
+    if not n['summary']:
+        out.append('no "%s" line: one line for the sheet' % SHORT)
+    elif len(n['summary'].split()) > 15 or len(sentences(n['summary'])) > 1:
+        out.append('"%s" is one sentence of at most 15 words' % SHORT)
     if not n['picture']:
         out.append('no picture: one line "![what it shows](%s.gif)"' % slug)
     else:
@@ -138,7 +155,7 @@ def problems(path):
                        % dark_picture(n['picture']))
         elif os.path.getsize(dark) > MAX_PICTURE:
             out.append('the dark picture is %.1f MB; 3 MB at most' % (os.path.getsize(dark) / 1048576))
-    words = ' '.join([n['title'], body, n['do'], n['alt']])
+    words = ' '.join([n['title'], n['summary'], body, n['do'], n['alt']])
     plain = re.sub(r'`[^`]*`', '', words)
     for rx, what in DATES:
         m = rx.search(plain)

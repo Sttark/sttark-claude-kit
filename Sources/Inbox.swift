@@ -92,6 +92,30 @@ enum Inbox {
             sessions.first { (!cse.isEmpty && $0.id == cse) || (!sid.isEmpty && $0.sid == sid) }
         }
 
+        // The sessions the Claude app lists (not archived, not runs of a scheduled task), read every minute by the
+        // tracker. Only those show as needs you, working or idle; without a fresh list, the Kit's own sessions do.
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let list = state["app_list"] as? [String: Any]
+        let fresh = Limit.num(list?["at"]).map { Date().timeIntervalSince1970 - $0 < 15 * 60 } ?? false
+        let listed = fresh ? (list?["sessions"] as? [[String: Any]] ?? []) : []
+        let listedIds: Set<String>? = fresh ? Set(listed.compactMap { $0["id"] as? String }) : nil
+        func inApp(_ id: String) -> Bool { listedIds?.contains(id) ?? true }
+        // sessions the app lists that the Kit has no record of yet (older ones, or ones its hooks never ran in)
+        var extra: [Session] = []
+        var bucket: [String: String] = [:]
+        for x in listed {
+            guard let id = x["id"] as? String else { continue }
+            bucket[id] = x["bucket"] as? String ?? ""
+            guard !sessions.contains(where: { $0.id == id }) else { continue }
+            let last = (x["last"] as? String).flatMap { iso.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } ?? .distantPast
+            var e = Session(id: id, title: (x["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Session " + id.suffix(6),
+                            level: x["level"] as? String ?? "", reason: "", manual: false, at: last)
+            e.url = "https://claude.ai/code/session_" + id.dropFirst(4)
+            if bucket[id] == "blocked" { e.needsYou = true; e.why = "waiting on your answer or permission"; e.waitingSince = last }
+            extra.append(e)
+        }
+
         // held at the usage limit
         for h in Limit.waiting {
             let s = session(cse: h.cse, sid: h.sid)
@@ -105,20 +129,23 @@ enum Inbox {
             snap.rows.append(r)
         }
 
-        // needs you, oldest first
-        for s in Waiting.sessions where !used.contains(s.id) {
+        // needs you, oldest first: only where the person must act (a question, a decision, a permission). A
+        // finished reply that needs nothing, read or not, is idle; it shows "Finished; reply not opened" there.
+        var unread: [String: Date] = [:]
+        for s in Waiting.sessions + extra.filter(\.needsYou) where !used.contains(s.id) && inApp(s.id) {
+            guard s.needsYou else { unread[s.id] = s.waitingSince; continue }
             used.insert(s.id)
             let w = s.waitingSince!
-            var r = Row(id: s.id, group: .needs, title: s.title,
-                        sub: s.needsYou ? "Needs you" + (s.why.isEmpty ? "" : ": " + s.why) : "Finished; reply not opened",
+            var r = Row(id: s.id, group: .needs, title: s.title, sub: "Needs you" + (s.why.isEmpty ? "" : ": " + s.why),
                         time: Waiting.ago(w))
-            r.late = s.needsYou && -w.timeIntervalSinceNow >= Waiting.after
+            r.late = -w.timeIntervalSinceNow >= Waiting.after
             r.session = s
             snap.rows.append(r)
         }
 
         // Claude working, the longest first
-        let working = sessions.filter { !used.contains($0.id) && (raw[$0.id]?["app"] as? [String: Any])?["working"] as? Bool == true }
+        let working = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id)
+            && ((raw[$0.id]?["app"] as? [String: Any])?["working"] as? Bool == true || bucket[$0.id] == "working") }
         func turnAt(_ s: Session) -> Date? { Limit.num(raw[s.id]?["turn_at"]).map { Date(timeIntervalSince1970: $0) } }
         for s in working.sorted(by: { (turnAt($0) ?? $0.at) < (turnAt($1) ?? $1.at) }) {
             used.insert(s.id)
@@ -139,10 +166,13 @@ enum Inbox {
             snap.rows.append(r)
         }
 
-        // the rest of the last `hours`, newest first
+        // the rest: every other session the app lists (or, without the list, the last `hours`), newest first
         let cutoff = Date().addingTimeInterval(-hours * 3600)
-        for s in sessions where !used.contains(s.id) && s.at > cutoff {
-            var r = Row(id: s.id, group: .idle, title: s.title, sub: effortWords(s), time: Waiting.ago(s.at))
+        let rest = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id)
+            && (listedIds != nil || $0.at > cutoff || unread[$0.id] != nil) }
+        for s in rest.sorted(by: { (unread[$0.id] ?? $0.at) > (unread[$1.id] ?? $1.at) }) {
+            let sub = unread[s.id] != nil ? "Finished; reply not opened" : effortWords(s)
+            var r = Row(id: s.id, group: .idle, title: s.title, sub: sub, time: Waiting.ago(unread[s.id] ?? s.at))
             r.session = s
             snap.rows.append(r)
         }

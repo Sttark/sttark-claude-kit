@@ -1,15 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// What's new: a short note for each change people notice, shown once per person, after the update that brings it.
+/// What's new: a short note for each change people notice, one per person, after the update that brings it.
 /// The notes are whats-new/*.md in the repo; build.sh turns them into whats-new/index.json in the app, newest
 /// first, with their pictures (tools/whats-new.py). The notes a person has seen are `whats_new_seen` in the
 /// shared state file.
 ///
-/// It never takes the screen. The window is a panel that doesn't make the app active and never takes the keyboard,
-/// so typing goes on where it was. While a note is unseen, the menu bar icon has a dot, and the window waits for
-/// the person to come back to the Mac: the screen unlocks or wakes, or input starts again after 5 minutes idle.
-/// Opening the menu shows it too, when the menu closes. "What's new" in the menu shows every note.
+/// Nothing opens by itself. While a note is unseen, the menu bar icon has a dot and the menu's What's new item a
+/// "3 new" badge. Clicking it opens the window with a short sheet: each new note's icon, title and one line, with
+/// Continue and All changes. Opening the sheet marks them seen. All changes is the window's What's new page:
+/// every note, newest first, with its picture.
 enum WhatsNew {
     struct Note: Decodable {
         let id: String
@@ -21,6 +21,9 @@ enum WhatsNew {
         let alt: String
         /// The picture for dark mode, when the note has one (<slug>-dark.gif beside it).
         var picture_dark: String? = nil
+        /// For the sheet: an SF Symbol and one line.
+        var icon: String? = nil
+        var summary: String? = nil
     }
 
     /// STTARK_WHATS_NEW_DIR points the code at test notes; the drawing tool (tools/screenshot.swift) uses it.
@@ -39,19 +42,21 @@ enum WhatsNew {
     static var unseen: [Note] { let s = seen; return all.filter { !s.contains($0.id) } }
     static var hasUnseen: Bool { !unseen.isEmpty }
 
+    /// What the sheet shows: the notes not seen yet, or, when all are seen, the newest update's notes (at most 4).
+    static var forSheet: [Note] {
+        let u = unseen
+        if !u.isEmpty { return u }
+        let notes = all
+        guard let newest = notes.first?.build else { return [] }
+        return Array(notes.filter { $0.build == newest }.prefix(4))
+    }
+
     /// Set in main.swift: no state file before this launch means a new install, which hasn't missed anything.
     static var newInstall = false
-    /// Minutes of no input that count as being away.
-    static let away: TimeInterval = 5 * 60
 
     private static var changed: () -> Void = {}
-    private static var anchor: () -> NSStatusItem? = { nil }
-    private static var panel: NotesPanel?
-    private static var lastIdle: TimeInterval = 0
-    private static var menuWasOpened = false
 
-    static func start(anchor: @escaping () -> NSStatusItem?, changed: @escaping () -> Void) {
-        self.anchor = anchor
+    static func start(changed: @escaping () -> Void) {
         self.changed = changed
         let notes = all
         if State.read()["whats_new_seen"] == nil {
@@ -62,40 +67,13 @@ enum WhatsNew {
         }
         let u = unseen
         if !u.isEmpty {
-            note("what's new: \(u.count) not seen yet (\(u.map(\.id).joined(separator: ", "))); a dot on the icon until you come back to the Mac")
+            note("what's new: \(u.count) not seen yet (\(u.map(\.id).joined(separator: ", "))); a dot on the icon and a badge in the menu")
         }
-        let ws = NSWorkspace.shared.notificationCenter
-        ws.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { if !screenLocked { cameBack("the screen woke") } }
-        }
-        DistributedNotificationCenter.default().addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { cameBack("the screen unlocked") }
-        }
-        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in watchIdle() }
     }
 
-    /// Input after `away` with none: the person is back.
-    static func watchIdle() {
-        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
-        defer { lastIdle = idle }
-        guard lastIdle >= away, idle < lastIdle, idle < 10 else { return }
-        cameBack("back after \(Int(lastIdle / 60)) min away")
-    }
-
-    static var screenLocked: Bool {
-        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
-    }
-
-    static func cameBack(_ why: String) {
-        guard panel == nil, !screenLocked else { return }
-        let u = unseen
-        guard !u.isEmpty else { return }
-        show(u, why: why)
-    }
-
-    /// Marks the notes seen, and returns the ones that were new. The window's What's new page does this too.
+    /// Marks the notes seen, and returns the ones that were new: the dot and the badge go away.
     @discardableResult
-    static func markSeen(_ notes: [Note]) -> [String] {
+    static func markSeen(_ notes: [Note], _ how: String) -> [String] {
         let ids = notes.map(\.id)
         let had = seen
         let new = ids.filter { !had.contains($0) }
@@ -104,43 +82,9 @@ enum WhatsNew {
             let old = s["whats_new_seen"] as? [String] ?? []
             s["whats_new_seen"] = old + ids.filter { !old.contains($0) }
         }
-        if panel == nil { note("what's new: seen in the window: " + new.joined(separator: ", ")) }
+        note("what's new: seen (\(how)): " + new.joined(separator: ", "))
         changed()
         return new
-    }
-
-    static func menuOpened() { menuWasOpened = hasUnseen }
-
-    /// After the menu closes, so the window never covers the menu.
-    static func menuClosed() {
-        guard menuWasOpened else { return }
-        menuWasOpened = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { cameBack("the menu was opened") }
-    }
-
-    /// "What's new" in the menu: every note, newest first.
-    static func showAll() {
-        let notes = all
-        guard !notes.isEmpty else { return }
-        show(notes, why: "What's new in the menu")
-    }
-
-    static func show(_ notes: [Note], why: String) {
-        panel?.close()
-        let p = NotesPanel(notes, unseen: notes.contains { !seen.contains($0.id) }) { done(notes) }
-        p.place(near: anchor(), notes: notes)
-        p.orderFrontRegardless()   // in front, without making the app active or taking the keyboard
-        panel = p
-        note("what's new: shown (\(why)): \(notes.map(\.id).joined(separator: ", "))")
-    }
-
-    /// Got it: every note in the window is seen.
-    static func done(_ notes: [Note]) {
-        let new = markSeen(notes)
-        note("what's new: Got it" + (new.isEmpty ? "" : ", seen: " + new.joined(separator: ", ")))
-        panel?.close()
-        panel = nil
-        changed()
     }
 }
 
@@ -186,85 +130,49 @@ enum Tokens {
     }
 }
 
-/// A panel that never makes the app active and never takes the keyboard: typing elsewhere goes on as it was.
-/// Its button still takes a click. It draws the same note cards as the window's What's new page.
-final class NotesPanel: NSPanel {
-    static let width: CGFloat = 460
-
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
-
-    init(_ notes: [WhatsNew.Note], unseen: Bool, onDone: @escaping () -> Void) {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 400),
-                   styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
-        title = "What's new"
-        titleVisibility = .hidden
-        titlebarAppearsTransparent = true
-        for b in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { standardWindowButton(b)?.isHidden = true }
-        isFloatingPanel = true
-        level = .floating
-        hidesOnDeactivate = false
-        becomesKeyOnlyIfNeeded = true
-        isMovableByWindowBackground = true
-        isReleasedWhenClosed = false
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        contentView = FirstClickHost(rootView: NotesPopup(notes: notes, button: unseen ? "Got it" : "Close", onDone: onDone))
-    }
-
-    /// The height the notes need at the panel's width, without scrolling.
-    static func fitHeight(_ notes: [WhatsNew.Note]) -> CGFloat {
-        let probe = NSHostingView(rootView: NotesStack(notes: notes).frame(width: width))
-        return NotesPopup.head + ceil(probe.fittingSize.height) + NotesPopup.foot
-    }
-
-    /// Under the menu bar icon, right edges lined up, as tall as the notes need and at most most of the screen.
-    func place(near item: NSStatusItem?, notes: [WhatsNew.Note]) {
-        let iconFrame = item?.button?.window?.frame
-        let screen = item?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
-        let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 875)
-        let h = min(Self.fitHeight(notes), (vis.height * 0.85).rounded())
-        let right = min(iconFrame.map { $0.maxX + 8 } ?? vis.maxX - 8, vis.maxX - 8)
-        setFrame(NSRect(x: max(vis.minX + 8, right - Self.width), y: vis.maxY - 8 - h, width: Self.width, height: h), display: true)
-    }
-}
-
-/// Takes the first click, since the panel is never the key window.
-final class FirstClickHost<V: View>: NSHostingView<V> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-}
-
-/// The popup: a heading, the notes (scrolling when they don't fit), and one green button.
-struct NotesPopup: View {
-    static let head: CGFloat = 52, foot: CGFloat = 57
+/// The sheet's notes, and the button that closes it.
+struct NewsSheet: View {
     let notes: [WhatsNew.Note]
-    let button: String
-    let onDone: () -> Void
+    let onContinue: () -> Void
+    let onAll: () -> Void
     var body: some View {
         VStack(spacing: 0) {
-            Text("What's new in Sttark Claude Kit").font(K.font(15, true))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).frame(height: Self.head)
-            ScrollView { NotesStack(notes: notes) }
-            Rectangle().fill(K.hair).frame(height: 1)
-            HStack {
-                Spacer()
-                Button(button, action: onDone).buttonStyle(GreenButtonStyle())
+            Text("What's new in Sttark Claude Kit").font(K.font(19, true)).padding(.top, 28).padding(.bottom, 20)
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(notes, id: \.id) { n in
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: n.icon ?? "sparkles")
+                            .font(.system(size: 22 * K.zoom, weight: .regular))
+                            .foregroundColor(K.greenText)
+                            .frame(width: 30, alignment: .center)
+                            .padding(.top, 1)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(n.title).font(K.font(14, true)).fixedSize(horizontal: false, vertical: true)
+                            Text(n.summary ?? n.text.first ?? "").font(K.font(13)).foregroundColor(K.steel)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
             }
-            .padding(.horizontal, 16)
-            .frame(height: Self.foot - 1)
+            .padding(.horizontal, 32)
+            Rectangle().fill(K.hair).frame(height: 1).padding(.top, 24)
+            HStack {
+                Button("All changes", action: onAll).controlSize(K.control)
+                    .help("Every note, newest first, with its picture.")
+                Spacer()
+                Button("Continue", action: onContinue).buttonStyle(GreenButtonStyle()).keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 20)
+            .frame(height: 60)
         }
+        .textSelection(.enabled)
+        .frame(width: K.z(460))
+        .controlSize(K.control)
         .foregroundColor(K.ink)
-        .background(K.paper)
-        .ignoresSafeArea()
-    }
-}
-
-struct NotesStack: View {
-    let notes: [WhatsNew.Note]
-    var body: some View {
-        VStack(spacing: 12) { ForEach(notes, id: \.id) { NoteCardView(note: $0) } }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+        .background(K.card)
     }
 }
 
@@ -277,7 +185,7 @@ struct NoteCardView: View {
             if let p = NotePicture.load(note) {
                 NotePicture(light: p.light, dark: p.dark, alt: note.alt)
                     .aspectRatio(p.ratio, contentMode: .fit)
-                    .frame(maxWidth: p.width)
+                    .frame(maxWidth: p.width * K.zoom)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(K.hair))
             }
