@@ -19,7 +19,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
     struct Release { let build: Int; let version: String; let url: URL }
     private(set) var available: Release?
     private(set) var installing = false
-    private var lastCheck = Date.distantPast
+    private(set) var lastCheck = Date.distantPast
     private var retryPending = false
     var changed: () -> Void = {}
     /// True while the person is in the menu or a dialog, so the app doesn't restart under them.

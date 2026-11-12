@@ -53,6 +53,16 @@ enum Reach {
         note("Reach me by: \(names[way] ?? way) \(on ? "on" : "off")")
     }
 
+    /// A way checked or unchecked in Settings. A way that needs a setting asks for it first.
+    static func pick(_ way: String) {
+        let r = settings()
+        if !r.ways.contains(way), missing(way, r) != nil {
+            let got = way == "email" ? askEmail() : way == "text" ? askPhone() : way == "chat" ? askChat() : true
+            guard got else { return }
+        }
+        toggle(way)
+    }
+
     static func set(_ key: String, _ value: String) {
         save { $0[key] = value }
         note("Reach me by: \(key == "chat" ? "Google Chat webhook" : key == "phone" ? "phone number" : "email address") \(value.isEmpty ? "cleared" : "set")")
@@ -232,6 +242,17 @@ enum Waits {
         let why: String
         let by: Date?
         let back: Bool
+        /// pr, at, email-reply, check-script or check-prompt, and what it watches.
+        var kind = ""
+        var target = ""
+        var from = ""
+        /// Seconds between checks the session asked for (0: the Kit's own pace), and when it was set.
+        var every: Double = 0
+        var setAt: Date? = nil
+        /// The session's Remote Control id and link, and a link to what it watches (a pull request).
+        var cse = ""
+        var sessionURL = ""
+        var url = ""
     }
 
     static var script: String { hooksDir.appendingPathComponent("wait.py").path }
@@ -242,14 +263,25 @@ enum Waits {
         return all.map { id, w in
             let kind = w["kind"] as? String ?? ""
             let target = w["target"] as? String ?? ""
-            let at = (w["at"] as? Double).map { Date(timeIntervalSince1970: $0) }
+            let at = Limit.num(w["at"]).map { Date(timeIntervalSince1970: $0) }
             let what = (w["what"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (kind == "pr" ? "PR #\(target.split(separator: "#").last ?? "") \(w["want"] as? String ?? "")"
                 : kind == "email-reply" ? "Email reply"
+                : kind == "check-prompt" ? "Yes to: \(target)"
+                : kind == "check-script" ? "Its check script"
                 : at.map { "Check at \(Limit.clock($0))" } ?? "A time")
-            return Wait(id: id, title: (w["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "A session",
-                        what: what, why: w["why"] as? String ?? "",
-                        by: (w["by"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? at,
-                        back: w["stage"] as? String == "back")
+            var x = Wait(id: id, title: (w["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "A session",
+                         what: what, why: w["why"] as? String ?? "",
+                         by: Limit.num(w["by"]).map { Date(timeIntervalSince1970: $0) } ?? at,
+                         back: w["stage"] as? String == "back")
+            x.kind = kind
+            x.target = target
+            x.from = w["from"] as? String ?? ""
+            x.every = Limit.num(w["every"]) ?? 0
+            x.setAt = Limit.num(w["set_at"]).map { Date(timeIntervalSince1970: $0) }
+            x.cse = w["cse"] as? String ?? ""
+            x.sessionURL = w["session_url"] as? String ?? ""
+            x.url = w["url"] as? String ?? ""
+            return x
         }.filter { !$0.back }.sorted { ($0.by ?? .distantFuture) < ($1.by ?? .distantFuture) }
     }
 

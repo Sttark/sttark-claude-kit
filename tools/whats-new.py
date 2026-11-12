@@ -1,7 +1,8 @@
 #!/usr/bin/python3
 """What's new notes: the short notes the app shows once, after an update, for a change people notice.
 
-Each note is whats-new/<slug>.md with its picture whats-new/<slug>.gif (or .png or .svg) beside it:
+Each note is whats-new/<slug>.md with its picture whats-new/<slug>.gif (or .png or .svg) beside it, and the same
+picture for dark mode as whats-new/<slug>-dark.gif; the app shows the one for the system's look:
 
     # Title in sentence case
 
@@ -84,6 +85,12 @@ def parse(path):
     return note
 
 
+def dark_picture(name):
+    """The picture for dark mode, beside the light one: hold-before-limit.gif and hold-before-limit-dark.gif."""
+    base, ext = os.path.splitext(name)
+    return base + '-dark' + ext
+
+
 def problems(path):
     """Every fact the note breaks. Judgment (are the words clear, is it STE) is for people and the ste command."""
     out = []
@@ -125,6 +132,12 @@ def problems(path):
             out.append('the picture is %.1f MB; 3 MB at most' % (os.path.getsize(pic) / 1048576))
         if not n['alt']:
             out.append('the picture needs words that say what it shows: ![...]')
+        dark = os.path.join(os.path.dirname(path), dark_picture(n['picture']))
+        if not os.path.isfile(dark):
+            out.append('no %s: the picture for dark mode, beside the light one (tools/whats-new-pictures.swift draws both)'
+                       % dark_picture(n['picture']))
+        elif os.path.getsize(dark) > MAX_PICTURE:
+            out.append('the dark picture is %.1f MB; 3 MB at most' % (os.path.getsize(dark) / 1048576))
     words = ' '.join([n['title'], body, n['do'], n['alt']])
     plain = re.sub(r'`[^`]*`', '', words)
     for rx, what in DATES:
@@ -193,6 +206,10 @@ def build(out):
         n['build'] = build_number(f)
         n['action'] = n.pop('do')   # "do" is a word Swift keeps for itself
         shutil.copy(os.path.join(NOTES, n['picture']), os.path.join(out, n['picture']))
+        dark = dark_picture(n['picture'])
+        if os.path.isfile(os.path.join(NOTES, dark)):
+            shutil.copy(os.path.join(NOTES, dark), os.path.join(out, dark))
+            n['picture_dark'] = dark
         notes.append(n)
     notes.sort(key=lambda n: (-n['build'], n['id']))
     with open(os.path.join(out, 'index.json'), 'w') as f:
