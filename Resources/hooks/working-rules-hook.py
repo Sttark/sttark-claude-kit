@@ -67,7 +67,11 @@ person drops it. Nothing may go missing without showing in the table.
 - Waits on others: before you end a turn that waits on someone or something outside the session (a pull request \
 someone else merges, a reply to an email, a check at a set time), hand the wait to Sttark Claude Kit with \
 claude-wait (claude-wait pr <owner/repo#n> merged --by <deadline> --what "<what you watch for>" --why "<line>"; \
-claude-wait email-reply <thread id> --by ... ; claude-wait at <time> --why ...). Do the same when the person asks \
+claude-wait email-reply <thread id> [--from <sender>] --by ... ; claude-wait at <time> --why ...; claude-wait \
+check-script <path> --every 10m --by ... for anything a small script can check with no model, such as an API value, a \
+page that changes or a tracking number, where exit 0 means it happened; claude-wait check-prompt "<yes/no question>" \
+--every 1h --by ... only when nothing free works, since each check is a Haiku call). Prefer pr, at and check-script. \
+Do the same when the person asks \
 "let me know when they reply", "tell me when it merges" or the like, and when they ask "has X replied?" or "how long \
 has it been?" about something no wait covers yet. The Kit watches it with no model calls and brings the session \
 back when it happens, or at the deadline when it has not. You pick the deadline with judgment; there is no \
