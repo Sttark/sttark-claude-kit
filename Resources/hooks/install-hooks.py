@@ -10,8 +10,8 @@ server sessions" switch) and leaves the effort hook alone. The app rules hook
 (app-rules-hook.py, no switch) goes in with the effort hook, and so do the working rules
 hooks (working-rules-hook.py, the "Sttark working rules" switch, on by default) unless
 --working off was run, which leaves a marker in the app's folder; --working on removes it.
-The usage limit hook (limit-hook.py) also goes in with the effort hook, with a second PreToolUse
-entry (--hold, 8-day limit) for sessions that hold at their own percentage, and the claude-limit-wait and
+The usage limit hook (limit-hook.py) also goes in with the effort hook, with a second PreToolUse and
+UserPromptSubmit entry (--hold, 8-day limit) for sessions that hold at their own percentage, and the claude-limit-wait and
 claude-limit-mode links in ~/.local/bin; the menu's "Use credits at the usage limit" switch and each
 session's own setting are settings it reads, not hook changes.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
@@ -102,7 +102,7 @@ def set_working(hooks, on):
 
 LIMIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'limit-hook.py')
 LIMIT_WAIT = 60  # the hooks only check and answer; the wait runs as a visible command (claude-limit-wait)
-LIMIT_HOLD = 8 * 24 * 3600  # --hold: a session that holds at its own N% waits in this hook, up to a weekly reset
+LIMIT_HOLD = 8 * 24 * 3600  # --hold: a session that holds at its own N% waits in this hook, past a weekly reset
 LINKS = ('claude-limit-wait', 'claude-limit-mode')  # commands in ~/.local/bin that point at limit-hook.py
 
 
@@ -112,9 +112,9 @@ def is_limit(cmd):
 
 def set_limit(hooks, on):
     """Before every tool call, and on every message: wait at the usage limit instead of spending credits.
-    A second PreToolUse entry (--hold, with a long limit) holds a session that holds at its own percentage
-    inside the hook: its wait command, and its agents' tool calls, so that hold makes no model calls. It exits
-    at once for every other call."""
+    A second entry for each (--hold, with a long limit) holds a session that holds at its own percentage
+    inside the hook, so that hold makes no model calls: its wait command, its agents' tool calls, and, while a
+    reply would use usage credits, its own tool calls and messages. It exits at once for everything else."""
     for event in ('PreToolUse', 'UserPromptSubmit'):
         groups = hooks.get(event, [])
         for g in groups:
@@ -123,8 +123,7 @@ def set_limit(hooks, on):
         if on:
             groups.append({'hooks': [{'type': 'command', 'command': f'"{LIMIT}"',
                                       'timeout': LIMIT_WAIT}]})
-            if event == 'PreToolUse':
-                groups.append({'hooks': [{'type': 'command', 'command': f'"{LIMIT}" --hold', 'timeout': LIMIT_HOLD}]})
+            groups.append({'hooks': [{'type': 'command', 'command': f'"{LIMIT}" --hold', 'timeout': LIMIT_HOLD}]})
         if groups:
             hooks[event] = groups
         else:

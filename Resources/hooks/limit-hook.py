@@ -7,7 +7,7 @@ Each session has one of three settings (limit_modes in the app's state file):
   with usage credits, the session waits, unless "Use credits at the usage limit" is on in the menu.
 - Always use credits: the session never waits at the limit.
 - Never use credits; hold at N% (80 by default): the session waits when a limit reaches N%, whatever the
-  menu says, and goes on when every limit is under N% again.
+  menu says, and goes on when every limit is under N% again. It makes no model call on usage credits.
 Set it on the session's row in the menu, by typing "no credits", "no credits 90", "credits ok" or
 "follow the menu" as a message, or with `claude-limit-mode [<session>] follow | credits | hold [N]`.
 It lasts for the life of the session: kept by the Remote Control id (cse_...), which a restart, a wake or
@@ -20,12 +20,18 @@ again. That command is a link in ~/.local/bin to this file. It shows as a runnin
 model calls until the wait ends, prints why it ended (GO ON), and the session goes on. After 9 minutes it
 prints WAIT AGAIN and Claude runs it again, so it stays under the Bash tool's 10-minute limit.
 
-PreToolUse --hold (a second entry, with an 8-day limit): for a session that holds at its own N%, the hook
-itself waits, so the whole hold makes no model calls, not even one every 9 minutes. For the session, it
-waits before the wait command starts; when the hold ends the command runs and prints GO ON at once. For a
-subagent or background agent (they come through the same hooks with the session's id and their own agent
-id), it waits before the agent's next tool call, which then runs: an agent can't be counted on to run the
-wait command it is told to. Every other call goes through at once.
+--hold (a second PreToolUse entry and a second UserPromptSubmit entry, each with an 8-day limit), for a
+session that holds at its own N%: the hook itself waits, so the hold makes no model calls at all, not even
+one every 9 minutes. It holds
+- the session's wait command (Claude has said the hold line and runs it; when the hold ends the command
+  runs and prints GO ON at once);
+- a subagent's or background agent's tool call (they come through the same hooks with the session's id and
+  their own agent id): an agent can't be counted on to run the wait command it is told to;
+- while the account would charge usage credits for any reply (a limit at 100% with credits on), the
+  session's own tool call and a message sent to it, with no reply at all; they go on when the hold ends.
+Everything else goes through at once. For a call or message the plain hook leaves to it, --hold writes its
+answer in a claim file (deciding, then holding or free); with no answer in 3 seconds (a session that never
+loaded the --hold entry) the plain hook does what it did before: it stops the call with the instruction.
 
 UserPromptSubmit: a message sent while the session must wait goes through with the same instruction, so
 nothing typed is lost. A message of just "use credits" lets that session use usage credits until the limit
@@ -46,6 +52,7 @@ from contextlib import contextmanager
 DIR = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
 STATE = os.path.join(DIR, 'state.json')
 USAGE = os.path.join(DIR, 'usage.json')
+HOLDS = os.path.join(DIR, 'holds')   # --hold's claim files, and one lock per session for the server check
 TEST = os.environ.get('STTARK_LIMIT_TEST')
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 URL = os.environ.get('STTARK_LIMIT_URL') or 'https://api.anthropic.com/api/oauth/usage'   # tests: a stand-in server
@@ -58,13 +65,18 @@ SESSIONS = 'https://api.anthropic.com/v1/code/sessions/'
 EVENTS = os.environ.get('STTARK_LIMIT_EVENTS')   # tests: a file that stands in for the session's server events
 NAMES = {'session': '5-hour', 'weekly_all': 'weekly'}
 DEFAULT_AT = 80  # "no credits" with no number: hold at 80%
-HOLD_BUDGET = 8 * 24 * 3600 - 600   # the longest the --hold hook waits, under its 8-day limit in settings
 KEEP_DAYS = 30   # a setting whose session hasn't been used for this long is dropped ...
 KEEP_ARCHIVED_DAYS = 7   # ... or this long for an archived one (kept a while, in case it is unarchived)
+CLAIM_WAIT = float(os.environ.get('STTARK_LIMIT_CLAIM_WAIT') or 3)   # seconds the plain hook waits for --hold's answer ...
+DECIDE_MAX = 20  # ... and at most this long once --hold has said it is deciding
+READ_WAIT = 5    # seconds a hold decision waits for a usage read another process is making
+LOCK_WAIT = 20   # seconds to wait for the state file's lock before giving up
+RUN_TIMEOUT = 10  # seconds a command (security, ps) may take
 
 # why a session waits now: the limit's name ("5-hour"), when it resets, its percent, the percent that holds
-# (100 for the usage limit itself) and the session's setting ("follow" or "hold")
-Hold = collections.namedtuple('Hold', 'name until percent at mode')
+# (100 for the usage limit itself), the session's setting ("follow" or "hold"), and the highest percent among
+# the limits at or over that point
+Hold = collections.namedtuple('Hold', 'name until percent at mode top')
 
 
 def log(line):
@@ -72,18 +84,32 @@ def log(line):
         f.write(time.strftime('%F %T ') + 'limit  ' + line + '\n')
 
 
+def take(f, secs=0):
+    """Lock the open file f, trying for up to secs seconds. True when it is locked."""
+    end = time.time() + secs
+    while True:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            if time.time() >= end:
+                return False
+            time.sleep(0.05)
+
+
 @contextmanager
 def state():
     """The app's shared state file, under the same lock the app and the effort hook use."""
     os.makedirs(DIR, exist_ok=True)
     with open(STATE + '.lock', 'w') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not take(lock, LOCK_WAIT):
+            raise TimeoutError(f'the state file stayed locked for {LOCK_WAIT} s')
         try:
             s = json.load(open(STATE))
         except (OSError, ValueError):
             s = {}
         yield s
-        tmp = STATE + '.tmp'
+        tmp = STATE + f'.{os.getpid()}.tmp'
         with open(tmp, 'w') as f:
             json.dump(s, f, indent=1)
         os.replace(tmp, STATE)
@@ -98,7 +124,7 @@ def peek():
 
 def token():
     raw = subprocess.run(['security', 'find-generic-password', '-s', 'Claude Code-credentials', '-w'],
-                         capture_output=True, text=True, check=True).stdout
+                         capture_output=True, text=True, check=True, timeout=RUN_TIMEOUT).stdout
     return json.loads(raw)['claudeAiOauth']['accessToken']
 
 
@@ -125,12 +151,13 @@ def fresh_for(u):
     return FRESH_NEAR if near else FRESH
 
 
-def usage(max_age=None):
+def usage(max_age=None, wait=0):
     """The latest usage read, from the cache when it's no older than max_age (by default a minute, 15 seconds
-    near a limit). One process reads at a time; the others use the cache. After a failed read (a 429, say) no
-    process reads again until the back-off ends (Retry-After, or 2 min doubling to 15 min), and every caller
-    gets the last good read meanwhile. None when there's no read at all. With STTARK_LIMIT_TEST: the stand-in
-    file itself, with no cache."""
+    near a limit). One process reads at a time; the others use the cache, or, with `wait`, wait up to that
+    many seconds for the read in progress (so the two hooks of one tool call decide on the same read). After a
+    failed read (a 429, say) no process reads again until the back-off ends (Retry-After, or 2 min doubling to
+    15 min), and every caller gets the last good read meanwhile. None when there's no read at all. With
+    STTARK_LIMIT_TEST: the stand-in file itself, with no cache."""
     if TEST:
         try:
             return fetch()
@@ -147,9 +174,7 @@ def usage(max_age=None):
         return u   # backing off after a failed read: keep the last good one
     os.makedirs(DIR, exist_ok=True)
     with open(USAGE + '.lock', 'w') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+        if not take(lock, wait):
             return u   # another session is reading it now
         try:   # read the cache again under the lock: another process may have just read or backed off
             c = json.load(open(USAGE))
@@ -161,7 +186,8 @@ def usage(max_age=None):
             return u
         try:
             u = fetch()
-        except (OSError, ValueError, KeyError, subprocess.CalledProcessError, urllib.error.URLError) as e:
+        except (OSError, ValueError, KeyError, subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                urllib.error.URLError) as e:
             fails = c.get('fails', 0) + 1
             after = 0
             if isinstance(e, urllib.error.HTTPError):
@@ -237,7 +263,13 @@ def wall(u, transcript=None, at=100, credits_only=True, mode='follow'):
     if not hit:
         return None
     until, name, p = max(hit)   # wait for the last one to reset
-    return Hold(name, until, pct(p), at, mode)
+    return Hold(name, until, pct(p), at, mode, pct(max(x[2] for x in hit)))
+
+
+def billable(u, transcript=None):
+    """True when the account would charge usage credits for a reply now: a limit that counts for this
+    session is at 100% or more, with credits on and their spend limit not reached."""
+    return wall(u, transcript) is not None
 
 
 def clock(t):
@@ -245,6 +277,19 @@ def clock(t):
     d = datetime.datetime.fromtimestamp(t)
     day = '' if d.date() == datetime.date.today() else d.strftime('%a ')
     return day + d.strftime('%I:%M %p').lstrip('0')
+
+
+def short(sid, c=''):
+    """A session's id in log lines: the first 8 characters of its session id; for a session known only by its
+    Remote Control id, the 8 characters after cse_. The menu writes the same."""
+    if sid:
+        return sid[:8]
+    c = c or ''
+    return c[4:12] if c.startswith('cse_') else (c[:8] or '?')
+
+
+def who(sid, c='', agent=''):
+    return short(sid, c) + ('/' + agent[:8] if agent else '')
 
 
 # ---- the per-session setting -------------------------------------------------------------------------------
@@ -259,7 +304,7 @@ def find_mode(s, sid='', c=''):
     best = None
     for k, v in (s.get('limit_modes') or {}).items():
         if isinstance(v, dict) and matches(k, v, sid, c):
-            if best is None or v.get('set_at', 0) > best.get('set_at', 0):
+            if best is None or (v.get('set_at') or 0) > (best.get('set_at') or 0):
                 best = v
     return best
 
@@ -322,6 +367,27 @@ def sid_of_cse(c, s):
     return sid_of_transcript(x.get('transcript'))
 
 
+def session_cse(sid, s):
+    """The cse needed to find this session's setting. Every session's hooks run this, so it stays cheap: '' when
+    no setting can need it (none at all, or one names this session id); else from the app's list of sessions (it
+    has each Remote Control session's transcript) or the environment; a `ps` only when some setting names no
+    session id (set in the menu before the session's transcript was known)."""
+    m = s.get('limit_modes') or {}
+    if not m:
+        return ''
+    if sid and any(isinstance(v, dict) and (k == sid or v.get('sid') == sid) for k, v in m.items()):
+        return ''
+    c = cse_of(sid, s, here=False) if sid else ''
+    if c:
+        return c
+    b = os.environ.get('CLAUDE_CODE_BRIDGE_SESSION_ID', '')
+    if b and os.environ.get('CLAUDE_CODE_SESSION_ID', sid) in (sid, ''):
+        return 'cse_' + b.split('_', 1)[1] if b.startswith('session_') else b
+    if any(isinstance(v, dict) and not v.get('sid') for v in m.values()):
+        return cse_of(sid, s)
+    return ''
+
+
 def mtime(p):
     try:
         return os.path.getmtime(p)
@@ -342,7 +408,7 @@ def prune(s):
         c = v.get('cse') or (k if k.startswith('cse_') else '')
         x = sessions.get(c) or {}
         tp = x.get('transcript') or transcript_of(v.get('sid'))
-        used = max(mtime(tp), v.get('set_at', 0), x.get('at', 0))
+        used = max(mtime(tp), v.get('set_at') or 0, x.get('at') or 0)
         days = KEEP_ARCHIVED_DAYS if (x.get('app') or {}).get('archived') else KEEP_DAYS
         if used < now - days * 86400:
             m.pop(k)
@@ -375,7 +441,7 @@ def set_mode(sid, c, mode, n=None, by='command', name=''):
         prune(s)
         after = mode_of(s, sid, c)
     if after != before:
-        log(f'mode   {(sid or c)[:8]} {describe(*after)} ({by})')
+        log(f'mode   {short(sid, c)} {describe(*after)} ({by})')
         return True
     return False
 
@@ -384,11 +450,6 @@ def credits_until(s, sid):
     """When this session's own "use credits" ends (0 when it has none)."""
     lc = s.get('limit_credits') or {}
     return max([v for k, v in lc.items() if sid and (k == sid or k.startswith(sid + '/'))] or [0])
-
-
-def cse_if(sid, s):
-    """The session's cse, looked up only when some session has a setting of its own (it can take a `ps`)."""
-    return cse_of(sid, s) if s.get('limit_modes') else ''
 
 
 def reached(u, transcript, mode, n):
@@ -404,7 +465,7 @@ def hold_for(sid, c, transcript, u, s=None, once=True):
     once=False leaves out a "use credits" chosen for this session alone."""
     s = s if s is not None else peek()
     if c is None:
-        c = cse_if(sid, s)
+        c = session_cse(sid, s)
     mode, n = mode_of(s, sid, c)
     if mode == 'credits':
         return None
@@ -415,14 +476,6 @@ def hold_for(sid, c, transcript, u, s=None, once=True):
     if s.get('limit_credits_all'):
         return None
     return wall(u, transcript)
-
-
-def credits(sid, s=None):
-    """True when the person chose usage credits: for every session, or for this one until its reset."""
-    s = s if s is not None else peek()
-    if s.get('limit_credits_all'):
-        return True
-    return credits_until(s, sid) > time.time()
 
 
 def held(sid=None, transcript=None, c=None):
@@ -445,7 +498,11 @@ def cse():
         return 'cse_' + b.split('_', 1)[1] if b.startswith('session_') else b
     pid = os.environ.get('CLAUDE_PID', '')
     if pid:
-        args = subprocess.run(['ps', '-ww', '-o', 'args=', '-p', pid], capture_output=True, text=True).stdout
+        try:
+            args = subprocess.run(['ps', '-ww', '-o', 'args=', '-p', pid], capture_output=True, text=True,
+                                  timeout=RUN_TIMEOUT).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return ''
         m = re.search(r'--session-id[= ](cse_\w+)', args)
         if m:
             return m.group(1)
@@ -457,11 +514,27 @@ def title(s, c, cwd):
     return t or os.path.basename(cwd or '') or 'Session'
 
 
-def drop(key):
+def alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def others(p, key, sid, agent):
+    """The other live holding rows of this session (agent ''), or of this one agent of it."""
+    return [k for k, v in p.items() if k != key and isinstance(v, dict)
+            and (v.get('sid') or k.split('/')[0]) == sid and (v.get('agent') or '') == agent and alive(v.get('pid'))]
+
+
+def drop(key, sid=None, agent=''):
+    """Remove one holding row. True when no other live row of the same session (or agent) is left."""
     with state() as s:
         p = s.get('limit_pauses') or {}
-        if p.pop(key, None) is not None:
-            s['limit_pauses'] = p
+        p.pop(key, None)
+        s['limit_pauses'] = p
+        return sid is None or not others(p, key, sid, agent)
 
 
 # ---- phrases typed in a session ----------------------------------------------------------------------------
@@ -491,10 +564,6 @@ def phrase(text):
     return None
 
 
-def asked_credits(text):
-    return phrase(text) == ('once', None)
-
-
 def queued(tp, pos):
     """(phrase, stopped, new position): the newest setting phrase queued in the transcript after pos, and whether
     the turn was stopped there. Claude Code writes a queue-operation line the moment a message is typed, even
@@ -521,12 +590,6 @@ def queued(tp, pos):
     return found, stopped, pos + end
 
 
-def queued_credits(tp, pos):
-    """(found, new position): found is True when "use credits" was queued in the transcript after pos."""
-    p, _, pos = queued(tp, pos)
-    return p == ('once', None), pos
-
-
 def org():
     with open(os.path.expanduser('~/.claude.json')) as f:
         return json.load(f)['oauthAccount']['organizationUuid']
@@ -540,6 +603,9 @@ def typed(c, since_ms):
         return None
     try:
         if EVENTS:
+            if os.environ.get('STTARK_LIMIT_POLLS'):   # tests: note which process checked
+                with open(os.environ['STTARK_LIMIT_POLLS'], 'a') as f:
+                    f.write(f'{os.getpid()}\n')
             with open(EVENTS) as f:
                 data = json.load(f)
         else:
@@ -562,20 +628,21 @@ def typed(c, since_ms):
     return None
 
 
-def typed_credits(c, since_ms):
-    return typed(c, since_ms) == ('once', None)
-
-
-def apply(p, sid, c, tp, by, cwd=None):
-    """Act on a phrase: "use credits" for this session until the limit resets, or a new setting."""
+def apply(p, sid, c, tp, by, cwd=None, fresh=False):
+    """Act on a phrase: "use credits" for this session until the limit resets, or a new setting. Every hook and
+    every holding process of the session may act on the same phrase: a change is made and logged once."""
     kind, n = p
     if kind == 'once':
-        h = reached(usage(max_age=0), tp, *mode_of(peek(), sid, c))
+        h = reached(usage(max_age=0) if fresh else usage(), tp, *mode_of(peek(), sid, c))
         until = h.until if h else time.time() + 5 * 3600
         with state() as s:
-            s.setdefault('limit_credits', {})[sid] = until
-            s['limit_credits'] = {k: v for k, v in s['limit_credits'].items() if v > time.time()}
-        log(f'credits {sid[:8]} "use credits" typed, until {clock(until)}')
+            lc = {k: v for k, v in (s.get('limit_credits') or {}).items() if v > time.time()}
+            changed = lc.get(sid, 0) < until - 60
+            if changed:
+                lc[sid] = until
+            s['limit_credits'] = lc
+        if changed:
+            log(f'credits {short(sid, c)} "use credits" typed, until {clock(until)}')
         return
     s = peek()
     set_mode(sid, c, kind, n, by, title(s, c, cwd or os.getcwd()))
@@ -669,44 +736,133 @@ def why_go(sid, c, s, h=None):
     return 'the usage limit is clear.'
 
 
+# ---- claims: --hold tells the plain hook it holds a call or a message ----------------------------------------
+
+def claim_file(key):
+    return os.path.join(HOLDS, re.sub(r'[^A-Za-z0-9_.-]', '_', key) + '.claim')
+
+
+def claim(key, what):
+    """--hold's answer for a call or message the plain hook may leave to it: 'deciding' at once, then 'holding'
+    or 'free'. The plain hook removes it once it has read the answer; any left over are cleared here, at most
+    every 10 minutes: an hour after the answer, or once the holding process is gone."""
+    os.makedirs(HOLDS, exist_ok=True)
+    p = claim_file(key)
+    mark = os.path.join(HOLDS, 'cleared')
+    if what == 'deciding' and time.time() - mtime(mark) > 600:
+        open(mark, 'w').close()
+        now = time.time()
+        for f in glob.glob(os.path.join(HOLDS, '*.claim')):
+            try:
+                kind, pid = (open(f).read().split() + ['', ''])[:2]
+                age = now - os.path.getmtime(f)
+                if (age > 3600 and (kind != 'holding' or not alive(pid))) or age > 9 * 86400:
+                    os.remove(f)
+            except (OSError, ValueError):
+                pass
+    tmp = p + f'.{os.getpid()}.tmp'
+    with open(tmp, 'w') as f:
+        f.write(f'{what} {os.getpid()}')
+    os.replace(tmp, p)
+
+
+def unclaim(key):
+    try:
+        os.remove(claim_file(key))
+    except OSError:
+        pass
+
+
+def held_by_hook(key):
+    """For the plain hook: True when --hold says it holds this call or message ('holding'). False when it says
+    'free', and when it never answers within CLAIM_WAIT: the session runs without the --hold entry (it did not
+    load it), so the plain hook stops the call itself, as it did before."""
+    if not key:
+        return False
+    p = claim_file(key)
+    start = time.time()
+    while True:
+        try:
+            kind = open(p).read().split(' ')[0]
+        except OSError:
+            kind = ''
+        if kind in ('holding', 'free'):
+            unclaim(key)   # read: no one needs it now
+            return kind == 'holding'
+        waited = time.time() - start
+        if (not kind and waited >= CLAIM_WAIT) or waited >= DECIDE_MAX:
+            return False
+        time.sleep(0.05)
+
+
+def prompt_key(data):
+    return 'prompt-' + data['prompt_id'] if data.get('prompt_id') else ''
+
+
 # ---- the wait ------------------------------------------------------------------------------------------------
 
-def hold_loop(sid, agent, tp, c, h, budget, what):
+def hold_loop(sid, agent, tp, c, h, budget, what, key, note=''):
     """Wait while this session must wait, with no model calls: until the hold ends (returns why, for GO ON),
-    until `budget` seconds pass (returns None), or until the turn or the process stops (exits).
-    Shows as a row in the menu (limit_pauses) while it waits."""
-    key = sid + ('/' + agent if agent else '')
+    until `budget` seconds pass (returns None; budget None: no limit but the hook's own), or until the turn or
+    the process stops (exits). Shows as a row in the menu (limit_pauses, under `key`) while it waits. Of the
+    rows of one session (or one of its agents) that hold at once, the first logs the hold and the last the
+    resume. `note` (the tool, or "message") adds a hold line before the wait line."""
+    if os.getppid() == 1:
+        sys.exit(0)   # its Claude Code process is already gone
+    w = who(sid, c, agent)
     pos = size(tp)
     start_mode = mode_of(peek(), sid, c)
     with state() as s:
+        p = s.setdefault('limit_pauses', {})
+        first = not others(p, key, sid, agent)
         row = {'since': time.time(), 'until': h.until, 'limit': h.name, 'cse': c, 'title': title(s, c, os.getcwd()),
-               'pid': os.getpid(), 'what': what, 'sid': sid, 'mode': h.mode, 'at': h.at, 'percent': h.percent}
+               'pid': os.getpid(), 'what': what, 'sid': sid, 'mode': h.mode, 'at': h.at, 'percent': h.top}
         if agent:
             row['agent'] = agent
-        s.setdefault('limit_pauses', {})[key] = row
-    atexit.register(drop, key)
-    who = sid[:8] + ('/' + agent[:8] if agent else '')
+        p[key] = row
+    gone = []
+
+    def leave():
+        """Drop this row, once. True when it was the last of its session (or agent)."""
+        if gone:
+            return False
+        gone.append(1)
+        try:
+            return drop(key, sid, agent)
+        except Exception:
+            return False
+    atexit.register(leave)
 
     def stopped(*_):
-        log(f'end    {who} {what} ended: the turn was stopped')
+        if leave():
+            log(f'end    {w} {what} ended: the turn was stopped')
         sys.exit(0)
     for g in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(g, stopped)
-    log(f'wait   {who} {where(h)}' + (', with no model calls until it ends' if what == 'hold' else ''))
+    if first:
+        if note:
+            log(f'hold   {w} {where(h)} ({note})')
+        log(f'wait   {w} {where(h)}' + (', with no model calls until it ends' if what == 'hold' else ''))
     started = asked = time.time()
     since_ms = int(started * 1000)
     parent = os.getppid()
-    while time.time() - started < budget:
+    os.makedirs(HOLDS, exist_ok=True)
+    polls = open(os.path.join(HOLDS, re.sub(r'[^A-Za-z0-9_.-]', '_', sid or c or 'none') + '.poll'), 'w')
+    poller = False
+    while budget is None or time.time() - started < budget:
         time.sleep(TICK)
-        if os.getppid() != parent:
-            log(f'end    {who} {what} ended: the session closed')
+        if os.getppid() != parent or os.getppid() == 1:
+            if leave():
+                log(f'end    {w} {what} ended: the session closed')
             sys.exit(0)
         found, cut, pos = queued(tp, pos)
         if cut and not agent:
             stopped()
-        if not found and time.time() - asked >= TICK * 3:   # the server every 30 s
+        if not found and c and time.time() - asked >= TICK * 3:   # the server every 30 s, by one process per session
             asked = time.time()
-            found = typed(c, since_ms)
+            poller = poller or take(polls)
+            if poller:
+                found = typed(c, since_ms)
         if found:
             since_ms = int(time.time() * 1000)   # the server check skips what the transcript already showed
             apply(found, sid, c, tp, 'typed')
@@ -716,18 +872,19 @@ def hold_loop(sid, agent, tp, c, h, budget, what):
         if not now:
             why = why_go(sid, c, s, h)
             mins = int((time.time() - started) / 60)
-            if mode_of(s, sid, c) == start_mode and credits_until(s, sid) <= time.time() and not (
-                    h.mode == 'follow' and s.get('limit_credits_all')):
-                log(f'resume {who} the {h.name} limit ' + (f'is under {h.at}%' if h.mode == 'hold' else 'reset')
-                    + f', after {mins} min')
-            else:
-                log(f'resume {who} {why.rstrip(".")}, after {mins} min')
+            if leave():
+                if mode_of(s, sid, c) == start_mode and credits_until(s, sid) <= time.time() and not (
+                        h.mode == 'follow' and s.get('limit_credits_all')):
+                    log(f'resume {w} the {h.name} limit ' + (f'is under {h.at}%' if h.mode == 'hold' else 'reset')
+                        + f', after {mins} min')
+                else:
+                    log(f'resume {w} {why.rstrip(".")}, after {mins} min')
             return why
         if (now.name, now.until, now.at, now.mode) != (h.name, h.until, h.at, h.mode):
             with state() as s:
                 r = (s.get('limit_pauses') or {}).get(key)
                 if r is not None:
-                    r.update(until=now.until, limit=now.name, mode=now.mode, at=now.at, percent=now.percent)
+                    r.update(until=now.until, limit=now.name, mode=now.mode, at=now.at, percent=now.top)
         h = now
     return None
 
@@ -751,7 +908,7 @@ def wait_main(key):
         print('GO ON: ' + why_go(sid, c, s))
         return
     print(waiting_line(h), flush=True)
-    why = hold_loop(sid, agent, tp, c, h, CHUNK, 'wait')
+    why = hold_loop(sid, agent, tp, c, h, CHUNK, 'wait', key)
     if why:
         print('GO ON: ' + why)
         return
@@ -766,52 +923,98 @@ def is_wait(cmd):
     return bool(re.search(r'(claude-limit-wait|limit-hook\.py"? wait)\b', cmd or ''))
 
 
+# claude-limit-mode by itself, with plain or quoted words: a held session may run it to change its own setting
+MODE_CMD = re.compile(r'\s*(?:[\w./~-]*/)?(?:claude-limit-mode|(?:/usr/bin/)?python3 +"?[\w./~ -]*limit-hook\.py"? +mode)'
+                      r'(?: +(?:"[^"`$\\]*"|\'[^\']*\'|[\w.%:@/-]+))*(?: +2>&1)?\s*')
+
+
+def is_mode_cmd(cmd):
+    return bool(cmd) and MODE_CMD.fullmatch(cmd) is not None
+
+
 # ---- the hooks -----------------------------------------------------------------------------------------------
 
 def on_tool(data):
     sid = data.get('session_id', '')
-    if data.get('tool_name') == 'Bash' and is_wait((data.get('tool_input') or {}).get('command')):
-        return   # the wait itself always runs
+    tool = data.get('tool_name')
+    cmd = (data.get('tool_input') or {}).get('command') if tool == 'Bash' else None
+    if cmd and (is_wait(cmd) or is_mode_cmd(cmd)):
+        return   # the wait itself, and a change of the setting, always run
     tp = data.get('transcript_path')
     s = peek()
-    h = hold_for(sid, cse_if(sid, s), tp, usage(), s)
+    c = session_cse(sid, s)
+    hold_mode = mode_of(s, sid, c)[0] == 'hold'
+    u = usage(wait=READ_WAIT) if hold_mode else usage()
+    h = hold_for(sid, c, tp, u, s)
     if not h:
         return
     agent = data.get('agent_id') or ''
-    if agent and h.mode == 'hold':
-        return   # the --hold entry holds an agent's tool call itself
-    who = sid[:8] + ('/' + agent[:8] if agent else '')
+    if h.mode == 'hold' and (agent or billable(u, tp)) and held_by_hook(data.get('tool_use_id')):
+        return   # the --hold entry holds this call, with no reply
+    w = who(sid, c, agent)
     if h.mode == 'hold':
-        log(f'hold   {who} {where(h)} ({data.get("tool_name")})')
+        log(f'hold   {w} {where(h)} ({tool})')
     else:
-        log(f'stop   {who} {data.get("tool_name")} {where(h)}')
+        log(f'stop   {w} {tool} {where(h)}')
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
                                              'permissionDecisionReason': say(sid, h, agent)}}))
 
 
 def on_hold(data):
-    """--hold, before every tool call, for a session that holds at its own N%: wait here, so the hold makes no
-    model calls at all. For the session itself, only its wait command (Claude has said the hold line and runs
-    it; when the hold ends the command runs and prints GO ON at once). For a subagent or background agent,
-    the tool call itself: an agent may not follow the instruction to run the wait, so it is held before its
-    next step and goes on with that step when the hold ends. Prints nothing; anything else exits at once."""
-    agent = data.get('agent_id') or ''
-    tool = data.get('tool_name')
-    waits = tool == 'Bash' and is_wait((data.get('tool_input') or {}).get('command'))
-    if not waits and not agent:
-        return
+    """--hold, before every tool call and every message, for a session that holds at its own N%: wait here, so
+    the hold makes no model calls at all. It holds the session's wait command (Claude has said the hold line and
+    runs it; when the hold ends the command runs and prints GO ON at once), an agent's tool call (an agent may
+    not follow the instruction to run the wait), and, while the account would charge usage credits for any
+    reply, the session's own tool call and a message sent to it (no reply at all). Prints nothing; anything
+    else exits at once."""
+    event = data.get('hook_event_name')
     sid = data.get('session_id', '')
+    agent = data.get('agent_id') or ''
     tp = data.get('transcript_path')
+    waits = False
     s = peek()
-    c = cse_if(sid, s)
+    if event == 'UserPromptSubmit':
+        key, note = prompt_key(data), 'message'
+        p = phrase(data.get('prompt'))
+        if p:   # a setting phrase counts first, also one that starts a hold (the plain hook makes the same change)
+            apply(p, sid, cse_of(sid, s), tp, 'typed', data.get('cwd'))
+            s = peek()
+    else:
+        tool = data.get('tool_name')
+        cmd = (data.get('tool_input') or {}).get('command') if tool == 'Bash' else None
+        if cmd and is_mode_cmd(cmd):
+            return
+        waits = bool(cmd) and is_wait(cmd)
+        key, note = data.get('tool_use_id') or '', tool
+    if not s.get('limit_modes'):
+        return   # no session has a setting of its own
+    c = session_cse(sid, s)
     if mode_of(s, sid, c)[0] != 'hold':
-        return   # a follow-the-menu wait runs in the command, as before
-    h = hold_for(sid, c, tp, usage(), s)
-    if not h:
-        return
+        return   # follow the menu, and always use credits: the plain hook does it all
+    if not waits and not key:
+        return   # no id to tell the plain hook by: it does what it did before
     if not waits:
-        log(f'hold   {sid[:8]}/{agent[:8]} {where(h)} ({tool})')
-    hold_loop(sid, agent, tp, c, h, HOLD_BUDGET, 'hold')
+        claim(key, 'deciding')
+    try:
+        u = usage(wait=READ_WAIT)
+        h = hold_for(sid, c, tp, u, s)
+        silent = bool(h) and not waits and not agent and h.mode == 'hold' and billable(u, tp)
+        if not h or h.mode != 'hold' or not (waits or agent or silent):
+            if not waits:
+                claim(key, 'free')
+            return
+        if not waits:
+            claim(key, 'holding')
+            atexit.register(unclaim, key)
+    except BaseException:
+        if not waits:
+            claim(key, 'free')
+        raise
+    if waits:
+        note = ''   # the plain hook logged the hold when it stopped the step
+    elif silent:
+        note += '; no reply: one now would use credits'
+    hold_loop(sid, agent, tp, c or cse_of(sid, s), h, None, 'hold', sid + '/' + (key or f'wait-{os.getpid()}'), note)
 
 
 def on_prompt(data):
@@ -820,9 +1023,9 @@ def on_prompt(data):
     prompt = data.get('prompt')
     s = peek()
     p = phrase(prompt)
-    c = cse_of(sid, s) if p else cse_if(sid, s)
+    c = cse_of(sid, s) if p else session_cse(sid, s)
     if p == ('once', None):
-        apply(p, sid, c, tp, 'typed', data.get('cwd'))
+        apply(p, sid, c, tp, 'typed', data.get('cwd'), fresh=True)
         s = peek()
         h = reached(usage(), tp, *mode_of(s, sid, c))
         note = (f'until the {h.name} limit resets at {clock(h.until)}' if h
@@ -834,21 +1037,26 @@ def on_prompt(data):
     if p:
         apply(p, sid, c, tp, 'typed', data.get('cwd'))
         s = peek()
-        head = (f'Sttark Claude Kit: the person typed "{prompt.strip()}". This session is now set to: '
+    hold_mode = mode_of(s, sid, c)[0] == 'hold'
+    u = usage(wait=READ_WAIT) if hold_mode else usage()
+    h = hold_for(sid, c, tp, u, s)
+    quiet = bool(h) and h.mode == 'hold' and billable(u, tp) and held_by_hook(prompt_key(data))
+    if p:
+        said = prompt if isinstance(prompt, str) else ' '.join(
+            b.get('text', '') for b in prompt if isinstance(b, dict) and b.get('type') == 'text')
+        head = (f'Sttark Claude Kit: the person typed "{said.strip()}". This session is now set to: '
                 f'{describe(*mode_of(s, sid, c))}. ')
-        h = hold_for(sid, c, tp, usage(), s)
-        if h:
-            log(f'message {sid[:8]} {where(h)}: Claude says so and waits')
+        if h and not quiet:
+            log(f'message {short(sid, c)} {where(h)}: Claude says so and waits')
             ctx = head + 'Say so in one line. Then: ' + say(sid, h) + \
                 ' After "GO ON", go on with the task you were doing before, if there was one.'
-        else:
+        else:   # going on now, or held in the --hold entry until the hold ends
             ctx = head + 'Say so in one line, then go on with the task you were doing before, if there was one.'
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': ctx}}))
         return
-    h = hold_for(sid, c, tp, usage(), s)
-    if not h:
-        return
-    log(f'message {sid[:8]} {where(h)}: Claude says so and waits')
+    if not h or quiet:
+        return   # nothing to say, or the --hold entry holds the message until the hold ends
+    log(f'message {short(sid, c)} {where(h)}: Claude says so and waits')
     after = (' After "GO ON", handle that notification.'
              if isinstance(prompt, str) and prompt.startswith('<task-notification>')
              else ' After "GO ON", answer the message the person just sent.')
@@ -866,7 +1074,7 @@ Sets what a Claude Code session does at the usage limit (Sttark Claude Kit):
   credits     always use credits at the usage limit
   hold [N]    never use credits; hold when a 5-hour or weekly limit reaches N% (80 if left out)
 With no setting, prints the session's setting. <session>: left out or "." for this session, a session id,
-a cse_ or session_ id, a unique start of one (6 or more characters), or a session's name."""
+a cse_ or session_ id, a unique start of one (6 or more characters), or a session's full name."""
 
 
 class Bad(Exception):
@@ -876,16 +1084,29 @@ class Bad(Exception):
 UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
 
-def resolve(who, s):
+def known(s, sid='', c=''):
+    """True when this Mac has seen the session: its transcript, the app's list of sessions, a setting or a hold."""
+    if sid and transcript_of(sid):
+        return True
+    for k, x in (s.get('sessions') or {}).items():
+        if isinstance(x, dict) and ((c and k == c) or (sid and sid_of_transcript(x.get('transcript')) == sid)):
+            return True
+    if find_mode(s, sid, c):
+        return True
+    return any(isinstance(v, dict) and ((sid and (v.get('sid') or k.split('/')[0]) == sid) or (c and v.get('cse') == c))
+               for k, v in (s.get('limit_pauses') or {}).items())
+
+
+def resolve(who_, s):
     """(sid, cse) of the session a person or a script named."""
-    if who in ('.', 'this', ''):
+    if who_ in ('.', 'this', ''):
         sid = os.environ.get('CLAUDE_CODE_SESSION_ID', '')
         c = cse()
         if not sid and not c:
             raise Bad('not inside a Claude Code session: give the session id or name')
         return sid or sid_of_cse(c, s), c or cse_of(sid, s, here=False)
-    if who.startswith('session_'):
-        who = 'cse_' + who[len('session_'):]
+    if who_.startswith('session_'):
+        who_ = 'cse_' + who_[len('session_'):]
     sessions = s.get('sessions') or {}
     found = {}   # (sid, cse) pairs, keyed by the cse when there is one, else the sid
 
@@ -894,37 +1115,41 @@ def resolve(who, s):
         c = c or (cse_of(sid, s, here=False) if sid else '')
         if sid or c:
             found[c or sid] = (sid, c)
-    if who.startswith('cse_') and who in sessions:
-        add('', who)
-    elif UUID.fullmatch(who):
-        add(who, '')
-    elif who.startswith('cse_') and len(who) > 20:
-        add('', who)   # a full cse id the app hasn't listed
+    if who_.startswith('cse_') and who_ in sessions:
+        add('', who_)
+    elif UUID.fullmatch(who_):
+        if not known(s, sid=who_):
+            raise Bad(f'no session {who_} on this Mac')
+        add(who_, '')
+    elif who_.startswith('cse_') and len(who_) > 20:
+        if not known(s, c=who_):
+            raise Bad(f'no session {who_} on this Mac')
+        add('', who_)   # a full cse id with a setting or a hold, that the app hasn't listed
     else:
-        if len(who) >= 6:
+        if len(who_) >= 6:
             for k, x in sessions.items():
                 t = sid_of_transcript((x or {}).get('transcript')) if isinstance(x, dict) else ''
-                if k.startswith(who) or (t and t.startswith(who)):
+                if k.startswith(who_) or (t and t.startswith(who_)):
                     add(t, k)
             for k, v in (s.get('limit_modes') or {}).items():
-                if isinstance(v, dict) and any(i and i.startswith(who) for i in (k, v.get('sid'), v.get('cse'))):
+                if isinstance(v, dict) and any(i and i.startswith(who_) for i in (k, v.get('sid'), v.get('cse'))):
                     add(v.get('sid') or (k if UUID.fullmatch(k) else ''),
                         v.get('cse') or (k if k.startswith('cse_') else ''))
             for v in (s.get('limit_pauses') or {}).values():
-                if isinstance(v, dict) and (v.get('sid') or '').startswith(who):
+                if isinstance(v, dict) and (v.get('sid') or '').startswith(who_):
                     add(v['sid'], v.get('cse') or '')
-            if re.fullmatch(r'[0-9a-f-]{6,36}', who):
-                for tp in glob.glob(os.path.expanduser(f'~/.claude/projects/*/{glob.escape(who)}*.jsonl')):
+            if re.fullmatch(r'[0-9a-f-]{6,36}', who_):
+                for tp in glob.glob(os.path.expanduser(f'~/.claude/projects/*/{glob.escape(who_)}*.jsonl')):
                     add(sid_of_transcript(tp), '')
         if not found:
             for k, x in sessions.items():
-                if isinstance(x, dict) and (x.get('title') or '').strip().lower() == who.strip().lower() \
+                if isinstance(x, dict) and (x.get('title') or '').strip().lower() == who_.strip().lower() \
                         and not (x.get('app') or {}).get('archived'):
                     add('', k)
     if not found:
-        raise Bad(f'no session matches "{who}"')
+        raise Bad(f'no session matches "{who_}"')
     if len(found) > 1:
-        raise Bad(f'"{who}" matches {len(found)} sessions: give more of the id')
+        raise Bad(f'"{who_}" matches {len(found)} sessions: give more of the id')
     return list(found.values())[0]
 
 
@@ -940,25 +1165,26 @@ def mode_main(args):
         return 0
     s = peek()
     if args[:1] == ['--list']:
-        rows = sorted(((v.get('set_at', 0), k, v) for k, v in (s.get('limit_modes') or {}).items()
+        rows = sorted(((v.get('set_at') or 0, k, v) for k, v in (s.get('limit_modes') or {}).items()
                        if isinstance(v, dict)), key=lambda r: r[0])
         if not rows:
             print('No session has its own setting: every session follows the menu.')
         for at, k, v in rows:
-            mode, n = mode_of({'limit_modes': {k: v}}, v.get('sid', ''), v.get('cse', '') or k)
+            c = v.get('cse') or (k if k.startswith('cse_') else '')
+            mode, n = mode_of({'limit_modes': {k: v}}, v.get('sid', ''), c or k)
             when = datetime.datetime.fromtimestamp(at).strftime('%b %d %I:%M %p')
-            print(f'{name_of(s, v.get("sid", ""), v.get("cse", ""))} ({(v.get("sid") or k)[:8]}): '
+            print(f'{name_of(s, v.get("sid", ""), c)} ({short(v.get("sid", ""), c or k)}): '
                   f'{describe(mode, n)} (set by {v.get("by", "?")}, {when})')
         return 0
     settings = ('follow', 'credits', 'hold')
     if args and args[0].lower() in settings:
-        who, rest = '.', args
+        who_, rest = '.', args
     elif args:
-        who, rest = args[0], args[1:]
+        who_, rest = args[0], args[1:]
     else:
-        who, rest = '.', []
+        who_, rest = '.', []
     try:
-        sid, c = resolve(who, s)
+        sid, c = resolve(who_, s)
         what, n = None, None
         if rest:
             what = rest[0].lower()
@@ -982,7 +1208,7 @@ def mode_main(args):
         name = name_of(s, sid, c)
         set_mode(sid, c, what, n, 'command', '' if name == 'Session' else name)
         s = peek()
-    print(f'{name_of(s, sid, c)} ({(sid or c)[:8]}): {describe(*mode_of(s, sid, c))}')
+    print(f'{name_of(s, sid, c)} ({short(sid, c)}): {describe(*mode_of(s, sid, c))}')
     return 0
 
 
@@ -1000,7 +1226,7 @@ def main():
         return
     try:
         if '--hold' in sys.argv:
-            if data.get('hook_event_name') == 'PreToolUse':
+            if data.get('hook_event_name') in ('PreToolUse', 'UserPromptSubmit'):
                 on_hold(data)
         elif data.get('hook_event_name') == 'PreToolUse':
             on_tool(data)
