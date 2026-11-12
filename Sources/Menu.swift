@@ -3,13 +3,75 @@ import AppKit
 let levels = ["low", "medium", "high", "xhigh", "max"]
 let levelNames = ["low": "Low", "medium": "Medium", "high": "High", "xhigh": "Extra", "max": "Max"]
 
-/// The menu bar icon and its menu: the on/off switch for every session, each recent
-/// session with its level and the latest reason, and Auto or Manual per session.
+/// What the menu shows besides the sessions and the usage limit, read once each time it opens. The drawing tool
+/// (tools/screenshot.swift) passes made-up facts instead, so it draws the menu with this same code and runs nothing.
+struct MenuFacts {
+    var version = Updater.version
+    var installing = false
+    /// The version of an update that waits to install.
+    var available: String? = nil
+    var loginWarning: String? = nil
+    var loginTip = ""
+    var claudeFound = true
+    var serverElsewhere = false
+    var serverInstalled = false
+    var serverFolder: String? = nil
+    var bypass = false
+    var chromeApprover = false
+    var needsAccessibility = false
+    var chromeWindow = false
+    var chromeWindowClosed = false
+    var fileLinks = false
+    var names = false
+    var profile = false
+    var profileSettingUp = false
+    var profileLast: String? = nil
+    var workingRules = false
+
+    /// The real facts. Some of them run commands, which lets the update check's answer land part way through, so
+    /// the update state is read first.
+    static func current(_ u: Updater) -> MenuFacts {
+        var f = MenuFacts()
+        f.installing = u.installing
+        f.available = u.available?.version
+        f.loginWarning = Login.urgent
+        f.loginTip = Login.tip
+        f.claudeFound = Setup.claudeFound
+        f.serverElsewhere = Server.otherRunning
+        f.serverInstalled = Server.installed
+        f.serverFolder = Server.folder
+        f.bypass = Bypass.on
+        f.chromeApprover = ChromeApprover.on
+        f.needsAccessibility = ChromeApprover.needsAccessibility
+        f.chromeWindow = ChromeWindow.on
+        f.chromeWindowClosed = f.chromeWindow && ChromeWindow.chromeRunning && !ChromeWindow.exists
+        f.fileLinks = FileLinks.on
+        f.names = Names.on
+        f.profile = ProfileSync.on
+        f.profileSettingUp = ProfileSync.settingUp
+        f.profileLast = ProfileSync.lastResult
+        f.workingRules = WorkingRules.on
+        return f
+    }
+}
+
+/// A usage setting picked in a session's submenu.
+final class UsagePick: NSObject {
+    let target: Limit.Target
+    let mode: Limit.Mode
+    init(_ t: Limit.Target, _ m: Limit.Mode) { target = t; mode = m }
+}
+
+/// The menu bar icon and its menu: the on/off switch for every session, each recent session with its level and
+/// its own usage setting, and the sessions holding at the usage limit.
 final class Controller: NSObject, NSMenuDelegate {
-    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    /// Made in start(), so the drawing tool can use the menu code without putting an icon in the menu bar.
+    lazy var item: NSStatusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let updater = Updater()
     var setupResult = ""
     var menuOpen = false
+    /// Where the tags on the right of the rows line up.
+    static let tab: CGFloat = 380
 
     func start() {
         setupResult = Setup.install()
@@ -63,24 +125,24 @@ final class Controller: NSObject, NSMenuDelegate {
 
     func menuDidClose(_ menu: NSMenu) { menuOpen = false }
 
-    func build(_ menu: NSMenu) {
+    func build(_ menu: NSMenu) { build(menu, MenuFacts.current(updater)) }
+
+    func build(_ menu: NSMenu, _ f: MenuFacts) {
         menu.removeAllItems()
         let paused = State.paused
 
-        // read once: the checks below run commands that let the update check's answer land mid-build
-        let installing = updater.installing, available = updater.available
-        menu.addItem(caption("Sttark Claude Kit \(Updater.version)"))
-        if installing {
+        menu.addItem(caption("Sttark Claude Kit \(f.version)"))
+        if f.installing {
             menu.addItem(caption("Updating…"))
-        } else if let r = available {
-            let u = action("Update to \(r.version)", #selector(update))
-            u.attributedTitle = NSAttributedString(string: "Update to \(r.version)", attributes: [.font: font(14, true)])
+        } else if let v = f.available {
+            let u = action("Update to \(v)", #selector(update))
+            u.attributedTitle = NSAttributedString(string: "Update to \(v)", attributes: [.font: font(14, true)])
             menu.addItem(u)
         }
-        if let warn = Login.urgent {
+        if let warn = f.loginWarning {
             let l = action(warn, #selector(signIn))
             l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true)])
-            l.toolTip = Login.tip
+            l.toolTip = f.loginTip
             menu.addItem(l)
         }
         let waiting = Waiting.sessions
@@ -88,14 +150,8 @@ final class Controller: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
             for s in waiting {
                 let i = action("", #selector(openWaiting(_:)))
-                let t = NSMutableAttributedString(string: s.title.count > 40 ? String(s.title.prefix(39)) + "…" : s.title,
-                                                  attributes: [.font: font(14, s.needsYou)])
-                let para = NSMutableParagraphStyle()
-                para.tabStops = [NSTextTab(textAlignment: .right, location: 380)]
-                t.append(NSAttributedString(string: "\t" + (s.needsYou ? "needs you · " : "not opened · ") + Waiting.ago(s.waitingSince!),
-                                            attributes: [.font: font(14), .foregroundColor: NSColor.secondaryLabelColor]))
-                t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
-                i.attributedTitle = t
+                i.attributedTitle = row(s.title, (s.needsYou ? "needs you · " : "not opened · ") + Waiting.ago(s.waitingSince!),
+                                        bold: s.needsYou, tagBold: false)
                 i.representedObject = s.url
                 i.toolTip = (s.needsYou ? (s.why.isEmpty ? "Claude needs you here." : "Claude needs you: \(s.why).")
                              : "Claude finished and you haven't opened the reply yet.") + " Click to open the session."
@@ -127,124 +183,221 @@ final class Controller: NSObject, NSMenuDelegate {
             pick.toolTip = "The model that picks the effort level. The newest Haiku and Sonnet models."
             menu.addItem(pick)
         }
-        if !Setup.claudeFound { menu.addItem(caption("Claude Code isn't installed at ~/.local/bin/claude.")) }
+        if !f.claudeFound { menu.addItem(caption("Claude Code isn't installed at ~/.local/bin/claude.")) }
 
         menu.addItem(.separator())
-        let sessions = State.sessions()
-        if sessions.isEmpty { menu.addItem(caption("No sessions in the last 12 hours")) }
-        for s in sessions.prefix(12) {
-            let i = action("", #selector(toggleManual(_:)))
-            i.attributedTitle = row(s, dim: paused)
-            i.representedObject = s.id
-            i.state = s.manual ? .off : .on
-            let why = s.reason.isEmpty || s.manual ? "" : "Why \(levelNames[s.level] ?? s.level): \(s.reason)\n\n"
-            i.toolTip = why + (s.manual ? "Manual: you set the effort. Click to let Claude pick it again."
-                                        : "Auto: Claude picks the effort. Click to set it yourself.")
-            menu.addItem(i)
-        }
+        addSessions(menu, paused: paused)
 
         menu.addItem(.separator())
         let credits = action("Use credits at the usage limit", #selector(toggleCredits))
         credits.state = Limit.creditsAll ? .on : .off
-        credits.toolTip = Limit.creditsAll
+        credits.toolTip = (Limit.creditsAll
             ? "On: when your 5-hour or weekly limit is reached, sessions go on with usage credits."
-            : "Off: when your 5-hour or weekly limit is reached, sessions wait and go on by themselves when it resets, so no usage credits are spent. To use credits for one session, click it under Usage limit reached, or send \"use credits\" in it."
+            : "Off: when your 5-hour or weekly limit is reached, sessions wait and go on by themselves when it resets, so no usage credits are spent. To use credits for one session, click it under Usage limit reached, or send \"use credits\" in it.")
+            + " A session set to Always use credits or Never use credits on its own row keeps that setting."
         menu.addItem(credits)
         let phone = action("Start sessions from the Claude app", #selector(togglePhone))
-        if Server.otherRunning {
+        if f.serverElsewhere {
             phone.state = .on
             phone.toolTip = "A Remote Control server set up outside Sttark Claude Kit already runs on this Mac."
         } else {
-            phone.state = Server.installed ? .on : .off
-            phone.toolTip = Server.folder.map { "Sessions start in " + $0.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~") }
+            phone.state = f.serverInstalled ? .on : .off
+            phone.toolTip = f.serverFolder.map { "Sessions start in " + $0.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~") }
                 ?? "Start Claude Code sessions on this Mac from the Claude app on your phone or any computer."
         }
         menu.addItem(phone)
         let skip = action("Bypass permissions for server sessions", #selector(toggleBypass))
-        skip.state = Bypass.on ? .on : .off
+        skip.state = f.bypass ? .on : .off
         skip.toolTip = "The Claude app, on desktop or phone, doesn't offer Bypass permissions for sessions on a Remote Control server. This turns it on for them."
         menu.addItem(skip)
         let chrome = action("Approve Claude in Chrome", #selector(toggleChrome))
-        chrome.state = ChromeApprover.on ? .on : .off
+        chrome.state = f.chromeApprover ? .on : .off
         chrome.toolTip = "Clicks Allow when Claude for Chrome asks to use a site."
         menu.addItem(chrome)
         let cw = action("Claude window in Chrome", #selector(toggleChromeWindow))
-        cw.state = ChromeWindow.on ? .on : .off
+        cw.state = f.chromeWindow ? .on : .off
         cw.toolTip = "Claude uses one Chrome window named Claude, with your logins, each session in its own tab, and works there in the background, so Chrome stops jumping in front of what you're typing in. If the window closes, Claude makes a new one the next time it needs it; Chrome comes forward for a moment then, and the app you were in goes back in front."
         menu.addItem(cw)
-        if ChromeWindow.on && ChromeWindow.chromeRunning && !ChromeWindow.exists {
+        if f.chromeWindowClosed {
             let o = action("Open Claude window", #selector(openChromeWindow))
             o.toolTip = "The Claude window in Chrome was closed. Opens it now. Claude also opens it the next time it needs it."
             menu.addItem(o)
         }
         let links = action("Links to files", #selector(toggleFileLinks))
-        links.state = FileLinks.on ? .on : .off
+        links.state = f.fileLinks ? .on : .off
         links.toolTip = "When Claude gives you a file it made on this Mac, you get a link that opens it in your browser, on this Mac or your phone on the same network, instead of a file path that opens nothing."
         menu.addItem(links)
         let names = action("Name sessions automatically", #selector(toggleNames))
-        names.state = Names.on ? .on : .off
+        names.state = f.names ? .on : .off
         names.toolTip = "Gives each Claude Code session a short handle for its project or area, in the style of your own names. When the work moves to another topic, it renames a session it named. It never changes a name you set."
         menu.addItem(names)
-        let sync = action(ProfileSync.settingUp ? "Sync Claude profile instructions: setting up…" : "Sync Claude profile instructions",
-                          #selector(toggleProfile), enabled: !ProfileSync.settingUp)
-        sync.state = ProfileSync.on ? .on : .off
+        let sync = action(f.profileSettingUp ? "Sync Claude profile instructions: setting up…" : "Sync Claude profile instructions",
+                          #selector(toggleProfile), enabled: !f.profileSettingUp)
+        sync.state = f.profile ? .on : .off
         sync.toolTip = "Copies the instructions from your Claude profile into Claude Code and puts them in front of every prompt, so running sessions see edits too."
-            + (ProfileSync.on ? (ProfileSync.lastResult.map { "\n\nLast sync: " + $0 } ?? "") : "")
+            + (f.profile ? (f.profileLast.map { "\n\nLast sync: " + $0 } ?? "") : "")
         menu.addItem(sync)
         let rules = action("Sttark working rules", #selector(toggleWorkingRules))
-        rules.state = WorkingRules.on ? .on : .off
+        rules.state = f.workingRules ? .on : .off
         rules.toolTip = "Puts Sttark's working rules in front of every prompt: answer first, a plan with a step count, work handed to agents, a status table for a prompt with several asks, Simplified Technical English, and more. When a reply isn't in Simplified Technical English, the words to fix go in front of the session's next prompt. On unless you turn it off."
         menu.addItem(rules)
-        if ChromeApprover.needsAccessibility {
+        if f.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
         menu.addItem(.separator())
         let sign = action("Sign in to Claude Code…", #selector(signIn))
-        sign.toolTip = Login.tip
+        sign.toolTip = f.loginTip
         menu.addItem(sign)
         menu.addItem(action("Open log", #selector(openLog)))
-        if available == nil && !installing { menu.addItem(action("Check for updates", #selector(checkUpdates))) }
+        if f.available == nil && !f.installing { menu.addItem(action("Check for updates", #selector(checkUpdates))) }
         menu.addItem(.separator())
         menu.addItem(action("Quit", #selector(quit), key: "q"))
     }
 
-    /// Only while a limit is reached: the status first, then each session waiting for the reset, with the one
-    /// thing to do on it. Nothing shows under the limit.
+    // MARK: sessions
+
+    /// Each recent session: its name, its level and its own usage setting, with a submenu to change either.
+    func addSessions(_ menu: NSMenu, paused: Bool) {
+        let sessions = State.sessions()
+        if sessions.isEmpty { menu.addItem(caption("No sessions in the last 12 hours")); return }
+        let state = State.read()
+        for s in sessions.prefix(12) {
+            let t = Limit.Target(sid: s.sid, cse: s.id, title: s.title)
+            let mode = Limit.mode(t, in: state)
+            let level = levelNames[s.level] ?? s.level
+            let tag = ([level] + (s.manual ? ["Manual"] : []) + [mode.tag].compactMap { $0 }).joined(separator: " · ")
+            let i = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            i.attributedTitle = row(s.title, tag, dim: paused)
+            i.state = s.manual ? .off : .on
+            i.submenu = sessionMenu(s, t, mode)
+            let why = s.reason.isEmpty || s.manual ? "" : "Why \(level): \(s.reason)\n\n"
+            i.toolTip = why + (s.manual ? "Manual: you set the effort." : "Auto: Claude picks the effort.") + " " + usageWords(mode)
+                + " Open it to change either."
+            menu.addItem(i)
+        }
+    }
+
+    /// A session's submenu: why its level, Auto effort, and what it does at the usage limit.
+    func sessionMenu(_ s: Session, _ t: Limit.Target, _ mode: Limit.Mode) -> NSMenu {
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        if !s.reason.isEmpty && !s.manual {
+            for line in wrap("Why \(levelNames[s.level] ?? s.level): \(s.reason)", 52).prefix(3) { sub.addItem(caption(line)) }
+        }
+        let auto = action("Auto effort", #selector(toggleManual(_:)))
+        auto.state = s.manual ? .off : .on
+        auto.representedObject = s.id
+        auto.toolTip = s.manual ? "Manual: you set this session's effort. Click to let Claude pick it again."
+                                : "On: Claude picks this session's effort for each task. Click to set it yourself."
+        sub.addItem(auto)
+        sub.addItem(.separator())
+        addUsage(sub, t, mode)
+        return sub
+    }
+
+    /// The three settings for what one session does at the usage limit, the current one checked.
+    func addUsage(_ menu: NSMenu, _ t: Limit.Target, _ mode: Limit.Mode) {
+        menu.addItem(caption("At the usage limit"))
+        usageItem(menu, "Follow the menu", .follow, t, mode).toolTip =
+            "Does what Use credits at the usage limit says: waits for the reset when it's off, goes on with usage credits when it's on."
+        usageItem(menu, "Always use credits", .credits, t, mode).toolTip =
+            "Goes on with usage credits at the limit, even when Use credits at the usage limit is off."
+        menu.addItem(caption("Never use credits; hold at:"))
+        var choices = Limit.holdChoices
+        if case .hold(let n) = mode, !choices.contains(n) { choices = (choices + [n]).sorted() }
+        for n in choices {
+            let i = usageItem(menu, "\(n)%", .hold(n), t, mode)
+            i.indentationLevel = 1
+            i.toolTip = n >= 100
+                ? "Never uses usage credits: at the 5-hour or weekly limit it stops before its next step and waits, with no model calls, even when Use credits at the usage limit is on. It goes on by itself when the limit resets."
+                : "Never uses usage credits. When the 5-hour or weekly limit reaches \(n)%, it stops before its next step and waits, with no model calls. It goes on by itself when the limit resets under \(n)%."
+        }
+    }
+
+    @discardableResult
+    func usageItem(_ menu: NSMenu, _ title: String, _ m: Limit.Mode, _ t: Limit.Target, _ current: Limit.Mode) -> NSMenuItem {
+        let i = action(title, #selector(pickUsage(_:)))
+        i.state = m == current ? .on : .off
+        i.representedObject = UsagePick(t, m)
+        menu.addItem(i)
+        return i
+    }
+
+    func usageWords(_ m: Limit.Mode) -> String {
+        switch m {
+        case .follow: return "At the usage limit it follows the menu."
+        case .credits: return "At the usage limit it goes on with usage credits."
+        case .hold(let n): return "It never uses usage credits, and holds when a limit reaches \(n)%."
+        }
+    }
+
+    // MARK: usage limit
+
+    /// While a limit is reached or a session holds: the status first, then each holding session with its
+    /// percentage and reset time. Nothing shows otherwise.
     func addLimit(_ menu: NSMenu) {
-        let waiting = Limit.waiting
+        let all = Limit.waiting
         let reached = Limit.reached
-        guard reached != nil || !waiting.isEmpty else { return }
+        let creditsAll = Limit.creditsAll
+        let holds = all.filter(\.hold)
+        let waits = creditsAll ? [] : all.filter { !$0.hold }   // with credits for every session, a wait ends at once
+        guard reached != nil || !holds.isEmpty || !waits.isEmpty else { return }
         menu.addItem(.separator())
-        let until = reached?.until ?? waiting.map(\.until).max()!
         let head = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        let atLimit = reached != nil || !waits.isEmpty
+        let until = reached?.until ?? waits.map(\.until).max()
         head.attributedTitle = NSAttributedString(
-            string: "Usage limit reached · resets \(Limit.clock(until))",
+            string: atLimit && until != nil ? "Usage limit reached · resets \(Limit.clock(until!))"
+                : holds.count == 1 ? "1 session on hold" : "\(holds.count) sessions on hold",
             attributes: [.font: font(14, true)])
         head.isEnabled = false
         menu.addItem(head)
-        if Limit.creditsAll {
-            menu.addItem(caption("Sessions go on with usage credits"))
-            return
+        let note: String
+        if atLimit && creditsAll {
+            note = holds.isEmpty ? "Sessions go on with usage credits" : "These hold and go on by themselves. Other sessions use credits."
+        } else if !waits.isEmpty {
+            note = holds.isEmpty ? "These wait and go on by themselves. Click one to use credits now." : "These wait and go on by themselves."
+        } else if !holds.isEmpty {
+            note = "These wait with no model calls and go on by themselves."
+        } else {
+            note = "A session that reaches it waits here for the reset"
         }
-        if waiting.isEmpty {
-            menu.addItem(caption("A session that reaches it waits here for the reset"))
-            return
-        }
-        menu.addItem(caption("These wait and go on by themselves. Click one to use credits now."))
-        for w in waiting {
+        menu.addItem(caption(note))
+        for w in waits {
             let i = action("", #selector(useCredits(_:)))
-            let t = NSMutableAttributedString(string: w.title.count > 40 ? String(w.title.prefix(39)) + "…" : w.title,
-                                              attributes: [.font: font(14)])
-            let para = NSMutableParagraphStyle()
-            para.tabStops = [NSTextTab(textAlignment: .right, location: 380)]
-            t.append(NSAttributedString(string: "\tUse credits", attributes: [.font: font(14, true),
-                .foregroundColor: NSColor.secondaryLabelColor]))
-            t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
-            i.attributedTitle = t
-            i.representedObject = w.id
-            i.toolTip = "Waiting since \(Limit.clock(w.since)) for the \(w.limit) limit. It goes on by itself at \(Limit.clock(w.until)). Click to let this session go on now with usage credits."
+            i.attributedTitle = row(w.title, "Use credits")
+            i.representedObject = w.sid
+            i.toolTip = "Waiting since \(Limit.clock(w.since)) for the \(w.limit) limit. It goes on by itself at \(Limit.clock(w.until)). "
+                + agentsWords(w) + "Click to let this session go on now with usage credits."
             menu.addItem(i)
         }
+        for w in holds {
+            let i = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            i.attributedTitle = row(w.title, "Hold \(w.at)% · until \(Limit.clock(w.until))")
+            i.submenu = holdMenu(w)
+            let level = w.percent.map { "the \(w.limit) limit was at \($0)% at \(Limit.clock(w.since))" }
+                ?? "the \(w.limit) limit reached it at \(Limit.clock(w.since))"
+            i.toolTip = "Holds at \(w.at)%: \(level). It waits with no model calls and goes on by itself at \(Limit.clock(w.until)), when the limit resets. "
+                + agentsWords(w) + "Open it to change its setting, or to use credits now."
+            menu.addItem(i)
+        }
+    }
+
+    /// A holding session's submenu: go on now with credits, or change its setting.
+    func holdMenu(_ w: Limit.Waiting) -> NSMenu {
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        let use = action("Use credits until \(Limit.clock(w.until))", #selector(useCredits(_:)))
+        use.representedObject = w.sid
+        use.toolTip = "Goes on now, and may use usage credits until the limit resets at \(Limit.clock(w.until)). After that, its setting applies again."
+        sub.addItem(use)
+        sub.addItem(.separator())
+        addUsage(sub, w.target, Limit.mode(w.target))
+        return sub
+    }
+
+    func agentsWords(_ w: Limit.Waiting) -> String {
+        w.agents == 0 ? "" : w.agents == 1 ? "1 of its agents waits too. " : "\(w.agents) of its agents wait too. "
     }
 
     // MARK: rows
@@ -255,20 +408,40 @@ final class Controller: NSObject, NSMenuDelegate {
         return semibold ? NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask).withSize(size) : f
     }
 
-    /// Session name in ink, level as a word in steel. No color for levels: the guide keeps an app's own
-    /// meaning colors few and never green for data, and the word already says the level.
-    func row(_ s: Session, dim: Bool) -> NSAttributedString {
-        let t = NSMutableAttributedString()
-        let title = s.title.count > 42 ? String(s.title.prefix(41)) + "…" : s.title
-        t.append(NSAttributedString(string: title, attributes: [.font: font(14),
-            .foregroundColor: dim ? NSColor.secondaryLabelColor : NSColor.labelColor]))
-        let tag = (levelNames[s.level] ?? s.level) + (s.manual ? " · Manual" : "")
+    /// A row: the name in ink on the left, a short tag in steel on the right. The name is cut to fit, so every tag
+    /// lines up in one column. No color for levels or holds: the guide keeps an app's own meaning colors few and
+    /// never green for data, and the words already say it.
+    func row(_ title: String, _ tag: String, dim: Bool = false, bold: Bool = false, tagBold: Bool = true) -> NSAttributedString {
+        let right = NSAttributedString(string: tag, attributes: [.font: font(14, tagBold), .foregroundColor: NSColor.secondaryLabelColor])
+        let t = NSMutableAttributedString(string: fit(title, font(14, bold), Controller.tab - right.size().width - 20),
+                                          attributes: [.font: font(14, bold),
+                                                       .foregroundColor: dim ? NSColor.secondaryLabelColor : NSColor.labelColor])
+        t.append(NSAttributedString(string: "\t"))
+        t.append(right)
         let para = NSMutableParagraphStyle()
-        para.tabStops = [NSTextTab(textAlignment: .right, location: 380)]
-        t.append(NSAttributedString(string: "\t" + tag, attributes: [.font: font(14, true),
-            .foregroundColor: NSColor.secondaryLabelColor]))
+        para.tabStops = [NSTextTab(textAlignment: .right, location: Controller.tab)]
         t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
         return t
+    }
+
+    /// The text, cut with "…" to fit the width.
+    func fit(_ s: String, _ f: NSFont, _ width: CGFloat) -> String {
+        func w(_ x: String) -> CGFloat { NSAttributedString(string: x, attributes: [.font: f]).size().width }
+        guard w(s) > width else { return s }
+        var t = s
+        while !t.isEmpty && w(t.trimmingCharacters(in: .whitespaces) + "…") > width { t.removeLast() }
+        return t.trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    /// Lines of at most `width` characters, broken between words.
+    func wrap(_ s: String, _ width: Int) -> [String] {
+        var lines: [String] = [], line = ""
+        for word in s.split(separator: " ") {
+            if !line.isEmpty && line.count + 1 + word.count > width { lines.append(line); line = "" }
+            line += (line.isEmpty ? "" : " ") + word
+        }
+        if !line.isEmpty { lines.append(line) }
+        return lines
     }
 
     func action(_ title: String, _ sel: Selector, key: String = "", enabled: Bool = true) -> NSMenuItem {
@@ -304,8 +477,13 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleCredits() { Limit.setCreditsAll(!Limit.creditsAll) }
 
     @objc func useCredits(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String, let w = Limit.waiting.first(where: { $0.id == id }) else { return }
+        guard let sid = sender.representedObject as? String, let w = Limit.waiting.first(where: { $0.sid == sid }) else { return }
         Limit.useCredits(w)
+    }
+
+    @objc func pickUsage(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? UsagePick else { return }
+        Limit.setMode(p.mode, for: p.target)
     }
 
     @objc func toggleChrome() {
