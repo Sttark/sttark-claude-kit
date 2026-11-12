@@ -221,3 +221,49 @@ enum Reach {
         }
     }
 }
+
+/// Waits a session handed to the Kit with claude-wait (Resources/hooks/wait.py), so the person can archive the session.
+/// wait.py --check runs every minute and brings the session back when the thing happens or at its deadline.
+enum Waits {
+    struct Wait {
+        let id: String
+        let title: String
+        let what: String
+        let why: String
+        let by: Date?
+        let back: Bool
+    }
+
+    static var script: String { hooksDir.appendingPathComponent("wait.py").path }
+    private static var running = false
+
+    static func list(_ state: [String: Any] = State.read()) -> [Wait] {
+        let all = state["waits"] as? [String: [String: Any]] ?? [:]
+        return all.map { id, w in
+            let kind = w["kind"] as? String ?? ""
+            let target = w["target"] as? String ?? ""
+            let at = (w["at"] as? Double).map { Date(timeIntervalSince1970: $0) }
+            let what = (w["what"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (kind == "pr" ? "PR #\(target.split(separator: "#").last ?? "") \(w["want"] as? String ?? "")"
+                : kind == "email-reply" ? "Email reply"
+                : at.map { "Check at \(Limit.clock($0))" } ?? "A time")
+            return Wait(id: id, title: (w["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "A session",
+                        what: what, why: w["why"] as? String ?? "",
+                        by: (w["by"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? at,
+                        back: w["stage"] as? String == "back")
+        }.filter { !$0.back }.sorted { ($0.by ?? .distantFuture) < ($1.by ?? .distantFuture) }
+    }
+
+    /// Every minute: the check reads each pull request with gh and the clock; no model calls.
+    static func check() {
+        guard !running else { return }
+        running = true
+        DispatchQueue.global().async {
+            Updater.run("/usr/bin/python3", [script, "--check"])
+            DispatchQueue.main.async { running = false }
+        }
+    }
+
+    static func run(_ args: [String]) {
+        DispatchQueue.global().async { Updater.run("/usr/bin/python3", [script] + args) }
+    }
+}
