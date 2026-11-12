@@ -6,7 +6,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 |---|---|
 | Sets each session's effort to what the task needs, and adjusts it partway through | [Effort per task](#effort-per-task) |
 | Shows which sessions are waiting on you, and tells you when one has waited 10 minutes | [Waiting on you](#waiting-on-you) |
-| At your 5-hour or weekly usage limit, holds sessions until the limit resets instead of spending usage credits, then lets them go on by themselves | [Wait at the usage limit](#wait-at-the-usage-limit) |
+| At your 5-hour or weekly usage limit, holds sessions until the limit resets instead of spending usage credits, then lets them go on by themselves. One session can instead always use credits, or never use them and hold earlier, at a percentage you pick | [Wait at the usage limit](#wait-at-the-usage-limit) |
 | Names sessions with short handles for the topic they belong to | [Name sessions automatically](#name-sessions-automatically) |
 | Warns before your Claude Code login runs out, and starts the sign-in | [Claude Code login](#claude-code-login) |
 | Sets your Mac up to run sessions you start from the Claude app | [Start sessions from the Claude app](#start-sessions-from-the-claude-app) |
@@ -21,7 +21,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 
 Effort, Waiting on you, the wait at the usage limit, the login warnings, the Claude window in Chrome, the Sttark working rules and the Sttark app rules are on from the start. Everything else is off until you turn it on in the menu. It updates itself when a new version is released here.
 
-![The menu: Auto effort, Model, each session with its level and a hover tip with the reason, then the switches, Open log, Check for updates](docs/menu.png)
+![The menu: Auto effort, Model, each session with its level and its usage setting, one session's submenu open with the reason for its level, Auto effort and the usage settings, then the switches, Open log, Check for updates](docs/menu.png)
 
 *Drawn by the app's own code, with sample sessions.*
 
@@ -59,11 +59,11 @@ The items, from the top:
 | **Update to …** | Shows while a new version waits for the menu to close, or after one failed to install by itself. Installs it now. **Updating…** shows in its place while an update installs. |
 | **Claude login ends …: Sign in…** (only near the end) | Shows within 3 days of the end of your Claude Code login, or when Claude Code is signed out. See [below](#claude-code-login). |
 | **Waiting on you** (rows, when there are any) | Sessions that need you or that you haven't opened since Claude finished. Click one to open it. See [below](#waiting-on-you). |
-| **Usage limit reached** (only at the limit) | When the limit resets, and each session holding for it. Click one to let it go on now with usage credits. See [below](#wait-at-the-usage-limit). |
+| **Usage limit reached**, or **1 session on hold** before the limit (only then) | When the limit resets, and each session holding: a session waiting at the limit (click it to let it go on now with usage credits), or a session set to never use credits, with the percentage it holds at and when it goes on (point at it to change its setting, or to use credits until the reset). See [below](#wait-at-the-usage-limit). |
 | **Auto effort** | On: Claude picks each session's effort. Off: every session keeps the level it has, until you turn it back on. |
 | **Model** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Sonnet is the default. |
-| **A session row** | The session's name in the Claude app and its level. A check means Auto. Click to switch to Manual, then click again for Auto. Hover it to see the latest reason for its level. Hover any item for what it does. |
-| **Use credits at the usage limit** | Off (the default): at the limit, sessions hold until it resets. On: they go on with usage credits. See [below](#wait-at-the-usage-limit). |
+| **A session row** | The session's name in the Claude app, its level, and its own usage setting when it has one (**Hold 80%**, **Credits**). A check means Auto. Point at it to open its submenu: the latest reason for its level, **Auto effort** (click to switch to Manual, then again for Auto), and what it does at the usage limit (see [below](#one-session-its-own-setting)). Hover any item for what it does. |
+| **Use credits at the usage limit** | Off (the default): at the limit, sessions hold until it resets. On: they go on with usage credits. A session with its own setting keeps it either way. See [below](#wait-at-the-usage-limit). |
 | **Start sessions from the Claude app** | Sets this Mac up so you can start Claude Code sessions from the Claude app. See [below](#start-sessions-from-the-claude-app). Hover it to see the folder sessions start in. |
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). Off until you turn it on. |
 | **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. |
@@ -81,7 +81,7 @@ The items, from the top:
 
 The menu lists up to 12 sessions, each for 12 hours after its last activity. Archived sessions drop off within a minute.
 
-**Setting the effort yourself:** change it in the Claude app's effort picker as usual. Sttark Claude Kit reads each session's level from the server, sees one it didn't send, switches that session to Manual and leaves it alone. The menu shows Manual within a minute, and the kit checks again right before any change it makes, so it never undoes your pick, even in the middle of a long step. Click the row to hand it back. A session that reopens (after the Mac restarts, or when the server brings back an idle one) starts again at the level it was saved with; that doesn't count as you changing it.
+**Setting the effort yourself:** change it in the Claude app's effort picker as usual. Sttark Claude Kit reads each session's level from the server, sees one it didn't send, switches that session to Manual and leaves it alone. The menu shows Manual within a minute, and the kit checks again right before any change it makes, so it never undoes your pick, even in the middle of a long step. Choose **Auto effort** on the session's row to hand it back. A session that reopens (after the Mac restarts, or when the server brings back an idle one) starts again at the level it was saved with; that doesn't count as you changing it.
 
 ### The log
 
@@ -102,7 +102,7 @@ Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
 | `skip` | Not a Remote Control session, so it can't be changed; or at the usage limit, so no check was made. |
 | `wake` / `start` / `reattach` / `move` | A stopped session started again. See [Sessions stay running](#sessions-stay-running). |
 | `name` | Name sessions automatically: a name picked, kept or changed. |
-| `limit` | The wait at the usage limit: each hold, wait, resume and choice of credits. |
+| `limit` | The wait at the usage limit: each hold, wait, resume and choice of credits, and each change to a session's own setting (`mode`), with where it came from: the menu, typed in the session, or the command. |
 | `rules` | The Sttark app rules: added to a session, or the saved copy refreshed. |
 | `ste` | The working rules' check of a finished reply: ok, noted for the session's next prompt, or error. |
 | `stable` | The fixed copy of Claude Code and its night job. |
@@ -115,8 +115,8 @@ To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
 
 - **Picks the level before Claude starts.** Each prompt you send goes to a quick side check (the newest Claude Sonnet, or another model you pick) along with the last few messages. The model picks Low, Medium, High, Extra or Max, and the session is set to that level before Claude's first step. A plain "go" after a plan gets sized to the plan.
 - **Checks again partway through.** At 10, 25 and 50 steps into a task (the session's own steps; a subagent's steps don't count), the model looks at the work so far. If builds keep failing or the cause is still unknown, it raises the level, up to Max for a task that's stuck at Extra. If the hard part is done and the rest is repeat edits, it lowers it. UI work stays at High or above until Claude has looked at the result and judged it, since that look is where the design gets decided.
-- **You can take over.** Turn **Auto effort** off for every session, or click one session to set it to Manual. If you change a session's effort yourself in the Claude app, Sttark Claude Kit notices and switches that session to Manual on its own.
-- **Shows its reasons.** The menu lists each session with its level; hover one for the latest reason. Every decision is logged.
+- **You can take over.** Turn **Auto effort** off for every session, or turn it off on one session's row to set that session to Manual. If you change a session's effort yourself in the Claude app, Sttark Claude Kit notices and switches that session to Manual on its own.
+- **Shows its reasons.** The menu lists each session with its level; point at one for the latest reason. Every decision is logged.
 - **Updates itself** within an hour of a new version being released here, with no click.
 
 ## Waiting on you
@@ -136,25 +136,80 @@ Each row shows how long it has waited; hover for why, click to open the session.
 
 When your account has usage credits turned on, Claude Code doesn't stop at your 5-hour or weekly limit: it goes on and charges usage credits. With Sttark Claude Kit, a session holds at the limit instead, spends nothing, and goes on with its task by itself when the limit resets. Credits are used only when you choose them. Nothing changes in your account's settings.
 
-![The menu at the limit: "Usage limit reached · resets 6:00 PM", a line saying the sessions below wait and go on by themselves, and two sessions, each with "Use credits" on the right](docs/limit.png)
+Each session can also have [its own setting](#one-session-its-own-setting): always use credits, or never use credits and hold before the limit, at a percentage you pick.
+
+![The menu at the limit: "Usage limit reached · resets 6:00 PM"; one session waiting, with "Use credits" on the right; two sessions on hold, "Hold 60% · until Sat 2:00 AM" and "Hold 80% · until 6:00 PM". Below, the sessions, with their levels and settings, and one session's submenu open: Auto effort, then At the usage limit: Follow the menu, Always use credits, and Never use credits; hold at 50% to 100%, with 80% checked](docs/limit.png)
 
 *Drawn by the app's own menu code, with sample sessions.*
 
 - **Claude tells you, in the chat.** At the limit Claude says one line: **Usage limit reached. I continue at 6:00 PM. Type use credits to continue now on credits.** Then it runs `claude-limit-wait`, which shows as a running command with the line **Waiting for the 5-hour usage limit to reset at 6:00 PM**. When the wait ends, the command prints why (the limit reset, or credits were chosen), and Claude goes on with the task. You never see a silent spinner, and you never need the menu.
 - **A session at work** is stopped before its next step (tool call); Claude says the line, waits, then takes that step again. **A message you send at the limit** goes to Claude, which says the line, waits, then answers it. Nothing you type is lost.
 - **The app's Now using usage credits banner** shows your account's setting (credits are on). It doesn't mean the session is spending them.
-- **What a limit costs:** one short reply on credits each time a session reaches the limit (the line, then the wait command), and one more short reply every 9 minutes of waiting, because a command can run at most 10 minutes; each is a few output tokens plus a cached read of the session. In a Sonnet test with a 26,000-token session that was about $0.008 each.
+- **What a limit costs:** one short reply on credits each time a session reaches the limit (the line, then the wait command), and one more short reply every 9 minutes of waiting, because a command can run at most 10 minutes; each is a few output tokens plus a cached read of the session. In a Sonnet test with a 26,000-token session that was about $0.008 each. A session set to never use credits makes no repeat replies while it holds.
 - **To use credits for one session:** send `use credits` in it. The wait ends within 10 seconds (30 seconds in a brand-new session) and Claude goes on, using credits until that limit resets. Clicking the session under **Usage limit reached** in the menu does the same. Sent before a limit, `use credits` lets that session go on with credits if it reaches a limit in the next 5 hours.
-- **A limit counts when it is at 100%.** A limit at 90% or more is read every 15 seconds, so the hold starts soon after it is reached.
+- **A limit counts when it is at 100%**, or at its own percentage for a session set to hold earlier. A limit at 90% or more is read every 15 seconds, so the hold starts soon after it is reached.
 - **Subagents** are stopped before their tool calls like the main session, and wait the same way.
 - **Background work that finishes at the limit** (a background agent or command) starts a turn by itself; that turn says the line and waits like any other.
-- **To use credits for every session:** turn on **Use credits at the usage limit**. Turn it off to go back to holding.
+- **To use credits for every session:** turn on **Use credits at the usage limit**. Turn it off to go back to holding. A session with its own setting keeps it either way.
 - **Stopping a session** in the Claude app ends its hold, as with any step.
 - A model's own weekly limit (for example a weekly limit for one model) holds only the sessions that run on that model.
 - At the limit the kit's own side calls to Claude (the effort check, the reply check, naming, the app rules refresh) are skipped too, so nothing is spent.
 - Accounts without usage credits, or at their credits spend limit, are left alone: there Claude Code stops at the limit by itself.
 
 It works for every Claude Code session on this Mac, Remote Control or not. Each hold, resume and choice is logged, with lines starting `limit`.
+
+### One session, its own setting
+
+Some work can wait, and some can't. Each session has one of three settings:
+
+| Setting | What the session does |
+|---|---|
+| **Follow the menu** (the default) | What **Use credits at the usage limit** says: hold at the limit when it's off, go on with usage credits when it's on. |
+| **Always use credits** | Goes on with usage credits at the limit, even when **Use credits at the usage limit** is off. |
+| **Never use credits; hold at N%** | Never spends usage credits, even when **Use credits at the usage limit** is on. It holds when the 5-hour or the weekly limit reaches N% (80% unless you pick another), and goes on by itself when that limit resets under N%. Use it for work that can wait, to keep the rest of your usage for other sessions. At 100%, it holds at the limit itself. |
+
+Set it in any of three ways. The setting lasts for the life of the session, also when the Mac restarts or the session comes back on its link.
+
+- **In the menu:** point at the session's row. Under **At the usage limit**, pick **Follow the menu** or **Always use credits**; under **Never use credits; hold at:**, pick 50%, 60%, 70%, 80%, 90% or 100%. The row then shows the setting after the level, for example **High · Hold 80%** or **Max · Credits**.
+- **In the session:** send one of these as the whole message. Claude says the new setting in one line. Sent while the session waits, it counts at once, and the wait ends if the new setting lets the session go on.
+
+  | Send | Setting |
+  |---|---|
+  | `no credits` | Never use credits; hold at 80% |
+  | `no credits 90`, `no credits 90%`, `no credits at 90` or `never use credits 90` | Never use credits; hold at 90% (any number from 1 to 100) |
+  | `credits ok` or `always use credits` | Always use credits |
+  | `follow the menu` | Follow the menu |
+
+- **With a command**, which a session or a script can run:
+
+  ```
+  claude-limit-mode                       # this session's setting (run in a session)
+  claude-limit-mode hold 80               # this session: never use credits; hold at 80%
+  claude-limit-mode <session> credits     # always use credits
+  claude-limit-mode <session> follow      # follow the menu
+  claude-limit-mode <session>             # that session's setting
+  claude-limit-mode --list                # every session that has its own setting
+  ```
+
+  `<session>` is the session's id, its Remote Control id (`cse_…` or `session_…`), the first 6 or more characters of either, or its name as the menu shows it. Leave it out to mean the session the command runs in.
+
+When a session set to hold reaches its percentage:
+
+- **It stops before its next step**, as at the limit. Claude says one line, for example **This session holds at 80% usage. I continue at 4:40 PM. Type use credits to continue now.**, and runs `claude-limit-wait`. The wait makes no model calls until it ends, and it ends by itself when every limit that counts is under the percentage again.
+- **Its subagents and background agents hold too**, each before its next step, and go on by themselves when the hold ends. Each one spends a short reply when it stops, then nothing until it goes on.
+- **The menu shows it at the top**, under **Usage limit reached**, or under **1 session on hold** before the limit, with its percentage and when it goes on: **Hold 80% · until 4:40 PM**. Point at it to change its setting, or to use credits until the reset. Its agents are counted in the row's tip.
+- **To let it go on now**, send `use credits` (it goes on, with usage credits if it needs them, until that limit resets; then its setting holds it again), pick **Use credits until …** on its row in the menu, pick a higher percentage, or change its setting.
+- **The kit's own side calls for it** (the effort check, the reply check, naming) are skipped while it holds.
+
+Each change, hold and resume is in the log:
+
+```
+2026-10-08 16:02:11 limit  mode   5d1e0c7a never use credits; hold at 80% (typed)
+2026-10-08 16:05:40 limit  hold   5d1e0c7a at 80%: the 5-hour limit is at 83%, until 4:40 PM
+2026-10-08 16:40:02 limit  resume 5d1e0c7a the 5-hour limit is under 80%, after 34 min
+```
+
+The word in brackets says where a change came from: `menu`, `typed` or `command`.
 
 ## Choosing the model
 
@@ -377,7 +432,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Sources/Server.swift` | The Start sessions from the Claude app switch, and the 15-second check that keeps sessions running. |
 | `Sources/Stable.swift`, `Resources/hooks/stable-claude.sh` | The fixed copy of Claude Code and its night job. |
 | `Sources/Waiting.swift` | The Waiting on you section and its notices, and when the Claude app was in front. |
-| `Sources/Limit.swift`, `Resources/hooks/limit-hook.py` | Wait at the usage limit: the menu's Usage limit reached rows and Use credits switch, and the hook and `claude-limit-wait`. |
+| `Sources/Limit.swift`, `Resources/hooks/limit-hook.py` | Wait at the usage limit: the menu's holding rows, each session's own setting and the Use credits switch, and the hook, `claude-limit-wait` and `claude-limit-mode`. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
 | `Sources/Update.swift` | Checks GitHub for a new version and installs it by itself. |
 | `Sources/Migrate.swift` | Moves settings, state and switches over from Sttark Effort on the first launch. |
@@ -397,7 +452,8 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/limit-claude-test.sh` | Tests the usage limit wait with a real `claude -p` run, on copies: a test state folder, a fake usage read and only this repo's limit hook. |
 | `tools/limit-429-test.py` | Tests the usage read's back-off against a local stand-in server that answers `429`. |
 | `tools/update-test.sh` | Tests the update that installs by itself: the real `Sources/Update.swift` in a stand-in app (`tools/update-test/main.swift`) with its own ID, against fake releases in a temporary folder. It checks that a new version waits while the menu is open, then installs and restarts with no notice; that a version not signed like the app fails with one notice, no dialog and no second try; and that the same version does nothing. The installed app isn't touched. |
-| `tools/screenshot.swift` | Draws the menu image above (`docs/menu.png`) from the app's own code, with sample sessions. |
+| `tools/screenshot.swift` | Draws the menu images (`docs/menu.png`, `docs/limit.png`) with the app's own menu code, from sample sessions in a temporary folder. |
+| `tools/limit-menu-test.swift` | Tests the app's side of each session's usage setting on a temporary folder, with a stand-in state file and usage file: reading and writing the settings as the hooks do, the log lines, the holding rows, and when the limit counts as reached. |
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
 | `.github/workflows/release.yml` | Builds, signs and publishes a release. |
 | `.github/workflows/app-review.yml`, `.github/workflows/page-check.yml` | The shared AI review and page check for Sttark web apps (below). |
