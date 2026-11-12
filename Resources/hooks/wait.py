@@ -6,7 +6,9 @@ session goes on and tells the person through Reach me by (claude-notify).
 
     claude-wait pr <owner/repo#n> merged|closed --by <deadline> --why "<deadline and reason, one line>"
     claude-wait at <time> --why "<what to check then, one line>"
-    claude-wait email-reply <Gmail thread id> --by <deadline> --why "<...>"
+    claude-wait email-reply <Gmail thread id> [--from <sender or domain>] --by <deadline> --why "<...>"
+    claude-wait check-script <path> --every <10m|2h> --by <deadline> --why "<...>"   (exit 0 = it happened; free)
+    claude-wait check-prompt "<yes/no question>" --every <30m> --by <deadline> --why "<...>"   (a Haiku call)
     --what "<what you watch for, in the person's words>"  (any wait; e.g. "New Star's reply about the laminator")
     claude-wait --list                 open waits, every session
     claude-wait --cancel <id>          drop a wait
@@ -174,14 +176,139 @@ def check_pr(w):
     return False, ''
 
 
+STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')
+CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
+WR = 'mcp__claude_ai_Sttark_Workrouter__'
+READ_TOOLS = [WR + t for t in ('gmail_search', 'gmail_read_message', 'asana_get_task', 'asana_get_task_stories',
+                               'asana_search_tasks', 'asana_list_section_tasks', 'gchat_search_messages',
+                               'gchat_list_spaces', 'calendar_list_events', 'docs_read', 'docs_search', 'drive_search',
+                               'drive_list_folder', 'run_query', 'get_database_schema', 'inventory_search',
+                               'inventory_get', 'helpscout_search', 'helpscout_get_conversation', 'meetings_search',
+                               'org_structure', 'business_days')] + ['WebFetch', 'WebSearch']
+
+
+def haiku(prompt, tools, timeout=180):
+    """A Haiku run with only `tools` allowed and hooks off: (its final text, the text of each tool result).
+    Run as the person, through Claude Code's connectors."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
+    env['EFFORT_JUDGE'] = '1'
+    os.makedirs(os.path.join(KIT, 'wait-checks'), exist_ok=True)
+    r = subprocess.run([CLAUDE, '-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku',
+                        '--no-session-persistence', '--allowedTools', ','.join(tools),
+                        '--settings', '{"disableAllHooks":true}'],
+                       input=prompt, capture_output=True, text=True, timeout=timeout, env=env,
+                       cwd=os.path.join(KIT, 'wait-checks'))
+    final, results = '', []
+    for line in r.stdout.splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get('type') == 'result':
+            final = ev.get('result') or ''
+        for part in ((ev.get('message') or {}).get('content') or []) if isinstance(ev.get('message'), dict) else []:
+            if isinstance(part, dict) and part.get('type') == 'tool_result':
+                c = part.get('content')
+                results.append(''.join(x.get('text', '') for x in c if isinstance(x, dict)) if isinstance(c, list) else str(c or ''))
+    if r.returncode and not results and not final:
+        raise RuntimeError('claude -p exit %d: %s' % (r.returncode, (r.stderr or r.stdout).strip()[:160]))
+    return final, results
+
+
+def model_due(w, now):
+    """Whether a check that costs a model call may run now: between 7 AM and 9 PM, never while the session or the
+    account is held at the usage limit, and less often as the wait gets older: its own interval (10 minutes when it
+    has none) for 3 hours, then at least 30 minutes, then after a day at least an hour."""
+    if not 7 <= dt.datetime.fromtimestamp(now).hour < 21:
+        return False
+    age = now - w.get('set_at', now)
+    gap = max(w.get('every') or 600, 0 if age < 3 * 3600 else 1800 if age < 86400 else 3600)
+    if now - w.get('read_at', 0) < gap:
+        return False
+    try:
+        if load('limit-hook').held(w.get('sid') or None, w.get('transcript') or None):
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def me():
+    try:
+        return (json.load(open(os.path.expanduser('~/.claude.json'))).get('oauthAccount') or {}).get('emailAddress', '').lower()
+    except (OSError, ValueError):
+        return ''
+
+
 def check_email_reply(w):
-    """(happened, words) for an email reply wait. The way to read Gmail with no model call is not chosen yet
-    (a Haiku call through Workrouter, or a Gmail sign-in of the Kit's own), so this says nothing has happened and the
-    wait comes back at its deadline."""
+    """(happened, words) for an email reply wait: one Haiku run that calls Workrouter's gmail_search once. The
+    answer comes from the tool's own result, never from the model's words: a message in the thread (or from the
+    sender given with --from) that is newer than the wait and not from the person."""
+    if not w.get('subject') and not w.get('from'):
+        # the thread id is its first message's id: read it once for the subject to search by
+        _, res = haiku('Call %sgmail_read_message exactly once with message_id %s and max_chars 100, then reply "done".'
+                       % (WR, json.dumps(w['target'])), [WR + 'gmail_read_message'], timeout=120)
+        for t in res:
+            try:
+                w['subject'] = re.sub(r'^((re|fwd?|aw):\s*)+', '', json.loads(t).get('subject') or '', flags=re.I)
+            except (ValueError, AttributeError):
+                pass
+        if not w.get('subject'):
+            raise RuntimeError('could not read the thread %s' % w['target'])
+    q = 'after:%d' % int(w['set_at']) + (' from:%s' % w['from'] if w.get('from') else
+                                          ' -from:me subject:(%s)' % re.sub(r'[^\w\s]', ' ', w['subject']).strip()[:120])
+    _, results = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'
+                       % (WR, json.dumps(q)), [WR + 'gmail_search'], timeout=120)
+    found = None
+    for t in results:
+        try:
+            emails = json.loads(t).get('emails') or []
+        except (ValueError, AttributeError):
+            continue
+        found = found or []
+        for e in emails:
+            sender = (e.get('from') or '').lower()
+            if me() and me() in sender:
+                continue
+            if e.get('thread_id') == w['target'] or (w.get('from') and w['from'].lower() in sender):
+                found.append(e)
+    if found is None:
+        raise RuntimeError('gmail_search gave no result')
+    if not found:
+        return False, ''
+    e = found[0]
+    return True, '%s replied: "%s" (%s)' % (e.get('from', 'someone'), e.get('subject', ''), (e.get('snippet') or '')[:160])
+
+
+def check_prompt(w):
+    """(happened, words) for a check-prompt wait: one Haiku run with read-only Workrouter tools and the web, which
+    ends with YES or NO."""
+    final, _ = haiku('You check one thing for a work session that waits on it. Use the tools to find out, read '
+                     'only, and change nothing. The question: %s\n\nEnd with one line that is exactly YES or NO, '
+                     'then one line with what you found.' % w['target'], READ_TOOLS)
+    lines = [l.strip() for l in final.strip().splitlines() if l.strip()]
+    yes = [i for i, l in enumerate(lines) if l.upper().rstrip('.') in ('YES', 'NO')]
+    if not yes:
+        raise RuntimeError('no YES or NO in the answer')
+    i = yes[-1]
+    return lines[i].upper().startswith('YES'), ' '.join(lines[i + 1:i + 2]) or 'the check said yes'
+
+
+def check_script(w):
+    """(happened, words) for a check-script wait: the session's own script, run with no model call; exit 0 means it
+    happened, and its first line of output says what."""
+    path = w['script']
+    with open(path) as f:
+        first = f.readline()
+    cmd = [path] if first.startswith('#!') else ['/bin/zsh', path]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, cwd=w.get('cwd') or KIT)
+    if r.returncode == 0:
+        return True, (r.stdout.strip().splitlines() or ['the check script says it happened'])[0][:200]
     return False, ''
 
 
-CHECKS = {'pr': check_pr, 'email-reply': check_email_reply, 'at': lambda w: (False, '')}
+CHECKS = {'pr': check_pr, 'email-reply': check_email_reply, 'check-prompt': check_prompt,
+          'check-script': check_script, 'at': lambda w: (False, '')}
 
 
 # --- bringing a session back -------------------------------------------------------------------------------
@@ -210,6 +337,10 @@ def describe(w):
         return 'pull request %s %s' % (w['target'], w['want'])
     if w['kind'] == 'email-reply':
         return 'a reply on email thread %s' % w['target']
+    if w['kind'] == 'check-prompt':
+        return 'yes to: %s' % w['target']
+    if w['kind'] == 'check-script':
+        return 'the check script %s' % os.path.basename(w['script'])
     return 'the time %s' % clock(w['at'])
 
 
@@ -312,13 +443,16 @@ def check(only=None):
             happened, what = True, 'The person asked to bring it back now'
         elif w['kind'] == 'at':
             happened, what = now >= w['at'], 'The time you set came (%s)' % clock(w['at'])
-        elif now - w.get('read_at', 0) >= (PR_EVERY if w['kind'] == 'pr' else 60):
+        elif (model_due(w, now) if w['kind'] in ('email-reply', 'check-prompt') else
+              now - w.get('read_at', 0) >= (PR_EVERY if w['kind'] == 'pr' else w.get('every') or 600)):
             try:
                 happened, what = CHECKS[w['kind']](w)
             except Exception as e:
                 log('%s check failed: %s' % (wid, str(e)[:160]))
             upd['read_at'] = now
             upd['url'] = w.get('url', '')
+            if w.get('subject'):
+                upd['subject'] = w['subject']
         if not happened and w.get('by') and now >= w['by']:
             happened, late = True, True
             what = 'The deadline came: %s has not happened' % describe(w)
@@ -391,17 +525,26 @@ def main():
             check(only=wid)
         return 0
     by, why, what = opt(args, '--by'), opt(args, '--why'), opt(args, '--what')
+    sender, every = opt(args, '--from'), opt(args, '--every')
     kind = args[0]
     try:
         if kind == 'pr' and len(args) >= 3 and re.fullmatch(r'[\w.-]+/[\w.-]+#\d+', args[1]) and args[2] in ('merged', 'closed'):
             w = {'kind': 'pr', 'target': args[1], 'want': args[2]}
         elif kind == 'email-reply' and len(args) >= 2:
             w = {'kind': 'email-reply', 'target': args[1]}
+            if sender:
+                w['from'] = sender
+        elif kind == 'check-prompt' and len(args) >= 2:
+            w = {'kind': 'check-prompt', 'target': ' '.join(args[1:])}
+        elif kind == 'check-script' and len(args) >= 2 and os.path.isfile(args[1]):
+            w = {'kind': 'check-script', 'source': os.path.abspath(args[1])}
         elif kind == 'at' and len(args) >= 2:
             w = {'kind': 'at', 'at': when(' '.join(args[1:]))}
             by = by or None
         else:
-            print('Usage: claude-wait pr <owner/repo#n> merged|closed --by <deadline> --why "<one line>"\n'
+            print('Usage: claude-wait check-script <path> --every <interval> --by <deadline> --why "<one line>"\n'
+                  '       claude-wait check-prompt "<yes/no question>" --every <interval> --by <deadline> --why "<one line>"\n'
+                  '       claude-wait pr <owner/repo#n> merged|closed --by <deadline> --why "<one line>"\n'
                   '       claude-wait at <time> --why "<one line>"\n'
                   '       claude-wait email-reply <thread id> --by <deadline> --why "<one line>"', file=sys.stderr)
             return 2
@@ -413,6 +556,15 @@ def main():
             print('--why is needed: one line with the deadline and the reason for it.', file=sys.stderr)
             return 2
         w['by'] = when(by) if by else None
+        if every:
+            m = re.fullmatch(r'(\d+)\s*(m|min|h)', every.strip().lower())
+            if not m:
+                raise ValueError('--every like 10m or 2h')
+            w['every'] = int(m.group(1)) * (3600 if m.group(2) == 'h' else 60)
+        if w['kind'] == 'check-prompt':
+            w['every'] = max(w.get('every') or 1800, 600)  # a model call: every 10 minutes at most
+        elif w['kind'] == 'check-script':
+            w['every'] = max(w.get('every') or 600, 60)
     except ValueError as e:
         print('Not a time: %s' % e, file=sys.stderr)
         return 2
@@ -424,13 +576,18 @@ def main():
              cwd=me['cwd'], title=me['title'], session_url=me['url'])
     if w['kind'] == 'pr':
         w['url'] = 'https://github.com/%s/pull/%s' % tuple(w['target'].split('#'))
+    if w['kind'] == 'check-script':  # the Kit keeps its own copy, so the wait outlasts the session's files
+        d = os.path.join(KIT, 'wait-scripts')
+        os.makedirs(d, exist_ok=True)
+        w['script'] = os.path.join(d, wid + (os.path.splitext(w['source'])[1] or '.sh'))
+        with open(w['source']) as src, open(w['script'], 'w') as dst:
+            dst.write(src.read())
+        os.chmod(w['script'], 0o755)
     change(lambda s: s.setdefault('waits', {}).__setitem__(wid, w))
     log('%s %s "%s" set: %s, by %s | %s' % (wid, me['cse'][:12], me['title'], describe(w),
                                            clock(w['by']) if w.get('by') else '-', w['why']))
     print('Wait %s set: %s%s. The Kit watches it now; it shows in the Kit menu under "sessions wait on someone '
           'else".' % (wid, describe(w), ', deadline ' + clock(w['by']) if w.get('by') else ''))
-    if kind == 'email-reply':
-        print('The Kit does not read replies yet: this wait comes back at its deadline.')
     if not me['cse']:
         print('This session has no Claude app link, so it can\'t come back by itself: the person gets the message.')
     else:
