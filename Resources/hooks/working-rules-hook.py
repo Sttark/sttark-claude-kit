@@ -151,23 +151,25 @@ def prose(text):
     return FENCE.sub('', text).strip()
 
 
-def at_limit():
-    """True at the usage limit when no one chose usage credits (limit-hook.py)."""
+def at_limit(sid=None, transcript=None):
+    """True when this session must wait under its usage setting (limit-hook.py); with no session, at the
+    usage limit when no one chose usage credits."""
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location(
             'limit', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'limit-hook.py'))
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        return m.held()
+        return m.held(sid, transcript)
     except Exception:
         return False
 
 
-def ask(text):
+def ask(text, sid=None, transcript=None):
     """Haiku's list of breaks, or OK. Hooks off and this session's variables dropped, so the check is a plain
-    call that never starts another check. Skipped (OK) at the usage limit, so it spends nothing."""
-    if at_limit():
+    call that never starts another check. Skipped (OK) while the session waits at its usage limit or its own
+    hold, so it spends nothing."""
+    if at_limit(sid, transcript):
         return 'OK'
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
@@ -193,7 +195,7 @@ def check(data):
         return
     t0 = time.time()
     try:
-        answer = ask(text)
+        answer = ask(text, full or None, data.get('transcript_path'))
     except Exception as e:
         return log('%s error %s: %s' % (sid, type(e).__name__, str(e)[:160]))
     secs = time.time() - t0

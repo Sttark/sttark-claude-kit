@@ -1,19 +1,29 @@
 import Foundation
 import ServiceManagement
 
+/// The app's folder in Application Support. STTARK_KIT_DIR and STTARK_KIT_LOG point the code at a test folder and
+/// log, as they do for the hooks; the drawing tool (tools/screenshot.swift) uses them. The app itself never sets them.
 let supportDir: URL = {
-    let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("SttarkClaudeKit")
+    let env = ProcessInfo.processInfo.environment["STTARK_KIT_DIR"] ?? ""
+    let u = !env.isEmpty ? URL(fileURLWithPath: env)
+        : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("SttarkClaudeKit")
     try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
     return u
 }()
 let hooksDir = supportDir.appendingPathComponent("hooks")
-let logURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/sttark-claude-kit.log")
+let logURL: URL = {
+    let env = ProcessInfo.processInfo.environment["STTARK_KIT_LOG"] ?? ""
+    return !env.isEmpty ? URL(fileURLWithPath: env)
+        : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/sttark-claude-kit.log")
+}()
 
 /// One line in the same log the hook writes, so everything is in one place.
-func note(_ s: String) {
+func note(_ s: String) { logLine("app", s) }
+
+/// A log line under its first word, padded as the hooks pad theirs ("app    ", "limit  ").
+func logLine(_ tag: String, _ s: String) {
     let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-    let line = f.string(from: Date()) + " app    " + s + "\n"
+    let line = f.string(from: Date()) + " " + tag.padding(toLength: max(6, tag.count), withPad: " ", startingAt: 0) + " " + s + "\n"
     if let h = try? FileHandle(forWritingTo: logURL) {
         h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
     } else {
@@ -22,7 +32,10 @@ func note(_ s: String) {
 }
 
 struct Session {
+    /// The key in state.sessions: the Remote Control id (cse_…).
     let id: String
+    /// Claude Code's own id for the session: its transcript's file name. Empty when not known.
+    var sid: String = ""
     let title: String
     let level: String
     let reason: String
@@ -114,6 +127,9 @@ enum State {
             var s = Session(id: id, title: t.isEmpty ? "Session " + id.suffix(6) : t,
                             level: x["level"] as? String ?? "?", reason: x["reason"] as? String ?? "",
                             manual: x["manual"] as? Bool ?? false, at: at)
+            if let tp = x["transcript"] as? String, tp.hasSuffix(".jsonl") {
+                s.sid = String((tp as NSString).lastPathComponent.dropLast(6))
+            }
             if let a = x["app"] as? [String: Any] {
                 s.url = a["url"] as? String ?? ""
                 let iso = ISO8601DateFormatter()

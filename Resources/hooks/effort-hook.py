@@ -268,14 +268,25 @@ def list_models():
 AT_LIMIT = 'NO - skipped at the usage limit'
 
 
+LIMIT_FOR = {}  # the session the side calls are for: {'sid', 'transcript', 'cse'}; empty for the account
+
+
+def limit_for(sid=None, transcript=None, c=None):
+    """Side calls from here on are for this session, so its own usage setting decides whether they wait."""
+    LIMIT_FOR.clear()
+    if sid:
+        LIMIT_FOR.update(sid=sid, transcript=transcript, cse=c)
+
+
 def at_limit():
-    """True at the usage limit when no one chose usage credits (limit-hook.py): the Kit's own side calls to
-    Claude are skipped then, so they spend nothing."""
+    """True when the session the side call is for must wait under its usage setting, or, with no session, at
+    the usage limit when no one chose usage credits (limit-hook.py): the Kit's own side calls to Claude are
+    skipped then, so they spend nothing."""
     try:
         spec = importlib.util.spec_from_file_location('limit', os.path.join(HERE, 'limit-hook.py'))
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        return m.held()
+        return m.held(LIMIT_FOR.get('sid'), LIMIT_FOR.get('transcript'), LIMIT_FOR.get('cse'))
     except Exception:
         return False
 
@@ -521,7 +532,10 @@ def track():
                 if old.get('judged') == last:  # this reply was already judged
                     needs, why = old.get('needs', False), old.get('why', '')
                 else:
-                    needs, why = asks_you(last_reply(sessions.get(sid, {}).get('transcript', '')))
+                    tp = sessions.get(sid, {}).get('transcript', '')
+                    limit_for(os.path.basename(tp)[:-6] if tp.endswith('.jsonl') else None, tp, sid)
+                    needs, why = asks_you(last_reply(tp))
+                    limit_for()
         # not opened: Claude finished, and you haven't opened it or had it on screen since
         unseen = not seen and not archived and not working
         info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working, 'unseen': unseen,
@@ -1026,6 +1040,7 @@ def main():
             log(f'skip   {data.get("session_id", "")[:8]} not a Remote Control session')
         return
     tp = data.get('transcript_path')
+    limit_for(data.get('session_id'), tp, sid)
     if tp and peek().get('sessions', {}).get(sid, {}).get('transcript') != tp:
         with state() as s:  # the tracker reads the last reply from here
             s['sessions'].setdefault(sid, {})['transcript'] = tp
