@@ -26,6 +26,8 @@ lipo -create build/ChromeApprover-arm64 build/ChromeApprover-x86_64 -output $APP
 rm build/ChromeApprover-arm64 build/ChromeApprover-x86_64
 cp Info.plist $APP/Contents/Info.plist
 cp -R Resources/* $APP/Contents/Resources/
+# What's new: the notes and pictures, each with the build that first shipped it (tools/whats-new.py)
+BUILD=$BUILD /usr/bin/python3 tools/whats-new.py build $APP/Contents/Resources/whats-new
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" -c "Set :CFBundleShortVersionString 1.$BUILD" $APP/Contents/Info.plist
 SIGN_ID=${SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Sttark Effort Signing"/ {print $2; exit}')}
 SIGN=${SIGN_ID:--}
