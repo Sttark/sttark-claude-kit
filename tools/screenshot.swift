@@ -2,6 +2,7 @@
 // in a temporary folder, in light mode. Nothing from a real screen and nothing from this Mac's own state:
 //   docs/menu.png   the whole menu, with one session's submenu open
 //   docs/limit.png  sessions holding at the usage limit, and a session's usage setting open
+//   docs/reach.png  Reach me by, open
 // The times are drawn in a time zone where it is late morning, so the sample reset times read the same on every run.
 // Run from the repo root:
 //   swiftc -parse-as-library -o /tmp/shot tools/screenshot.swift $(ls Sources/*.swift | grep -v main.swift) && /tmp/shot
@@ -47,6 +48,13 @@ import AppKit
         let items = Array(part.items.drop { $0.isSeparatorItem })
         let open = items.lastIndex { $0.attributedTitle?.string.hasPrefix("Site map plan") == true }
         Draw.png(items, hot: open, menuBar: false, to: "docs/limit.png")
+
+        // Reach me by, open: Email and a Mac notice picked, no phone or webhook set yet.
+        let reach = NSMenu()
+        reach.addItem(.separator())
+        c.addReach(reach, Reach.Settings(ways: ["email", "mac"], email: "name@sttark.com", phone: "", chat: ""))
+        let r = Array(reach.items.drop { $0.isSeparatorItem })
+        Draw.png(r, hot: 0, menuBar: false, to: "docs/reach.png")
     }
 }
 

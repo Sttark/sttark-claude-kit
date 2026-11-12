@@ -1,0 +1,60 @@
+# Email for claude-notify (Sttark Claude Kit, "Reach me by" > Email): sends one message to a
+# @sttark.com address through Sttark's SparkPost mail, from alerts@sttark.com.
+#
+# claude-notify on the person's Mac runs `gh workflow run notify.yml -f p=<sealed message>`. The
+# message (address, subject, text, link) is sealed with the public key in
+# Resources/hooks/notify-key.pem, so nothing of it shows in this public repo: only this workflow can
+# open it, with NOTIFY_PRIVATE_KEY (a secret of this repo). The run prints no part of the message.
+# Anyone with write access to the repo can run it; it sends only to @sttark.com addresses.
+#
+# Secrets: NOTIFY_MAIL_SMTP_PASSWORD (organization secret, selected for this repo: the SparkPost
+# SMTP key) and NOTIFY_PRIVATE_KEY (this repo).
+name: notify
+run-name: notify
+on:
+  workflow_dispatch:
+    inputs:
+      p:
+        description: The sealed message, made by claude-notify
+        required: true
+permissions: {}
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Send
+        env:
+          SMTP_PASS: ${{ secrets.NOTIFY_MAIL_SMTP_PASSWORD }}
+          KEY: ${{ secrets.NOTIFY_PRIVATE_KEY }}
+        run: |
+          python3 - <<'EOF'
+          import base64, json, os, re, smtplib, subprocess, tempfile
+          from email.message import EmailMessage
+          from email.utils import formataddr, make_msgid
+          p = json.load(open(os.environ['GITHUB_EVENT_PATH']))['inputs']['p']
+          sealed_key, body = p.split('.', 1)
+          with tempfile.NamedTemporaryFile('w', delete=False) as f:
+              f.write(os.environ['KEY'])
+          kiv = subprocess.run(['openssl', 'pkeyutl', '-decrypt', '-inkey', f.name, '-pkeyopt', 'rsa_padding_mode:oaep'],
+                               input=base64.b64decode(sealed_key), capture_output=True, check=True).stdout.hex()
+          os.remove(f.name)
+          m = json.loads(subprocess.run(['openssl', 'enc', '-d', '-aes-256-cbc', '-K', kiv[:64], '-iv', kiv[64:96]],
+                                        input=base64.b64decode(body), capture_output=True, check=True).stdout)
+          to = m['to'].strip()
+          if not re.fullmatch(r'[A-Za-z0-9._%+-]+@sttark\.com', to):
+              raise SystemExit('Only a @sttark.com address can get this mail.')
+          e = EmailMessage()
+          e['From'] = formataddr(('Claude', 'alerts@sttark.com'))
+          e['To'] = to
+          e['Subject'] = m['subject'][:200]
+          e['Message-ID'] = make_msgid(domain='sttark.com')
+          e.set_content(m['text'])
+          if m.get('html'):
+              e.add_alternative(m['html'], subtype='html')
+          with smtplib.SMTP('smtp.sparkpostmail.com', 587, timeout=30) as s:
+              s.starttls()
+              s.login('SMTP_Injection', os.environ['SMTP_PASS'])
+              s.send_message(e)
+          print('sent')
+          EOF

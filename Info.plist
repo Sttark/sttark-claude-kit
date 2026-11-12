@@ -20,6 +20,8 @@
 	<string>0</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Sttark Claude Kit sends your Reach me by text messages through Messages.</string>
 	<key>LSUIElement</key>
 	<true/>
 </dict>
