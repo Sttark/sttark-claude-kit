@@ -4,9 +4,9 @@
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
 //   docs/window-settings.png  the window's Settings page
 //   docs/window-news.png      the window's What's new page
-//   docs/whats-new.png        the What's new popup, with this repo's notes
-// Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the popup in dark mode into that folder.
-// The window and the popup are real windows, put off the screen and captured with screencapture, so they look as
+//   docs/whats-new.png        the What's new sheet over the window, with this repo's notes
+// Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
+// The window and the sheet are real windows, put off the screen and captured with screencapture, so they look as
 // they do on this Mac; nothing shows on the screen and nothing comes to the front.
 // The times are drawn in a time zone where it is late morning, so the sample times read the same on every run.
 // Run from the repo root:
@@ -62,7 +62,6 @@ import SwiftUI
         model.reloadFacts()
         model.selected = model.snap.rows.first { $0.wait?.kind == "email-reply" }?.id
         let w = Shot.window(model)
-        let tall = CGFloat(Double(ProcessInfo.processInfo.environment["STTARK_SHOT_HEIGHT"] ?? "") ?? 900)
         for look in [false, true] where !look || dark != nil {
             let folder = look ? dark! : "docs"
             w.appearance = NSAppearance(named: look ? .darkAqua : .aqua)
@@ -72,11 +71,14 @@ import SwiftUI
             Shot.capture(w, to: folder + "/window-settings.png")
             model.page = .news
             Shot.capture(w, to: folder + "/window-news.png")
-            let pop = NotesPanel(WhatsNew.all, unseen: true) {}
-            pop.appearance = w.appearance
-            pop.setFrame(NSRect(x: -9000, y: 0, width: NotesPanel.width, height: min(NotesPanel.fitHeight(WhatsNew.all), tall)), display: true)
-            Shot.capture(pop, to: folder + "/whats-new.png")
-            pop.close()
+            // the What's new sheet, as the menu's What's new item opens it, over the window
+            model.page = .sessions
+            model.sheet = WhatsNew.all
+            w.orderFrontRegardless()
+            RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+            Shot.capture(w, to: folder + "/whats-new.png", wait: 0.2)
+            model.sheet = []
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
         }
         w.close()
     }
@@ -94,9 +96,9 @@ import SwiftUI
     }
 
     /// Shows the window off the screen, lets it draw, and captures it with its own pixels.
-    static func capture(_ w: NSWindow, to path: String) {
-        w.orderFrontRegardless()
-        RunLoop.main.run(until: Date().addingTimeInterval(1.2))
+    static func capture(_ w: NSWindow, to path: String, wait: TimeInterval = 1.2) {
+        if w.sheetParent == nil { w.orderFrontRegardless() }
+        RunLoop.main.run(until: Date().addingTimeInterval(wait))
         let t = Process()
         t.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         t.arguments = ["-x", "-o", "-l\(w.windowNumber)", path]
@@ -126,7 +128,8 @@ enum Sample {
                           bypass: true, chromeApprover: true, chromeWindow: true, fileLinks: true, names: true, profile: true,
                           profileLast: "10:45 AM, no change", workingRules: true)
         f.reach = Reach.Settings(ways: ["chat"], email: "name@sttark.com", phone: "", chat: "https://chat.googleapis.com/v1/spaces/sample")
-        f.whatsNew = 2
+        f.whatsNew = 3
+        f.whatsNewUnseen = 3
         f.models = [("claude-sonnet-5-5", "Sonnet 5.5"), ("claude-haiku-5-5", "Haiku 5.5")]
         f.model = "claude-sonnet-5-5"
         f.loginEnds = Date().addingTimeInterval(20 * 86400)
@@ -229,7 +232,7 @@ enum Draw {
 
     static func panelSize(_ items: [NSMenuItem]) -> NSSize {
         let w = inset * 2 + 6 + checkW + (items.map(textWidth).max() ?? 200)
-            + (items.contains { $0.submenu != nil || !$0.keyEquivalent.isEmpty } ? 30 : 14)
+            + (items.contains { $0.badge != nil } ? 70 : items.contains { $0.submenu != nil || !$0.keyEquivalent.isEmpty } ? 30 : 14)
         return NSSize(width: max(w, 200), height: items.map(height).reduce(10, +))
     }
 
@@ -286,6 +289,15 @@ enum Draw {
                     let arrow = NSAttributedString(string: "›", attributes: [.font: NSFont.systemFont(ofSize: 17, weight: .medium),
                         .foregroundColor: isHot ? NSColor.white : NSColor.secondaryLabelColor])
                     arrow.draw(at: NSPoint(x: row.maxX - 8 - arrow.size().width, y: y + (h - arrow.size().height) / 2 - 1))
+                }
+                if let b = i.badge {   // the menu item's badge ("3 new"), drawn the way macOS draws it
+                    let bt = NSAttributedString(string: b.stringValue ?? "", attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                        .foregroundColor: NSColor.secondaryLabelColor])
+                    let bw = bt.size().width + 16, bh: CGFloat = 19
+                    let br = NSRect(x: row.maxX - 8 - bw, y: y + (h - bh) / 2, width: bw, height: bh)
+                    NSColor.black.withAlphaComponent(0.1).setFill()
+                    NSBezierPath(roundedRect: br, xRadius: bh / 2, yRadius: bh / 2).fill()
+                    bt.draw(at: NSPoint(x: br.minX + 8, y: br.minY + (bh - bt.size().height) / 2))
                 }
                 if !i.keyEquivalent.isEmpty {
                     let k = NSAttributedString(string: "⌘" + i.keyEquivalent.uppercased(), attributes: [.font: NSFont.systemFont(ofSize: 14),

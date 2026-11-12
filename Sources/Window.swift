@@ -15,23 +15,28 @@ final class KitWindow: NSObject, NSWindowDelegate {
     var inUse: Bool { NSApp.isActive && window?.isKeyWindow == true }
 
     /// Only from a click in the menu.
-    func show(_ page: KitModel.Page = .sessions, select: String? = nil, controller: Controller) {
+    /// `sheet`: with the What's new sheet on top.
+    func show(_ page: KitModel.Page = .sessions, select: String? = nil, sheet: Bool = false, controller: Controller) {
         model.controller = controller
         model.page = page
         if let select { model.selected = select }
         model.reload()
         model.reloadFacts()
         let w = window ?? make()
+        // While the window is open the Kit is a regular app: in the Dock and Command-Tab, with its menus. Only here,
+        // after the person's click; it goes back to the menu bar only when the window closes.
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
         if page == .news { model.markNewsSeen() }
+        if sheet { model.openSheet() }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
         note("window: opened at \(page.rawValue)" + (select.map { " (\($0.prefix(12)))" } ?? ""))
     }
 
     private func make() -> NSWindow {
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+        let w = KitNSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                          backing: .buffered, defer: false)
         w.title = "Sttark Claude Kit"
@@ -57,9 +62,14 @@ final class KitWindow: NSObject, NSWindowDelegate {
         if model.page == .settings && ticks % 10 == 0 { model.reloadFacts() }
     }
 
+    @objc func zoomIn() { model.zoom(by: 1) }
+    @objc func zoomOut() { model.zoom(by: -1) }
+    @objc func actualSize() { model.zoom(by: 0) }
+
     func windowWillClose(_ notification: Notification) {
         timer?.invalidate()
         timer = nil
+        DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
     }
 
     /// The window is an accessory app's, with no menu bar of its own; these give it the usual keys
@@ -69,6 +79,8 @@ final class KitWindow: NSObject, NSWindowDelegate {
         let appItem = NSMenuItem()
         let app = NSMenu()
         app.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        app.addItem(.separator())
+        app.addItem(withTitle: "Quit Sttark Claude Kit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = app
         main.addItem(appItem)
         let editItem = NSMenuItem()
@@ -80,7 +92,33 @@ final class KitWindow: NSObject, NSWindowDelegate {
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         main.addItem(editItem)
+        let viewItem = NSMenuItem()
+        let view = NSMenu(title: "View")
+        for (title, key, sel) in [("Actual Size", "0", #selector(KitWindow.actualSize)), ("Zoom In", "=", #selector(KitWindow.zoomIn)),
+                                  ("Zoom Out", "-", #selector(KitWindow.zoomOut))] {
+            let i = view.addItem(withTitle: title, action: sel, keyEquivalent: key)
+            i.target = KitWindow.shared
+        }
+        viewItem.submenu = view
+        main.addItem(viewItem)
         NSApp.mainMenu = main
+    }
+}
+
+/// Command-plus, Command-equals, Command-minus and Command-zero zoom the window, as in the Claude app, whether or
+/// not the View menu gets the keys first.
+final class KitNSWindow: NSWindow {
+    override func performKeyEquivalent(with e: NSEvent) -> Bool {
+        let mods = e.modifierFlags.intersection([.command, .option, .control])
+        if mods == .command, let c = e.charactersIgnoringModifiers {
+            switch c {
+            case "=", "+": KitWindow.shared.model.zoom(by: 1); return true
+            case "-", "_": KitWindow.shared.model.zoom(by: -1); return true
+            case "0": KitWindow.shared.model.zoom(by: 0); return true
+            default: break
+            }
+        }
+        return super.performKeyEquivalent(with: e)
     }
 }
 
@@ -96,6 +134,9 @@ final class KitModel: ObservableObject {
     @Published var usage = Usage()
     @Published var notes: [WhatsNew.Note] = []
     @Published var unseen = 0
+    /// The What's new sheet, with the notes it shows.
+    @Published var sheet: [WhatsNew.Note] = []
+    @Published var zoom: CGFloat = K.zoom
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
     var fixedFacts: MenuFacts?
@@ -125,11 +166,29 @@ final class KitModel: ObservableObject {
     }
 
     func markNewsSeen() {
-        WhatsNew.markSeen(WhatsNew.all)
+        WhatsNew.markSeen(WhatsNew.all, "the What's new page")
         unseen = 0
     }
 
+    /// The sheet: the new notes, seen as soon as it opens.
+    func openSheet() {
+        let notes = WhatsNew.forSheet
+        guard !notes.isEmpty else { page = .news; return }
+        WhatsNew.markSeen(notes, "the sheet")
+        unseen = WhatsNew.unseen.count
+        sheet = notes
+    }
+
     var row: Inbox.Row? { snap.rows.first { $0.id == selected } }
+
+    /// 70% to 200% in steps of 10%, remembered across restarts; 0 is Actual Size.
+    func zoom(by step: Int) {
+        let z = step == 0 ? 1 : min(2, max(0.7, ((K.zoom * 10).rounded() + CGFloat(step)) / 10))
+        guard z != K.zoom || step == 0 else { return }
+        K.zoom = z
+        UserDefaults.standard.set(Double(z), forKey: "kitZoom")
+        zoom = z
+    }
 
     func rows(_ g: Inbox.Group) -> [Inbox.Row] {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -174,10 +233,22 @@ enum K {
     static let warnText = Color(nsColor: Tokens.warnText), warnMark = Color(nsColor: Tokens.warnMark)
     static let infoMark = Color(nsColor: Tokens.infoMark), track = Color(nsColor: Tokens.track)
 
-    /// Helvetica Neue, the guide's fallback for Founders Grotesk, at 400 or 600.
+    /// The window's zoom (View > Zoom In, Zoom Out, Actual Size): every size in the window is multiplied by it.
+    static var zoom: CGFloat = {
+        let z = UserDefaults.standard.double(forKey: "kitZoom")
+        return z >= 0.7 && z <= 2 ? CGFloat(z) : 1
+    }()
+
+    /// A length at the window's zoom.
+    static func z(_ x: CGFloat) -> CGFloat { (x * zoom).rounded() }
+
+    /// Helvetica Neue, the guide's fallback for Founders Grotesk, at 400 or 600, at the window's zoom.
     static func font(_ size: CGFloat, _ semibold: Bool = false) -> Font {
-        .custom("Helvetica Neue", size: size).weight(semibold ? .semibold : .regular)
+        .custom("Helvetica Neue", size: size * zoom).weight(semibold ? .semibold : .regular)
     }
+
+    /// The native controls' size for the zoom.
+    static var control: ControlSize { zoom < 0.9 ? .small : zoom < 1.25 ? .large : .extraLarge }
 
     static let levels = ["low", "medium", "high", "xhigh", "max"]
 }
@@ -215,7 +286,7 @@ struct KitRoot: View {
     @ObservedObject var model: KitModel
     var body: some View {
         HStack(spacing: 0) {
-            Sidebar(model: model).frame(width: 220)
+            Sidebar(model: model).frame(width: min(K.z(220), 280))
             Rectangle().fill(K.hair).frame(width: 1)
             VStack(spacing: 0) {
                 Header(model: model)
@@ -232,6 +303,11 @@ struct KitRoot: View {
         .font(K.font(13))
         .foregroundColor(K.ink)
         .ignoresSafeArea()
+        .id(model.zoom)   // a zoom change draws every view again at the new size
+        .sheet(isPresented: Binding(get: { !model.sheet.isEmpty }, set: { if !$0 { model.sheet = [] } })) {
+            NewsSheet(notes: model.sheet, onContinue: { model.sheet = [] },
+                      onAll: { model.sheet = []; model.page = .news; model.markNewsSeen() })
+        }
     }
 }
 
@@ -239,10 +315,10 @@ struct Sidebar: View {
     @ObservedObject var model: KitModel
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Color.clear.frame(height: 52)   // the window's buttons
+            Color.clear.frame(height: max(52, K.z(52)))   // the window's buttons
             nav(.sessions, "Sessions", "tray", badge: model.snap.count(.needs), strong: true)
             nav(.settings, "Settings", "gearshape")
-            nav(.news, "What's new", "sparkles", text: model.unseen > 0 ? "\(model.unseen) new" : Updater.version)
+            nav(.news, "What's new", "sparkles", text: Updater.version == "?" ? "" : Updater.version)
             Spacer()
             UsageBox(usage: model.usage)
         }
@@ -260,7 +336,7 @@ struct Sidebar: View {
             if p == .news { model.markNewsSeen() }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: icon).font(.system(size: 13)).foregroundColor(on ? K.greenText : K.steel).frame(width: 18)
+                Image(systemName: icon).font(.system(size: 13 * K.zoom)).foregroundColor(on ? K.greenText : K.steel).frame(width: K.z(18))
                 Text(title).font(K.font(13.5, on))
                 Spacer()
                 if badge > 0 {
@@ -271,8 +347,8 @@ struct Sidebar: View {
                     Text(text).font(K.font(12, model.unseen > 0)).foregroundColor(K.steel)
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(height: 30)
+            .padding(.horizontal, K.z(10))
+            .frame(height: K.z(30))
             .background(on ? K.wash : .clear, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
         }
@@ -337,14 +413,14 @@ struct Header: View {
                     }
                 }
                 .padding(.horizontal, 8)
-                .frame(width: 220, height: 28)
+                .frame(width: K.z(220), height: K.z(28))
                 .background(K.card, in: RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(K.gray))
             }
         }
-        .padding(.leading, 20)
-        .padding(.trailing, 16)
-        .frame(height: 52)
+        .padding(.leading, K.z(20))
+        .padding(.trailing, K.z(16))
+        .frame(height: max(52, K.z(52)))
     }
 
     var title: String {
@@ -392,7 +468,7 @@ struct SessionsPage: View {
                     Text("Pick a session to see it here.").foregroundColor(K.steel).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(width: 340)
+            .frame(width: min(K.z(340), 420))
             .background(K.panel)
         }
     }
@@ -403,7 +479,7 @@ struct GroupHeader: View {
     let count: Int
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 12, weight: .medium)).foregroundColor(color)
+            Image(systemName: icon).font(.system(size: 12 * K.zoom, weight: .medium)).foregroundColor(color)
             Text(group.title).font(K.font(12, true))
             Text("\(count)").font(K.font(12))
             Spacer()
@@ -455,9 +531,9 @@ struct RowView: View {
             Spacer(minLength: 8)
             Text(row.time).font(K.font(12, row.late)).foregroundColor(row.late ? K.warnText : K.steel)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(minHeight: 44)
+        .padding(.horizontal, K.z(10))
+        .padding(.vertical, K.z(6))
+        .frame(minHeight: K.z(44))
         .background(selected ? K.wash : .clear, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -479,9 +555,9 @@ struct DetailView: View {
                         StatusChip(text: status, warn: row.group == .needs || row.late)
                     }
                     Spacer()
-                    if !row.url.isEmpty {
-                        Button { Waiting.open(row.url) } label: { Label("Open", systemImage: "arrow.up.right").labelStyle(TrailingIcon()) }
-                            .controlSize(.large)
+                    if !row.url.isEmpty || row.target?.cse.hasPrefix("cse_") == true {
+                        Button { Waiting.open(row.url, id: row.session?.id ?? row.wait?.cse ?? row.hold?.cse ?? "") } label: { Label("Open", systemImage: "arrow.up.right").labelStyle(TrailingIcon()) }
+                            .controlSize(K.control)
                             .help("Opens this session in the Claude app.")
                     }
                 }
@@ -490,8 +566,10 @@ struct DetailView: View {
                 if let s = row.session, row.wait == nil { effort(s) }
                 if let t = row.target { usage(t) }
             }
-            .padding(16)
+            .padding(K.z(16))
+            .textSelection(.enabled)
         }
+        .controlSize(K.control)
     }
 
     var status: String {
@@ -511,7 +589,7 @@ struct DetailView: View {
                 ForEach(Array(kv.enumerated()), id: \.offset) { i, p in
                     if i > 0 { Hairline() }
                     HStack(alignment: .top, spacing: 10) {
-                        Text(p.0).foregroundColor(K.steel).frame(width: 84, alignment: .leading)
+                        Text(p.0).foregroundColor(K.steel).frame(width: K.z(84), alignment: .leading)
                         Text(p.1).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                         Spacer(minLength: 0)
                     }
@@ -572,11 +650,11 @@ struct DetailView: View {
                     Button { Waiting.open(w.url) } label: { Label("Open the pull request", systemImage: "arrow.up.right").labelStyle(TrailingIcon()) }
                 }
             }
-            .controlSize(.large)
+            .controlSize(K.control)
             .padding(.top, 12)
         } else if let h = row.hold {
             Button("Use credits until \(Limit.clock(h.until))") { Limit.useCredits(h); model.changed() }
-                .controlSize(.large)
+                .controlSize(K.control)
                 .help("Goes on now, and may use usage credits until the limit resets at \(Limit.clock(h.until)). After that, its setting applies again.")
                 .padding(.top, 12)
         }
@@ -690,7 +768,7 @@ struct Segments: View {
                 Button { pick(o.0) } label: {
                     Text(o.1).font(K.font(12, on))
                         .foregroundColor(on ? Color(nsColor: Tokens.card) : K.ink)
-                        .frame(maxWidth: .infinity).frame(height: 24)
+                        .frame(maxWidth: .infinity).frame(height: K.z(24))
                         .background(on ? K.ink : .clear, in: RoundedRectangle(cornerRadius: 5))
                         .contentShape(Rectangle())
                 }
@@ -722,6 +800,7 @@ struct SettingsPage: View {
                 .padding(.horizontal, 28)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
+                .textSelection(.enabled)
             }
         }
     }
@@ -786,7 +865,7 @@ struct SettingsPage: View {
                     .disabled(f.reach.ways.isEmpty)
                     .help("Sends a test message every way that's checked, then says how each went.")
             }
-            .controlSize(.large)
+            .controlSize(K.control)
             .padding(.horizontal, 12).padding(.vertical, 9)
         }
     }
@@ -813,8 +892,8 @@ struct SettingsPage: View {
                 Button(need == nil ? "Change…" : "Set…") { _ = ask(); model.changed() }
             }
         }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 40)
+        .padding(.horizontal, K.z(12))
+        .frame(minHeight: K.z(40))
     }
 
     @ViewBuilder var sessions: some View {
@@ -914,11 +993,11 @@ struct SettingRow<Control: View>: View {
                 }
             }
             Spacer(minLength: 8)
-            control.controlSize(.large)
+            control.controlSize(K.control)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(minHeight: 44)
+        .padding(.horizontal, K.z(12))
+        .padding(.vertical, K.z(9))
+        .frame(minHeight: K.z(44))
     }
 }
 
@@ -932,8 +1011,9 @@ struct NewsPage: View {
                 if model.notes.isEmpty { Text("No notes yet.").foregroundColor(K.steel).padding(.top, 24) }
                 ForEach(model.notes, id: \.id) { n in NoteCardView(note: n) }
             }
-            .frame(maxWidth: 560)
-            .padding(24)
+            .frame(maxWidth: K.z(560))
+            .textSelection(.enabled)
+            .padding(K.z(24))
             .frame(maxWidth: .infinity)
         }
         .background(K.paper)

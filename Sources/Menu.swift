@@ -112,7 +112,7 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
-        WhatsNew.start(anchor: { [weak self] in self?.item }, changed: { [weak self] in self?.refreshIcon() })
+        WhatsNew.start(changed: { [weak self] in self?.refreshIcon(); KitWindow.shared.model.unseen = WhatsNew.unseen.count })
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
     }
@@ -133,20 +133,18 @@ final class Controller: NSObject, NSMenuDelegate {
         b.toolTip = (State.paused ? "Sttark Claude Kit: off for every session"
             : last.map { "Sttark Claude Kit: \($0.title) at \(levelNames[$0.level] ?? $0.level)\($0.manual ? " (Manual)" : "")" }
             ?? "Sttark Claude Kit")
-            + (new.isEmpty ? "" : "\n\nWhat's new: " + new.map(\.title).joined(separator: "; ") + ". It shows when you open the menu.")
+            + (new.isEmpty ? "" : "\n\nWhat's new: " + new.map(\.title).joined(separator: "; ") + ". Click What's new in the menu.")
         b.appearsDisabled = State.paused && new.isEmpty
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         menuOpen = true
         updater.check()
-        WhatsNew.menuOpened()
         build(menu)
     }
 
     func menuDidClose(_ menu: NSMenu) {
         menuOpen = false
-        WhatsNew.menuClosed()
     }
 
     func build(_ menu: NSMenu) { build(menu, MenuFacts.current(updater)) }
@@ -205,9 +203,9 @@ final class Controller: NSObject, NSMenuDelegate {
         open.toolTip = "Every session, with its settings, and every setting of the Kit."
         menu.addItem(open)
         let unseen = f.whatsNewUnseen
-        let news = action("", #selector(showWhatsNew))
-        news.attributedTitle = row("What's new", unseen == 0 ? "" : unseen == 1 ? "1 new" : "\(unseen) new", tagBold: unseen > 0)
-        news.toolTip = "Short notes on the changes you notice, newest first."
+        let news = action("What's new", #selector(showWhatsNew))
+        if unseen > 0 { news.badge = NSMenuItemBadge.newItems(count: unseen) }
+        news.toolTip = unseen > 0 ? "What changed in the Kit since you last looked." : "Short notes on the changes you notice, newest first."
         news.isEnabled = f.whatsNew > 0
         menu.addItem(news)
         menu.addItem(.separator())
@@ -346,7 +344,7 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     @objc func update() { updater.install() }
-    @objc func showWhatsNew() { KitWindow.shared.show(.news, controller: self) }
+    @objc func showWhatsNew() { KitWindow.shared.show(KitWindow.shared.window?.isVisible == true ? KitWindow.shared.model.page : .sessions, sheet: true, controller: self) }
 
     /// A new version installs right away; otherwise a dialog says why not.
     @objc func checkUpdates() {

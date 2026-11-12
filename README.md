@@ -52,14 +52,14 @@ You see a notice only when an update fails to install. Click it, or choose **Upd
 
 ### What's new
 
-When an update brings a change you'd notice, a short note explains it: what is new, what you do differently, and a picture. You see each note once.
+When an update brings a change you'd notice, a short note explains it. Nothing opens by itself.
 
-![The What's new popup: the notes on cards, each with a title, a picture, a few sentences and a "What you do" line, then a green Got it button](docs/whats-new.png)
+![The What's new sheet over the Kit window: for each new change an icon, a title and one line, then All changes and a green Continue button](docs/whats-new.png)
 
-*Drawn by the app's own code, with this repo's notes. Each picture has a dark version, shown in dark mode.*
+*Drawn by the app's own code, with this repo's notes. The same in dark mode, with dark colors.*
 
-- **It never takes your screen.** The popup doesn't make the app active or take the keyboard, so what you type goes on where it was. Until you've seen a note, the gauge has a blue dot, and the popup waits for you to come back to the Mac: the screen unlocks or wakes, or you start to use it again after 5 minutes away. Opening the menu shows it too, when the menu closes.
-- Several new notes show together, newest first. **Got it** closes the popup and marks them seen. **What's new** in the menu opens the window at every note; seeing them there marks them seen too.
+- **A dot and a badge.** While a note is unseen, the gauge in the menu bar has a blue dot, and **What's new** in the menu has a badge such as "3 new".
+- **The sheet.** Click **What's new**: the window opens with a sheet that lists each new change with an icon, its title and one line. Opening it marks the notes seen, and the dot and the badge go away. **Continue** closes it; **All changes** opens the window's What's new page: every note, newest first, with what you do differently and a picture (a dark one in dark mode).
 - What you have seen is `whats_new_seen` in the state file. A new install starts with every note seen.
 - Notes are `whats-new/*.md` in this repo, one per change, written in the same pull request as the change. See `AGENTS.md`.
 
@@ -79,30 +79,30 @@ Click the gauge for a glance; open the window for everything else.
 | **Needs Accessibility permission…** (only when needed) | Shows while **Approve Claude in Chrome** is on and macOS hasn't allowed it to click. Opens the Accessibility settings. |
 | **Needs you**, **Held at usage limit**, **Claude working**, **Waiting on someone else** | How many sessions are in each group, when there are any. Under **Needs you** (up to 5) and **Held at usage limit** (up to 3), each session with how long it has waited or when it goes on. Click a session to open the window at it; click a group to open the window at its first session. |
 | **Open Sttark Claude Kit** | Opens the window. |
-| **What's new** | Opens the window at What's new. Shows "1 new" while one is unseen. See [above](#whats-new). |
+| **What's new** | Opens the window with the What's new sheet. A badge ("3 new") shows while notes are unseen. See [above](#whats-new). |
 | **Quit** | Quits the menu bar app. Sessions and the server keep running; the hooks keep working, except the parts the app runs (Waiting on you, keeping sessions running, closing unused Claude window tabs, login warnings and updates). It starts again at your next login. |
 
 ### The window
 
-The window opens only when you click **Open Sttark Claude Kit**, **What's new** or a session in the menu. It never opens, comes to the front or takes the keyboard by itself, and an update doesn't bring it back after the app restarts. It follows your Mac's light or dark look, and changes when the look changes. Close it like any window (Command-W).
+The window opens only when you click **Open Sttark Claude Kit**, **What's new** or a session in the menu. It never opens, comes to the front or takes the keyboard by itself, and an update doesn't bring it back after the app restarts. While it is open the Kit is in the Dock and in Command-Tab, with its own menus; when you close it (Command-W), the Kit is only in the menu bar again. It follows your Mac's light or dark look, and changes when the look changes. **View > Zoom In** (Command-plus), **Zoom Out** (Command-minus) and **Actual Size** (Command-0) make everything in it larger or smaller, from 70% to 200%; the Kit remembers the size. Text in it can be selected and copied.
 
 ![The window's Sessions page: on the left Sessions, Settings and What's new, and the 5-hour and weekly usage; in the middle the sessions in groups (Needs you, Claude working, Waiting on someone else, Held at usage limit, Idle), each with its time; on the right the selected session, which waits on a supplier's reply: what it waits on, its deadline, why then, how the Kit checks and what happens then, Bring it back now, Stop waiting, and its usage limit setting](docs/window-sessions.png)
 
 *Drawn by the app's own code, with sample sessions. The same in dark mode, with dark colors.*
 
-**Sessions** is your session inbox. Each session shows once, in the first group that fits, and the page reads the state again every 3 seconds:
+**Sessions** is your session inbox: the sessions the Claude app lists (not archived, and not runs of scheduled tasks, which the app shows under Scheduled), plus archived sessions that wait on someone else. Each session shows once, in the first group that fits, and the page reads the state again every 3 seconds; the app's list is read every minute:
 
 | Group | Which sessions | Time column |
 |---|---|---|
-| **Needs you** | Claude needs your answer, or finished a reply you haven't opened (see [Waiting on you](#waiting-on-you)). Oldest first. | Waiting for; in bold after 10 minutes when Claude needs you |
+| **Needs you** | Only where you must act: Claude asks you a question or a decision, waits for a permission, or is blocked (see [Waiting on you](#waiting-on-you)). Oldest first. | Waiting for; in bold after 10 minutes |
 | **Claude working** | Claude is in a turn. | Working for: since your last prompt |
 | **Waiting on someone else** | Waits handed to the Kit with `claude-wait` (see [Reach me by](#reach-me-by)), by deadline. | Deadline |
 | **Held at usage limit** | Sessions waiting at the limit, or set to hold before it (see [Wait at the usage limit](#wait-at-the-usage-limit)). | Goes on |
-| **Idle** | Every other session from the last 12 hours. | Last active |
+| **Idle** | Every other session in the Claude app's list, newest first. A reply that needs nothing from you and that you haven't opened shows "Finished; reply not opened" here, and doesn't count as needing you. | Last active |
 
 Search at the top filters by name. Click a session to see it on the right:
 
-- **Open** opens it in the Claude app.
+- **Open** opens it in the Claude desktop app (`claude://code/<session>`), or in the browser when the app isn't installed.
 - What it is doing: how long it has waited and why; or what it waits on, the deadline, why then, how the Kit checks and what happens then, with **Bring it back now** and **Stop waiting**; or the percentage it holds at and when it goes on, with **Use credits until …**.
 - **Effort**: **Auto** on lets Claude pick the level for each task, with the latest reason under it. Click a level to set it yourself: the session goes to Manual at that level, as with the Claude app's picker. Turn **Auto** on to hand it back. A session that waits on someone else shows no effort, since it isn't running.
 - **At the usage limit**: **Same as Settings**, **Always use credits**, or **Never use credits; hold at** 50% to 100% (see [One session, its own setting](#one-session-its-own-setting)).
@@ -131,7 +131,7 @@ The 5-hour and weekly usage show at the bottom of the sidebar, with when each re
 | **Claude Code login** | When your login ends; **Sign in…** opens Terminal and starts Claude Code's sign-in. See [below](#claude-code-login). |
 | **Log** | **Open log** opens the full log in Console. |
 
-**What's new** shows every note, newest first, the same way the popup does.
+**What's new** shows every note, newest first, with its picture.
 
 **Setting the effort yourself:** click a level on the session in the window, or change it in the Claude app's effort picker as usual. Sttark Claude Kit reads each session's level from the server, sees one it didn't send, switches that session to Manual and leaves it alone. The window shows Manual within a minute, and the kit checks again right before any change it makes, so it never undoes your pick, even in the middle of a long step. Turn **Auto** on for the session to hand it back. A session that reopens (after the Mac restarts, or when the server brings back an idle one) starts again at the level it was saved with; that doesn't count as you changing it.
 
@@ -180,12 +180,12 @@ You send Claude a prompt, move on to something else, and forget to come back. Ev
 
 | Shows as | When |
 |---|---|
-| **needs you** (bold) | Claude stopped to ask you something or for a permission, or its finished reply can't go on without you: a question, a plan waiting for your go-ahead, a choice, or a step only you can do. The model picked in Settings reads the reply once to decide, and leans toward no. Opening the session clears it, even if you don't answer, until Claude writes again. |
-| **not opened** | Claude finished, and you haven't opened the session since. The Claude app records when you open a session, on any device, so opening it clears it. |
+| **Needs you** | Claude stopped to ask you something or for a permission, or its finished reply can't go on without you: a question, a plan waiting for your go-ahead, a choice, or a step only you can do. Plain signs decide first: the server's own summary of the turn names something you must do, a step in the reply's status table is marked 🔴, or the reply ends with a question (yes); the reply says nothing is needed, or "no alert" (no). Only when none of them shows does the model picked in Settings read the reply, once, and it leans toward no. Opening the session clears it, even if you don't answer, until Claude writes again. |
+| **Finished; reply not opened** (in Idle) | Claude finished a reply that needs nothing from you, and you haven't opened the session since. It doesn't count as needing you and sends no notice. The Claude app records when you open a session, on any device, so opening it clears it. |
 
 On this Mac, seeing the reply also counts: if the session was open in the Claude app, with the app in front and the screen on, for a few seconds after Claude finished, it comes off the list. That covers watching a reply arrive, which the Claude app itself doesn't record as opening it.
 
-Each row shows how long it has waited; click it to see why in the window, and **Open** to open the session. When one has waited 10 minutes, you get one notice. Archived sessions and sessions Claude is still working on never show. It covers Claude Code sessions that run through Remote Control, from the last day.
+Each row shows how long it has waited; click it to see why in the window, and **Open** to open the session. When one that needs you has waited 10 minutes, you get one notice. Archived sessions, runs of scheduled tasks and sessions Claude is still working on never show. It covers Claude Code sessions that run through Remote Control, from the last day.
 
 ## Wait at the usage limit
 

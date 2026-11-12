@@ -1,5 +1,9 @@
 # Use your session list as an inbox
 
+**Icon:** tray
+
+**In short:** Archive a session that waits on someone; the Kit brings it back when it happens.
+
 When a session waits on someone, for example for a pull request merge or an email reply, it tells you in one line. You can then archive the session. When that thing occurs, the Kit puts the session back in your list and sends you a message. If it does not occur in time, the session asks you what to do.
 
 **What you do:** Archive a session when it says "You can archive this session." To set how the Kit sends the message, use **Reach me by** in the Kit's **Settings**.

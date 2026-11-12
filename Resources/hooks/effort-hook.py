@@ -457,9 +457,21 @@ def last_reply(path):
     return ''
 
 
+NOTHING_NEEDED = re.compile(r'\b(nothing (is )?needed( from you)?|no action (is )?needed|nothing for you to do|no alert)\b', re.I)
+
+
 def asks_you(text):
+    """Whether the reply needs the person: plain signals first (a step marked needs you, a question at the end,
+    "nothing needed"), the model only when they don't say. The caller keeps the answer per reply."""
     if not text:
         return False, 'no reply text'
+    if '\U0001F534' in text:  # a status table row marked "needs you"
+        return True, 'a step in the reply is marked as needing you'
+    last = [l.strip() for l in text.strip().splitlines() if l.strip()][-1:]
+    if last and last[0].rstrip('*_ ').endswith('?'):
+        return True, 'the reply ends with a question to you'
+    if NOTHING_NEEDED.search(text):
+        return False, 'the reply says nothing is needed'
     t = text if len(text) <= 3000 else text[:1000] + '\n[...]\n' + text[-2000:]
     _, answer = judge(f'Last reply:\n{t}\n\nDoes it need the person?', ASKS)
     return answer.upper().startswith('YES'), answer.split(' - ', 1)[-1]
@@ -499,6 +511,27 @@ def seen_since(spans, iso):
     return any(b - max(a, t) >= 3 for a, b in spans)
 
 
+def app_list():
+    """The sessions the Claude app lists (not archived, and not a run of a scheduled task, which the app shows
+    under Scheduled), newest first, for the Kit window. Saved as app_list in the state file; kept as it was when
+    the list can't be read."""
+    try:
+        chats = all_chats()
+    except Exception as e:
+        log(f'error  app list: {e!r}'[:200])
+        return
+    keep = []
+    for c in chats:
+        tags = c.get('tags') or []
+        if c.get('status') == 'archived' or c.get('trigger_id') or any(t.startswith('routine') for t in tags):
+            continue
+        keep.append({'id': c['id'], 'title': c.get('title') or '', 'bucket': c.get('status_bucket') or '',
+                     'last': c.get('last_event_at') or '', 'unread': bool(c.get('unread')),
+                     'level': (c.get('external_metadata') or {}).get('effort_level') or ''})
+    with state() as s:
+        s['app_list'] = {'at': time.time(), 'sessions': keep}
+
+
 def track():
     """Every minute, from the app: which recent sessions are waiting on you. A session waits on you when it's
     blocked on you (asking a question or a permission), or when its finished reply asks you to answer or
@@ -506,6 +539,7 @@ def track():
     you've opened or had on screen since Claude last wrote don't count.
     Saved as x['app'] for the menu's Waiting on you section and its notices."""
     cutoff = time.time() - 86400
+    app_list()
     sessions = peek().get('sessions', {})
     shown = on_screen()
     ids = [sid for sid, x in sessions.items() if x.get('at', 0) > cutoff]
@@ -529,8 +563,11 @@ def track():
             if bucket == 'blocked':
                 needs, why = True, 'waiting on your answer or permission'
             else:
+                ask = ((d.get('post_turn_summary') or {}).get('needs_action') or '').strip()
                 if old.get('judged') == last:  # this reply was already judged
                     needs, why = old.get('needs', False), old.get('why', '')
+                elif ask:  # the server's own summary of the turn says what the person must do
+                    needs, why = True, ask[:200]
                 else:
                     tp = sessions.get(sid, {}).get('transcript', '')
                     limit_for(os.path.basename(tp)[:-6] if tp.endswith('.jsonl') else None, tp, sid)
