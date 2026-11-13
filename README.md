@@ -110,7 +110,7 @@ Click the gauge for a glance; open the window for everything else.
 
 The window opens only when you click **Open Sttark Claude Kit**, **What's new** or a session in the menu. It never opens, comes to the front or takes the keyboard by itself, and an update doesn't bring it back after the app restarts. While it is open the Kit is in the Dock and in Command-Tab, with its own menus; when you close it (Command-W), the Kit is only in the menu bar again. It follows your Mac's light or dark look, and changes when the look changes. **View > Zoom In** (Command-plus), **Zoom Out** (Command-minus) and **Actual Size** (Command-0) make everything in it larger or smaller, from 70% to 200%; the Kit remembers the size. Text in it can be selected and copied.
 
-![The window's Sessions page: on the left Sessions, Settings and What's new, and the 5-hour and weekly usage; in the middle the sessions in groups (Needs you, Claude working, Waiting on someone else, Held at usage limit, Idle), each with its time; on the right the selected session, which waits on a supplier's reply: what it waits on, its deadline, why then, how the Kit checks and what happens then, Bring it back now, Stop waiting, and its usage limit setting](docs/window-sessions.png)
+![The window's Sessions page: on the left Sessions, Settings, What's new and Events, and the 5-hour and weekly usage; in the middle the sessions in groups (Needs you, Claude working, Waiting on someone else, Held at usage limit, Idle), each with its time; on the right the selected session, which waits on a supplier's reply: what it waits on, its deadline, why then, how the Kit checks and what happens then, Bring it back now, Stop waiting, and its usage limit setting](docs/window-sessions.png)
 
 *Drawn by the app's own code, with sample sessions. The same in dark mode, with dark colors.*
 
@@ -133,7 +133,7 @@ Search at the top filters by name. Click a session to see it on the right:
 
 The 5-hour and weekly usage show at the bottom of the sidebar, with when each resets and when they were read.
 
-![The window's Settings page: Effort (Auto effort, the model), Usage limit (Use credits at the usage limit), Reach me by (Email, Claude app, Google Chat, Text message, Mac notice, Send a test), Sessions (Start sessions from the Claude app, Bypass permissions, Name sessions automatically, Sttark working rules, Sync Claude profile instructions), Chrome and files (Claude window in Chrome, Approve Claude in Chrome, Links to files) and This Mac (the version and Check for updates, the Claude Code login and Sign in…, Open log)](docs/window-settings.png)
+![The window's Settings page: Effort (Auto effort, the model), Usage limit (Use credits at the usage limit), Reach me by (Email, Claude app, Google Chat, Text message, Mac notice, Send a test), Sessions (Start sessions from the Claude app, Bypass permissions, Name sessions automatically, Sttark working rules, Sync Claude profile instructions), Chrome and files (Claude window in Chrome, Approve Claude in Chrome, Links to files) and This Mac (the version and Check for updates, the Claude Code login and Sign in…, Show events)](docs/window-settings.png)
 
 **Settings** has every setting of the Kit, saved as you change it:
 
@@ -153,15 +153,31 @@ The 5-hour and weekly usage show at the bottom of the sidebar, with when each re
 | **Links to files** | See [below](#links-to-files). On until you turn it off. |
 | **Sttark Claude Kit 1.…** | The version you have and when it last checked; **Check for updates** checks now and installs a new version at once, or **Update to …** when one waits. |
 | **Claude Code login** | When your login ends; **Sign in…** opens Terminal and starts Claude Code's sign-in. See [below](#claude-code-login). |
-| **Log** | **Open log** opens the full log in Console. |
+| **Events** | **Show events** opens the [Events](#events) page. |
 
 **What's new** shows every note, newest first, with its picture.
 
 **Setting the effort yourself:** click a level on the session in the window, or change it in the Claude app's effort picker as usual. Sttark Claude Kit reads each session's level from the server, sees one it didn't send, switches that session to Manual and leaves it alone. The window shows Manual within a minute, and the kit checks again right before any change it makes, so it never undoes your pick, even in the middle of a long step. Turn **Auto** on for the session to hand it back. A session that reopens (after the Mac restarts, or when the server brings back an idle one) starts again at the level it was saved with; that doesn't count as you changing it.
 
-### The log
+### Events
 
-Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
+**Events** in the window tells what the Kit did, in plain words, newest first. The page reads it again every 3 seconds while it shows.
+
+![The window's Events page: today's events, newest first, each with its time, an icon for its kind, the session's name and one sentence. A usage read that failed 80 times is one yellow row with its count, opened to show from when to when; an effort check that timed out is a red row](docs/window-events.png)
+
+*Drawn by the app's own code, with sample events. The same in dark mode, with dark colors.*
+
+- **One row for each thing the Kit did:** its time, an icon for its kind, the session's name and one sentence, for example **Press color: Held: the 5-hour limit is at 80%. Goes on 2:40 PM**. Rows are grouped by day.
+- **Problems stand out.** A warning is a yellow row and an error is a red row. A problem that occurs again is one row with how many times, at the time it last occurred. The status line under the title says how many problems occurred in the last day.
+- **Click a row** to see more: why the Kit chose an effort level, the start of the prompt, a deadline, or from when to when a problem occurred.
+- **Click a session's name** to open that session on the Sessions page. When the session is not on that page, the click shows only that session's events.
+- **Filters:** **Kind** (Effort and permissions, Usage limit, Sessions started again, Session names, Waits and messages, Updates, Reply checks, The Kit, Problems), **Session**, **Problems only**, and **Search events** at the top. **Routine checks** also shows the checks that run all the time and change nothing, such as a reply check that passed or a name the Kit kept.
+
+The page reads the Kit's log and the bypass log. It never shows their lines as they are.
+
+### The log file
+
+For support, every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each. The Events page tells the same things in plain words.
 
 ```
 2026-10-08 11:02:48 change cse_01AbCd… high->xhigh (2.2s) xhigh - Unknown cause spanning firmware and server code | The sensor readings drop out every few hours…
@@ -188,6 +204,9 @@ Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
 | `stable` | The fixed copy of Claude Code and its night job. |
 | `app` | The menu bar app itself: switches turned on or off, updates, notices, and What's new (`what's new:` shown, Got it). |
 | `error` | Something failed. The level was left as it was. |
+| `log` | Old lines removed from a log (see below). |
+
+The Kit keeps each of its logs short: a minute after it starts, and then every 6 hours, it removes the lines older than 30 days, and the oldest lines past 10 MB. This applies to `sttark-claude-kit.log`, `claude-bypass-hook.log`, `claude-chrome-approver.log`, `claude-profile-sync.log` and `claude-rc.log` in `~/Library/Logs`. Lines that arrive while it trims are kept.
 
 To watch it live: `tail -f ~/Library/Logs/sttark-claude-kit.log`.
 
@@ -604,7 +623,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/rc-startup-test.sh` | Tests `remoteControlAtStartup` in `install-hooks.py` on temporary home folders (set when missing, a `false` kept, a removed key left out, `--remove`), and the effort hook's session id from a transcript. |
 | `tools/limit-429-test.py` | Tests the usage read's back-off against a local stand-in server that answers `429`. |
 | `tools/update-test.sh` | Tests the update that installs by itself: the real `Sources/Update.swift` in a stand-in app (`tools/update-test/main.swift`) with its own ID, against fake releases in a temporary folder. It checks that a new version waits while the menu is open, then installs and restarts with no notice; that a version not signed like the app fails with one notice, no dialog and no second try; and that the same version does nothing. The installed app isn't touched. |
-| `tools/screenshot.swift` | Draws the README's pictures with the app's own code, from sample sessions in a temporary folder: the menu (`docs/menu.png`), the window's pages (`docs/window-sessions.png`, `docs/window-settings.png`, `docs/window-news.png`) and the What's new popup (`docs/whats-new.png`). The window and the popup are real windows put off the screen and captured, so nothing shows on the screen. `STTARK_SHOT_DARK=<folder>` also draws them in dark mode. |
+| `tools/screenshot.swift` | Draws the README's pictures with the app's own code, from sample sessions in a temporary folder: the menu (`docs/menu.png`), the window's pages (`docs/window-sessions.png`, `docs/window-settings.png`, `docs/window-news.png`, `docs/window-events.png`) and the What's new popup (`docs/whats-new.png`). The window and the popup are real windows put off the screen and captured, so nothing shows on the screen. `STTARK_SHOT_DARK=<folder>` also draws them in dark mode. |
 | `tools/defaults-test.swift` | Tests what the Kit turns on by itself, on a temporary home folder, a stand-in Claude app file and the test's own settings: which switches come on, the Bypass keys and the Claude app's settings, that a switch turned off by hand stays off, that the sync waits for the Claude app's sign-in, and that Claude Code's phone notice keys are set only when missing. |
 | `tools/limit-menu-test.swift` | Tests the app's side of each session's usage setting on a temporary folder, with a stand-in state file and usage file: reading and writing the settings as the hooks do, the log lines, the holding rows, and when the limit counts as reached. |
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |

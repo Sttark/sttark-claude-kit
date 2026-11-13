@@ -120,6 +120,7 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
+        KitLogs.start()
         WhatsNew.start(changed: { [weak self] in self?.refreshIcon(); KitWindow.shared.model.unseen = WhatsNew.unseen.count })
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
@@ -360,11 +361,8 @@ final class Controller: NSObject, NSMenuDelegate {
 
     @objc func togglePaused() { State.setPaused(!State.paused); refreshIcon() }
 
-    @objc func openLog() {
-        if !FileManager.default.fileExists(atPath: logURL.path) { FileManager.default.createFile(atPath: logURL.path, contents: nil) }
-        NSWorkspace.shared.open([logURL], withApplicationAt: URL(fileURLWithPath: "/System/Applications/Utilities/Console.app"),
-                                configuration: NSWorkspace.OpenConfiguration())
-    }
+    /// The window's Events page: what the Kit did, in plain words, newest first.
+    @objc func openLog() { KitWindow.shared.show(.events, controller: self) }
 
     @objc func update() { updater.install() }
     @objc func showWhatsNew() { KitWindow.shared.show(KitWindow.shared.window?.isVisible == true ? KitWindow.shared.model.page : .sessions, sheet: true, controller: self) }
