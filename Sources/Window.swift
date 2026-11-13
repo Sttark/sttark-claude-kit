@@ -586,16 +586,7 @@ struct GroupHeader: View {
         .padding(.top, 14)
         .padding(.bottom, 4)
     }
-    var icon: String {
-        switch group {
-        case .needs: return "bell"
-        case .working: return "waveform.path.ecg"
-        case .waits: return "hourglass"
-        case .held: return "pause.circle"
-        case .idle: return "moon.zzz"
-        case .local: return "desktopcomputer"
-        }
-    }
+    var icon: String { group.symbol }
     var color: Color { group == .needs ? K.warnMark : group == .working ? K.infoMark : K.steel }
 }
 

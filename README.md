@@ -92,19 +92,19 @@ When an update brings a change you'd notice, a short note explains it. Nothing o
 
 Click the gauge for a glance; open the window for everything else.
 
-![The menu: the version, then Needs you 3 with its three sessions and how long each has waited, Held at usage limit 2 with its two sessions and when each goes on, Claude working 3, Waiting on someone else 3, then Open Sttark Claude Kit, What's new and Quit](docs/menu.png)
+![The menu: Needs you (1) with its session and how long it has waited, then one row each for Held at usage limit (2), Claude working (3), Waiting on someone else (3) with 1 check failing, On this Mac only (2) and Idle (3). Held at usage limit is open, with its two sessions and when each continues. Then Open Sttark Claude Kit, What's new, the version and Quit](docs/menu.png)
 
 *Drawn by the app's own menu code, with sample sessions.*
 
 | Menu item | What it does |
 |---|---|
-| **Sttark Claude Kit 1.…** | The version you have. |
-| **Update to …** | Shows while a new version waits for the menu or the window to close, or after one failed to install by itself. Installs it now. **Updating…** shows in its place while an update installs. |
+| **Update to …** (at the top, only when needed) | Shows while a new version waits for the menu or the window to close, or after one failed to install by itself. Installs it now. |
 | **Claude login ends …: Sign in…** (only near the end) | Shows within 3 days of the end of your Claude Code login, or when Claude Code is signed out. See [below](#claude-code-login). |
 | **Needs Accessibility permission…** (only when needed) | Shows while **Approve Claude in Chrome** is on and macOS hasn't allowed it to click. Opens the Accessibility settings. |
-| **Needs you**, **Held at usage limit**, **Claude working**, **Waiting on someone else** | How many sessions are in each group, when there are any. Under **Needs you** (up to 5) and **Held at usage limit** (up to 3), each session with how long it has waited or when it goes on. Under **Waiting on someone else**, each session whose wait check fails, with **check failing**. Click a session to open the window at it; click a group to open the window at its first session. |
+| **Needs you**, **Held at usage limit**, **Claude working**, **Waiting on someone else**, **On this Mac only**, **Idle** | One row for each group that has sessions, with the window's icon for the group and its count, for example **Held at usage limit (2)**. **Needs you** comes first and shows its sessions (up to 5) under it, because they need you now; click it to open the window at its first session. Every other group shows its sessions (up to 25) in a submenu when you point at it. Each session shows its time with what the time is: **waiting 15 min**, **working 7 min**, **continues 4:40 PM**, **deadline Mon 9:00 AM** or **active 2 hr ago**. A wait whose check fails says **check failing**, and its group's row says how many fail, so it never fails silently. Click a session to open the window at it. |
 | **Open Sttark Claude Kit** | Opens the window. |
 | **What's new** | Opens the window with the What's new sheet. A badge ("3 new") shows while notes are unseen. See [above](#whats-new). |
+| **Sttark Claude Kit 1.…** | The version you have, above **Quit**. It says **updating…** while an update installs. |
 | **Quit** | Quits the menu bar app. Sessions and the server keep running; the hooks keep working, except the parts the app runs (Waiting on you, keeping sessions running, closing unused Claude window tabs, login warnings and updates). It starts again at your next login. |
 
 ### The window

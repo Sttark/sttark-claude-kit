@@ -1,6 +1,6 @@
 // Draws the README's pictures with the app's own code, from made-up sessions in a temporary folder. Nothing from
 // this Mac's own state:
-//   docs/menu.png             the menu: what needs you, the count in each group, Open Sttark Claude Kit
+//   docs/menu.png             the menu: what needs you, one row for each other group, one group's submenu open
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
 //   docs/window-settings.png  the window's Settings page
 //   docs/window-news.png      the window's What's new page
@@ -56,8 +56,28 @@ import SwiftUI
         let facts = Sample.facts
         let c = Controller()
         let menu = NSMenu()
-        c.build(menu, facts, Inbox.snapshot())
-        Draw.png(menu.items, hot: nil, menuBar: true, to: "docs/menu.png")
+        let snap = Inbox.snapshot()
+        c.build(menu, facts, snap)
+        // the menu with one group's submenu open, as it shows when you point at the group
+        let heldRow = menu.items.firstIndex { $0.submenu != nil && $0.image?.accessibilityDescription == Inbox.Group.held.title }
+        for look in [false, true] where !look || dark != nil {
+            Draw.dark = look
+            Draw.png(menu.items, hot: heldRow, menuBar: true, to: (look ? dark! : "docs") + "/menu.png")
+        }
+        // the What's new note's picture: the same menu with fewer sessions, so it fits the note's frame
+        var small = snap
+        let keep = Set(snap.rows(.needs).prefix(1).map(\.id))
+        small.rows = snap.rows.filter { $0.group != .needs || keep.contains($0.id) }.filter { $0.group != .idle && $0.group != .local }
+            .map { var r = $0; r.subWarn = false; return r }
+        let noteMenu = NSMenu()
+        var noteFacts = facts
+        noteFacts.whatsNewUnseen = 1
+        c.build(noteMenu, noteFacts, small)
+        for look in [false, true] {
+            Draw.dark = look
+            Draw.png(noteMenu.items, hot: nil, menuBar: false, to: "whats-new/menu-groups" + (look ? "-dark" : "") + ".png")
+        }
+        Draw.dark = false
 
         let model = KitModel()
         model.fixedFacts = facts
@@ -325,8 +345,13 @@ enum Sample {
 /// indentation, separators, a submenu arrow, and the highlighted row with its submenu open beside it.
 enum Draw {
     static let rowH: CGFloat = 24, sepH: CGFloat = 11, inset: CGFloat = 5, checkW: CGFloat = 22, indentW: CGFloat = 14
-    static let panelFill = NSColor(white: 0.975, alpha: 1)
-    static let beige = NSColor(red: 0.973, green: 0.961, blue: 0.949, alpha: 1)   // brand Beige-Light
+    /// Draw in dark mode: the menu's own dark look, on the brand's dark paper.
+    static var dark = false
+    static var panelFill: NSColor { dark ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.975, alpha: 1) }
+    static var beige: NSColor { dark ? Tokens.hex(0x121417) : NSColor(red: 0.973, green: 0.961, blue: 0.949, alpha: 1) }   // brand Beige-Light, or the dark paper
+    static var edge: NSColor { dark ? NSColor.white.withAlphaComponent(0.14) : NSColor.black.withAlphaComponent(0.12) }
+    static var hair: NSColor { dark ? NSColor.white.withAlphaComponent(0.12) : NSColor.black.withAlphaComponent(0.1) }
+    static let imageW: CGFloat = 22
 
     static func height(_ i: NSMenuItem) -> CGFloat {
         if i.isSeparatorItem { return sepH }
@@ -337,7 +362,7 @@ enum Draw {
     static func textWidth(_ i: NSMenuItem) -> CGFloat {
         guard let t = i.attributedTitle else { return 0 }
         let tabbed = t.string.contains("\t")
-        return (tabbed ? Controller.tab : ceil(t.size().width)) + CGFloat(i.indentationLevel) * indentW
+        return (tabbed ? Controller.tab : ceil(t.size().width)) + CGFloat(i.indentationLevel) * indentW + (i.image != nil ? imageW : 0)
     }
 
     static func panelSize(_ items: [NSMenuItem]) -> NSSize {
@@ -360,7 +385,7 @@ enum Draw {
         panelFill.setFill()
         NSBezierPath(roundedRect: r, xRadius: 10, yRadius: 10).fill()
         NSGraphicsContext.restoreGraphicsState()
-        NSColor.black.withAlphaComponent(0.12).setStroke()
+        edge.setStroke()
         NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10).stroke()
 
         var y = origin.y + 5
@@ -370,7 +395,7 @@ enum Draw {
             let row = NSRect(x: r.minX + inset, y: y, width: r.width - 2 * inset, height: h)
             rects.append(row)
             if i.isSeparatorItem {
-                NSColor.black.withAlphaComponent(0.1).setFill()
+                hair.setFill()
                 NSRect(x: r.minX + 14, y: y + 5, width: r.width - 28, height: 1).fill()
             } else {
                 let isHot = n == hot
@@ -392,7 +417,18 @@ enum Draw {
                     }
                 }
                 let th = t.size().height
-                let x = row.minX + 6 + checkW + CGFloat(i.indentationLevel) * indentW
+                var x = row.minX + 6 + checkW + CGFloat(i.indentationLevel) * indentW
+                if let img = i.image {   // the item's image, before its title, as macOS draws it: a template one in the text's color
+                    let drawn = img.isTemplate ? NSImage(size: img.size, flipped: false) { rect in
+                        img.draw(in: rect)
+                        ink.set()
+                        rect.fill(using: .sourceAtop)
+                        return true
+                    } : img
+                    drawn.draw(in: NSRect(x: x, y: y + (h - img.size.height) / 2, width: img.size.width, height: img.size.height),
+                               from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                    x += imageW
+                }
                 t.draw(with: NSRect(x: x, y: y + (h - th) / 2, width: textWidth(i) + 4, height: th + 2),
                        options: [.usesLineFragmentOrigin])
                 if i.submenu != nil {
@@ -405,7 +441,7 @@ enum Draw {
                         .foregroundColor: NSColor.secondaryLabelColor])
                     let bw = bt.size().width + 16, bh: CGFloat = 19
                     let br = NSRect(x: row.maxX - 8 - bw, y: y + (h - bh) / 2, width: bw, height: bh)
-                    NSColor.black.withAlphaComponent(0.1).setFill()
+                    hair.setFill()
                     NSBezierPath(roundedRect: br, xRadius: bh / 2, yRadius: bh / 2).fill()
                     bt.draw(at: NSPoint(x: br.minX + 8, y: br.minY + (bh - bt.size().height) / 2))
                 }
@@ -441,18 +477,18 @@ enum Draw {
         base.cgContext.scaleBy(x: 1, y: -1)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: base.cgContext, flipped: true)
-        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+        NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
             beige.setFill()
             NSRect(x: 0, y: 0, width: w, height: h).fill()
             if menuBar {   // the menu bar, with the gauge as the app draws it
-                NSColor(white: 0.93, alpha: 1).setFill()
+                NSColor(white: dark ? 0.12 : 0.93, alpha: 1).setFill()
                 NSRect(x: 0, y: 0, width: w, height: 30).fill()
-                NSColor.black.withAlphaComponent(0.1).setFill()
+                hair.setFill()
                 NSBezierPath(roundedRect: NSRect(x: 24, y: 4, width: 34, height: 22), xRadius: 5, yRadius: 5).fill()
                 let g = GaugeIcon.image("xhigh")
                 let tinted = NSImage(size: g.size, flipped: false) { rect in
                     g.draw(in: rect)
-                    NSColor.black.set()
+                    (dark ? NSColor.white : NSColor.black).set()
                     rect.fill(using: .sourceAtop)
                     return true
                 }
