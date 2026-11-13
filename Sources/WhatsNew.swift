@@ -9,7 +9,8 @@ import SwiftUI
 /// Nothing opens by itself. While a note is unseen, the menu bar icon has a dot and the menu's What's new item a
 /// "3 new" badge. Clicking it opens the window with a short sheet: each new note's icon, title and one line, with
 /// Continue and All changes. Opening the sheet marks them seen. All changes is the window's What's new page:
-/// every note, newest first, with its picture.
+/// the notes from the last 7 days (and any not seen yet), newest first, with their pictures. A note that a later
+/// note names under **Replaces** never shows.
 enum WhatsNew {
     struct Note: Decodable {
         let id: String
@@ -28,6 +29,8 @@ enum WhatsNew {
         var icon: String? = nil
         /// The day the build that first shipped it was made, yyyy-mm-dd.
         var date: String? = nil
+        /// The notes this change made wrong; they never show again.
+        var replaces: [String]? = nil
 
         var version: String { "1.\(build)" }
         /// "Nov 12"
@@ -55,9 +58,30 @@ enum WhatsNew {
             : (Bundle.main.resourceURL ?? URL(fileURLWithPath: "/")).appendingPathComponent("whats-new")
     }
 
-    /// Every note, newest first.
+    /// Every note in the app, newest first, with the replaced ones left out.
     static var all: [Note] {
-        (try? JSONDecoder().decode([Note].self, from: Data(contentsOf: dir.appendingPathComponent("index.json")))) ?? []
+        let notes = (try? JSONDecoder().decode([Note].self, from: Data(contentsOf: dir.appendingPathComponent("index.json")))) ?? []
+        let replaced = Set(notes.flatMap { $0.replaces ?? [] })
+        return notes.filter { !replaced.contains($0.id) }
+    }
+
+    /// How long a seen note stays on the page after its update arrived on this Mac.
+    static let keepDays = 7
+
+    /// When each note's update arrived on this Mac (seconds since 1970): `whats_new_arrived` in the state file.
+    static var arrived: [String: Double] { State.read()["whats_new_arrived"] as? [String: Double] ?? [:] }
+
+    /// The day the note's update shipped, as seconds since 1970.
+    static func shipped(_ n: Note) -> Double? {
+        let i = DateFormatter(); i.dateFormat = "yyyy-MM-dd"; i.locale = Locale(identifier: "en_US_POSIX")
+        guard let d = n.date, let t = i.date(from: d) else { return nil }
+        return t.timeIntervalSince1970
+    }
+
+    /// What the page shows: notes not seen yet, and notes whose update arrived on this Mac in the last 7 days.
+    static var shown: [Note] {
+        let s = seen, a = arrived, cut = Date().timeIntervalSince1970 - Double(keepDays) * 86400
+        return all.filter { !s.contains($0.id) || (a[$0.id] ?? shipped($0) ?? 0) >= cut }
     }
 
     static var seen: Set<String> { Set(State.read()["whats_new_seen"] as? [String] ?? []) }
@@ -68,7 +92,7 @@ enum WhatsNew {
     static var forSheet: [Note] {
         let u = unseen
         if !u.isEmpty { return u }
-        let notes = all
+        let notes = shown
         guard let newest = notes.first?.build else { return [] }
         return Array(notes.filter { $0.build == newest }.prefix(4))
     }
@@ -86,6 +110,16 @@ enum WhatsNew {
             let ids = newInstall ? notes.map(\.id) : []
             State.change { $0["whats_new_seen"] = ids }
             if newInstall && !ids.isEmpty { note("what's new: new install, \(ids.count) notes marked seen") }
+        }
+        // Notes the Kit has not met before arrived now; notes already seen (before this rule) arrived when they shipped.
+        let had = arrived, s = seen, now = Date().timeIntervalSince1970
+        let fresh = notes.filter { had[$0.id] == nil }
+        if !fresh.isEmpty {
+            State.change { st in
+                var a = st["whats_new_arrived"] as? [String: Double] ?? [:]
+                for n in fresh { a[n.id] = s.contains(n.id) ? (shipped(n) ?? now) : now }
+                st["whats_new_arrived"] = a
+            }
         }
         let u = unseen
         if !u.isEmpty {

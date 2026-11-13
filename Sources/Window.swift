@@ -163,7 +163,7 @@ final class KitModel: ObservableObject {
     func reload() {
         snap = Inbox.snapshot()
         usage = Usage.read()
-        notes = WhatsNew.all
+        notes = WhatsNew.shown
         unseen = WhatsNew.unseen.count
         if selected == nil || !snap.rows.contains(where: { $0.id == selected }) { selected = snap.rows.first?.id }
     }
@@ -510,7 +510,7 @@ struct Header: View {
         switch model.page {
         case .sessions: return model.snap.summary
         case .settings: return "Saved as you change them"
-        case .news: return "What changed in the Kit, newest first"
+        case .news: return "What changed in the Kit in the last 7 days, newest first"
         case .events:
             let n = model.recentProblems
             return (n == 0 ? "No problems in the last day" : "\(n) problem\(n == 1 ? "" : "s") in the last day") + ". Newest first."
@@ -1204,7 +1204,7 @@ struct NewsPage: View {
     var body: some View {
         ScrollView {
             Group {
-                if model.notes.isEmpty { Text("No notes yet.").foregroundColor(K.steel).padding(.top, 24) } else { rows }
+                if model.notes.isEmpty { Text("No changes in the last 7 days.").foregroundColor(K.steel).padding(.top, 24) } else { rows }
             }
             .textSelection(.enabled)
             .padding(.horizontal, K.z(32))

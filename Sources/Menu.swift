@@ -69,7 +69,7 @@ struct MenuFacts {
         f.profileLast = ProfileSync.lastResult
         f.workingRules = WorkingRules.on
         f.reach = Reach.settings()
-        f.whatsNew = WhatsNew.all.count
+        f.whatsNew = WhatsNew.shown.count
         f.whatsNewUnseen = WhatsNew.unseen.count
         f.paused = State.paused
         f.creditsAll = Limit.creditsAll

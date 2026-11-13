@@ -10,6 +10,8 @@ picture for dark mode as whats-new/<slug>-dark.gif; the app shows the one for th
 
     **Kind:** New (a thing people did not have) or Better (a thing they had works better)
 
+    **Replaces:** other-slug, another-slug   (only when this change makes those notes wrong; they never show again)
+
     One sentence of at most 20 words: what changes for the person. The sheet and the page both show it.
 
     - Two or three points, one sentence each, at most 20 words.
@@ -45,6 +47,7 @@ SLUG = re.compile(r'^[a-z0-9]+(-[a-z0-9]+)*$')
 PICTURE = re.compile(r'^!\[([^\]]*)\]\(([^)\s]+)\)$')
 ICON = '**Icon:**'
 KIND = '**Kind:**'
+REPLACES = '**Replaces:**'
 KINDS = ('New', 'Better')
 MAX_PX = (880, 560)
 SYMBOL = re.compile(r'^[a-z0-9]+(\.[a-z0-9]+)*$')
@@ -79,7 +82,7 @@ def parse(path):
     paras = [p.strip() for p in re.split(r'\n\s*\n', text.strip()) if p.strip()]
     if not paras or not paras[0].startswith('# ') or '\n' in paras[0]:
         raise ValueError('the first line must be "# Title", alone in its paragraph')
-    note = {'id': slug, 'title': paras[0][2:].strip(), 'lead': '', 'points': [], 'picture': '', 'alt': '', 'icon': '', 'kind': ''}
+    note = {'id': slug, 'title': paras[0][2:].strip(), 'lead': '', 'points': [], 'picture': '', 'alt': '', 'icon': '', 'kind': '', 'replaces': []}
     for p in paras[1:]:
         m = PICTURE.match(p)
         if m:
@@ -90,6 +93,8 @@ def parse(path):
             note['icon'] = p[len(ICON):].strip()
         elif p.startswith(KIND):
             note['kind'] = p[len(KIND):].strip()
+        elif p.startswith(REPLACES):
+            note['replaces'] = [x.strip() for x in p[len(REPLACES):].split(',') if x.strip()]
         elif p.startswith('- '):
             if note['points']:
                 raise ValueError('one list of points only')
@@ -207,6 +212,16 @@ def check(files):
                     print('::error file=%s::%s' % (rel, x))
         else:
             print('%s: ok' % rel)
+    slugs = {os.path.splitext(os.path.basename(f))[0] for f in note_files()}
+    for f in files:
+        try:
+            r = parse(f)['replaces']
+        except ValueError:
+            continue
+        for x in r:
+            if x not in slugs:
+                bad += 1
+                print('%s: Replaces names %s, which is not a note' % (os.path.relpath(f, ROOT), x))
     if not files:
         print('no notes')
     return 1 if bad else 0
