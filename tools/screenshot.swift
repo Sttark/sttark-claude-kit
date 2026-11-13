@@ -117,6 +117,23 @@ import SwiftUI
             Shot.capture(rows, to: "whats-new/events-page" + (look ? "-dark" : "") + ".png")
             rows.close()
             model.openEvent = nil
+            // the subagent-effort note's picture: the agent rows alone
+            let agents = model.events.filter { $0.text.hasPrefix("Agent \u{201C}") || $0.text.contains(" so fork ") }
+            let ar = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            ar.appearance = w.appearance
+            ar.isReleasedWhenClosed = false
+            model.openEvent = agents.last?.id
+            ar.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(agents.prefix(3))) { e in
+                    EventRow(model: model, e: e, open: model.openEvent == e.id)
+                    Hairline()
+                }
+                Spacer(minLength: 0)
+            }.padding(12).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            ar.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            Shot.capture(ar, to: "whats-new/subagent-effort" + (look ? "-dark" : "") + ".png")
+            ar.close()
+            model.openEvent = nil
             // the kit-window note's picture: the top of the session list, at the window's narrowest
             model.page = .sessions
             let f = w.frame
@@ -245,6 +262,9 @@ enum Sample {
             (1450, "wake   cse_01Sample7 \"Site map plan\" stopped, not archived; sent high to start it"),
             (300, "change cse_01Sample9 ->low (1.9s) low - A simple rename across a few files | Rename the report columns to match the new names"),
             (190, "name   sid-sample-9 -> \"Rename report columns\" (2.0s) | Rename the report columns to match the new names"),
+            (62, "agent  cse_01Sample4 Explore ->low (1.9s) low - A short file search. | Find the Events page code"),
+            (61, "agent  cse_01Sample4 general-purpose ->xhigh (2.2s) xhigh - A new page design with judgment calls. | Design the event rows"),
+            (60, "agent  cse_01Sample4 fork low->high (2.0s) high - Code changes across a few files. | Build the filters"),
             (52, "change cse_01Sample3 medium->low (2.1s) low - Routine edit with a clear plan. | Fix the typo on the exterior lighting page"),
             (41, "wait   07f324 cse_01Sample5 \"HVAC updates\" set: a reply from the controls supplier, by Mon 9:00 AM | they answer overnight"),
             (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a full app window. | Add an event viewer to the Kit"),

@@ -24,6 +24,9 @@ import Foundation
             at(20) + " limit  hold   f46255ef/a10a43cb at 90%: the weekly limit is at 93%, until Sat 2:00 AM (Bash)",
             at(20) + " limit  wait   f46255ef/a10a43cb at 90%: the weekly limit is at 93%, until Sat 2:00 AM, with no model calls until it ends",
             at(10) + " ste    f46255ef ok (3.1s)",
+            at(8) + " agent  cse_01AAAtest1 Explore ->low (1.9s) low - Simple file search. | Find the color files",
+            at(7) + " agent  cse_01AAAtest1 fork high->xhigh (2.2s) xhigh - Builds a feature end to end. | Build the page",
+            at(6) + " agent  cse_01AAAtest1 general-purpose kept high - set in the call | Check the build",
             at(5) + " migrate 3796db69 \"Bin label sizes\" moved to Remote Control as cse_01BBBtest2; closed it in Terminal (window)",
         ]
         for m in stride(from: 50.0, through: 1, by: -7) { lines.append(at(m) + " limit  usage read failed: HTTP Error 429: Too Many Requests; next read in 2 min, using the last read") }
@@ -32,7 +35,7 @@ import Foundation
         try! (lines.joined(separator: "\n") + "\n").write(to: log, atomically: true, encoding: .utf8)
         let ev = Events.read(kitLog: log, bypassLog: dir.appendingPathComponent("none.log"), names: names)
 
-        let change = ev.first { $0.kind == .effort }
+        let change = ev.first { $0.kind == .effort && $0.text.hasPrefix("Effort raised from Low") }
         check(change?.name == "Press color" && change?.text == "Effort raised from Low to High", "an effort change reads in plain words under the session's name")
         check(change?.detail.contains("Why: Needs judgment.") == true, "the reason is in the row's detail")
         let holds = ev.filter { $0.kind == .limit }
@@ -42,6 +45,12 @@ import Foundation
         check(ev.first { $0.kind == .check }?.routine == true, "a reply check that passed is routine")
         check(ev.first?.last ?? .distantPast >= ev.last?.last ?? .distantFuture, "newest first")
         check(!ev.contains { $0.text.contains("cse_") || $0.text.contains("f46255ef") }, "no ids in the sentences")
+        let agent = ev.first { $0.text == "Agent \u{201C}Find the color files\u{201D} set to Low effort" }
+        check(agent?.name == "Press color" && agent?.detail.contains("Why: Simple file search.") == true,
+              "a subagent's pick reads in plain words under its session's name")
+        check(ev.contains { $0.text == "Effort raised from High to Extra so fork \u{201C}Build the page\u{201D} starts at Extra" },
+              "a raise for a fork says why")
+        check(ev.contains { $0.text == "Agent \u{201C}Check the build\u{201D} keeps High effort" && $0.routine }, "an effort set in the call is kept, as a routine row")
         let moved = ev.first { $0.text == "Moved to Remote Control from this Mac only" }
         check(moved?.name == "Bin label sizes" && moved?.detail.contains { $0.contains("open in Terminal") } == true,
               "a move to Remote Control reads in plain words under the session's name")

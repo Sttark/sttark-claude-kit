@@ -271,6 +271,31 @@ enum Events {
             e.text = main.contains("left at") ? "Effort is on Manual, left at " + level(main.split(separator: " ").last ?? "") : "Effort set by hand"
             e.routine = true
             promptDetail(prompt)
+        case "agent":   // a subagent's effort, picked when it starts (effort-hook.py on_agent)
+            e.kind = .effort
+            let (main, reason, desc) = split(rest)
+            let w = main.split(separator: " ")
+            if let id = w.first, id.hasPrefix("cse_") { who(id) }
+            let typ = w.count > 1 ? String(w[1]) : "agent"
+            let what = desc.isEmpty ? (typ == "fork" ? "A fork" : "An agent") : (typ == "fork" ? "Fork" : "Agent") + " \u{201C}\(desc)\u{201D}"
+            let tail = w.count > 2 ? String(w[2]) : ""
+            if tail == "kept" {
+                e.text = "\(what) keeps \(level(w.count > 3 ? w[3] : "")) effort"; e.routine = true
+                if !reason.isEmpty { e.detail.append(reason.prefix(1).uppercased() + reason.dropFirst() + ".") }
+            } else if typ == "fork", tail.contains("->") {
+                let p = tail.split(separator: "-", omittingEmptySubsequences: false)
+                let to = level(p.last?.dropFirst() ?? "")
+                e.text = "Effort raised from \(level(p.first ?? "")) to \(to) so \(what.prefix(1).lowercased() + what.dropFirst()) starts at \(to)"
+                e.detail.append("A fork starts at the session's level and keeps it.")
+                if !reason.isEmpty { e.detail.append("Why: " + reason) }
+            } else if typ == "fork" {
+                e.text = "\(what) starts at \(level(w.count > 3 ? w[3] : "")) effort, the session's level"; e.routine = true
+                if !reason.isEmpty { e.detail.append("It needs: " + reason) }
+            } else {
+                e.text = "\(what) set to \(level(tail.replacingOccurrences(of: "->", with: ""))) effort"
+                if !reason.isEmpty { e.detail.append("Why: " + reason) }
+                e.detail.append("Agent type: \(typ). It keeps this level until it finishes.")
+            }
         case "reopen":
             e.kind = .effort
             who(first)
