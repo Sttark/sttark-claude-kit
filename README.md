@@ -49,12 +49,17 @@ The Kit is made to set up every Mac the way Sttark works with Claude. You do not
 | **Sync Claude profile instructions** | At the first start after the Claude desktop app is signed in |
 | **Start sessions from the Claude app**, in `~/src` or the folder that holds the most git repos (its own notice; see [below](#start-sessions-from-the-claude-app)) | About 40 seconds after the first start, when Claude Code is installed and signed in and no other server runs; else it tries again every hour |
 | Remote Control for every session (`remoteControlAtStartup`), so desktop app and terminal sessions show on your phone and in the Kit | At the first start, only when `~/.claude/settings.json` does not have the key yet |
+| **Bypass permissions for server sessions**, and Bypass permissions for every other session: Claude Code's `permissions.defaultMode: bypassPermissions` and `skipDangerousModePermissionPrompt: true`, and the Claude desktop app's setting that lets sessions on **This computer** use Bypass permissions (`bypassPermissionsGateByAccount`) | At the first start. Each key is set only when it is missing |
+| **Approve Claude in Chrome** | At the first start. macOS then asks you to allow **SttarkChromeApprover** under **System Settings > Privacy & Security > Accessibility**; the Kit's notice says so too |
+| The Claude desktop app keeps a session in the list when its pull request closes (`ccAutoArchiveOnPrClose: false`), so the list works as an inbox | At the first start, only when the app's file does not have the key yet |
 | Claude Code's phone notices: a notice when Claude waits on you (`inputNeededNotifEnabled`), and notices Claude sends, which **Reach me by**'s Claude app way needs (`agentPushNotifEnabled`) | At the first start, only when `~/.claude/settings.json` does not have the key yet |
 
 - **Turn a part off** in **Settings**. The Kit records that you turned it off and never turns it on again. Turn it on again to clear the record.
 - **Phone notices** are Claude Code's own settings. A value that you set yourself, `true` or `false`, is never changed.
 - **After an update:** a switch that was off before this came in counts as never chosen, so it comes on once. One Mac notice tells you which parts came on. Click it to open **Settings**.
-- **Off until you turn it on:** **Bypass permissions for server sessions**, **Approve Claude in Chrome** and **Use credits at the usage limit**, because each one lets Claude do more without asking you, or spends money.
+- **Off until you turn it on:** **Use credits at the usage limit**, because it spends money.
+- **Bypass permissions:** turn the switch off and the Kit takes out the Claude Code and Claude app keys it set, and sets none of them again. A value you set yourself stays.
+- **The Claude desktop app's file** (`~/Library/Application Support/Claude/claude_desktop_config.json`): the app keeps it in memory and can write it again without a key the Kit set. Every 10 minutes the Kit sets a missing key again (`desktop-prefs.py apply`). A value that is there, yours or the app's, is never changed. The Kit writes a whole new file and moves it in place, and keeps the last one as `claude_desktop_config.json.bak-kit`. What it set is in `desktop-prefs.json` and `kit-settings.json` in the Kit's folder.
 - The record of the switches you turned off is `turnedOff` in the app's settings (`defaults read com.sttark.sttark-claude-kit turnedOff`). Each part that comes on is logged, with lines starting `defaults`.
 
 ### Coming from Sttark Effort
@@ -139,12 +144,12 @@ The 5-hour and weekly usage show at the bottom of the sidebar, with when each re
 | **Use credits at the usage limit** | Off (the default): at the limit, sessions hold until it resets. On: they go on with usage credits. A session with its own setting keeps it either way. See [below](#wait-at-the-usage-limit). |
 | **Reach me by** | How a session tells you that something it waited on happened. Check the ways you want; **Set…** or **Change…** for the address, phone number or webhook a way needs; **Send a test**. See [below](#reach-me-by). |
 | **Start sessions from the Claude app** | Sets this Mac up so you can start Claude Code sessions from the Claude app. Shows the folder sessions start in. On by itself, unless you turn it off. See [below](#start-sessions-from-the-claude-app). |
-| **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). Off until you turn it on. |
+| **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). On until you turn it off. |
 | **Name sessions automatically** | See [below](#name-sessions-automatically). On until you turn it off. |
 | **Sttark working rules** | See [below](#sttark-working-rules). On until you turn it off. |
 | **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). On until you turn it off, once the Claude app is signed in. Shows the last sync. |
 | **Claude window in Chrome** | See [below](#claude-window-in-chrome). On until you turn it off. **Open Claude window** shows beside it while Chrome runs and the Claude window is closed. |
-| **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. **Open Accessibility…** shows beside it while macOS hasn't allowed it to click. |
+| **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). On until you turn it off. **Open Accessibility…** shows beside it while macOS hasn't allowed it to click. |
 | **Links to files** | See [below](#links-to-files). On until you turn it off. |
 | **Sttark Claude Kit 1.…** | The version you have and when it last checked; **Check for updates** checks now and installs a new version at once, or **Update to …** when one waits. |
 | **Claude Code login** | When your login ends; **Sign in…** opens Terminal and starts Claude Code's sign-in. See [below](#claude-code-login). |
@@ -364,13 +369,13 @@ With it on, at a session's first permission prompt, also when a forked agent of 
 - Plan mode, plan approvals and questions Claude asks you are left alone.
 - Each switch is logged to `~/Library/Logs/claude-bypass-hook.log`.
 
-Only turn it on if you're comfortable with Claude running commands on this Mac without checking with you first.
+It is on from the start, because Sttark works with Claude in Bypass permissions. Sessions you start any other way (in a terminal or on **This computer** in the Claude app) start in Bypass permissions too: the Kit sets Claude Code's `permissions.defaultMode` and the Claude app's Bypass setting (see [What the Kit turns on](#what-the-kit-turns-on)). Turn the switch off to have Claude ask before commands again.
 
 ## Approve Claude in Chrome
 
 When Claude uses Chrome through the Claude for Chrome extension, it stops to ask for permission on each new site. With this switch on, Sttark Claude Kit answers for you: it clicks **Always allow actions on this site** when that's offered, otherwise **Allow this action**. It never clicks Decline, and it only clicks inside the Claude extension's own window, never on web pages.
 
-The first time you turn it on, macOS asks you to allow **SttarkChromeApprover** under **System Settings > Privacy & Security > Accessibility**, because it has to see and click the button. Until you do, the menu shows **Needs Accessibility permission…**, and Settings **Open Accessibility…**, which open that page. Each approval is logged to `~/Library/Logs/claude-chrome-approver.log`.
+It is on from the start. The first time it starts, macOS asks you to allow **SttarkChromeApprover** under **System Settings > Privacy & Security > Accessibility**, because it has to see and click the button. Until you do, the menu shows **Needs Accessibility permission…**, and Settings **Open Accessibility…**, which open that page. Each approval is logged to `~/Library/Logs/claude-chrome-approver.log`.
 
 ## Sync Claude profile instructions
 
@@ -578,6 +583,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `Sources/Migrate.swift` | Moves settings, state and switches over from Sttark Effort on the first launch. |
 | `Resources/hooks/effort-hook.py` | The effort hook: picks the level, rechecks, Manual and pause. Also `--models` (the model list), `--track` (Waiting on you), `--keep` (sessions stay running) and `--set <cse_…> <level>` (a level picked in the window: the session goes to Manual). |
 | `Resources/hooks/set-session-effort.py` | Sends an effort change to a session. Also usable by hand: `set-session-effort.py cse_… high`. |
+| `Resources/hooks/desktop-prefs.py` | Sets the Claude desktop app's settings that the Kit turns on, each only when missing; takes out the Bypass setting when the switch goes off. |
 | `Resources/hooks/install-hooks.py` | Adds the hooks to Claude Code's settings, or removes them with `--remove`. |
 | `Resources/hooks/bypass-hook.sh` | The Bypass permissions hook. |
 | `Resources/hooks/name-hook.py` | The session naming hook. |
@@ -599,7 +605,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/limit-429-test.py` | Tests the usage read's back-off against a local stand-in server that answers `429`. |
 | `tools/update-test.sh` | Tests the update that installs by itself: the real `Sources/Update.swift` in a stand-in app (`tools/update-test/main.swift`) with its own ID, against fake releases in a temporary folder. It checks that a new version waits while the menu is open, then installs and restarts with no notice; that a version not signed like the app fails with one notice, no dialog and no second try; and that the same version does nothing. The installed app isn't touched. |
 | `tools/screenshot.swift` | Draws the README's pictures with the app's own code, from sample sessions in a temporary folder: the menu (`docs/menu.png`), the window's pages (`docs/window-sessions.png`, `docs/window-settings.png`, `docs/window-news.png`) and the What's new popup (`docs/whats-new.png`). The window and the popup are real windows put off the screen and captured, so nothing shows on the screen. `STTARK_SHOT_DARK=<folder>` also draws them in dark mode. |
-| `tools/defaults-test.swift` | Tests what the Kit turns on by itself, on a temporary home folder and the test's own settings: which switches come on, that a switch turned off by hand stays off, that the sync waits for the Claude app's sign-in, and that Claude Code's phone notice keys are set only when missing. |
+| `tools/defaults-test.swift` | Tests what the Kit turns on by itself, on a temporary home folder, a stand-in Claude app file and the test's own settings: which switches come on, the Bypass keys and the Claude app's settings, that a switch turned off by hand stays off, that the sync waits for the Claude app's sign-in, and that Claude Code's phone notice keys are set only when missing. |
 | `tools/limit-menu-test.swift` | Tests the app's side of each session's usage setting on a temporary folder, with a stand-in state file and usage file: reading and writing the settings as the hooks do, the log lines, the holding rows, and when the limit counts as reached. |
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
 | `.github/workflows/release.yml` | Builds, signs and publishes a release. |
