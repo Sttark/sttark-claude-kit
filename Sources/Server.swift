@@ -29,7 +29,10 @@ enum Server {
     /// any enabled LaunchAgent, other than ours, that runs `claude rc` or `claude remote-control`.
     static var otherRunning: Bool {
         guard !installed, ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] == nil else { return false }
-        if Updater.run("/usr/bin/pgrep", ["-f", "claude (rc|remote-control)( |$)"]).0 == 0 { return true }
+        // a running server: only a process that IS `claude rc` (or a screen running one), not any command line that
+        // mentions it (a grep, a shell, an editor)
+        let ps = Updater.run("/bin/ps", ["-axww", "-o", "args="]).1
+        if ps.split(separator: "\n").contains(where: { isServer(String($0)) }) { return true }
         let disabled = Updater.run("/bin/launchctl", ["print-disabled", domain]).1
         let fm = FileManager.default
         for dir in [fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents"), URL(fileURLWithPath: "/Library/LaunchAgents")] {
@@ -47,6 +50,20 @@ enum Server {
 
     /// Loaded in launchd (it may be between restarts).
     static var loaded: Bool { Updater.run("/bin/launchctl", ["print", "\(domain)/\(label)"]).0 == 0 }
+
+    /// True for a process that runs a Remote Control server: `claude rc`, `claude remote-control`, the same through
+    /// node or bun, or a screen that runs one. Pure, so tools/server-auto-test.swift tests it.
+    static func isServer(_ line: String) -> Bool {
+        let t = line.trimmingCharacters(in: .whitespaces).split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard let exe = t.first else { return false }
+        let base = (exe as NSString).lastPathComponent
+        func rc(_ i: Int) -> Bool { i < t.count && (t[i] == "rc" || t[i] == "remote-control") }
+        if base == "claude" { return rc(1) }
+        if base == "node" || base == "bun", t.count > 2,
+           (t[1] as NSString).lastPathComponent == "claude" || t[1].hasSuffix("/cli.js") { return rc(2) }
+        if base == "screen" { return line.range(of: #"claude['"]? (rc|remote-control)( |'|"|$)"#, options: .regularExpression) != nil }
+        return false
+    }
 
     /// Always started in bypass. On its own that changes nothing: the Claude app switches every session it
     /// starts on a server back to asking. "Bypass permissions for server sessions" is what actually turns it on.
@@ -159,6 +176,7 @@ enum Server {
             if why != lastSkip && why != "already on" { logLine("server", "not started: \(why)") }
             lastSkip = why
             if why == "Claude Code isn't signed in" { Fix.signIn() }
+            if why == "Claude Code isn't installed" { Fix.installClaude() }
         case .ask:
             break   // the folder is always ~/src, so there is always one
         case .start(let folder):
@@ -201,6 +219,39 @@ enum Server {
 
     /// Fixes the Kit makes by itself, so no one has to press a button.
     enum Fix {
+        /// No Claude Code at ~/.local/bin/claude: links a copy installed another way (Homebrew, npm), else runs the
+        /// official installer (`curl -fsSL https://claude.ai/install.sh | bash`, which installs to ~/.local/bin and
+        /// needs no password). At most once every 6 hours; the server starts when it is there.
+        static func installClaude() {
+            guard ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] == nil, !Setup.claudeFound else { return }
+            let fm = FileManager.default
+            let home = fm.homeDirectoryForCurrentUser
+            let bin = home.appendingPathComponent(".local/bin")
+            let other = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude", home.appendingPathComponent(".npm-global/bin/claude").path,
+                         home.appendingPathComponent(".claude/local/claude").path].first { fm.isExecutableFile(atPath: $0) }
+            if let other {
+                try? fm.createDirectory(at: bin, withIntermediateDirectories: true)
+                try? fm.createSymbolicLink(atPath: bin.appendingPathComponent("claude").path, withDestinationPath: other)
+                logLine("server", "found Claude Code at \(other), linked it to ~/.local/bin/claude")
+                DispatchQueue.main.async { autoStart() }
+                return
+            }
+            let d = UserDefaults.standard
+            guard Date().timeIntervalSince1970 - d.double(forKey: "claudeInstallAt") > 6 * 3600 else { return }
+            d.set(Date().timeIntervalSince1970, forKey: "claudeInstallAt")
+            logLine("server", "installing Claude Code (the official installer)")
+            DispatchQueue.global().async {
+                let r = Updater.run("/bin/bash", ["-c", "curl -fsSL https://claude.ai/install.sh | bash"])
+                let last = r.1.split(separator: "\n").last.map(String.init) ?? ""
+                if Setup.claudeFound {
+                    logLine("server", "installed Claude Code")
+                    DispatchQueue.main.async { autoStart() }
+                } else {
+                    logLine("server", "not started: Claude Code didn't install (\(last.prefix(120))); the Kit tries again in 6 hours")
+                }
+            }
+        }
+
         /// Signed out: starts Claude Code's own sign-in, which opens the sign-in page in the browser by itself. The
         /// person only approves it there. At most once every 6 hours. When the login appears, the server starts
         /// (or starts again) at once.

@@ -95,6 +95,16 @@ import Foundation
         check("an API key", ServerHealth.refusal("Remote Control is only available with claude.ai subscriptions. Run /login")?.contains("API key") == true)
         check("a trust question already answered is not a question", ServerHealth.read(trust.replacingOccurrences(of: "[y/N]\n", with: "[y/N] y\n")) != .trustPrompt)
 
+        // isServer(): only a process that runs a server, not a line that mentions one
+        check("claude rc", Server.isServer("/Users/x/.local/share/claude/stable/claude rc --permission-mode bypassPermissions"))
+        check("claude remote-control", Server.isServer("claude remote-control --name Build"))
+        check("through node", Server.isServer("node /opt/homebrew/bin/claude rc"))
+        check("a screen running one", Server.isServer("/usr/bin/screen -DmS claude-rc /bin/zsh -c cd '/Users/x/src' && exec '/Users/x/.local/bin/claude' rc"))
+        check("not a grep", !Server.isServer("grep claude rc"))
+        check("not a shell command that mentions it", !Server.isServer("/bin/zsh -c pgrep -f 'claude rc'"))
+        check("not a session with --remote-control", !Server.isServer("/Users/x/.local/bin/claude --resume abc --remote-control"))
+        check("not an editor", !Server.isServer("vim notes about claude rc"))
+
         try? fm.removeItem(at: dir)
         print(fails == 0 ? "\nall passed" : "\n\(fails) failed")
         exit(fails == 0 ? 0 : 1)

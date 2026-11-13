@@ -90,7 +90,24 @@ enum ServerHealth {
         busy.async { run() }
     }
 
-    private static func set(_ s: State) { DispatchQueue.main.async { state = s } }
+    private static func set(_ s: State) {
+        DispatchQueue.main.async {
+            guard state != s else { return }
+            state = s
+            writeHealth()
+        }
+    }
+
+    /// health.json in the Kit's folder: the server's state in one line, for a report that collects each Mac's Kit
+    /// health. Nothing sends it yet.
+    static func writeHealth() {
+        let text = settingsText?.0 ?? ""
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let j: [String: Any] = ["version": v, "server": text, "at": ISO8601DateFormatter().string(from: Date())]
+        if let d = try? JSONSerialization.data(withJSONObject: j, options: [.sortedKeys]) {
+            try? d.write(to: supportDir.appendingPathComponent("health.json"), options: .atomic)
+        }
+    }
 
     /// One line in the log for each change, under "server".
     private static func log(_ s: String) {
