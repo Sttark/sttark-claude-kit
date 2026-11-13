@@ -29,6 +29,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
         if page == .news { model.markNewsSeen() }
+        if page == .events { model.readEvents() }
         if sheet { model.openSheet() }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
@@ -60,6 +61,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
         model.reload()
         ticks += 1
         if model.page == .settings && ticks % 10 == 0 { model.reloadFacts() }
+        if model.page == .events { model.readEvents() }
     }
 
     @objc func zoomIn() { model.zoom(by: 1) }
@@ -124,7 +126,7 @@ final class KitNSWindow: NSWindow {
 
 /// What the window shows, read from the shared state. The settings run commands, so they're read off the main thread.
 final class KitModel: ObservableObject {
-    enum Page: String { case sessions, settings, news }
+    enum Page: String { case sessions, settings, news, events }
     @Published var page: Page = .sessions
     @Published var snap = Inbox.Snapshot()
     @Published var selected: String?
@@ -139,6 +141,16 @@ final class KitModel: ObservableObject {
     /// A What's new picture shown bigger, over the page.
     @Published var big: WhatsNew.Note?
     @Published var zoom: CGFloat = K.zoom
+    /// The Events page: what the Kit did, newest first, and its filters.
+    @Published var events: [KitEvent] = []
+    @Published var eventSearch = ""
+    @Published var eventKind: KitEvent.Kind?
+    @Published var eventSession: String?
+    @Published var eventProblems = false
+    @Published var eventRoutine = false
+    @Published var openEvent: String?
+    private var eventsStamp = ""
+    private var eventsReading = false
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
     var fixedFacts: MenuFacts?
@@ -149,6 +161,62 @@ final class KitModel: ObservableObject {
         notes = WhatsNew.all
         unseen = WhatsNew.unseen.count
         if selected == nil || !snap.rows.contains(where: { $0.id == selected }) { selected = snap.rows.first?.id }
+    }
+
+    /// The events, read off the main thread, and only when a log changed since the last read.
+    func readEvents() {
+        let files = [logURL, KitLogs.all[1].url]
+        let stamp = files.map { u -> String in
+            let v = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            return "\(v?.fileSize ?? 0)/\(v?.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        }.joined(separator: ",")
+        guard stamp != eventsStamp, !eventsReading else { return }
+        eventsReading = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ev = Events.read()
+            DispatchQueue.main.async {
+                self.events = ev
+                self.eventsStamp = stamp
+                self.eventsReading = false
+            }
+        }
+    }
+
+    var eventMatches: [KitEvent] {
+        let words = eventSearch.lowercased().split(separator: " ").map(String.init)
+        return events.filter { e in
+            if !eventRoutine && e.routine && e.level == .info { return false }
+            if eventProblems && e.level == .info { return false }
+            if let k = eventKind, e.kind != k && !(k == .problem && e.level != .info) { return false }
+            if let n = eventSession, e.name != n { return false }
+            if !words.isEmpty {
+                let hay = ([e.name ?? "", e.text, e.kind.title] + e.detail).joined(separator: " ").lowercased()
+                if !words.allSatisfy({ hay.contains($0) }) { return false }
+            }
+            return true
+        }
+    }
+    var shownEvents: [KitEvent] { Array(eventMatches.prefix(1500)) }
+    var shownEventsCut: Bool { eventMatches.count > 1500 }
+    /// The sessions in the events, the most recent first.
+    var eventSessionNames: [String] {
+        var seen = Set<String>(), out: [String] = []
+        for e in events { if let n = e.name, !seen.contains(n) { seen.insert(n); out.append(n) } }
+        if let s = eventSession, !seen.contains(s) { out.insert(s, at: 0) }
+        return out
+    }
+    var eventFiltered: Bool { eventKind != nil || eventSession != nil || eventProblems || eventRoutine || !eventSearch.isEmpty }
+    func clearEventFilters() { eventKind = nil; eventSession = nil; eventProblems = false; eventRoutine = false; eventSearch = "" }
+    func snapHas(_ cse: String) -> Bool { snap.rows.contains { $0.id == cse } }
+    /// The session's name: to that session on the Sessions page when it is listed there, else its events only.
+    func goToSession(_ e: KitEvent) {
+        if let c = e.session, snapHas(c) { selected = c; page = .sessions }
+        else { eventSession = e.name }
+    }
+    /// Problems in the last day, for the page's status line.
+    var recentProblems: Int {
+        let since = Date().addingTimeInterval(-86400)
+        return events.filter { $0.level != .info && $0.last > since }.count
     }
 
     func reloadFacts() {
@@ -298,6 +366,7 @@ struct KitRoot: View {
                 case .sessions: SessionsPage(model: model)
                 case .settings: SettingsPage(model: model)
                 case .news: NewsPage(model: model)
+                case .events: EventsPage(model: model)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -322,6 +391,7 @@ struct Sidebar: View {
             nav(.sessions, "Sessions", "tray", badge: model.snap.count(.needs), strong: true)
             nav(.settings, "Settings", "gearshape")
             nav(.news, "What's new", "sparkles", text: Updater.version == "?" ? "" : Updater.version)
+            nav(.events, "Events", "list.bullet.rectangle")
             Spacer()
             UsageBox(usage: model.usage)
         }
@@ -337,6 +407,7 @@ struct Sidebar: View {
             model.page = p
             if p == .settings { model.reloadFacts() }
             if p == .news { model.markNewsSeen() }
+            if p == .events { model.readEvents() }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 13 * K.zoom)).foregroundColor(on ? K.greenText : K.steel).frame(width: K.z(18))
@@ -406,12 +477,13 @@ struct Header: View {
                 Text(subtitle).font(K.font(12)).foregroundColor(K.steel)
             }
             Spacer()
-            if model.page == .sessions {
+            if model.page == .sessions || model.page == .events {
+                let text = model.page == .events ? $model.eventSearch : $model.search
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").foregroundColor(K.steel)
-                    TextField("Search sessions", text: $model.search).textFieldStyle(.plain).font(K.font(13))
-                    if !model.search.isEmpty {
-                        Button { model.search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(K.steel) }
+                    TextField(model.page == .events ? "Search events" : "Search sessions", text: text).textFieldStyle(.plain).font(K.font(13))
+                    if !text.wrappedValue.isEmpty {
+                        Button { text.wrappedValue = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(K.steel) }
                             .buttonStyle(.plain).accessibilityLabel("Clear search")
                     }
                 }
@@ -427,13 +499,16 @@ struct Header: View {
     }
 
     var title: String {
-        switch model.page { case .sessions: return "Sessions"; case .settings: return "Settings"; case .news: return "What's new" }
+        switch model.page { case .sessions: return "Sessions"; case .settings: return "Settings"; case .news: return "What's new"; case .events: return "Events" }
     }
     var subtitle: String {
         switch model.page {
         case .sessions: return model.snap.summary
         case .settings: return "Saved as you change them"
         case .news: return "What changed in the Kit, newest first"
+        case .events:
+            let n = model.recentProblems
+            return (n == 0 ? "No problems in the last day" : "\(n) problem\(n == 1 ? "" : "s") in the last day") + ". Newest first."
         }
     }
 }
@@ -618,7 +693,13 @@ struct DetailView: View {
                                              : "Claude finished, and you haven't opened the reply yet."))
             }
         case .working:
-            p.append(("Working for", row.time.isEmpty ? "Started before the Kit kept turn times" : row.time))
+            if let b = row.background {
+                p.append(("Working for", "\(row.time), since \(Limit.clock(b.since)). The turn ended; its work goes on in the background."))
+                p.append(("Running", b.words.prefix(1).uppercased() + b.words.dropFirst()))
+                p.append(("Then", "Claude reads the results when they finish. The session then needs you or goes idle."))
+            } else {
+                p.append(("Working for", row.time.isEmpty ? "Started before the Kit kept turn times" : row.time))
+            }
         case .waits:
             if row.waits.count > 1, let w = row.wait {
                 p.append(("Waits on", Inbox.waitsWords(row.waits) + ". It comes back when any one ends, at a reply or at its deadline."))
@@ -699,9 +780,10 @@ struct DetailView: View {
             .controlSize(K.control)
             .padding(.top, 12)
         } else if let h = row.hold {
-            Button("Use credits until \(Limit.clock(h.until))") { Limit.useCredits(h); model.changed() }
-                .controlSize(K.control)
-                .help("Goes on now, and may use usage credits until the limit resets at \(Limit.clock(h.until)). After that, its setting applies again.")
+            // the session's own setting below is the one control: to go on now, set it to Always use credits
+            Text((h.hold ? "Holds at \(h.at)% until \(Limit.clock(h.until))." : "Waits at the \(h.limit) limit until \(Limit.clock(h.until)).")
+                 + " To go on now, set this session to Always use credits below.")
+                .font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
         }
     }
@@ -753,7 +835,7 @@ struct DetailView: View {
         return VStack(alignment: .leading, spacing: 6) {
             Text("At the usage limit").font(K.font(12.5, true))
             Picker("At the usage limit", selection: pick) {
-                Text("Same as Settings").tag("follow")
+                Text("Same as Settings (" + (model.snap.creditsAll ? "use credits at the limit" : "hold at the limit") + ")").tag("follow")
                 Text("Always use credits").tag("credits")
                 Divider()
                 ForEach(choices, id: \.self) { n in Text("Never use credits; hold at \(n)%").tag("hold:\(n)") }
@@ -1005,7 +1087,7 @@ struct SettingsPage: View {
                 Button("Sign in…") { c?.signIn() }.help(f.loginTip)
             }
             Hairline()
-            SettingRow(title: "Log", desc: "Every decision, one line each") { Button("Open log") { c?.openLog() } }
+            SettingRow(title: "Events", desc: "What the Kit did, in plain words, newest first") { Button("Show events") { model.page = .events; model.readEvents() } }
         }
     }
 

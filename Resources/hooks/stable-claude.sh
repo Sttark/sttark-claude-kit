@@ -39,13 +39,13 @@ need_move=0; [[ -f $PLIST ]] && ! grep -qF "$STABLE" "$PLIST" && need_move=1
 hour=$(date +%H)
 if [[ ${1:-} != --now ]] && (( 10#$hour < 2 || 10#$hour >= 5 )); then exit 0; fi
 
-# Any session still working (from the menu's minute-by-minute check)? Then try again in 30 minutes.
+# Any session still working, in a turn or with agents or background commands running (from the menu's minute-by-minute check)? Then try again in 30 minutes.
 busy=$(/usr/bin/python3 - "$STATE" <<'PY'
 import json, sys, time
 try: s = json.load(open(sys.argv[1]))
 except Exception: s = {}
 print(', '.join((x.get('app') or {}).get('title') or k for k, x in s.get('sessions', {}).items()
-      if (x.get('app') or {}).get('working') and time.time() - (x.get('app') or {}).get('checked', 0) < 600))
+      if ((x.get('app') or {}).get('working') or (x.get('app') or {}).get('background')) and time.time() - (x.get('app') or {}).get('checked', 0) < 600))
 PY
 )
 if [[ -n $busy ]]; then log "update waiting: $busy still working"; exit 0; fi

@@ -77,7 +77,7 @@ def main():
         return
     data = json.load(sys.stdin)
     title = (data.get('session_title') or '').strip()
-    sid = effort.session_id()
+    sid = effort.session_id(data.get('transcript_path'))
     effort.limit_for(data.get('session_id'), data.get('transcript_path'), sid)   # this session's usage setting decides
     mine = effort.peek().get('auto_names', {}).get(sid) if sid else None
     if title and title == mine:

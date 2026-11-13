@@ -4,6 +4,7 @@
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
 //   docs/window-settings.png  the window's Settings page
 //   docs/window-news.png      the window's What's new page
+//   docs/window-events.png    the window's Events page, newest first, from sample log lines
 //   docs/whats-new.png        the What's new sheet over the window, with this repo's notes
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
 // The window and the sheet are real windows, put off the screen and captured with screencapture, so they look as
@@ -31,6 +32,7 @@ import SwiftUI
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         setenv("STTARK_KIT_DIR", dir.path, 1)
         setenv("STTARK_KIT_LOG", dir.appendingPathComponent("log").path, 1)
+        setenv("STTARK_KIT_LOGS_DIR", dir.path, 1)   // the Log page's other logs: none, so nothing of this Mac's
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let app = NSApplication.shared
@@ -71,6 +73,29 @@ import SwiftUI
             Shot.capture(w, to: folder + "/window-settings.png")
             model.page = .news
             Shot.capture(w, to: folder + "/window-news.png")
+            model.page = .events
+            model.readEvents()
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+            model.openEvent = model.events.first { $0.count > 1 }?.id
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            Shot.capture(w, to: folder + "/window-events.png")
+            model.openEvent = nil
+            // the events note's picture: the newest rows alone, at the note's size
+            let rows = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            rows.appearance = w.appearance
+            rows.isReleasedWhenClosed = false
+            model.openEvent = model.events.first { $0.count > 1 }?.id
+            rows.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(model.events.prefix(4))) { e in
+                    EventRow(model: model, e: e, open: model.openEvent == e.id)
+                    Hairline()
+                }
+                Spacer(minLength: 0)
+            }.padding(12).frame(width: 440, height: 280).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            rows.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            Shot.capture(rows, to: "whats-new/events-page" + (look ? "-dark" : "") + ".png")
+            rows.close()
+            model.openEvent = nil
             // the kit-window note's picture: the top of the session list, at the window's narrowest
             model.page = .sessions
             let f = w.frame
@@ -89,6 +114,14 @@ import SwiftUI
             Shot.capture(w, to: folder + "/whats-new.png", wait: 0.2)
             model.sheet = []
             RunLoop.main.run(until: Date().addingTimeInterval(1))
+            // the one-setting note's picture: a held session, pointed at its own setting
+            let before = model.selected
+            model.selected = model.snap.rows.first { $0.title == "Site map plan" }?.id
+            let panel = "/tmp/kit-shot-\(getpid())-held.png"
+            Shot.capture(w, to: panel)
+            Shot.crop(panel, NSRect(x: 845, y: 255, width: 335, height: 250),
+                      to: "whats-new/credits-one-setting" + (look ? "-dark" : "") + ".png")
+            model.selected = before
         }
         w.close()
     }
@@ -174,6 +207,26 @@ enum Sample {
 
     static func write(_ dir: URL) {
         let now = Date().timeIntervalSince1970
+        // The Log page's sample lines, oldest first as the hooks write them.
+        let lf = DateFormatter(); lf.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        func logAt(_ m: Double) -> String { lf.string(from: Date().addingTimeInterval(-m * 60)) }
+        var lines: [(Double, String)] = [
+            (1500, "app    update: installed 1.160, restarting"),
+            (1450, "wake   cse_01Sample7 \"Site map plan\" stopped, not archived; sent high to start it"),
+            (300, "change cse_01Sample9 ->low (1.9s) low - A simple rename across a few files | Rename the report columns to match the new names"),
+            (190, "name   sid-sample-9 -> \"Rename report columns\" (2.0s) | Rename the report columns to match the new names"),
+            (52, "change cse_01Sample3 medium->low (2.1s) low - Routine edit with a clear plan. | Fix the typo on the exterior lighting page"),
+            (41, "wait   07f324 cse_01Sample5 \"HVAC updates\" set: a reply from the controls supplier, by Mon 9:00 AM | they answer overnight"),
+            (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a full app window. | Add an event viewer to the Kit"),
+            (21, "limit  hold   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM (Bash)"),
+            (21, "limit  wait   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM, with no model calls until it ends"),
+            (12, "notify Sttark Claude Kit email ok: sent to you@example.com; it arrives in about a minute | HVAC updates: the supplier replied"),
+            (9, "error  cse_01Sample8 judge failed: TimeoutExpired"),
+            (6, "change cse_01Sample4 xhigh->high (2.4s) high - The layout is set; now the checks. | Make the rows plain words"),
+        ]
+        for m in stride(from: 240.0, through: 3, by: -3) { lines.append((m, "limit  usage read failed: HTTP Error 429: Too Many Requests; next read in 2 min, using the last read")) }
+        let text = lines.sorted { $0.0 > $1.0 }.map { logAt($0.0) + " " + $0.1 }.joined(separator: "\n") + "\n"
+        try? text.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
         func session(_ n: Int, _ title: String, _ level: String, ago: Double, reason: String = "", manual: Bool = false,
                      app: [String: Any] = [:], turn: Double? = nil) -> (String, [String: Any]) {
             var a: [String: Any] = ["url": "https://claude.ai/code/session_sample\(n)", "working": false, "archived": false]
@@ -189,7 +242,8 @@ enum Sample {
             session(2, "Label press manual", "medium", ago: 41, app: ["unseen": true, "last_event_at": ago(41)]),
             session(3, "Exterior lighting", "low", ago: 8, app: ["unseen": true, "last_event_at": ago(8)]),
             session(4, "Sttark Claude Kit", "xhigh", ago: 0, reason: "Design question on a full app window", app: ["working": true], turn: 6),
-            session(5, "HVAC updates", "medium", ago: 1, reason: "Summarizes the agents' photos", app: ["working": true], turn: 2),
+            session(5, "HVAC updates", "medium", ago: 1, reason: "Summarizes the agents' photos",
+                    app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the B unit heads", "since": now - 9 * 60]]),
             session(6, "Press color", "high", ago: 0, manual: true, app: ["working": true], turn: 14),
             session(7, "Site map plan", "high", ago: 30, reason: "Design work across several apps"),
             session(8, "Inventory photo cleanup", "medium", ago: 50),
