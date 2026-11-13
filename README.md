@@ -20,7 +20,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Puts Sttark's working rules in front of every prompt, and checks each reply for Simplified Technical English | [Sttark working rules](#sttark-working-rules) |
 | Gives sessions in Sttark's app repos the Sttark app rules | [Sttark app rules](#sttark-app-rules) |
 
-Effort, Waiting on you, the wait at the usage limit, the login warnings, the Claude window in Chrome, the Sttark working rules and the Sttark app rules are on from the start. Everything else is off until you turn it on in the Kit's Settings. It updates itself when a new version is released here.
+The Kit sets your Mac up the way Sttark works with Claude: most of it is on from the start (see [What the Kit turns on](#what-the-kit-turns-on)), and you can turn each part off in the Kit's Settings. It updates itself when a new version is released here.
 
 ![The Sttark Claude Kit window: the sessions in groups (Needs you, Claude working, Waiting on someone else, Held at usage limit), one selected with what it waits on and its settings, and the 5-hour and weekly usage](docs/window-sessions.png)
 
@@ -37,6 +37,23 @@ You need a Mac on macOS 14 or later, with [Claude Code](https://code.claude.com/
 3. The first time, macOS says it can't check the app for malicious software, because it isn't sold through Apple. Click **Done**, go to **System Settings > Privacy & Security**, scroll down and click **Open Anyway**. You only do this once.
 
 That's it. The app adds its hooks to Claude Code's settings (`~/.claude/settings.json`, backed up first), starts by itself when you log in, and shows a gauge in the menu bar. The needle points at the level of the session you used last: far left for Low, straight up for High, far right for Max. No needle means no session in the last hour. A pause sign means Auto effort is off. New sessions use the hook right away. Sessions that were already open pick it up from their next prompt.
+
+### What the Kit turns on
+
+The Kit is made to set up every Mac the way Sttark works with Claude. You do not set anything to start.
+
+| Part | When it comes on |
+|---|---|
+| Effort, Waiting on you, the wait at the usage limit, the login warnings, the Claude window in Chrome, the Sttark working rules and the Sttark app rules | At the first start |
+| **Name sessions automatically** and **Links to files** | At the first start |
+| **Sync Claude profile instructions** | At the first start after the Claude desktop app is signed in |
+| Claude Code's phone notices: a notice when Claude waits on you (`inputNeededNotifEnabled`), and notices Claude sends, which **Reach me by**'s Claude app way needs (`agentPushNotifEnabled`) | At the first start, only when `~/.claude/settings.json` does not have the key yet |
+
+- **Turn a part off** in **Settings**. The Kit records that you turned it off and never turns it on again. Turn it on again to clear the record.
+- **Phone notices** are Claude Code's own settings. A value that you set yourself, `true` or `false`, is never changed.
+- **After an update:** a switch that was off before this came in counts as never chosen, so it comes on once. One Mac notice tells you which parts came on. Click it to open **Settings**.
+- **Off until you turn it on:** **Bypass permissions for server sessions**, **Approve Claude in Chrome** and **Use credits at the usage limit**, because each one lets Claude do more without asking you, or spends money.
+- The record of the switches you turned off is `turnedOff` in the app's settings (`defaults read com.sttark.sttark-claude-kit turnedOff`). Each part that comes on is logged, with lines starting `defaults`.
 
 ### Coming from Sttark Effort
 
@@ -121,12 +138,12 @@ The 5-hour and weekly usage show at the bottom of the sidebar, with when each re
 | **Reach me by** | How a session tells you that something it waited on happened. Check the ways you want; **Set…** or **Change…** for the address, phone number or webhook a way needs; **Send a test**. See [below](#reach-me-by). |
 | **Start sessions from the Claude app** | Sets this Mac up so you can start Claude Code sessions from the Claude app. Shows the folder sessions start in. See [below](#start-sessions-from-the-claude-app). |
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). Off until you turn it on. |
-| **Name sessions automatically** | See [below](#name-sessions-automatically). Off until you turn it on. |
+| **Name sessions automatically** | See [below](#name-sessions-automatically). On until you turn it off. |
 | **Sttark working rules** | See [below](#sttark-working-rules). On until you turn it off. |
-| **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). Off until you turn it on. Shows the last sync. |
+| **Sync Claude profile instructions** | See [below](#sync-claude-profile-instructions). On until you turn it off, once the Claude app is signed in. Shows the last sync. |
 | **Claude window in Chrome** | See [below](#claude-window-in-chrome). On until you turn it off. **Open Claude window** shows beside it while Chrome runs and the Claude window is closed. |
 | **Approve Claude in Chrome** | See [below](#approve-claude-in-chrome). Off until you turn it on. **Open Accessibility…** shows beside it while macOS hasn't allowed it to click. |
-| **Links to files** | See [below](#links-to-files). Off until you turn it on. |
+| **Links to files** | See [below](#links-to-files). On until you turn it off. |
 | **Sttark Claude Kit 1.…** | The version you have and when it last checked; **Check for updates** checks now and installs a new version at once, or **Update to …** when one waits. |
 | **Claude Code login** | When your login ends; **Sign in…** opens Terminal and starts Claude Code's sign-in. See [below](#claude-code-login). |
 | **Log** | **Open log** opens the full log in Console. |
@@ -345,10 +362,10 @@ The first time you turn it on, macOS asks you to allow **SttarkChromeApprover** 
 
 ## Sync Claude profile instructions
 
-The Claude app has a box for instructions to Claude in **Settings > Profile**. Claude in the app follows them, but Claude Code never sees them. With this switch on, Sttark Claude Kit copies them into Claude Code's own instructions file (`~/.claude/CLAUDE.md`, in a marked block it keeps up to date) every 15 minutes. It also puts them in front of every prompt you send, because Claude Code reads that file only when a session starts, so a session that's already running would otherwise miss an edit.
+The Claude app has a box for instructions to Claude in **Settings > Profile**. Claude in the app follows them, but Claude Code never sees them. With this switch on (it comes on by itself once the Claude app is signed in), Sttark Claude Kit copies them into Claude Code's own instructions file (`~/.claude/CLAUDE.md`, in a marked block it keeps up to date) every 15 minutes. It also puts them in front of every prompt you send, because Claude Code reads that file only when a session starts, so a session that's already running would otherwise miss an edit.
 
 - It needs the Claude desktop app installed and signed in. It reads your profile with that sign-in, and checks the account matches before writing anything.
-- The first time you turn it on, it installs two small Python add-ons it needs into the app's own folder. That takes a few seconds.
+- The first time it comes on, it installs two small Python add-ons it needs into the app's own folder. That takes a few seconds.
 - Hover the switch to see the last sync. Each sync is logged to `~/Library/Logs/claude-profile-sync.log`.
 - Edit your instructions in the Claude app, not in `CLAUDE.md`: the marked block is overwritten. Anything else in that file is left alone.
 
@@ -380,7 +397,7 @@ claude-window done                      close this session's tab
 
 Claude Code sessions save what they make (a picture, a page, a PDF) on the Mac and hand you its path, like `/private/tmp/claude-501/…/chart.svg`. You read the reply in the Claude app, often on your phone, where a path opens nothing.
 
-With this switch on, Sttark Claude Kit runs a small web server on the Mac (port 8732) and installs `claude-link`, a command that turns a file into a link:
+With this switch on (it is on from the start), Sttark Claude Kit runs a small web server on the Mac (port 8732) and installs `claude-link`, a command that turns a file into a link:
 
 ```
 claude-link ~/Desktop/chart.svg
@@ -394,7 +411,7 @@ http://Your-Mac.local:8732/k3J9xQ2mV7pL1aTz/chart.svg
 
 ## Name sessions automatically
 
-Claude names each new Claude Code session with a long description of the first task. With this switch on, sessions get a short handle for their project or area instead, like "Order Page" or "Label Printer", the way you'd label a folder.
+Claude names each new Claude Code session with a long description of the first task. With this switch on (it is on from the start), sessions get a short handle for their project or area instead, like "Order Page" or "Label Printer", the way you'd label a folder.
 
 - It names a session at your first message that shows what the session is about. A greeting or a bare "yes" waits for a later one.
 - It reuses one of your own handles when a session clearly belongs to that area, and learns your handles from the sessions you name yourself.
@@ -525,6 +542,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | File | What it is |
 |---|---|
 | `Sources/main.swift` | Starts the app. |
+| `Sources/Defaults.swift` | What the Kit turns on by itself, and the record of switches you turned off. |
 | `Sources/Menu.swift` | The menu bar gauge and the menu. |
 | `Sources/Window.swift` | The window: Sessions, Settings and What's new. |
 | `Sources/Inbox.swift` | The session inbox: each session in its group, for the window and the menu. |
@@ -567,6 +585,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/limit-429-test.py` | Tests the usage read's back-off against a local stand-in server that answers `429`. |
 | `tools/update-test.sh` | Tests the update that installs by itself: the real `Sources/Update.swift` in a stand-in app (`tools/update-test/main.swift`) with its own ID, against fake releases in a temporary folder. It checks that a new version waits while the menu is open, then installs and restarts with no notice; that a version not signed like the app fails with one notice, no dialog and no second try; and that the same version does nothing. The installed app isn't touched. |
 | `tools/screenshot.swift` | Draws the README's pictures with the app's own code, from sample sessions in a temporary folder: the menu (`docs/menu.png`), the window's pages (`docs/window-sessions.png`, `docs/window-settings.png`, `docs/window-news.png`) and the What's new popup (`docs/whats-new.png`). The window and the popup are real windows put off the screen and captured, so nothing shows on the screen. `STTARK_SHOT_DARK=<folder>` also draws them in dark mode. |
+| `tools/defaults-test.swift` | Tests what the Kit turns on by itself, on a temporary home folder and the test's own settings: which switches come on, that a switch turned off by hand stays off, that the sync waits for the Claude app's sign-in, and that Claude Code's phone notice keys are set only when missing. |
 | `tools/limit-menu-test.swift` | Tests the app's side of each session's usage setting on a temporary folder, with a stand-in state file and usage file: reading and writing the settings as the hooks do, the log lines, the holding rows, and when the limit counts as reached. |
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
 | `.github/workflows/release.yml` | Builds, signs and publishes a release. |

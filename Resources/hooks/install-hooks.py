@@ -14,6 +14,9 @@ The usage limit hook (limit-hook.py) also goes in with the effort hook, with a s
 UserPromptSubmit entry (--hold, 8-day limit) for sessions that hold at their own percentage, and the claude-limit-wait and
 claude-limit-mode links in ~/.local/bin; the menu's "Use credits at the usage limit" switch and each
 session's own setting are settings it reads, not hook changes.
+--defaults turns on Claude Code's phone notices (inputNeededNotifEnabled: a notice when Claude waits on you;
+agentPushNotifEnabled: Claude may send one, which claude-notify's "Claude app" way needs) when the key is missing;
+a value the person set, true or false, is never changed.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -153,6 +156,9 @@ def set_links(on):
             pass
 
 
+PUSH_KEYS = ('inputNeededNotifEnabled', 'agentPushNotifEnabled')
+
+
 def ours(cmd):
     return cmd.rstrip('"').endswith('effort-hook.py')
 
@@ -220,6 +226,12 @@ def main():
                           'limit': has(s, 'PreToolUse', is_limit)}))
         return
     remove = '--remove' in sys.argv
+    before = json.dumps(s, sort_keys=True)
+    if '--defaults' in sys.argv:
+        added = [k for k in PUSH_KEYS if k not in s]
+        for k in added:
+            s[k] = True
+        return save(s, before, 'set ' + ', '.join(added) if added else 'unchanged')
     before = json.dumps(s, sort_keys=True)
     hooks = s.setdefault('hooks', {})
     if '--bypass' in sys.argv:

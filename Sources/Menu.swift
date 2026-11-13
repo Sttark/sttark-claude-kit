@@ -93,6 +93,11 @@ final class Controller: NSObject, NSMenuDelegate {
         if ChromeWindow.on { ChromeWindow.installTool() }
         ChromeWindow.tellHooks()
         FileLinks.refresh()
+        KitDefaults.apply()
+        NotificationCenter.default.addObserver(forName: .init("kitOpenSettings"), object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            KitWindow.shared.show(.settings, controller: self)
+        }
         Stable.keep(Server.installed)
         let menu = NSMenu()
         menu.delegate = self
@@ -306,12 +311,12 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
     @objc func openChromeWindow() { ChromeWindow.open() }
 
-    @objc func toggleFileLinks() { FileLinks.set(!FileLinks.on) }
-    @objc func toggleNames() { Names.set(!Names.on) }
+    @objc func toggleFileLinks() { let on = !FileLinks.on; FileLinks.set(on); KitDefaults.chose("fileLinks", on: on) }
+    @objc func toggleNames() { let on = !Names.on; Names.set(on); KitDefaults.chose("names", on: on) }
     @objc func toggleWorkingRules() { WorkingRules.set(!WorkingRules.on) }
 
     @objc func toggleProfile() {
-        if ProfileSync.on { ProfileSync.stop(); return }
+        if ProfileSync.on { ProfileSync.stop(); KitDefaults.chose("profile", on: false); return }
         guard ProfileSync.claudeAppSignedIn else {
             let a = NSAlert()
             a.messageText = "Needs the Claude app"
@@ -321,7 +326,7 @@ final class Controller: NSObject, NSMenuDelegate {
             return
         }
         ProfileSync.start { err in
-            guard let err else { return }
+            guard let err else { KitDefaults.chose("profile", on: true); return }
             let a = NSAlert()
             a.messageText = "Couldn't turn on the sync"
             a.informativeText = err
