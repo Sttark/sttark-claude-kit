@@ -618,7 +618,13 @@ struct DetailView: View {
                                              : "Claude finished, and you haven't opened the reply yet."))
             }
         case .working:
-            p.append(("Working for", row.time.isEmpty ? "Started before the Kit kept turn times" : row.time))
+            if let b = row.background {
+                p.append(("Working for", "\(row.time), since \(Limit.clock(b.since)). The turn ended; its work goes on in the background."))
+                p.append(("Running", b.words.prefix(1).uppercased() + b.words.dropFirst()))
+                p.append(("Then", "Claude reads the results when they finish. The session then needs you or goes idle."))
+            } else {
+                p.append(("Working for", row.time.isEmpty ? "Started before the Kit kept turn times" : row.time))
+            }
         case .waits:
             if row.waits.count > 1, let w = row.wait {
                 p.append(("Waits on", Inbox.waitsWords(row.waits) + ". It comes back when any one ends, at a reply or at its deadline."))

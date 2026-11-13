@@ -387,8 +387,10 @@ def bring_back(w, prompt):
         return False
     d = e.sse().session(cse)
     if d.get('status') == 'active':
-        if d.get('worker_status') == 'running' or d.get('status_bucket') == 'working':
-            raise RuntimeError('busy')  # a turn runs now; the next check tries again
+        app = ((peek().get('sessions') or {}).get(cse) or {}).get('app') or {}
+        if d.get('worker_status') == 'running' or d.get('status_bucket') == 'working' or \
+                (app.get('background') and time.time() - app.get('checked', 0) < 180):
+            raise RuntimeError('busy')  # a turn, or its agents, run now (archiving would end them); the next check tries again
         e.api('POST', 'https://api.anthropic.com/v1/code/sessions/%s/archive' % cse, {})
         for _ in range(20):  # archiving ends its process
             time.sleep(1)
