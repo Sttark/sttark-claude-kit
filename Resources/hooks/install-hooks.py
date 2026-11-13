@@ -14,6 +14,9 @@ The usage limit hook (limit-hook.py) also goes in with the effort hook, with a s
 UserPromptSubmit entry (--hold, 8-day limit) for sessions that hold at their own percentage, and the claude-limit-wait and
 claude-limit-mode links in ~/.local/bin; the menu's "Use credits at the usage limit" switch and each
 session's own setting are settings it reads, not hook changes.
+The browser guard (browser-guard.py) also goes in with the effort hook, always: a PreToolUse entry for Bash and the
+Claude in Chrome and Control Chrome tools, and a UserPromptSubmit entry for the person's opt-in. It reads the
+"Claude window in Chrome" switch itself on each call, since a session keeps the hooks it started with.
 --defaults turns on Claude Code's phone notices (inputNeededNotifEnabled: a notice when Claude waits on you;
 agentPushNotifEnabled: Claude may send one, which claude-notify's "Claude app" way needs) when the key is missing;
 a value the person set, true or false, is never changed.
@@ -145,6 +148,33 @@ def set_limit(hooks, on):
             hooks.pop(event, None)
 
 
+GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser-guard.py')
+GUARD_MATCHER = 'Bash|mcp__claude-in-chrome__.*|mcp__Control_Chrome__.*'
+
+
+def is_guard(cmd):
+    return 'browser-guard.py' in cmd
+
+
+def set_guard(hooks, on):
+    """Before Bash and the Claude in Chrome and Control Chrome tools: stop steps that open or bring forward the
+    person's own Chrome while "Claude window in Chrome" is on. On every message: the person's opt-in."""
+    for event in ('PreToolUse', 'UserPromptSubmit'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_guard(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            g = {'hooks': [{'type': 'command', 'command': f'"{GUARD}"', 'timeout': 10}]}
+            if event == 'PreToolUse':
+                g = dict(matcher=GUARD_MATCHER, **g)
+            groups.append(g)
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
 def set_links(on):
     """claude-limit-wait and claude-limit-mode (links to limit-hook.py), claude-notify (notify.py), claude-wait (wait.py) and
     claude-migrate (migrate.py) in ~/.local/bin, next to claude. Removed on --remove, only when they point at this kit's copy."""
@@ -253,6 +283,7 @@ def main():
                           'rules': has(s, 'UserPromptSubmit', is_rules),
                           'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
                           'limit': has(s, 'PreToolUse', is_limit),
+                          'guard': has(s, 'PreToolUse', is_guard) and has(s, 'UserPromptSubmit', is_guard),
                           'remote_control_at_startup': s.get('remoteControlAtStartup')}))
         return
     remove = '--remove' in sys.argv
@@ -323,6 +354,7 @@ def main():
         set_names(hooks, False)
     set_rules(hooks, not remove)
     set_limit(hooks, not remove)
+    set_guard(hooks, not remove)
     set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     set_rc_startup(s, not remove)

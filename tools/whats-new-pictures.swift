@@ -3,10 +3,11 @@
 // moves can add a function here the same way; a still picture can be any PNG or SVG.
 //   whats-new/hold-before-limit.gif   the usage fills to 80%, a session set to hold stops, the limit resets to 0%
 //   whats-new/session-inbox.gif       a session that waits is archived, then comes back with a message
+//   whats-new/browser-guard.png       a still: which browser steps the Kit stops and which it lets through
 //   whats-new/server-on-by-itself.png a still: the Claude app's Code menu with Remote Control > src picked
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
-//   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug]   (a slug draws only that one)
+//   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
 import AppKit
 
 let W: CGFloat = 440, scale: CGFloat = 2
@@ -269,6 +270,33 @@ func inboxPicture() -> [Frame] {
     return out
 }
 
+// MARK: the browser guard
+
+/// A still: four browser steps a session (or its agent) can take. The two that take the person's Chrome are stopped;
+/// the Claude window and the built-in browser pane go through. Under them, how to allow Claude in Chrome.
+func browserGuardPicture() -> NSBitmapImageRep {
+    let h: CGFloat = 280
+    return frame(h) {
+        text("A session or its agent wants a browser", 20, 16, size: 13, color: C.steel)
+        let rows: [(String, String, Bool)] = [
+            ("Claude in Chrome tools", "Stopped", false),
+            ("open -a \"Google Chrome\" https://…", "Stopped", false),
+            ("claude-window go https://…", "Claude window", true),
+            ("Browser pane: localhost", "Allowed", true),
+        ]
+        let mono = NSFont(name: "Menlo", size: 13) ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+        for (i, r) in rows.enumerated() {
+            let rr = NSRect(x: 20, y: 40 + CGFloat(i) * 48, width: W - 40, height: 40)
+            card(rr)
+            let a = NSAttributedString(string: r.0, attributes: [.font: i == 0 || i == 3 ? font(14) : mono, .foregroundColor: C.ink])
+            a.draw(at: NSPoint(x: rr.minX + 14, y: rr.midY - a.size().height / 2))
+            chip(r.1, right: rr.maxX - 10, midY: rr.midY, good: r.2)
+        }
+        text("To allow Claude in Chrome for one session, type \"use Claude in Chrome\" in it.", 20, 234,
+             size: 14, bold: true, width: W - 40)
+    }
+}
+
 /// The Claude app's Code menu, with the Mac's server under Remote Control picked: where a person starts a session
 /// that runs on their Mac. A still, so one PNG.
 func serverPicture() -> NSBitmapImageRep {
@@ -292,15 +320,19 @@ func serverPicture() -> NSBitmapImageRep {
     }
 }
 
-let only = CommandLine.arguments.dropFirst().first
+func png(_ rep: NSBitmapImageRep, to path: String) {
+    try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path)")
+}
+
+let only = Set(CommandLine.arguments.dropFirst())
+func wanted(_ slug: String) -> Bool { only.isEmpty || only.contains(slug) }
+
 for dark in [false, true] {
     C.dark = dark
     let end = dark ? "-dark.gif" : ".gif"
-    if only == nil || only == "hold-before-limit" { gif(holdPicture(), to: "whats-new/hold-before-limit" + end) }
-    if only == nil || only == "session-inbox" { gif(inboxPicture(), to: "whats-new/session-inbox" + end) }
-    if only == nil || only == "server-on-by-itself" {
-        let path = "whats-new/server-on-by-itself" + (dark ? "-dark.png" : ".png")
-        try! serverPicture().representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
-        print("wrote \(path)")
-    }
+    if wanted("hold-before-limit") { gif(holdPicture(), to: "whats-new/hold-before-limit" + end) }
+    if wanted("session-inbox") { gif(inboxPicture(), to: "whats-new/session-inbox" + end) }
+    if wanted("server-on-by-itself") { png(serverPicture(), to: "whats-new/server-on-by-itself" + (dark ? "-dark.png" : ".png")) }
+    if wanted("browser-guard") { png(browserGuardPicture(), to: "whats-new/browser-guard" + (dark ? "-dark.png" : ".png")) }
 }

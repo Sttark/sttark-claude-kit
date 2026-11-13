@@ -8,7 +8,8 @@
 # giving a tab its address by script brings Chrome forward, so this never does. The one step that brings Chrome
 # forward is making a window: when the Claude window is gone (closed, Chrome quit, a restart), the next command
 # makes it, starting Chrome hidden first if it isn't running, puts the app you were in back in front at once
-# (Chrome is in front for less than half a second), then goes on.
+# (Chrome is in front for less than half a second), or, when you were in Chrome, the Chrome window you were in,
+# then goes on.
 #
 #   claude-window go <url>      open a page in this session's tab, wait for it to load, print its title and URL
 #   claude-window url           print the current title and URL
@@ -40,13 +41,22 @@ log() { print -r -- "$(date '+%F %T') window $*" >> "$logfile" 2>/dev/null }
 
 # The person's own Chrome: the main Google Chrome process that no test tool started. Several can run at once;
 # "tell application" picks one of them, so every call here goes to this one by its process id.
-cpid=""
+# skipped lists the main Chrome processes passed over as a test tool's, with the flag that ruled each out, so the
+# log can say why a second copy of Chrome was started.
+cpid="" skipped=""
 find_chrome() {
-  local p args
-  cpid=""
+  local p args f flag
+  cpid="" skipped=""
   ps -axww -o pid=,args= | while read -r p args; do
     [[ $args == */Google\ Chrome.app/Contents/MacOS/Google\ Chrome || $args == */Google\ Chrome.app/Contents/MacOS/Google\ Chrome\ * ]] || continue
-    [[ $args == *--headless* || $args == *--remote-debugging-* || $args == *--enable-automation* || $args == *--user-data-dir* || $args == *--test-type* ]] && continue
+    f=""
+    for flag in --headless --remote-debugging- --enable-automation --user-data-dir --test-type; do
+      [[ $args == *$flag* ]] && { f=$flag; break }
+    done
+    if [[ -n $f ]]; then
+      skipped+="${skipped:+, }$p ($f)"
+      continue
+    fi
     cpid=$p
     break
   done
@@ -64,13 +74,15 @@ front_app() {  # the bundle ID of the app in front
   lsappinfo info -only bundleid "$(lsappinfo front)" 2>/dev/null | sed -n 's/.*="\(.*\)"/\1/p'
 }
 
-open_window() {  # make the Claude window when it's gone, then put the app that was in front back at once
-  local before after out back
+open_window() {  # make the Claude window when it's gone, then put back what was in front at once
+  local before after out back started=""
   zmodload zsh/system
   mkdir -p "$tabs" && : >> "$tabs/.window-lock"
   zsystem flock -t 60 "$tabs/.window-lock" || return 1  # sessions asking at the same moment still get one window
   before=$(front_app)
   if ! chrome_running; then
+    # a Chrome passed over here is not the person's (a test tool's flag); starting another copy can show it
+    [[ -n $skipped ]] && log "Claude window: Chrome $skipped skipped as not the person's; starting another copy"
     rm -f "$tabs"/*(N)  # Chrome quit, so every tab is gone
     # -n: a test tool's Chrome may be running, and without -n macOS would only hand the request to that one
     open -n -g -j -b "$chrome_id" || { log "Claude window: couldn't start Chrome"; return 1; }  # in the background, hidden
@@ -79,16 +91,25 @@ open_window() {  # make the Claude window when it's gone, then put the app that 
       sleep 0.5
     done
     log "Chrome wasn't running; started it hidden"
+    started=1
   fi
   # Making a window brings Chrome forward (tested: a plain window, a minimized one and Chrome's --new-window all
-  # do), so the app that was in front goes back right after. Only this step does it, and only when the window is gone.
+  # do), so what was in front goes back right after. Only this step does it, and only when the window is gone.
+  # When the person was in Chrome itself, the window they were in goes back in front of the new one (by its id,
+  # in the same Apple event script), so their typing goes on there.
   chrome_running || { log "Claude window: Chrome didn't start"; return 1; }
-  out=$(jxa <<'JXA' 2>&1
+  out=$(jxa "$([[ $before == "$chrome_id" && -z $started ]] && echo back)" <<'JXA' 2>&1
 function run(argv) {
   PID = Number(argv[0])
   if (claudeWindow()) return 'there'
+  var front = null
+  if (argv[1] === 'back' && count('cwin') > 0) front = get(prop('ID  ', nth('cwin', null, 1)))
   set(prop('GNam', make('cwin')), str('Claude'))
-  return 'opened'
+  if (front === null) return 'opened'
+  try {
+    set(prop('pidx', obj('cwin', null, 'ID  ', D.descriptorWithInt32(front))), D.descriptorWithInt32(1))
+    return 'opened back'
+  } catch (e) { return 'opened unback ' + e.message }
 }
 JXA
   )
@@ -98,9 +119,11 @@ JXA
     back="; put $before back in front"
   fi
   case $out in
-    there)  return 0 ;;
-    opened) log "Claude window: opened$back" ;;
-    *)      log "Claude window: couldn't open: $out"; return 1 ;;
+    there)            return 0 ;;
+    opened)           log "Claude window: opened$back" ;;
+    "opened back")    log "Claude window: opened; put the person's own Chrome window back in front" ;;
+    "opened unback"*) log "Claude window: opened; couldn't put the person's own Chrome window back in front: ${out#opened unback }" ;;
+    *)                log "Claude window: couldn't open: $out"; return 1 ;;
   esac
 }
 
