@@ -168,21 +168,19 @@ final class Controller: NSObject, NSMenuDelegate {
 
     func build(_ menu: NSMenu, _ f: MenuFacts) { build(menu, f, Inbox.snapshot()) }
 
-    /// A short glance: what needs the person, the count in each group, and the way into the window, where every
-    /// session and every setting is.
+    /// A short glance: the sessions that need the person, one row for each other group with its sessions in a
+    /// submenu, and the way into the window, where every session and every setting is.
     func build(_ menu: NSMenu, _ f: MenuFacts, _ snap: Inbox.Snapshot) {
         menu.removeAllItems()
-        menu.addItem(caption("Sttark Claude Kit \(f.version)"))
-        if f.installing {
-            menu.addItem(caption("Updating…"))
-        } else if let v = f.available {
+        // what to do now goes first; the version goes at the bottom
+        if !f.installing, let v = f.available {
             let u = action("Update to \(v)", #selector(update))
-            u.attributedTitle = NSAttributedString(string: "Update to \(v)", attributes: [.font: font(14, true)])
+            u.attributedTitle = NSAttributedString(string: "Update to \(v)", attributes: [.font: font(14, true), .foregroundColor: NSColor.labelColor])
             menu.addItem(u)
         }
         if let warn = f.loginWarning {
             let l = action(warn, #selector(signIn))
-            l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true)])
+            l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true), .foregroundColor: NSColor.labelColor])
             l.toolTip = f.loginTip
             menu.addItem(l)
         }
@@ -190,38 +188,24 @@ final class Controller: NSObject, NSMenuDelegate {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
         if !f.claudeFound { menu.addItem(caption("Claude Code isn't installed at ~/.local/bin/claude.")) }
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
 
-        menu.addItem(.separator())
         if snap.rows.isEmpty {
             menu.addItem(caption("No sessions in the last 12 hours"))
         }
-        // the most urgent first: what needs you, then what holds at the limit, each row opens the window at it
-        for g in [Inbox.Group.needs, .held, .working, .waits] {
+        // the most urgent first; only Needs you lists its sessions here, every other group opens them in a submenu
+        for g in Controller.menuGroups {
             let rows = snap.rows(g)
             guard !rows.isEmpty else { continue }
-            let head = action("", #selector(openGroup(_:)))
-            head.attributedTitle = row(g.title, "\(rows.count)", bold: true, tagBold: true)
-            head.representedObject = rows.first?.id
-            head.toolTip = "Opens Sttark Claude Kit at \(g.title.lowercased())."
-            menu.addItem(head)
-            if g == .waits {  // a wait whose check fails shows, so it never fails silently
-                for r in rows where r.subWarn {
-                    let i = action("", #selector(openRow(_:)))
-                    i.attributedTitle = row(r.title, "check failing", tagBold: true)
-                    i.representedObject = r.id
-                    i.toolTip = (r.waits.first { !$0.failing.isEmpty }?.failing ?? "") + ". Click to see it in Sttark Claude Kit."
-                    menu.addItem(i)
-                }
-            }
-            guard g == .needs || g == .held else { continue }
-            for r in rows.prefix(g == .needs ? 5 : 3) {
-                let i = action("", #selector(openRow(_:)))
-                i.attributedTitle = row(r.title, r.time, tagBold: r.late)
-                i.representedObject = r.id
-                i.toolTip = r.sub + ". Click to see it in Sttark Claude Kit."
+            menu.addItem(groupRow(g, rows))
+            guard g == .needs else { continue }
+            for r in rows.prefix(5) {
+                let i = sessionRow(r)
+                i.image = Controller.spacer   // its name starts under the group's name, one step in
+                i.indentationLevel = 1
                 menu.addItem(i)
             }
-            if rows.count > (g == .needs ? 5 : 3) { menu.addItem(caption("and \(rows.count - (g == .needs ? 5 : 3)) more")) }
+            if rows.count > 5 { menu.addItem(caption("and \(rows.count - 5) more", indent: 1)) }
         }
 
         menu.addItem(.separator())
@@ -235,7 +219,86 @@ final class Controller: NSObject, NSMenuDelegate {
         news.isEnabled = f.whatsNew > 0
         menu.addItem(news)
         menu.addItem(.separator())
+        menu.addItem(caption("Sttark Claude Kit \(f.version)" + (f.installing ? " · updating…" : "")))
         menu.addItem(action("Quit", #selector(quit), key: "q"))
+    }
+
+    /// The menu's groups, most urgent first.
+    static let menuGroups: [Inbox.Group] = [.needs, .held, .working, .waits, .local, .idle]
+
+    /// The most sessions a group's submenu lists; the window has the rest.
+    static let submenuRows = 25
+
+    /// One row for a group: its icon, its name and its count. Needs you opens the window at its first session;
+    /// every other group has its sessions in a submenu.
+    func groupRow(_ g: Inbox.Group, _ rows: [Inbox.Row]) -> NSMenuItem {
+        let i = action("", #selector(openGroup(_:)))
+        let t = NSMutableAttributedString(string: g.title, attributes: [.font: font(14), .foregroundColor: NSColor.labelColor])
+        t.append(NSAttributedString(string: " (\(rows.count))", attributes: [.font: font(14), .foregroundColor: NSColor.secondaryLabelColor]))
+        // a wait whose check fails shows on the group's row, so it never fails silently
+        let failing = g == .waits ? rows.filter(\.subWarn).count : 0
+        if failing > 0 {
+            t.append(NSAttributedString(string: " · \(failing) check\(failing == 1 ? "" : "s") failing",
+                                        attributes: [.font: font(14, true), .foregroundColor: Tokens.warnText]))
+        }
+        i.attributedTitle = t
+        i.image = Controller.groupIcon(g)
+        i.representedObject = rows.first?.id
+        i.toolTip = g == .needs ? "Opens Sttark Claude Kit at what needs you." : nil
+        if g != .needs {
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            for r in rows.prefix(Controller.submenuRows) { sub.addItem(sessionRow(r)) }
+            if rows.count > Controller.submenuRows {
+                let more = action("\(rows.count - Controller.submenuRows) more in Sttark Claude Kit", #selector(openGroup(_:)))
+                more.attributedTitle = NSAttributedString(string: more.title, attributes: [.font: font(14), .foregroundColor: NSColor.secondaryLabelColor])
+                more.representedObject = rows[Controller.submenuRows].id
+                sub.addItem(more)
+            }
+            i.submenu = sub
+        }
+        return i
+    }
+
+    /// One session: its name, then what its time is ("waiting 15 min", "continues Sat 2:00 AM") in steel. A wait
+    /// whose check fails says so instead. Click it to open the window at the session.
+    func sessionRow(_ r: Inbox.Row, width: CGFloat = 360) -> NSMenuItem {
+        let i = action("", #selector(openRow(_:)))
+        let warn = r.group == .waits && r.subWarn
+        let tail = warn ? "check failing" : r.timeLabel
+        let right = NSAttributedString(string: tail.isEmpty ? "" : " · " + tail,
+                                       attributes: [.font: font(14, r.late || warn),
+                                                    .foregroundColor: warn ? Tokens.warnText : NSColor.secondaryLabelColor])
+        let t = NSMutableAttributedString(string: fit(r.title, font(14), width - right.size().width),
+                                          attributes: [.font: font(14), .foregroundColor: NSColor.labelColor])
+        t.append(right)
+        i.attributedTitle = t
+        i.representedObject = r.id
+        i.toolTip = (warn ? (r.waits.first { !$0.failing.isEmpty }?.failing ?? r.sub) : r.sub) + ". Click to see it in Sttark Claude Kit."
+        return i
+    }
+
+    /// An empty image as wide as a group's icon, so a session under Needs you lines up with the group's name.
+    static let spacer = NSImage(size: NSSize(width: 18, height: 16), flipped: false) { _ in true }
+
+    /// The group's icon, the one the window shows. Needs you keeps the attention mark, as in the window; the others
+    /// follow the menu's text color, so they stay readable on the highlighted row and in light and dark.
+    static func groupIcon(_ g: Inbox.Group) -> NSImage? {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        guard let sym = NSImage(systemSymbolName: g.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
+        let img = NSImage(size: NSSize(width: 18, height: 16), flipped: false) { r in
+            let s = sym.size
+            let rect = NSRect(x: (r.width - s.width) / 2, y: (r.height - s.height) / 2, width: s.width, height: s.height)
+            sym.draw(in: rect)
+            if g == .needs {
+                Tokens.warnMark.set()
+                rect.fill(using: .sourceAtop)
+            }
+            return true
+        }
+        img.isTemplate = g != .needs
+        img.accessibilityDescription = g.title
+        return img
     }
 
     // MARK: the window
@@ -250,22 +313,6 @@ final class Controller: NSObject, NSMenuDelegate {
     func font(_ size: CGFloat, _ semibold: Bool = false) -> NSFont {
         let f = NSFont(name: "Helvetica Neue", size: size) ?? .systemFont(ofSize: size)
         return semibold ? NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask).withSize(size) : f
-    }
-
-    /// A row: the name in ink on the left, a short tag in steel on the right. The name is cut to fit, so every tag
-    /// lines up in one column. No color for levels or holds: the guide keeps an app's own meaning colors few and
-    /// never green for data, and the words already say it.
-    func row(_ title: String, _ tag: String, dim: Bool = false, bold: Bool = false, tagBold: Bool = true) -> NSAttributedString {
-        let right = NSAttributedString(string: tag, attributes: [.font: font(14, tagBold), .foregroundColor: NSColor.secondaryLabelColor])
-        let t = NSMutableAttributedString(string: fit(title, font(14, bold), Controller.tab - right.size().width - 20),
-                                          attributes: [.font: font(14, bold),
-                                                       .foregroundColor: dim ? NSColor.secondaryLabelColor : NSColor.labelColor])
-        t.append(NSAttributedString(string: "\t"))
-        t.append(right)
-        let para = NSMutableParagraphStyle()
-        para.tabStops = [NSTextTab(textAlignment: .right, location: Controller.tab)]
-        t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
-        return t
     }
 
     /// The text, cut with "…" to fit the width.
@@ -290,7 +337,7 @@ final class Controller: NSObject, NSMenuDelegate {
 
     func action(_ title: String, _ sel: Selector, key: String = "", enabled: Bool = true) -> NSMenuItem {
         let i = NSMenuItem(title: title, action: sel, keyEquivalent: key)
-        i.attributedTitle = NSAttributedString(string: title, attributes: [.font: font(14)])
+        i.attributedTitle = NSAttributedString(string: title, attributes: [.font: font(14), .foregroundColor: NSColor.labelColor])
         i.target = self
         i.isEnabled = enabled
         return i

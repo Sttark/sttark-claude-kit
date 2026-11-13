@@ -22,6 +22,18 @@ enum Inbox {
             }
         }
 
+        /// The SF Symbol the window and the menu show for the group.
+        var symbol: String {
+            switch self {
+            case .needs: return "bell"
+            case .working: return "waveform.path.ecg"
+            case .waits: return "hourglass"
+            case .held: return "pause.circle"
+            case .idle: return "moon.zzz"
+            case .local: return "desktopcomputer"
+            }
+        }
+
         /// The time column's heading.
         var column: String {
             switch self {
@@ -56,6 +68,18 @@ enum Inbox {
         var local: LocalSessions.Item? = nil
         /// What a session runs in the background after its turn ended (Claude working, with no turn).
         var background: Background? = nil
+        /// The time with what it is, for the menu: "waiting 15 min", "continues Sat 2:00 AM", "deadline Mon 9:00 AM".
+        var timeLabel: String {
+            guard !time.isEmpty else { return "" }
+            let now = time == "just now"
+            switch group {
+            case .needs: return now ? "waiting just now" : "waiting \(time)"
+            case .working: return now ? "started just now" : "working \(time)"
+            case .waits: return "deadline \(time)"
+            case .held: return "continues \(time)"
+            case .idle, .local: return now ? "active just now" : "active \(time) ago"
+            }
+        }
         /// The link that opens the session in the Claude app.
         var url: String { session?.url.nilIfEmpty ?? wait?.sessionURL.nilIfEmpty ?? "" }
         var target: Limit.Target? {
