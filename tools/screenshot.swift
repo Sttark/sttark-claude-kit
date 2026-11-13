@@ -6,6 +6,7 @@
 //   docs/window-news.png      the window's What's new page
 //   docs/window-events.png    the window's Events page, newest first, from sample log lines
 //   docs/whats-new.png        the What's new sheet over the window, with this repo's notes
+// and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
 // The window and the sheet are real windows, put off the screen and captured with screencapture, so they look as
 // they do on this Mac; nothing shows on the screen and nothing comes to the front.
@@ -121,6 +122,12 @@ import SwiftUI
             Shot.capture(w, to: panel)
             Shot.crop(panel, NSRect(x: 845, y: 255, width: 335, height: 250),
                       to: "whats-new/credits-one-setting" + (look ? "-dark" : "") + ".png")
+            // the move note's picture: a session on this Mac only, with Move to Remote Control
+            model.selected = model.snap.rows.first { $0.title == "Weekly plan" }?.id
+            let local = "/tmp/kit-shot-\(getpid())-local.png"
+            Shot.capture(w, to: local)
+            Shot.crop(local, NSRect(x: 845, y: 74, width: 335, height: 280),
+                      to: "whats-new/move-to-remote-control" + (look ? "-dark" : "") + ".png")
             model.selected = before
         }
         w.close()
@@ -303,6 +310,14 @@ enum Sample {
                        ["kind": "weekly_all", "percent": 64, "resets_at": iso(weekly), "is_active": false]]]]
         try! JSONSerialization.data(withJSONObject: state).write(to: dir.appendingPathComponent("state.json"))
         try! JSONSerialization.data(withJSONObject: usage).write(to: dir.appendingPathComponent("usage.json"))
+        // sessions that run only on this Mac, as migrate.py --scan lists them
+        let local: [String: Any] = ["at": now, "sessions": [
+            ["id": "5f1c2e7a-sample-local-1", "title": "Bin label sizes", "cwd": NSHomeDirectory() + "/src/labels", "where": "terminal",
+             "last": now - 35 * 60, "transcript": "/sample/5f1c2e7a.jsonl", "model": "claude-opus-5-5", "pending": false],
+            ["id": "9a3d4b8c-sample-local-2", "title": "Weekly plan", "cwd": NSHomeDirectory() + "/Documents/plans", "where": "desktop",
+             "last": now - 3 * 3600, "transcript": "/sample/9a3d4b8c.jsonl", "model": "claude-opus-5-5", "pid": pid, "busy": false, "pending": false],
+        ]]
+        try! JSONSerialization.data(withJSONObject: local).write(to: dir.appendingPathComponent("local-sessions.json"))
     }
 }
 

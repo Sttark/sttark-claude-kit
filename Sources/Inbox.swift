@@ -4,10 +4,12 @@ import Foundation
 /// The window's Sessions page and the menu's glance both read it, so they always agree.
 ///
 /// Each session shows once, in the first group that fits: held at the usage limit, needs you, Claude working,
-/// waiting on someone else (a wait handed to the Kit), then idle.
+/// waiting on someone else (a wait handed to the Kit), then idle. The sessions that run only on this Mac (Terminal,
+/// or "This computer" in the desktop app, with no Remote Control) show before idle, since each one can move to
+/// Remote Control.
 enum Inbox {
     enum Group: String, CaseIterable {
-        case needs, working, waits, held, idle
+        case needs, working, waits, held, local, idle
 
         var title: String {
             switch self {
@@ -16,6 +18,7 @@ enum Inbox {
             case .waits: return "Waiting on someone else"
             case .held: return "Held at usage limit"
             case .idle: return "Idle"
+            case .local: return "On this Mac only"
             }
         }
 
@@ -26,7 +29,7 @@ enum Inbox {
             case .working: return "Working for"
             case .waits: return "Deadline"
             case .held: return "Goes on"
-            case .idle: return "Last active"
+            case .idle, .local: return "Last active"
             }
         }
     }
@@ -49,6 +52,8 @@ enum Inbox {
         /// `subStrong` is a warning (a check that fails).
         var subWarn = false
         var hold: Limit.Waiting? = nil
+        /// A session that runs only on this Mac (On this Mac only).
+        var local: LocalSessions.Item? = nil
         /// What a session runs in the background after its turn ended (Claude working, with no turn).
         var background: Background? = nil
         /// The link that opens the session in the Claude app.
@@ -197,6 +202,15 @@ enum Inbox {
             let sub = unread[s.id] != nil ? "Finished; reply not opened" : effortWords(s)
             var r = Row(id: s.id, group: .idle, title: s.title, sub: sub, time: Waiting.ago(unread[s.id] ?? s.at))
             r.session = s
+            snap.rows.append(r)
+        }
+
+        // on this Mac only: started in Terminal or the desktop app without Remote Control; they can move to it
+        for x in LocalSessions.items {
+            let now = x.pending ? "Moves to Remote Control when its reply ends"
+                : x.busy ? "Open in \(x.whereWords), Claude working" : x.pid != nil ? "Open in \(x.whereWords)" : "In \(x.whereWords)"
+            var r = Row(id: "local:" + x.id, group: .local, title: x.title, sub: now, time: Waiting.ago(x.last))
+            r.local = x
             snap.rows.append(r)
         }
         return snap

@@ -151,6 +151,11 @@ final class KitModel: ObservableObject {
     @Published var openEvent: String?
     private var eventsStamp = ""
     private var eventsReading = false
+    /// What the last Move to Remote Control said, over the session list: the moved row leaves its group at once.
+    @Published var moveNote: (ok: Bool, words: String, at: Date)? = nil
+    /// The session being moved now (its row id), and the one whose "close it there?" question shows.
+    @Published var moving: String? = nil
+    @Published var confirmMove: String? = nil
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
     var fixedFacts: MenuFacts?
@@ -521,6 +526,19 @@ struct SessionsPage: View {
         HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let n = model.moveNote, -n.at.timeIntervalSinceNow < 300 {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: n.ok ? "checkmark.circle" : "exclamationmark.triangle")
+                                .foregroundColor(n.ok ? K.infoMark : K.warnMark)
+                            Text(n.words).font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            Button { model.moveNote = nil } label: { Image(systemName: "xmark") }
+                                .buttonStyle(.borderless).help("Hide this message.")
+                        }
+                        .padding(10)
+                        .background(K.wash, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(.top, 10)
+                    }
                     let groups = Inbox.Group.allCases.filter { !model.rows($0).isEmpty }
                     if groups.isEmpty {
                         Text(model.search.isEmpty ? "No sessions in the last 12 hours." : "No session matches \"\(model.search)\".")
@@ -542,7 +560,7 @@ struct SessionsPage: View {
             }
             Rectangle().fill(K.hair).frame(width: 1)
             Group {
-                if let r = model.row { DetailView(model: model, row: r) } else {
+                if let r = model.row { DetailView(model: model, row: r).id(r.id) } else {
                     Text("Pick a session to see it here.").foregroundColor(K.steel).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -575,6 +593,7 @@ struct GroupHeader: View {
         case .waits: return "hourglass"
         case .held: return "pause.circle"
         case .idle: return "moon.zzz"
+        case .local: return "desktopcomputer"
         }
     }
     var color: Color { group == .needs ? K.warnMark : group == .working ? K.infoMark : K.steel }
@@ -660,6 +679,7 @@ struct DetailView: View {
             return row.wait.map { $0.by.map { $0 < Date() } == true ? "Past its deadline" : $0.from.isEmpty || row.waits.count > 1 ? "Waiting on someone else" : "Waiting on \($0.from)" } ?? "Waiting"
         case .held: return row.hold?.hold == true ? "On hold at \(row.hold!.at)%" : "At the usage limit"
         case .idle: return "Idle"
+        case .local: return row.local?.pending == true ? "Moves when its reply ends" : "On this Mac only"
         }
     }
 
@@ -726,6 +746,16 @@ struct DetailView: View {
             }
         case .idle:
             if let s = row.session { p.append(("Last active", "\(Waiting.ago(s.at)) ago, at \(Limit.clock(s.at))")) }
+        case .local:
+            if let x = row.local {
+                p.append(("Runs", "Only on this Mac, in \(x.whereWords)" + (x.inDesktop ? ", under This computer" : "")
+                          + ". Your phone and the Claude app's list don't show it."))
+                p.append(("Now", x.pending ? "Open, and Claude is in a reply. It moves when the reply ends."
+                                 : x.busy ? "Open in \(x.whereWords), and Claude is in a reply"
+                                 : x.pid != nil ? "Open in \(x.whereWords)" : "Closed"))
+                if !x.cwd.isEmpty { p.append(("Folder", x.folder)) }
+                p.append(("Last active", "\(Waiting.ago(x.last)) ago, at \(Limit.clock(x.last))"))
+            }
         }
         return p
     }
@@ -779,12 +809,54 @@ struct DetailView: View {
             }
             .controlSize(K.control)
             .padding(.top, 12)
+        } else if let x = row.local {
+            moveActions(x)
         } else if let h = row.hold {
             // the session's own setting below is the one control: to go on now, set it to Always use credits
             Text((h.hold ? "Holds at \(h.at)% until \(Limit.clock(h.until))." : "Waits at the \(h.limit) limit until \(Limit.clock(h.until)).")
                  + " To go on now, set this session to Always use credits below.")
                 .font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
+        }
+    }
+
+    /// On this Mac only: move it to Remote Control. A session open somewhere runs in one place only, so moving it
+    /// closes it there: the Kit asks first. One in a reply moves when the reply ends.
+    @ViewBuilder func moveActions(_ x: LocalSessions.Item) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !x.pending {
+                let moving = model.moving == row.id
+                HStack(spacing: 8) {
+                    Button(moving ? "Moving…" : "Move to Remote Control") { if x.pid != nil { model.confirmMove = row.id } else { startMove(x) } }
+                        .buttonStyle(GreenButtonStyle())
+                        .disabled(model.moving != nil)
+                        .help("Starts this session again with Remote Control, with its whole conversation, in the same folder on this Mac.")
+                    if moving { ProgressView().controlSize(.small) }
+                }
+            }
+            Text("It keeps its whole conversation and its folder on this Mac. Then it shows on your phone and in the Claude app, and the Kit keeps it running after a restart."
+                 + (x.inDesktop ? " The old entry stays under This computer in the desktop app: archive it there." : ""))
+                .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+        }
+        .controlSize(K.control)
+        .padding(.top, 12)
+        .alert(x.busy ? "Move \"\(x.title)\" when Claude finishes this reply?" : "Close \"\(x.title)\" in \(x.whereWords) and move it?",
+               isPresented: Binding(get: { model.confirmMove == row.id }, set: { if !$0 { model.confirmMove = nil } })) {
+            Button(x.busy ? "Move When the Reply Ends" : "Close and Move") { startMove(x) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(x.busy ? "Claude is in a reply in \(x.whereWords). When the reply ends, the session closes there and opens with Remote Control, with its whole conversation."
+                        : "A session runs in one place only. It closes in \(x.whereWords) and opens with Remote Control, with its whole conversation.")
+        }
+    }
+
+    func startMove(_ x: LocalSessions.Item) {
+        model.moving = row.id
+        model.moveNote = nil
+        LocalSessions.move(x) { [model] ok, words in
+            model.moving = nil
+            model.moveNote = (ok, words, Date())
+            model.changed()
         }
     }
 

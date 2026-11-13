@@ -280,6 +280,29 @@ enum Events {
             case "handover": e.text = "The server runs it again, so the Kit closed its own copy"
             default: e.text = "Taken over in another place, so the Kit closed its own copy"; e.level = .warn
             }
+        case "migrate":   // Move a session to Remote Control (migrate.py)
+            e.kind = .restart
+            if let r = rest.range(of: #"as (cse_\w+)"#, options: .regularExpression) { who(rest[r].dropFirst(3)) }
+            named(rest)
+            if rest.contains("moved to Remote Control") {
+                e.text = "Moved to Remote Control from this Mac only"
+                e.detail = ["It keeps its whole conversation and shows on your phone and in the Claude app."]
+                if rest.contains("closed it in Terminal") { e.detail.append("It was open in Terminal, so the Kit closed it there first.") }
+                if rest.contains("closed it in the desktop app") { e.detail.append("It was open in the desktop app, so the Kit closed it there first. Archive its old entry under This computer.") }
+            } else if rest.contains("moves when its reply ends") {
+                e.text = "Moves to Remote Control when its reply ends"
+            } else if rest.contains("did not get a Remote Control link") {
+                e.kind = .problem; e.level = .warn
+                e.text = "Did not move to Remote Control: no link came in 90 seconds"
+                e.detail = ["It stays on this Mac only. Move it again from the Sessions page."]
+            } else if rest.contains("could not be closed") {
+                e.kind = .problem; e.level = .warn
+                e.text = "Did not move to Remote Control: it did not close where it runs"
+                e.detail = ["Quit it there, then move it again."]
+            } else if rest.contains("could not set") {
+                e.kind = .problem; e.level = .warn
+                e.text = "Moved, but its name did not reach the Claude app"
+            } else { e.text = rest.prefix(1).uppercased() + rest.dropFirst() }
         case "name":
             e.kind = .name
             let (main, _, prompt) = split(rest)

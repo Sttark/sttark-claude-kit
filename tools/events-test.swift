@@ -24,6 +24,7 @@ import Foundation
             at(20) + " limit  hold   f46255ef/a10a43cb at 90%: the weekly limit is at 93%, until Sat 2:00 AM (Bash)",
             at(20) + " limit  wait   f46255ef/a10a43cb at 90%: the weekly limit is at 93%, until Sat 2:00 AM, with no model calls until it ends",
             at(10) + " ste    f46255ef ok (3.1s)",
+            at(5) + " migrate 3796db69 \"Bin label sizes\" moved to Remote Control as cse_01BBBtest2; closed it in Terminal (window)",
         ]
         for m in stride(from: 50.0, through: 1, by: -7) { lines.append(at(m) + " limit  usage read failed: HTTP Error 429: Too Many Requests; next read in 2 min, using the last read") }
         lines.sort()
@@ -41,6 +42,9 @@ import Foundation
         check(ev.first { $0.kind == .check }?.routine == true, "a reply check that passed is routine")
         check(ev.first?.last ?? .distantPast >= ev.last?.last ?? .distantFuture, "newest first")
         check(!ev.contains { $0.text.contains("cse_") || $0.text.contains("f46255ef") }, "no ids in the sentences")
+        let moved = ev.first { $0.text == "Moved to Remote Control from this Mac only" }
+        check(moved?.name == "Bin label sizes" && moved?.detail.contains { $0.contains("open in Terminal") } == true,
+              "a move to Remote Control reads in plain words under the session's name")
 
         // Trim: 30 days, lines with no date go with the dated line before them, a writer that holds the file open
         // in append mode (as launchd does) goes on at the new end, and a second trim finds nothing to cut.
