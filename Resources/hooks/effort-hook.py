@@ -94,7 +94,12 @@ BROWSER_RULE = ("Browser rule from Sttark Claude Kit: when you need the person's
                 "It gives this session its own tab there, so other sessions can't move your page; run claude-window "
                 "done when you've finished with the browser. Never open a tab or window any other way and never bring "
                 "Chrome to the front: that takes the person's screen while they're typing. If there's no Claude "
-                "window, claude-window makes one by itself and goes on.")
+                "window, claude-window makes one by itself and goes on. For localhost and public pages, the built-in "
+                "browser pane (mcp__Claude_Browser__* tools) is fine. The Kit blocks Claude in Chrome "
+                "(mcp__claude-in-chrome__*), Control Chrome (mcp__Control_Chrome__*), open -a Chrome, open <url> and "
+                "osascript to Chrome, for this session and its agents. Tell any agent you start that needs a browser "
+                "to use claude-window too. Only the person can allow Claude in Chrome for a session: they ask for it "
+                "by name in a message (for example \"use Claude in Chrome\").")
 
 FILE_RULE = ("Files from Sttark Claude Kit: when you give the person a file on this Mac (a picture, page, PDF, "
              "spreadsheet, anything they'd open), run claude-link <path> and give them the link it prints, as a "
