@@ -154,6 +154,7 @@ def prompt(text, sid=SID):
 
 
 for text in ("don't use Claude in Chrome for this", 'never use control chrome', 'the window takes my screen',
+             'claude sometimes takes my chrome', "don't use my own chrome",
              '<task-notification>agent used Claude in Chrome</task-notification>'):
     out = prompt(text)
     check(f'no opt-in: {text[:45]!r}', out == '' and SID not in (json.load(open(STATE)).get('chrome_ok') or {}), out)
@@ -168,7 +169,8 @@ expect('opted-in main: Claude in Chrome', tool(MCP[0], {'createIfEmpty': True}),
 expect('opted-in agent: Claude in Chrome', tool(MCP[1], {}, agent='a91f3c02deadbeef'), 'allow')
 expect('opted-in main: open -a Chrome', tool('Bash', {'command': 'open -a "Google Chrome"'}), 'allow')
 expect('other session still blocked', tool(MCP[0], {}, sid=OTHER), 'deny')
-for text in ('open it in my Chrome tab', 'do it in my chrome', 'control chrome please'):
+for text in ('open it in my Chrome tab', 'do it in my chrome', 'control chrome please',
+             'Use my own Chrome for this', 'check it with my chrome'):
     prompt(text, sid=OTHER + text[:3])
     check(f'opt-in phrase: {text!r}', OTHER + text[:3] in json.load(open(STATE)).get('chrome_ok', {}))
 state(claude_window=True, chrome_ok={SID: {'at': time.time() - 8 * 86400}})

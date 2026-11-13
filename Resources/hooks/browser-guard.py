@@ -46,8 +46,8 @@ REASON = ("Sttark Claude Kit stopped this step: it opens or brings forward the p
           "osascript to Chrome). Only the person can allow Claude in Chrome for this session, by asking for it by "
           "name in a message.")
 
-OPT_IN = re.compile(r"claude[ -]in[ -]chrome|control[ _]chrome|my (own )?chrome (tab|window|session|profile)|in my (own )?chrome",
-                    re.I)
+OPT_IN = re.compile(r"claude[ -]in[ -]chrome|control[ _]chrome|my (own )?chrome (tab|window|session|profile)"
+                    r"|\b(in|use|using|with|on|through|via) my (own )?chrome\b", re.I)
 NOT_BEFORE = re.compile(r"\b(don'?t|do not|never|not|no|stop|without|instead of|avoid)\b[^.!?\n]{0,25}$", re.I)
 
 CHROME_APP = re.compile(r"^((/[^/]*)*/)?(google )?chrome(\.app)?/?$", re.I)
