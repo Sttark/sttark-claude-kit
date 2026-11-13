@@ -61,8 +61,8 @@ for _ in range(3):
     lh.usage()   # good read
     k = json.load(open(lh.USAGE))
     check('a good read keeps the failed count', k.get('fails', 0) >= 1)
-    check('near the limit after a failure, a read is good for a minute, not 15 s',
-          lh.good_for(k, k['usage'], None) == lh.FRESH)
+    check('near the limit after a failure, a read is good for FRESH_SLOW, not 15 s',
+          lh.good_for(k, k['usage'], None) == lh.FRESH_SLOW)
     k['at'] = 0
     json.dump(k, open(lh.USAGE, 'w'))
 print('back-off after each 429 (s):', waits)
