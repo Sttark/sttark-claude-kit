@@ -36,7 +36,7 @@ struct Session {
     let id: String
     /// Claude Code's own id for the session: its transcript's file name. Empty when not known.
     var sid: String = ""
-    let title: String
+    var title: String
     let level: String
     let reason: String
     let manual: Bool
@@ -117,8 +117,20 @@ enum State {
     }
 
     /// Sessions seen in the last `hours`, newest first. Archived ones are left out.
+    /// The Claude app's session list as the Kit last read it (every 10 seconds while the window or the menu is open,
+    /// every minute otherwise): when it was read, and each session by id. Nil when older than 15 minutes.
+    static func appList(_ state: [String: Any]? = nil) -> (at: Double, items: [String: [String: Any]])? {
+        let list = (state ?? read())["app_list"] as? [String: Any]
+        guard let at = Limit.num(list?["at"]), Date().timeIntervalSince1970 - at < 15 * 60 else { return nil }
+        var items: [String: [String: Any]] = [:]
+        for x in list?["sessions"] as? [[String: Any]] ?? [] { if let id = x["id"] as? String { items[id] = x } }
+        return (at, items)
+    }
+
     static func sessions(hours: Double = 12) -> [Session] {
-        let all = read()["sessions"] as? [String: [String: Any]] ?? [:]
+        let state = read()
+        let all = state["sessions"] as? [String: [String: Any]] ?? [:]
+        let list = appList(state)
         let cutoff = Date().addingTimeInterval(-hours * 3600)
         return all.compactMap { id, x in
             let at = Date(timeIntervalSince1970: x["at"] as? Double ?? 0)
@@ -130,15 +142,33 @@ enum State {
             if let tp = x["transcript"] as? String, tp.hasSuffix(".jsonl") {
                 s.sid = String((tp as NSString).lastPathComponent.dropLast(6))
             }
-            if let a = x["app"] as? [String: Any] {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let a = x["app"] as? [String: Any]
+            if let a {
                 s.url = a["url"] as? String ?? ""
-                let iso = ISO8601DateFormatter()
-                iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                 s.why = a["why"] as? String ?? ""
                 s.needsYou = a["needs"] as? Bool ?? false
                 if (s.needsYou || (a["unseen"] as? Bool ?? false)), !(a["working"] as? Bool ?? true),
                    let d = iso.date(from: a["last_event_at"] as? String ?? "") {
                     s.waitingSince = d
+                }
+            }
+            // the app's list, when it is newer than the minute's check of this session: its name now, and whether
+            // Claude works again (then it no longer waits on you) or asks you something
+            if let list, let item = list.items[id] {
+                if let t = (item["title"] as? String)?.trimmingCharacters(in: .whitespaces), !t.isEmpty { s.title = t }
+                if list.at > Limit.num(a?["checked"]) ?? 0 {
+                    switch item["bucket"] as? String ?? "" {
+                    case "working":
+                        s.needsYou = false; s.waitingSince = nil; s.why = ""
+                    case "blocked" where item["unread"] as? Bool ?? false:
+                        s.needsYou = true
+                        if s.why.isEmpty { s.why = "waiting on your answer or permission" }
+                        s.waitingSince = s.waitingSince
+                            ?? iso.date(from: item["last"] as? String ?? "") ?? ISO8601DateFormatter().date(from: item["last"] as? String ?? "")
+                    default: break
+                    }
                 }
             }
             return s

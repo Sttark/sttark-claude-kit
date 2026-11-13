@@ -126,6 +126,9 @@ import SwiftUI
             Shot.capture(w, to: full)
             Shot.crop(full, NSRect(x: 226, y: 60, width: 392, height: 252),
                       to: "whats-new/kit-window" + (look ? "-dark" : "") + ".png")
+            // the sessions-at-once note's picture: the page's heading and its first groups
+            Shot.crop(full, NSRect(x: 226, y: 0, width: 390, height: 280),
+                      to: "whats-new/sessions-at-once" + (look ? "-dark" : "") + ".png")
             w.setFrame(f, display: true)
             // the What's new sheet, as the menu's What's new item opens it, over the window
             model.page = .sessions

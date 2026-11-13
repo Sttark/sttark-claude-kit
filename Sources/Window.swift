@@ -10,6 +10,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
     let model = KitModel()
     private(set) var window: NSWindow?
     private var timer: Timer?
+    private var observer: NSObjectProtocol?
 
     /// The person is using the window now: it is the key window of the active app. An update waits for that.
     var inUse: Bool { NSApp.isActive && window?.isKeyWindow == true }
@@ -33,6 +34,15 @@ final class KitWindow: NSObject, NSWindowDelegate {
         if sheet { model.openSheet() }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
+        if observer == nil {
+            // a change on disk shows at once; the 3-second tick stays as a fallback
+            observer = NotificationCenter.default.addObserver(forName: .kitStateChanged, object: nil, queue: .main) { [weak self] _ in
+                guard let self, let w = self.window, w.isVisible else { return }
+                self.model.reload()
+                if self.model.page == .events { self.model.readEvents() }
+            }
+        }
+        Sync.readList(minGap: 3)
         note("window: opened at \(page.rawValue)" + (select.map { " (\($0.prefix(12)))" } ?? ""))
     }
 
@@ -237,6 +247,7 @@ final class KitModel: ObservableObject {
     func changed() {
         reload()
         reloadFacts()
+        Sync.readList()   // the Kit changed a session: the Claude app's list too
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.reload(); self.reloadFacts() }
     }
 

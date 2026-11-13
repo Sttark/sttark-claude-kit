@@ -135,6 +135,24 @@ final class Controller: NSObject, NSMenuDelegate {
         WhatsNew.start(changed: { [weak self] in self?.refreshIcon(); KitWindow.shared.model.unseen = WhatsNew.unseen.count })
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
+        // a change on disk shows at once: the icon, the open menu and the window (Sync.swift)
+        Sync.watching = { [weak self] in self?.menuOpen == true || KitWindow.shared.window?.isVisible == true }
+        NotificationCenter.default.addObserver(forName: .kitStateChanged, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.refreshIcon()
+            if self.menuOpen, let menu = self.item.menu { self.rebuildOpen(menu) }
+        }
+        Sync.start()
+    }
+
+    /// The open menu again, only when what it shows changed, so it doesn't flicker on a write that changed nothing.
+    private var shown = ""
+    func rebuildOpen(_ menu: NSMenu) {
+        let snap = Inbox.snapshot()
+        let sig = snap.rows.map { "\($0.id)|\($0.group.rawValue)|\($0.title)|\($0.timeLabel)" }.joined(separator: ";")
+        guard sig != shown else { return }
+        shown = sig
+        build(menu, MenuFacts.current(updater), snap)
     }
 
     /// A gauge showing the level of the session used last; a pause sign when auto effort is off. A dot while a
@@ -160,7 +178,11 @@ final class Controller: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         menuOpen = true
         updater.check()
-        build(menu)
+        let snap = Inbox.snapshot()
+        shown = snap.rows.map { "\($0.id)|\($0.group.rawValue)|\($0.title)|\($0.timeLabel)" }.joined(separator: ";")
+        build(menu, MenuFacts.current(updater), snap)
+        // the Claude app's list now, unless it was read in the last 3 seconds; the menu updates when it changes
+        Sync.readList(minGap: 3)
     }
 
     func menuDidClose(_ menu: NSMenu) {
