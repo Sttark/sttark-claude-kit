@@ -13,9 +13,10 @@
     https://sttark.github.io/sttark-claude-kit/open#<cse_ or session_ id>/<claude.ai link id>
   - On a computer: it opens claude://code/<id> (the Claude desktop app). When the browser stays in front for
     1.5 seconds (no app, so nothing happened), it goes on to https://claude.ai/code/<link id>.
-  - On a phone: a button to claude://code/<link id>, which the Claude app opens from any browser (Google Chat
-    and Gmail open links in their own browser, where a claude.ai link never reaches the app), and a second
-    button to https://claude.ai/code/<link id>. A tap is needed: a phone opens an app only from a tap.
+  - On a phone: it opens claude://code/<link id> at once, which the Claude app opens from any browser (Google
+    Chat and Gmail open links in their own browser, where a claude.ai link never reaches the app). Two buttons
+    stay as the fallback: the same app link, for a browser that asks first or blocks a page's script, and
+    https://claude.ai/code/<link id> for a phone with no app.
   The ids are after the #, so the browser never sends them to this server. The page loads nothing else and
   keeps nothing.
 -->
@@ -113,12 +114,19 @@ h1 { font-size: 32px; line-height: 1.1; font-weight: 600; margin: 0 0 12px; }
   var phone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (phone) {
     // Google Chat and Gmail open links in their own browser, where a claude.ai link stays in that browser and
-    // never reaches the app. The app's claude:// link opens it from any browser, from a tap.
-    $('app').href = 'claude://code/' + web;
+    // never reaches the app. The app's claude:// link opens it from any browser, so try it at once; the buttons
+    // stay for a browser that asks first or blocks it, and for a phone with no app.
+    var appLink = 'claude://code/' + web;
+    $('app').href = appLink;
     $('app').lastChild.textContent = 'Open in the Claude app';
     $('app').firstChild.innerHTML = '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>';
     $('web').lastChild.textContent = 'Open on claude.ai';
-    $('state').textContent = 'Tap to open the session in the Claude app. No app on this phone? Open it on claude.ai.';
+    $('state').textContent = 'Opening the session in the Claude app\u2026';
+    location.href = appLink;
+    setTimeout(function () {
+      if (document.visibilityState === 'visible' && document.hasFocus())
+        $('state').textContent = 'Tap to open the session in the Claude app. No app on this phone? Open it on claude.ai.';
+    }, 1500);
     return;
   }
 
