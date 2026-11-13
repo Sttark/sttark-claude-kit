@@ -28,7 +28,7 @@ stop and rename nothing; the new link is made up).
 """
 import calendar, fcntl, glob, importlib.util, json, os, re, shlex, signal, subprocess, sys, time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.realpath(__file__))  # claude-migrate is a link to this file
 spec = importlib.util.spec_from_file_location('effort', os.path.join(HERE, 'effort-hook.py'))
 effort = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(effort)
