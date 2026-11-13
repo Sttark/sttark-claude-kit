@@ -528,7 +528,7 @@ struct RowView: View {
                         LevelChip(level: s.level, manual: s.manual)
                     }
                 }
-                (Text(row.sub) + Text(row.subStrong.isEmpty ? "" : " · ") + Text(row.subStrong).foregroundColor(K.ink))
+                (Text(row.sub) + Text(row.subStrong.isEmpty ? "" : " · ") + Text(row.subStrong).foregroundColor(row.subWarn ? K.warnText : K.ink))
                     .font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
             }
             Spacer(minLength: 8)
@@ -555,7 +555,7 @@ struct DetailView: View {
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(row.title).font(K.font(19, true)).fixedSize(horizontal: false, vertical: true)
-                        StatusChip(text: status, warn: row.group == .needs || row.late)
+                        StatusChip(text: status, warn: row.group == .needs || row.late || row.subWarn)
                     }
                     Spacer()
                     if !row.url.isEmpty || row.target?.cse.hasPrefix("cse_") == true {
@@ -565,6 +565,7 @@ struct DetailView: View {
                     }
                 }
                 facts
+                waitList
                 actions
                 if let s = row.session, row.wait == nil { effort(s) }
                 if let t = row.target { usage(t) }
@@ -579,7 +580,9 @@ struct DetailView: View {
         switch row.group {
         case .needs: return row.session?.needsYou == true ? "Needs you" : "Reply not opened"
         case .working: return "Claude working"
-        case .waits: return row.wait.map { $0.by.map { $0 < Date() } == true ? "Past its deadline" : $0.from.isEmpty ? "Waiting on someone else" : "Waiting on \($0.from)" } ?? "Waiting"
+        case .waits:
+            if row.waits.contains(where: { !$0.failing.isEmpty }) { return "Check failing" }
+            return row.wait.map { $0.by.map { $0 < Date() } == true ? "Past its deadline" : $0.from.isEmpty || row.waits.count > 1 ? "Waiting on someone else" : "Waiting on \($0.from)" } ?? "Waiting"
         case .held: return row.hold?.hold == true ? "On hold at \(row.hold!.at)%" : "At the usage limit"
         case .idle: return "Idle"
         }
@@ -617,11 +620,17 @@ struct DetailView: View {
         case .working:
             p.append(("Working for", row.time.isEmpty ? "Started before the Kit kept turn times" : row.time))
         case .waits:
-            if let w = row.wait {
+            if row.waits.count > 1, let w = row.wait {
+                p.append(("Waits on", Inbox.waitsWords(row.waits) + ". It comes back when any one ends, at a reply or at its deadline."))
+                let ways = Reach.summary(model.snap.reach)
+                p.append(("Then", w.cse.isEmpty ? "You get a message by \(ways); open the session yourself."
+                                                : "Comes back to your list; tells you by \(ways)."))
+            } else if let w = row.wait {
                 p.append(("Waits on", w.what + (w.from.isEmpty ? "" : ", from \(w.from)")))
                 if let by = w.by { p.append(("Deadline", Inbox.longDay(by))) }
                 if !w.why.isEmpty { p.append(("Why then", w.why)) }
                 p.append(("Kit checks", Inbox.checks(w)))
+                if !w.failing.isEmpty { p.append(("Check failing", DetailView.failingWords(w))) }
                 let ways = Reach.summary(model.snap.reach)
                 p.append(("Then", w.cse.isEmpty ? "You get a message by \(ways); open the session yourself."
                                                 : "Comes back to your list; tells you by \(ways)."))
@@ -640,14 +649,48 @@ struct DetailView: View {
         return p
     }
 
+    /// "Since 8:01 AM: the Workrouter connector did not load … The Kit tries again every 10 min."
+    static func failingWords(_ w: Waits.Wait) -> String {
+        (w.failingSince.map { "Since \(Limit.clock($0)): " } ?? "") + w.failing + ". The Kit tries again every 10 min; the deadline still brings the session back."
+    }
+
+    /// A session with several waits: each one, with its deadline, its reason and how the Kit checks it.
+    @ViewBuilder var waitList: some View {
+        if row.waits.count > 1 {
+            ForEach(row.waits, id: \.id) { w in
+                Box {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(w.what + (w.from.isEmpty ? "" : ", from \(w.from)")).font(K.font(12.5, true)).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 6)
+                            Button("Stop") { Waits.run(["--cancel", w.id]); model.changed() }
+                                .controlSize(.small).help("Drops this wait only. The session's other waits stay.")
+                        }
+                        if let by = w.by {
+                            Text("Deadline " + Inbox.longDay(by)).font(K.font(12.5)).foregroundColor(by < Date() ? K.warnText : K.ink)
+                        }
+                        if !w.why.isEmpty { Text(w.why).font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true) }
+                        Text(Inbox.checks(w)).font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+                        if !w.failing.isEmpty {
+                            Text("Check failing. " + DetailView.failingWords(w)).font(K.font(12)).foregroundColor(K.warnText).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                }
+                .padding(.top, 8)
+            }
+        }
+    }
+
     @ViewBuilder var actions: some View {
         if let w = row.wait {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Button("Bring it back now") { Waits.run(["--now", w.id]); model.changed() }
                         .help("Brings the session back to your list now, and it tells you where it stands.")
-                    Button("Stop waiting") { Waits.run(["--cancel", w.id]); model.changed() }
-                        .help("Drops this wait. The session stays where it is.")
+                    Button("Stop waiting") { for x in row.waits.isEmpty ? [w] : row.waits { Waits.run(["--cancel", x.id]) }; model.changed() }
+                        .help(row.waits.count > 1 ? "Drops all its waits. The session stays where it is." : "Drops this wait. The session stays where it is.")
                 }
                 if w.kind == "pr", !w.url.isEmpty {
                     Button { Waiting.open(w.url) } label: { Label("Open the pull request", systemImage: "arrow.up.right").labelStyle(TrailingIcon()) }

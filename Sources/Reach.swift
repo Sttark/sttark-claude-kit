@@ -253,6 +253,9 @@ enum Waits {
         var cse = ""
         var sessionURL = ""
         var url = ""
+        /// Why its last check failed, and since when; empty while its checks work.
+        var failing = ""
+        var failingSince: Date? = nil
     }
 
     static var script: String { hooksDir.appendingPathComponent("wait.py").path }
@@ -277,6 +280,8 @@ enum Waits {
             x.target = target
             x.from = w["from"] as? String ?? ""
             x.every = Limit.num(w["every"]) ?? 0
+            x.failing = w["failing"] as? String ?? ""
+            x.failingSince = Limit.num(w["failing_since"]).map { Date(timeIntervalSince1970: $0) }
             x.setAt = Limit.num(w["set_at"]).map { Date(timeIntervalSince1970: $0) }
             x.cse = w["cse"] as? String ?? ""
             x.sessionURL = w["session_url"] as? String ?? ""

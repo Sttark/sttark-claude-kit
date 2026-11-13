@@ -77,7 +77,7 @@ Click the gauge for a glance; open the window for everything else.
 | **Update to …** | Shows while a new version waits for the menu or the window to close, or after one failed to install by itself. Installs it now. **Updating…** shows in its place while an update installs. |
 | **Claude login ends …: Sign in…** (only near the end) | Shows within 3 days of the end of your Claude Code login, or when Claude Code is signed out. See [below](#claude-code-login). |
 | **Needs Accessibility permission…** (only when needed) | Shows while **Approve Claude in Chrome** is on and macOS hasn't allowed it to click. Opens the Accessibility settings. |
-| **Needs you**, **Held at usage limit**, **Claude working**, **Waiting on someone else** | How many sessions are in each group, when there are any. Under **Needs you** (up to 5) and **Held at usage limit** (up to 3), each session with how long it has waited or when it goes on. Click a session to open the window at it; click a group to open the window at its first session. |
+| **Needs you**, **Held at usage limit**, **Claude working**, **Waiting on someone else** | How many sessions are in each group, when there are any. Under **Needs you** (up to 5) and **Held at usage limit** (up to 3), each session with how long it has waited or when it goes on. Under **Waiting on someone else**, each session whose wait check fails, with **check failing**. Click a session to open the window at it; click a group to open the window at its first session. |
 | **Open Sttark Claude Kit** | Opens the window. |
 | **What's new** | Opens the window with the What's new sheet. A badge ("3 new") shows while notes are unseen. See [above](#whats-new). |
 | **Quit** | Quits the menu bar app. Sessions and the server keep running; the hooks keep working, except the parts the app runs (Waiting on you, keeping sessions running, closing unused Claude window tabs, login warnings and updates). It starts again at your next login. |
@@ -96,7 +96,7 @@ The window opens only when you click **Open Sttark Claude Kit**, **What's new** 
 |---|---|---|
 | **Needs you** | Only where you must act: Claude asks you a question or a decision, waits for a permission, or is blocked (see [Waiting on you](#waiting-on-you)). Oldest first. | Waiting for; in bold after 10 minutes |
 | **Claude working** | Claude is in a turn. | Working for: since your last prompt |
-| **Waiting on someone else** | Waits handed to the Kit with `claude-wait` (see [Reach me by](#reach-me-by)), by deadline. | Deadline |
+| **Waiting on someone else** | Waits handed to the Kit with `claude-wait` (see [Reach me by](#reach-me-by)), one row per session, by its first deadline. A session with several waits says so, such as **2 email replies**; a wait whose check fails says **check failing**. | Deadline |
 | **Held at usage limit** | Sessions waiting at the limit, or set to hold before it (see [Wait at the usage limit](#wait-at-the-usage-limit)). | Goes on |
 | **Idle** | Every other session in the Claude app's list, newest first. A reply that needs nothing from you and that you haven't opened shows "Finished; reply not opened" here, and doesn't count as needing you. | Last active |
 
@@ -156,7 +156,7 @@ Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
 | `name` | Name sessions automatically: a name picked, kept or changed. |
 | `limit` | The wait at the usage limit: each hold, wait, resume and choice of credits (`credits`, also from the switch in Settings and **Use credits until …** in the window), and each change to a session's own setting (`mode`), with where it came from: the menu, typed in the session, or the command. |
 | `rules` | The Sttark app rules: added to a session, or the saved copy refreshed. |
-| `wait` | Waits handed to the Kit: each one set, each check that failed, and each session brought back. |
+| `wait` | Waits handed to the Kit: each one set, the answer of each email or Haiku check (`checked: NO, no reply yet`), each check that failed and why (for example, the Workrouter connector did not load), and each session brought back. |
 | `notify` | Reach me by: each message `claude-notify` sent, each way, and how it went. |
 | `ste` | The working rules' check of a finished reply: ok, noted for the session's next prompt, or error. |
 | `agents` | The working rules' manager check: work that made more than 8 tool calls in the chat with no agent, noted for the session's next prompt. |
@@ -409,7 +409,9 @@ Treat the Claude app's list of sessions like an inbox: it holds only the session
 
 You can always tell a session is watched: it ends its turn with one handoff line, such as "I am watching for New Star's reply. If none by Mon 11/16 9 AM, I bring this session back and ask if we follow up. You can archive this session." A plain "let me know when they reply", "tell me when it merges" or "has X replied?" sets up a wait too. At a deadline the session checks once more, gets the next step ready (for an email, a follow-up draft) and asks one question, such as "New Star has still not replied about the laminator quote. Should I send the follow-up now?", so one word from you does it.
 
-Open waits show in the window under **Waiting on someone else**, with what each waits on and its deadline; click one for the session's reason for that deadline, how the Kit checks, **Bring it back now**, or **Stop waiting**.
+Open waits show in the window under **Waiting on someone else**, one row per session, with what it waits on and its deadline; click one for the session's reason for that deadline, how the Kit checks, **Bring it back now**, or **Stop waiting**. A session can wait on several things, such as two email threads: its row says **2 email replies**, the panel lists each wait with its deadline and a **Stop** for that one, and the session comes back when any one ends. Its other waits stay open, and the session is told which.
+
+When a check can't run (for example, Claude's connectors are down, so the check gets no Workrouter tools), the wait shows **check failing** in the menu and the window, with the reason and since when, and the log says why. The Kit tries again every 10 minutes, and the deadline still brings the session back.
 
 | Wait | How the Kit knows it happened |
 |---|---|
