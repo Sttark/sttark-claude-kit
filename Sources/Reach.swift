@@ -121,7 +121,7 @@ enum Reach {
         }
     }
 
-    /// A notice on this Mac; a click opens the link, or the session.
+    /// A notice on this Mac; a click opens the link, or the session (in the Claude app when the Mac has it).
     static func notice(_ job: [String: Any], id: String) -> (Bool, String) {
         let c = UNUserNotificationCenter.current()
         let sem = DispatchSemaphore(value: 0)
@@ -136,7 +136,7 @@ enum Reach {
         n.body = job["body"] as? String ?? ""
         n.sound = .default
         let link = job["link"] as? String ?? ""
-        n.userInfo = ["url": link.isEmpty ? (job["url"] as? String ?? "") : link]
+        n.userInfo = link.isEmpty ? ["url": job["url"] as? String ?? "", "id": job["cse"] as? String ?? ""] : ["url": link]
         c.add(UNNotificationRequest(identifier: "notify-\(id)", content: n, trigger: nil))
         return (true, "shown")
     }
