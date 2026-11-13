@@ -119,6 +119,8 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in KitDefaults.applyBypassSettings() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
+        LocalSessions.scan()
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in LocalSessions.scan() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
         KitLogs.start()
         WhatsNew.start(changed: { [weak self] in self?.refreshIcon(); KitWindow.shared.model.unseen = WhatsNew.unseen.count })

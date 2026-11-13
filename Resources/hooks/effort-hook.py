@@ -746,10 +746,11 @@ def all_chats(pages=5):
     return out
 
 
-def start_alone(transcript):
+def start_alone(transcript, model=''):
     """Start a saved conversation as a chat of its own with Remote Control, in a screen so it needs no Terminal
     window. The first time it gets a new link; after that, starting it again reattaches the same link.
-    A clean environment, so nothing from the app or a Claude session leaks in (that turns transcript saving off)."""
+    A clean environment, so nothing from the app or a Claude session leaks in (that turns transcript saving off).
+    `model`: the model it ran on, for a session moved from this Mac only (migrate.py), which the server never ran."""
     cwd = ''
     with open(transcript) as f:
         for line in f:
@@ -762,7 +763,8 @@ def start_alone(transcript):
            'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
            'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
     subprocess.run(['/usr/bin/screen', '-dmS', 'kit-' + cid[:8], '/bin/zsh', '-lc',
-                    f"cd '{cwd or home}' && exec '{claude}' --resume {cid} --remote-control --permission-mode bypassPermissions"],
+                    f"cd '{cwd or home}' && exec '{claude}' --resume {cid} --remote-control --permission-mode bypassPermissions"
+                    + (f" --model '{model}'" if re.fullmatch(r'[\w.\[\]-]+', model or '') else '')],
                    env=env)
     return cid
 
@@ -966,7 +968,8 @@ def keep(dry=False):
         if up or now - a.get('at', 0) < KEEP_RETRY:
             continue
         tries = a.get('tries', 0)
-        if tries < KEEP_MOVE:  # stopped (a restart): the server first, like any other chat
+        if tries < KEEP_MOVE and not a.get('own'):  # stopped (a restart): the server first, like any other chat
+            # (`own`: moved here from this Mac only with migrate.py; the server never ran it, so it starts on its own)
             c = by_id.get(sid, {})
             meta, cfg = c.get('external_metadata') or {}, c.get('config') or {}
             level = meta.get('effort_level') or cfg.get('effort_level') or 'high'
@@ -985,9 +988,11 @@ def keep(dry=False):
             point_at(a['transcript'], sid, waiting_since_reply(chat_events(sid))[0])
         except Exception as e:
             log(f'keep   {sid} couldn\'t read where it left off: {e!r}'[:200])
-        start_alone(a['transcript'])
+        start_alone(a['transcript'], a.get('model', ''))
         a.update(at=now, tries=0)
-        log(f'start  {sid} "{title}" ran on its own, had stopped, and {KEEP_MOVE} wakes didn\'t start it; started it on its own again')
+        log(f'start  {sid} "{title}" ran on its own, had stopped, and '
+            + ('it was moved from this Mac only, so the server doesn\'t run it' if a.get('own') else f'{KEEP_MOVE} wakes didn\'t start it')
+            + '; started it on its own again')
 
     mine = [c for c in chats if c.get('environment_id') in envs and c.get('environment_kind') == 'bridge']
     stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running and c['id'] not in alone]
