@@ -1147,7 +1147,7 @@ def on_prompt(data, sid):
 
 
 def on_tool(data, sid):
-    if data.get('agent_id'):  # a subagent's own steps
+    if data.get('agent_id'):  # a subagent's own steps: a running subagent keeps its level, so its pick is at start
         return
     level_now = (data.get('effort') or {}).get('level', '')
     proc, launched = session_process()
@@ -1217,6 +1217,78 @@ def on_tool(data, sid):
         log(f'error  {sid} send {level} failed {status} {text[:120]} | {snippet}')
 
 
+AGENT_ASK = ('A Claude Code session is starting a subagent. The subagent sees only its brief below, not the '
+             'conversation, and works on it alone until it reports back.\n\nAgent type: {typ}\nDescription: {desc}\n\n'
+             'Brief:\n{brief}\n\nEffort level for this subagent?')
+
+
+def agent_def_effort(typ, cwd):
+    """The effort an agent definition sets for itself (`effort:` in the front matter of a user or project agent
+    file), or ''. A definition that sets it was set that way on purpose, so the Kit leaves it."""
+    for d in (os.path.join(cwd or '', '.claude', 'agents'), os.path.expanduser('~/.claude/agents')):
+        try:
+            with open(os.path.join(d, f'{typ}.md')) as f:
+                head = f.read(4000)
+        except OSError:
+            continue
+        m = re.match(r'---\s*\n(.*?)\n---', head, re.S)
+        e = m and re.search(r'^effort:\s*["\']?(\w+)', m.group(1), re.M)
+        if e:
+            return e.group(1).lower()
+    return ''
+
+
+def on_agent(data, sid):
+    """Before the Agent tool starts a subagent. A running subagent keeps the effort it starts with: a later
+    change to the session's level doesn't reach it, and no hook or interface changes one agent's level. So the
+    level is picked here, from the agent's brief, the way a prompt's is. Any agent but a fork gets it in its own
+    call (`effort` in the tool input, which Claude Code honors from a hook's updatedInput). A fork ignores that
+    and starts at the session's level, so for a fork that needs more, the session is raised first."""
+    ti = data.get('tool_input') or {}
+    typ = ti.get('subagent_type') or 'general-purpose'
+    desc = re.sub(r'\s+', ' ', ti.get('description') or '')[:80]
+    st = peek()
+    x = st.get('sessions', {}).get(sid, {}) if sid else {}
+    who = sid or (data.get('session_id') or '')[:8]
+    if st.get('paused') or x.get('manual'):
+        return None
+    if typ != 'fork' and (ti.get('effort') or agent_def_effort(typ, data.get('cwd'))):
+        log(f'agent  {who} {typ} kept {ti.get("effort") or agent_def_effort(typ, data.get("cwd"))}'
+            f' - {"set in the call" if ti.get("effort") else "set by its definition"} | {desc}')
+        return None
+    current = (data.get('effort') or {}).get('level') or x.get('level', '')
+    t0 = time.time()
+    try:
+        level, answer = judge(AGENT_ASK.format(typ=typ, desc=desc or '(none)', brief=(ti.get('prompt') or '')[:4000]))
+    except Exception as e:  # never block the agent
+        log(f'error  {who} agent judge failed: {e!r} | {desc}')
+        return None
+    secs = time.time() - t0
+    if answer == AT_LIMIT or not level:
+        if answer != AT_LIMIT:
+            log(f'error  {who} agent answer unreadable {answer!r} | {desc}')
+        return None
+    reason = answer.split(' - ', 1)[-1]
+    if typ != 'fork':
+        log(f'agent  {who} {typ} ->{level} ({secs:.1f}s) {level} - {reason} | {desc}')
+        return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'updatedInput': dict(ti, effort=level)}}
+    up = current in LEVELS and LEVELS.index(level) > LEVELS.index(current)
+    if not (sid and up):
+        log(f'agent  {who} fork at {current or "?"} ({secs:.1f}s) {level} - {reason} | {desc}')
+        return None
+    if by_hand(sid, desc):
+        return None
+    status, text, rid = send(sid, level)
+    if 200 <= status < 300:
+        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid,
+                 reason=f'A fork needs it: {reason}')
+        time.sleep(1.5)  # let the change reach the session before the fork starts and takes its level
+        log(f'agent  {who} fork {current}->{level} ({secs:.1f}s) {level} - {reason} | {desc}')
+    else:
+        log(f'error  {sid} send {level} for a fork failed {status} {text[:120]} | {desc}')
+    return None
+
+
 def set_level(sid, level):
     """The Kit window's effort pick: the person sets this session's level, so it goes to Manual, and the level goes
     out the way the hook sends its own (the change id is kept, so the check never reads it as a pick in the app)."""
@@ -1264,6 +1336,12 @@ def main():
         if rules:
             print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': '\n\n'.join(rules)}}))
     sid = session_id(data.get('transcript_path'))
+    if event == 'PreToolUse':  # a subagent is about to start; any session, Remote Control or not
+        limit_for(data.get('session_id'), data.get('transcript_path'), sid)
+        out = on_agent(data, sid)
+        if out:
+            print(json.dumps(out))
+        return
     if not sid:
         if event == 'UserPromptSubmit':
             log(f'skip   {data.get("session_id", "")[:8]} not a Remote Control session')

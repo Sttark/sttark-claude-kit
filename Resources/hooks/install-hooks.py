@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Add the effort hook to Claude Code's settings (~/.claude/settings.json), or
-take it out with --remove. Run by the Sttark Claude Kit app on every launch, so a
+take it out with --remove: on each prompt, after each step (in the background), and before the Agent tool starts
+a subagent (PreToolUse, matcher Agent|Task), to pick that agent's level. Run by the Sttark Claude Kit app on every launch, so a
 hook that went missing comes back.
 
 --names on|off adds or removes the session naming hook ("Name sessions
@@ -35,6 +36,7 @@ import json, os, shutil, sys, time
 SETTINGS = os.path.expanduser('~/.claude/settings.json')
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'effort-hook.py')
 COMMAND = f'"{HOOK}"'
+AGENT_MATCHER = 'Agent|Task'
 BYPASS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bypass-hook.sh')
 
 
@@ -277,6 +279,7 @@ def main():
     s = load()
     if '--status' in sys.argv:
         print(json.dumps({'effort': has(s, 'UserPromptSubmit', ours),
+                          'agent_effort': has(s, 'PreToolUse', ours),
                           'bypass': has(s, 'PermissionRequest', is_bypass),
                           'profile': has(s, 'UserPromptSubmit', is_profile),
                           'names': has(s, 'UserPromptSubmit', is_names),
@@ -358,15 +361,16 @@ def main():
     set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     set_rc_startup(s, not remove)
-    for event in ('UserPromptSubmit', 'PostToolUse'):
+    for event in ('UserPromptSubmit', 'PostToolUse', 'PreToolUse'):
         groups = hooks.get(event, [])
         for g in groups:  # drop every copy, old paths included
             g['hooks'] = [h for h in g.get('hooks', []) if not ours(h.get('command', ''))]
         groups = [g for g in groups if g.get('hooks')]
         if not remove:
             h = {'type': 'command', 'command': COMMAND}
-            h.update({'timeout': 40} if event == 'UserPromptSubmit' else {'async': True})
-            groups.append({'hooks': [h]})
+            h.update({'async': True} if event == 'PostToolUse' else {'timeout': 40})
+            # PreToolUse: before a subagent starts, to pick its effort (Agent; Task is its older name)
+            groups.append({'matcher': AGENT_MATCHER, 'hooks': [h]} if event == 'PreToolUse' else {'hooks': [h]})
         if groups:
             hooks[event] = groups
         else:
