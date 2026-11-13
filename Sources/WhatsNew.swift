@@ -256,8 +256,8 @@ struct NoteImage: View {
     let note: WhatsNew.Note
     let open: (WhatsNew.Note) -> Void
     var body: some View {
-        if let p = NotePicture.load(note) {
-            NotePicture(light: p.light, dark: p.dark, alt: note.alt)
+        if let p = NotePicture.size(note) {
+            NotePicture(note: note)
                 .frame(width: K.z(p.width), height: K.z(p.width / p.ratio))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(K.hair))
@@ -276,11 +276,11 @@ struct BigPicture: View {
     var body: some View {
         ZStack {
             Color.black.opacity(0.55).ignoresSafeArea().onTapGesture(perform: close)
-            if let p = NotePicture.load(note) {
+            if let p = NotePicture.size(note) {
                 GeometryReader { g in
                     let w = min(p.width * 1.6, g.size.width - 64, (g.size.height - 96) * p.ratio)
                     VStack(spacing: 10) {
-                        NotePicture(light: p.light, dark: p.dark, alt: note.alt)
+                        NotePicture(note: note)
                             .frame(width: w, height: w / p.ratio)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                             .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
@@ -295,46 +295,148 @@ struct BigPicture: View {
 }
 
 /// A note's picture, which moves when it is a GIF, and changes with the system's light or dark look.
+///
+/// The view plays the GIF itself, from one clock: each frame shows for its own time, and the light and the dark
+/// picture share the clock, so a change of look goes on at the same point. An image view that animates does not do
+/// this: it starts again at the first frame each time it gets its image, and the window reads its model again every
+/// 3 seconds, which set the image again and kept the picture on its first frame. This view reads its files once.
 struct NotePicture: NSViewRepresentable {
-    let light: NSImage
-    let dark: NSImage?
-    let alt: String
+    let note: WhatsNew.Note
 
-    /// `width`: the picture's own width in points, the most it is drawn at, so its words stay the size they were drawn.
-    static func load(_ n: WhatsNew.Note) -> (light: NSImage, dark: NSImage?, ratio: CGFloat, width: CGFloat)? {
-        guard let img = NSImage(contentsOf: WhatsNew.dir.appendingPathComponent(n.picture)) else { return nil }
-        let dark = n.picture_dark.flatMap { NSImage(contentsOf: WhatsNew.dir.appendingPathComponent($0)) }
-        let px = img.representations.first.map { NSSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? img.size
-        return (img, dark, px.height > 0 ? px.width / px.height : 2, px.width / 2)
+    /// The light picture and the dark one, when the note has one.
+    var files: [URL] {
+        [note.picture].map { WhatsNew.dir.appendingPathComponent($0) }
+            + (note.picture_dark.map { [WhatsNew.dir.appendingPathComponent($0)] } ?? [])
     }
 
-    final class View: NSImageView {
-        var light: NSImage?, dark: NSImage?
-        override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); pick() }
-        func pick() {
-            let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            let want = isDark ? (dark ?? light) : light
-            if image !== want { image = want }
+    private static var sizes: [String: (ratio: CGFloat, width: CGFloat)] = [:]
+
+    /// `width`: the picture's own width in points, the most it is drawn at, so its words stay the size they were drawn.
+    /// Read once for each file, not at each update of the page.
+    static func size(_ n: WhatsNew.Note) -> (ratio: CGFloat, width: CGFloat)? {
+        let path = WhatsNew.dir.appendingPathComponent(n.picture).path
+        if let s = sizes[path] { return s }
+        guard let img = NSImage(contentsOfFile: path) else { return nil }
+        let px = img.representations.first.map { NSSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? img.size
+        let s = (ratio: px.height > 0 ? px.width / px.height : 2, width: px.width / 2)
+        sizes[path] = s
+        return s
+    }
+
+    /// A picture's frames and the time each one ends, from the start of the loop. A still picture is one frame.
+    struct Movie {
+        var frames: [CGImage] = []
+        var ends: [Double] = []
+        var total: Double { ends.last ?? 0 }
+
+        init?(_ url: URL) {
+            if let src = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(src) > 0 {
+                var t = 0.0
+                for i in 0..<CGImageSourceGetCount(src) {
+                    guard let f = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+                    let p = CGImageSourceCopyPropertiesAtIndex(src, i, nil) as? [CFString: Any]
+                    let g = p?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+                    let d = (g?[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (g?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+                    t += d < 0.02 ? 0.1 : d   // as browsers do, a frame with no time shows for 0.1 s
+                    frames.append(f)
+                    ends.append(t)
+                }
+            } else if let img = NSImage(contentsOf: url) {   // an SVG
+                var r = NSRect(origin: .zero, size: NSSize(width: img.size.width * 2, height: img.size.height * 2))
+                if let f = img.cgImage(forProposedRect: &r, context: nil, hints: nil) { frames = [f]; ends = [1] }
+            }
+            if frames.isEmpty { return nil }
         }
+
+        /// The frame at a time on the clock, and the time it ends.
+        func frame(at t: Double) -> (index: Int, ends: Double) {
+            guard frames.count > 1, total > 0 else { return (0, .infinity) }
+            let loop = (t / total).rounded(.down) * total
+            let i = ends.firstIndex { loop + $0 > t } ?? frames.count - 1
+            return (i, loop + ends[i])
+        }
+    }
+
+    final class View: NSView {
+        private var files: [URL] = []
+        private var light: Movie?, dark: Movie?
+        /// The clock's zero: when the picture first showed.
+        private var start = CACurrentMediaTime()
+        private var timer: Timer?
+        private(set) var shown = 0
+
+        /// Reads the files only when they are not the ones it shows already: an update of the page keeps it playing.
+        func show(_ files: [URL]) {
+            guard files != self.files else { return }
+            self.files = files
+            light = Movie(files[0])
+            dark = files.count > 1 ? Movie(files[1]) : nil
+            start = CACurrentMediaTime()
+            tick()
+        }
+
+        /// Gone from the page: no more timer.
+        func stop() { timer?.invalidate(); timer = nil }
+
+        var movie: Movie? {
+            effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? (dark ?? light) : light
+        }
+
+        /// Shows the frame for the clock now, and sets a timer for the next one. While the window is not on the
+        /// screen, it only checks again now and then.
+        private func tick() {
+            timer?.invalidate()
+            timer = nil
+            guard let m = movie, window != nil else { return }
+            let now = CACurrentMediaTime()
+            let f = m.frame(at: now - start)
+            if f.index != shown { shown = f.index; needsDisplay = true }
+            guard m.frames.count > 1 else { return }
+            let visible = window?.isVisible == true
+            let wait = visible ? max(0.01, f.ends - (now - start)) : 0.5
+            let t = Timer(timeInterval: wait, repeats: false) { [weak self] _ in self?.tick() }
+            RunLoop.main.add(t, forMode: .common)   // it plays on while the page scrolls
+            timer = t
+        }
+
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); tick() }
+
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            needsDisplay = true
+            tick()
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            guard let m = movie, let ctx = NSGraphicsContext.current?.cgContext else { return }
+            let f = m.frames[min(shown, m.frames.count - 1)]
+            let w = CGFloat(f.width), h = CGFloat(f.height)
+            let s = min(bounds.width / w, bounds.height / h)
+            let r = CGRect(x: bounds.midX - w * s / 2, y: bounds.midY - h * s / 2, width: w * s, height: h * s)
+            ctx.interpolationQuality = .high
+            ctx.draw(f, in: r)
+        }
+
+        /// A click goes to the SwiftUI view around it, which opens the picture bigger.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric) }
     }
 
     func makeNSView(context: Context) -> View {
         let v = View()
-        v.imageScaling = .scaleProportionallyUpOrDown
-        v.animates = true
         v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         v.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        v.setAccessibilityLabel(alt)
-        v.toolTip = alt
+        v.setAccessibilityElement(true)
+        v.setAccessibilityRole(.image)
         return v
     }
 
     func updateNSView(_ v: View, context: Context) {
-        v.light = light
-        v.dark = dark
-        v.pick()
+        v.setAccessibilityLabel(note.alt)
+        v.show(files)
     }
+
+    static func dismantleNSView(_ v: View, coordinator: ()) { v.stop() }
 }
 
 extension NSColor {
