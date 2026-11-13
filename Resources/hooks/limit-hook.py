@@ -56,7 +56,9 @@ HOLDS = os.path.join(DIR, 'holds')   # --hold's claim files, and one lock per se
 TEST = os.environ.get('STTARK_LIMIT_TEST')
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 URL = os.environ.get('STTARK_LIMIT_URL') or 'https://api.anthropic.com/api/oauth/usage'   # tests: a stand-in server
-FRESH = 60       # seconds a usage read is good for
+FRESH = 120      # seconds a usage read is good for (Claude Code reads the same usage endpoint with the same
+                 # login in every session, so the Kit's own reads stay few)
+FRESH_SLOW = 300  # ... for CALM after a failed read, so a shared rate limit is not hit again and again
 FRESH_NEAR = 15  # ... when a limit is at 90% or more, so the pause starts soon after the limit
 BACKOFF = 120    # seconds to wait after a failed usage read, doubling each time ...
 BACKOFF_MAX = 900  # ... up to 15 minutes
@@ -162,10 +164,10 @@ def calm(c, now=None):
 
 def good_for(c, u, max_age):
     """How long the cached read is good for: max_age when given, else a minute (15 seconds near a limit, unless a
-    read failed in the last CALM: then a minute, so the 15-second reads don't bring the next 429)."""
+    read failed in the last CALM: then FRESH_SLOW, so frequent reads don't bring the next 429)."""
     if max_age is not None:
         return max_age
-    return FRESH if calm(c) else fresh_for(u)
+    return FRESH_SLOW if calm(c) else fresh_for(u)
 
 
 def usage(max_age=None, wait=0):
@@ -214,7 +216,7 @@ def usage(max_age=None, wait=0):
                     after = 0
             wait_s = max(after, min(BACKOFF * 2 ** (fails - 1), BACKOFF_MAX))
             c.update(fails=fails, failed_at=time.time(), retry_at=time.time() + wait_s)
-            if fails == 1 or after or wait_s >= BACKOFF_MAX:
+            if fails == 1 or wait_s >= BACKOFF_MAX:
                 log(f'usage read failed: {e}; next read in {wait_s // 60 or 1} min, '
                     + ('using the last read' if u else 'no read yet'))
             put(c)
