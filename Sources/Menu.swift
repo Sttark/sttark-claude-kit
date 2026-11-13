@@ -93,6 +93,11 @@ final class Controller: NSObject, NSMenuDelegate {
         if ChromeWindow.on { ChromeWindow.installTool() }
         ChromeWindow.tellHooks()
         FileLinks.refresh()
+        KitDefaults.apply()
+        NotificationCenter.default.addObserver(forName: .init("kitOpenSettings"), object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            KitWindow.shared.show(.settings, controller: self)
+        }
         Stable.keep(Server.installed)
         let menu = NSMenu()
         menu.delegate = self
@@ -104,14 +109,20 @@ final class Controller: NSObject, NSMenuDelegate {
         State.refreshModels()
         Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in State.refreshModels() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 40) { Server.autoStart() }
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Server.autoStart() }
         Waiting.watchFront()
         Waiting.refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
         Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in Server.keepChats() }
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in ChromeWindow.cleanTabs() }
+        Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in KitDefaults.applyBypassSettings() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
+        LocalSessions.scan()
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in LocalSessions.scan() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
+        KitLogs.start()
         WhatsNew.start(changed: { [weak self] in self?.refreshIcon(); KitWindow.shared.model.unseen = WhatsNew.unseen.count })
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
@@ -193,6 +204,15 @@ final class Controller: NSObject, NSMenuDelegate {
             head.representedObject = rows.first?.id
             head.toolTip = "Opens Sttark Claude Kit at \(g.title.lowercased())."
             menu.addItem(head)
+            if g == .waits {  // a wait whose check fails shows, so it never fails silently
+                for r in rows where r.subWarn {
+                    let i = action("", #selector(openRow(_:)))
+                    i.attributedTitle = row(r.title, "check failing", tagBold: true)
+                    i.representedObject = r.id
+                    i.toolTip = (r.waits.first { !$0.failing.isEmpty }?.failing ?? "") + ". Click to see it in Sttark Claude Kit."
+                    menu.addItem(i)
+                }
+            }
             guard g == .needs || g == .held else { continue }
             for r in rows.prefix(g == .needs ? 5 : 3) {
                 let i = action("", #selector(openRow(_:)))
@@ -292,11 +312,16 @@ final class Controller: NSObject, NSMenuDelegate {
 
     // MARK: actions
 
-    @objc func toggleBypass() { Bypass.set(!Bypass.on) }
+    @objc func toggleBypass() {
+        let on = !Bypass.on
+        KitDefaults.chose("bypass", on: on)
+        Bypass.set(on)
+        if on { KitDefaults.applyBypassSettings() } else { KitDefaults.bypassOff() }
+    }
     @objc func toggleCredits() { Limit.setCreditsAll(!Limit.creditsAll) }
 
     @objc func toggleChrome() {
-        if ChromeApprover.on { ChromeApprover.stop() } else { ChromeApprover.start() }
+        if ChromeApprover.on { ChromeApprover.stop(); KitDefaults.chose("chrome", on: false) } else { ChromeApprover.start(); KitDefaults.chose("chrome", on: true) }
     }
 
     @objc func signIn() { Login.signIn() }
@@ -304,12 +329,12 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
     @objc func openChromeWindow() { ChromeWindow.open() }
 
-    @objc func toggleFileLinks() { FileLinks.set(!FileLinks.on) }
-    @objc func toggleNames() { Names.set(!Names.on) }
+    @objc func toggleFileLinks() { let on = !FileLinks.on; FileLinks.set(on); KitDefaults.chose("fileLinks", on: on) }
+    @objc func toggleNames() { let on = !Names.on; Names.set(on); KitDefaults.chose("names", on: on) }
     @objc func toggleWorkingRules() { WorkingRules.set(!WorkingRules.on) }
 
     @objc func toggleProfile() {
-        if ProfileSync.on { ProfileSync.stop(); return }
+        if ProfileSync.on { ProfileSync.stop(); KitDefaults.chose("profile", on: false); return }
         guard ProfileSync.claudeAppSignedIn else {
             let a = NSAlert()
             a.messageText = "Needs the Claude app"
@@ -319,7 +344,7 @@ final class Controller: NSObject, NSMenuDelegate {
             return
         }
         ProfileSync.start { err in
-            guard let err else { return }
+            guard let err else { KitDefaults.chose("profile", on: true); return }
             let a = NSAlert()
             a.messageText = "Couldn't turn on the sync"
             a.informativeText = err
@@ -339,16 +364,14 @@ final class Controller: NSObject, NSMenuDelegate {
             a.runModal()
             return
         }
-        if Server.installed { Server.stop() } else { Server.setUp() }
+        if Server.installed { Server.stop(); KitDefaults.chose("server", on: false) }
+        else { Server.setUp(); if Server.installed { KitDefaults.chose("server", on: true) } }
     }
 
     @objc func togglePaused() { State.setPaused(!State.paused); refreshIcon() }
 
-    @objc func openLog() {
-        if !FileManager.default.fileExists(atPath: logURL.path) { FileManager.default.createFile(atPath: logURL.path, contents: nil) }
-        NSWorkspace.shared.open([logURL], withApplicationAt: URL(fileURLWithPath: "/System/Applications/Utilities/Console.app"),
-                                configuration: NSWorkspace.OpenConfiguration())
-    }
+    /// The window's Events page: what the Kit did, in plain words, newest first.
+    @objc func openLog() { KitWindow.shared.show(.events, controller: self) }
 
     @objc func update() { updater.install() }
     @objc func showWhatsNew() { KitWindow.shared.show(KitWindow.shared.window?.isVisible == true ? KitWindow.shared.model.page : .sessions, sheet: true, controller: self) }

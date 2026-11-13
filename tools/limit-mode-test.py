@@ -163,12 +163,9 @@ st3 = {'limit_modes': {S3: {'mode': 'hold', 'at': 80, 'sid': S3, 'set_at': 1}, S
 h = lh.hold_for(S3, '', TP3, usage(scoped=90), st3)
 check('Fable weekly at 90% holds a session on Fable', h and h.name == 'Fable weekly', h)
 check('... and not a session on another model', lh.hold_for(S1, '', TP1, usage(scoped=90), st3) is None)
-# "use credits" for one session
-stc = dict(st, limit_credits={S1: time.time() + 600})
-check('hold 80 + "use credits" until the reset -> goes on', lh.hold_for(S1, '', TP1, usage(five=85), stc) is None)
-check('... once=False still sees the hold', lh.hold_for(S1, '', TP1, usage(five=85), stc, once=False) is not None)
-stc = dict(st, limit_credits={S1 + '/agent1': time.time() + 600})
-check('a "use credits" saved under an agent row\'s key counts for the session', lh.hold_for(S1, '', TP1, usage(five=85), stc) is None)
+# an old one-time "use credits" (limit_credits, from an older Kit) never overrides the session's setting
+stc = dict(st, limit_credits={S1: time.time() + 600, S1 + '/agent1': time.time() + 600})
+check('hold 80 + an old limit_credits entry -> still holds', lh.hold_for(S1, '', TP1, usage(five=85), stc) is not None)
 
 # ---- phrases ------------------------------------------------------------------------------------------------
 print('-- phrases')
@@ -177,7 +174,7 @@ for text, want in (('no credits', ('hold', 80)), ('No credits.', ('hold', 80)), 
                    ('never use credits 85', ('hold', 85)), ('never use credits', ('hold', 80)),
                    ('credits ok', ('credits', None)), ('Credits OK!', ('credits', None)),
                    ('always use credits', ('credits', None)), ('follow the menu', ('follow', None)),
-                   ('Follow the menu.', ('follow', None)), ('use credits', ('once', None)), (' use  credits ', ('once', None)),
+                   ('Follow the menu.', ('follow', None)), ('use credits', ('credits', None)), (' use  credits ', ('credits', None)),
                    ([{'type': 'text', 'text': 'no credits 75'}], ('hold', 75)),
                    ('no credits were used', None), ('no credits 0', None), ('no credits 101', None), ('no credits 5000', None),
                    ('use credits now', None), ('are credits ok?', None), ('credits', None), ('please follow the menu', None),
@@ -272,7 +269,7 @@ check('a menu entry with a float percentage: hold at 70', lh.mode_of(s, S2, '') 
 h = lh.hold_for(S2, C2, TP2, usage(five=85), s)
 check('... holds at 85%', h is not None and h.at == 70, h)
 check('a row with a float pid counts as live', lh.others(s['limit_pauses'], 'other', S2, '') == [S2 + '/toolu_swift'])
-check('a float "use credits" time counts', lh.hold_for(S1, '', TP1, usage(five=100), dict(s, limit_modes=HOLD80)) is None)
+check('an old "use credits" time is ignored', lh.hold_for(S1, '', TP1, usage(five=100), dict(s, limit_modes=HOLD80)) is not None)
 r = run(['mode', '--list'])
 check('claude-limit-mode --list reads it', '(22222222): never use credits; hold at 70% (set by menu' in r.stdout, r.stdout + r.stderr)
 r = run(['mode', S2, 'credits'])
@@ -375,12 +372,13 @@ check('typed "follow the menu": the entry is gone', lh.mode_of(peek(), S1, '') =
 state(limit_modes=dict(HOLD80))
 open(LOG, 'w').close()
 o = hook('UserPromptSubmit', S1, TP1, {'prompt': 'use credits'})
-lc = peek().get('limit_credits', {}).get(S1, 0)
-check('typed "use credits" in a hold session at 85%: credits until the 5-hour reset, setting kept',
-      abs(lc - lh.stamp(json.load(open(USAGE))['limits'][0]['resets_at'])) < 2 and lh.mode_of(peek(), S1, '') == ('hold', 80)
-      and 'until the 5-hour limit resets' in o['hookSpecificOutput']['additionalContext'], (lc, o))
+check('typed "use credits" in a hold session at 85%: set to Always use credits, said, undo pointed at the menu',
+      lh.mode_of(peek(), S1, '') == ('credits', None) and 'limit_credits' not in peek()
+      and 'always use credits' in o['hookSpecificOutput']['additionalContext']
+      and 'At the usage limit menu' in o['hookSpecificOutput']['additionalContext'], o)
 hook('UserPromptSubmit', S1, TP1, {'prompt': 'use credits'})
-check('"use credits" again: no change, logged once', logtext().count('credits 11111111') == 1, logtext())
+check('"use credits" again: no change, logged once', logtext().count('mode   11111111 always use credits') == 1, logtext())
+state(limit_modes=dict(HOLD80))
 # a reply now would use credits: the message is left to --hold
 state(limit_credits_all=True, limit_modes=dict(HOLD80))
 usage(five=100)
@@ -645,9 +643,10 @@ wait_for(lambda: {S1 + '/toolu_c1', S1 + '/toolu_c2'} <= set(rows()), 5)
 with open(TP1, 'a') as f:
     f.write(json.dumps({'type': 'queue-operation', 'operation': 'enqueue', 'content': 'use credits'}) + '\n')
 check('"use credits" queued during two holds: both end', wait_for(lambda: pa.poll() is not None and pb.poll() is not None, 6))
-check('... and "credits" is logged once', logtext().count('credits 11111111') == 1, logtext())
+check('... and the change to always use credits is logged once', logtext().count('mode   11111111 always use credits') == 1, logtext())
+check('... and is the session\'s setting now', lh.mode_of(peek(), S1, '') == ('credits', None))
 with lh.state() as st_:
-    st_['limit_credits'] = {}
+    st_['limit_modes'] = dict(HOLD80)
 
 # "credits ok" typed in the Claude app (server events), checked by one held process of the session
 state(limit_credits_all=True, limit_modes={C2: {'mode': 'hold', 'at': 80, 'sid': S2, 'cse': C2, 'set_at': 1}},
@@ -665,13 +664,17 @@ check('"credits ok" sent from the app (server events) during the hold: both end'
 check('... always use credits now', lh.mode_of(peek(), S2, C2) == ('credits', None))
 json.dump({'data': []}, open(EVENTS, 'w'))
 
-# the menu: credits for this session (limit_credits), and a setting change
+# the menu: an old limit_credits entry does nothing; Always use credits picked in the menu ends the hold
 state(limit_modes=dict(HOLD80))
 p = start_hold(S1, TP1, tuid='toolu_m5')
 time.sleep(1)
 with lh.state() as st_:
     st_['limit_credits'] = {S1: time.time() + 3600}
-check('Use credits clicked in the menu: the hold ends', wait_for(lambda: p.poll() is not None, 5))
+time.sleep(1.5)
+check('an old limit_credits entry: the hold goes on', p.poll() is None)
+lh.set_mode(S1, '', 'credits', by='menu')
+check('Always use credits picked in the menu: the hold ends', wait_for(lambda: p.poll() is not None, 5))
+check('... and the old entry is dropped and logged', 'limit_credits' not in peek() and 'dropped the old one-time' in logtext(), logtext())
 state(limit_modes=dict(HOLD80))
 p = start_hold(S1, TP1, tuid='toolu_m6')
 time.sleep(1)

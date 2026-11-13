@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Open session · Claude Kit · Sttark</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<!--
+  The link in Sttark Claude Kit messages (claude-notify: email, Google Chat, text). Email and Chat do not make a
+  claude:// link clickable, so the message links here, and this page opens the session:
+    https://sttark.github.io/sttark-claude-kit/open#<cse_ or session_ id>/<claude.ai link id>
+  - On a computer: it opens claude://code/<id> (the Claude desktop app). When the browser stays in front for
+    1.5 seconds (no app, so nothing happened), it goes on to https://claude.ai/code/<link id>.
+  - On a phone: it shows one button to https://claude.ai/code/<link id>, which the Claude app opens when it is
+    on the phone. A tap is needed: a phone opens an app's link only from a tap, never from a page's script.
+  The ids are after the #, so the browser never sends them to this server. The page loads nothing else and
+  keeps nothing.
+-->
+<style>
+:root {
+  color-scheme: light;
+  --paper: #f8f5f2; --card: #ffffff; --chrome: #000000; --chrome-edge: rgba(0, 0, 0, 0.28);
+  --ink: #000000; --steel: #5b6570; --line: #e6e1da;
+  --green: #00892f; --green-hover: #007a2a; --green-text: #007a2a;
+  --bad-text: #b42318; --bad-soft: #fdecea; --bad-border: #f2b8b5;
+  --font: 'Founders Grotesk', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #121417; --card: #1a1d21; --chrome-edge: #2b2f34;
+    --ink: #e6e8ea; --steel: #9aa3ad; --line: #2b2f34;
+    --green: #00892f; --green-hover: #00a82d; --green-text: #00a82d;
+    --bad-text: #f97066; --bad-soft: #3a1d1a; --bad-border: #6b2a25;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.5; }
+.topbar { display: flex; align-items: center; padding: 12px 24px; background: var(--chrome); color: #fff;
+  box-shadow: 0 1px 0 var(--chrome-edge); }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand svg { height: 24px; width: auto; display: block; }
+.brand .app { font-weight: 600; font-size: 18px; line-height: 1; padding-left: 12px; border-left: 1px solid rgba(255,255,255,.3); }
+main { max-width: 560px; margin: 0 auto; padding: 48px 24px; }
+h1 { font-size: 32px; line-height: 1.1; font-weight: 600; margin: 0 0 12px; }
+.state { color: var(--steel); margin: 0 0 24px; min-height: 48px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 32px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 16px;
+  border-radius: var(--radius); font: 600 15px/1.2 var(--font); text-decoration: none; border: 1px solid var(--ink); color: var(--ink); background: transparent; }
+.btn svg { width: 16px; height: 16px; flex: none; }
+.btn.main { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.main:hover { background: var(--green-hover); border-color: var(--green-hover); }
+.btn:not(.main):hover { color: var(--green-text); border-color: var(--green-text); }
+.btn:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.tip { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; font-size: 14px; color: var(--steel); }
+.tip b { color: var(--ink); font-weight: 600; }
+.tip p { margin: 0; }
+.tip p + p { margin-top: 8px; }
+.bad { background: var(--bad-soft); border: 1px solid var(--bad-border); color: var(--bad-text); border-radius: var(--radius); padding: 12px 16px; }
+[hidden] { display: none !important; }
+@media (max-width: 760px) {
+  .topbar { padding: 10px 16px; }
+  .brand { min-height: 44px; }
+  .brand .app { font-size: 16px; }
+  main { padding: 32px 16px; }
+  h1 { font-size: 26px; }
+  .btn { min-height: 44px; width: 100%; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="12 12 400 360" role="img" aria-label="Sttark"><path fill="currentColor" d="M110.3,84.4c0,11.2-0.5,21.6,0.1,31.9c1.2,22.7,14.8,35,40.4,35.3c42.6,0.6,85.2,0.1,127.8,0.4c13.9,0.1,27.9,0.2,41.6,1.9 c60.2,7.2,98.4,57.8,89.8,118.2c-8.1,57-47.2,96.3-104.7,98.4c-62.1,2.3-124.3,0.7-186.5-0.9c-15.8-0.4-32-5.8-47-11.7 C25.1,339.5,9,297,12.5,252h91.2v9.5c0,23.4,11.4,35.7,34.9,36.2c27.7,0.6,55.3,0.2,83,0.2c20.1,0,40.3,0.1,60.4,0 c29.4-0.1,45.8-27.3,32.2-53.7c-6.9-13.3-19.5-16-32.9-16c-41.9-0.1-83.9,0.4-125.8-0.2c-19.5-0.3-39.4-0.6-58.5-4.4 c-44.5-8.9-78.1-52.9-78.1-97.5v-114c15.9,0,194.2-0.3,265.1,0.2c15.7,0.1,31.8,3.2,46.8,7.8c39.3,12,62.7,42.9,65.6,83.8 c0.5,7.3,0.1,14.6,0.1,22.2h-89.8c-0.1-1.3-0.3-2.6-0.3-3.9c-0.3-26.7-11.3-37.6-38.2-37.7c-33.2-0.1-66.4,0-99.6,0 C149.2,84.4,130,84.4,110.3,84.4"/></svg>
+    <span class="app">Claude Kit</span>
+  </div>
+</header>
+<main>
+  <h1>Open in Claude</h1>
+  <p class="state" id="state" role="status">Opening the session…</p>
+  <div class="actions" id="actions" hidden>
+    <a class="btn main" id="app"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Open in the Claude app</a>
+    <a class="btn" id="web"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Open in the browser</a>
+  </div>
+  <div class="tip" id="tip" hidden>
+    <p><b>The browser asks "Open Claude?"</b> In Chrome, tick <b>Always allow sttark.github.io to open links of this type</b>, then click <b>Open Claude</b>. After that, these links open the Claude app with no question.</p>
+    <p>No Claude app on this computer? The session opens on claude.ai in a moment.</p>
+  </div>
+  <p class="bad" id="bad" hidden>This link has no session in it. Open the session from the Claude app or claude.ai.</p>
+</main>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var app = '', web = '';
+  location.hash.replace(/^#/, '').split('/').forEach(function (p) {
+    if (!app && /^(cse|session)_[A-Za-z0-9]{8,}$/.test(p)) app = p;
+    else if (!web && /^[a-z]+_[A-Za-z0-9]{8,}$/.test(p)) web = p;
+  });
+  if (!app && /^session_/.test(web)) app = web;
+  if (!app) { $('state').hidden = true; $('bad').hidden = false; return; }
+  if (!web) web = app.indexOf('session_') === 0 ? app : 'session_' + app.slice(4);
+  var appURL = 'claude://code/' + app, webURL = 'https://claude.ai/code/' + web;
+  $('app').href = appURL;
+  $('web').href = webURL;
+  $('actions').hidden = false;
+
+  var phone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (phone) {
+    // a phone opens the Claude app from a tap on its claude.ai link, never from a script, so one button
+    $('app').hidden = true;
+    $('web').className = 'btn main';
+    $('web').lastChild.textContent = 'Open in Claude';
+    $('state').textContent = 'Tap to open the session. It opens in the Claude app when the app is on this phone, else on claude.ai.';
+    return;
+  }
+
+  // the browser lost the front (the app opened, or the browser asks first): stay; else on to claude.ai
+  var left = false;
+  var away = function () { left = true; };
+  window.addEventListener('blur', away);
+  window.addEventListener('pagehide', away);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') away(); });
+  $('state').textContent = 'Opening the session in the Claude app…';
+  $('tip').hidden = false;
+  location.href = appURL;
+  setTimeout(function () {
+    if (!left && document.visibilityState === 'visible' && document.hasFocus()) {
+      $('state').textContent = 'No Claude app here. Opening the session on claude.ai…';
+      location.replace(webURL);
+    } else {
+      $('state').textContent = 'Did the Claude app open the session? Then you can close this tab. If not, use a button below.';
+    }
+  }, 1500);
+})();
+</script>
+</body>
+</html>

@@ -4,7 +4,9 @@
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
 //   docs/window-settings.png  the window's Settings page
 //   docs/window-news.png      the window's What's new page
+//   docs/window-events.png    the window's Events page, newest first, from sample log lines
 //   docs/whats-new.png        the What's new sheet over the window, with this repo's notes
+// and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
 // The window and the sheet are real windows, put off the screen and captured with screencapture, so they look as
 // they do on this Mac; nothing shows on the screen and nothing comes to the front.
@@ -31,6 +33,7 @@ import SwiftUI
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         setenv("STTARK_KIT_DIR", dir.path, 1)
         setenv("STTARK_KIT_LOG", dir.appendingPathComponent("log").path, 1)
+        setenv("STTARK_KIT_LOGS_DIR", dir.path, 1)   // the Log page's other logs: none, so nothing of this Mac's
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let app = NSApplication.shared
@@ -71,6 +74,39 @@ import SwiftUI
             Shot.capture(w, to: folder + "/window-settings.png")
             model.page = .news
             Shot.capture(w, to: folder + "/window-news.png")
+            model.page = .events
+            model.readEvents()
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+            model.openEvent = model.events.first { $0.count > 1 }?.id
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            Shot.capture(w, to: folder + "/window-events.png")
+            model.openEvent = nil
+            // the events note's picture: the newest rows alone, at the note's size
+            let rows = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            rows.appearance = w.appearance
+            rows.isReleasedWhenClosed = false
+            model.openEvent = model.events.first { $0.count > 1 }?.id
+            rows.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(model.events.prefix(4))) { e in
+                    EventRow(model: model, e: e, open: model.openEvent == e.id)
+                    Hairline()
+                }
+                Spacer(minLength: 0)
+            }.padding(12).frame(width: 440, height: 280).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            rows.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            Shot.capture(rows, to: "whats-new/events-page" + (look ? "-dark" : "") + ".png")
+            rows.close()
+            model.openEvent = nil
+            // the kit-window note's picture: the top of the session list, at the window's narrowest
+            model.page = .sessions
+            let f = w.frame
+            w.setContentSize(NSSize(width: 960, height: 760))
+            w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            let full = "/tmp/kit-shot-\(getpid())-narrow.png"
+            Shot.capture(w, to: full)
+            Shot.crop(full, NSRect(x: 226, y: 60, width: 392, height: 252),
+                      to: "whats-new/kit-window" + (look ? "-dark" : "") + ".png")
+            w.setFrame(f, display: true)
             // the What's new sheet, as the menu's What's new item opens it, over the window
             model.page = .sessions
             model.sheet = WhatsNew.all
@@ -79,6 +115,20 @@ import SwiftUI
             Shot.capture(w, to: folder + "/whats-new.png", wait: 0.2)
             model.sheet = []
             RunLoop.main.run(until: Date().addingTimeInterval(1))
+            // the one-setting note's picture: a held session, pointed at its own setting
+            let before = model.selected
+            model.selected = model.snap.rows.first { $0.title == "Site map plan" }?.id
+            let panel = "/tmp/kit-shot-\(getpid())-held.png"
+            Shot.capture(w, to: panel)
+            Shot.crop(panel, NSRect(x: 845, y: 255, width: 335, height: 250),
+                      to: "whats-new/credits-one-setting" + (look ? "-dark" : "") + ".png")
+            // the move note's picture: a session on this Mac only, with Move to Remote Control
+            model.selected = model.snap.rows.first { $0.title == "Weekly plan" }?.id
+            let local = "/tmp/kit-shot-\(getpid())-local.png"
+            Shot.capture(w, to: local)
+            Shot.crop(local, NSRect(x: 845, y: 74, width: 335, height: 280),
+                      to: "whats-new/move-to-remote-control" + (look ? "-dark" : "") + ".png")
+            model.selected = before
         }
         w.close()
     }
@@ -95,6 +145,18 @@ import SwiftUI
         return w
     }
 
+    /// A part of a 2x capture, given in points from the top left.
+    static func crop(_ path: String, _ r: NSRect, to out: String) {
+        let img = NSImage(contentsOfFile: path)!
+        var rect = NSRect(origin: .zero, size: img.size)
+        let cg = img.cgImage(forProposedRect: &rect, context: nil, hints: nil)!
+        let s: CGFloat = 2   // the captures are 2x
+        let part = cg.cropping(to: CGRect(x: r.minX * s, y: r.minY * s, width: r.width * s, height: r.height * s))!
+        let rep = NSBitmapImageRep(cgImage: part)
+        try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: out))
+        print("wrote \(out)")
+    }
+
     /// Shows the window off the screen, lets it draw, and captures it with its own pixels.
     static func capture(_ w: NSWindow, to path: String, wait: TimeInterval = 1.2) {
         if w.sheetParent == nil { w.orderFrontRegardless() }
@@ -104,7 +166,20 @@ import SwiftUI
         t.arguments = ["-x", "-o", "-l\(w.windowNumber)", path]
         try! t.run()
         t.waitUntilExit()
+        if !FileManager.default.fileExists(atPath: path) || t.terminationStatus != 0 { cache(w, to: path) }
         print("wrote \(path)")
+    }
+
+    /// When screencapture can't (the screen is locked): the window's views drawn into a 2x bitmap.
+    static func cache(_ w: NSWindow, to path: String) {
+        guard let v = w.contentView else { return }
+        let size = v.bounds.size
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = size
+        v.cacheDisplay(in: v.bounds, to: rep)
+        try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     }
 }
 
@@ -139,6 +214,26 @@ enum Sample {
 
     static func write(_ dir: URL) {
         let now = Date().timeIntervalSince1970
+        // The Log page's sample lines, oldest first as the hooks write them.
+        let lf = DateFormatter(); lf.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        func logAt(_ m: Double) -> String { lf.string(from: Date().addingTimeInterval(-m * 60)) }
+        var lines: [(Double, String)] = [
+            (1500, "app    update: installed 1.160, restarting"),
+            (1450, "wake   cse_01Sample7 \"Site map plan\" stopped, not archived; sent high to start it"),
+            (300, "change cse_01Sample9 ->low (1.9s) low - A simple rename across a few files | Rename the report columns to match the new names"),
+            (190, "name   sid-sample-9 -> \"Rename report columns\" (2.0s) | Rename the report columns to match the new names"),
+            (52, "change cse_01Sample3 medium->low (2.1s) low - Routine edit with a clear plan. | Fix the typo on the exterior lighting page"),
+            (41, "wait   07f324 cse_01Sample5 \"HVAC updates\" set: a reply from the controls supplier, by Mon 9:00 AM | they answer overnight"),
+            (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a full app window. | Add an event viewer to the Kit"),
+            (21, "limit  hold   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM (Bash)"),
+            (21, "limit  wait   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM, with no model calls until it ends"),
+            (12, "notify Sttark Claude Kit email ok: sent to you@example.com; it arrives in about a minute | HVAC updates: the supplier replied"),
+            (9, "error  cse_01Sample8 judge failed: TimeoutExpired"),
+            (6, "change cse_01Sample4 xhigh->high (2.4s) high - The layout is set; now the checks. | Make the rows plain words"),
+        ]
+        for m in stride(from: 240.0, through: 3, by: -3) { lines.append((m, "limit  usage read failed: HTTP Error 429: Too Many Requests; next read in 2 min, using the last read")) }
+        let text = lines.sorted { $0.0 > $1.0 }.map { logAt($0.0) + " " + $0.1 }.joined(separator: "\n") + "\n"
+        try? text.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
         func session(_ n: Int, _ title: String, _ level: String, ago: Double, reason: String = "", manual: Bool = false,
                      app: [String: Any] = [:], turn: Double? = nil) -> (String, [String: Any]) {
             var a: [String: Any] = ["url": "https://claude.ai/code/session_sample\(n)", "working": false, "archived": false]
@@ -154,7 +249,8 @@ enum Sample {
             session(2, "Label press manual", "medium", ago: 41, app: ["unseen": true, "last_event_at": ago(41)]),
             session(3, "Exterior lighting", "low", ago: 8, app: ["unseen": true, "last_event_at": ago(8)]),
             session(4, "Sttark Claude Kit", "xhigh", ago: 0, reason: "Design question on a full app window", app: ["working": true], turn: 6),
-            session(5, "HVAC updates", "medium", ago: 1, reason: "Summarizes the agents' photos", app: ["working": true], turn: 2),
+            session(5, "HVAC updates", "medium", ago: 1, reason: "Summarizes the agents' photos",
+                    app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the B unit heads", "since": now - 9 * 60]]),
             session(6, "Press color", "high", ago: 0, manual: true, app: ["working": true], turn: 14),
             session(7, "Site map plan", "high", ago: 30, reason: "Design work across several apps"),
             session(8, "Inventory photo cleanup", "medium", ago: 50),
@@ -188,6 +284,12 @@ enum Sample {
                        "what": "Supplier's reply to the deposit email", "why": "They said 2 workdays; later misses this week's slot",
                        "by": at(9, 0, daysAhead: daysToMon).timeIntervalSince1970, "set_at": now - 5 * 3600, "cse": "cse_01Sample10",
                        "title": "Laminator quote", "session_url": "https://claude.ai/code/session_sample10"],
+            "j1k2l3": ["id": "j1k2l3", "kind": "email-reply", "target": "18c1sample", "what": "Supplier's reply on the web path drawing",
+                       "why": "Same supplier, the older thread", "by": at(9, 0, daysAhead: daysToMon).timeIntervalSince1970 + 3600,
+                       "set_at": now - 5 * 3600, "cse": "cse_01Sample10", "title": "Laminator quote",
+                       "session_url": "https://claude.ai/code/session_sample10",
+                       "failing": "the Workrouter connector did not load in the check (failed): a Claude outage or its sign-in",
+                       "failing_since": now - 2 * 3600, "failures": 4],
             "d4e5f6": ["id": "d4e5f6", "kind": "pr", "target": "Sttark/example#12", "want": "merged", "what": "Merge of the retry fix PR",
                        "why": "Reviews land within a day; Friday is short", "by": at(17, 0, daysAhead: 2).timeIntervalSince1970,
                        "set_at": now - 3600, "cse": "cse_01Sample11", "title": "Usage report retry",
@@ -208,6 +310,14 @@ enum Sample {
                        ["kind": "weekly_all", "percent": 64, "resets_at": iso(weekly), "is_active": false]]]]
         try! JSONSerialization.data(withJSONObject: state).write(to: dir.appendingPathComponent("state.json"))
         try! JSONSerialization.data(withJSONObject: usage).write(to: dir.appendingPathComponent("usage.json"))
+        // sessions that run only on this Mac, as migrate.py --scan lists them
+        let local: [String: Any] = ["at": now, "sessions": [
+            ["id": "5f1c2e7a-sample-local-1", "title": "Bin label sizes", "cwd": NSHomeDirectory() + "/src/labels", "where": "terminal",
+             "last": now - 35 * 60, "transcript": "/sample/5f1c2e7a.jsonl", "model": "claude-opus-5-5", "pending": false],
+            ["id": "9a3d4b8c-sample-local-2", "title": "Weekly plan", "cwd": NSHomeDirectory() + "/Documents/plans", "where": "desktop",
+             "last": now - 3 * 3600, "transcript": "/sample/9a3d4b8c.jsonl", "model": "claude-opus-5-5", "pid": pid, "busy": false, "pending": false],
+        ]]
+        try! JSONSerialization.data(withJSONObject: local).write(to: dir.appendingPathComponent("local-sessions.json"))
     }
 }
 

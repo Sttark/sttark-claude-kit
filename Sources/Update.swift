@@ -107,7 +107,8 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
         let url = response.notification.request.content.userInfo["url"] as? String ?? ""
         let sid = response.notification.request.content.userInfo["id"] as? String ?? ""
         DispatchQueue.main.async {
-            if id.hasPrefix("login") { Login.signIn() } else if id.hasPrefix("waiting") || id.hasPrefix("notify") { Waiting.open(url, id: sid) } else { self.install() }
+            if id == "server-ask" { Server.setUp() }
+            else if id.hasPrefix("login") { Login.signIn() } else if id.hasPrefix("defaults") || id == "server-on" { NotificationCenter.default.post(name: .init("kitOpenSettings"), object: nil) } else if id.hasPrefix("waiting") || id.hasPrefix("notify") { Waiting.open(url, id: sid) } else { self.install() }
         }
         done()
     }

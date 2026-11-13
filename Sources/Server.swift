@@ -96,6 +96,85 @@ enum Server {
         kill(pid, SIGTERM)
     }
 
+    // MARK: On by itself
+
+    /// A person who turned the switch off (KitDefaults' "turnedOff" record, id "server"): the Kit never starts the
+    /// server by itself again. A Mac with the switch off and no record counts as never chosen, so it gets it once.
+    static var turnedOff: Bool { KitDefaults.turnedOff("server") }
+
+    enum AutoStep: Equatable { case skip(String), start(String), ask }
+
+    /// What autoStart() does, from plain facts, so tools/server-auto-test.swift can test it with made-up ones.
+    /// `folder` runs only when everything else allows a start.
+    static func decide(installed: Bool, elsewhere: Bool, turnedOff: Bool, claudeFound: Bool, signedIn: Bool,
+                       folder: () -> String?) -> AutoStep {
+        if installed { return .skip("already on") }
+        if elsewhere { return .skip("a server set up another way runs") }
+        if turnedOff { return .skip("turned off in Settings") }
+        if !claudeFound { return .skip("Claude Code isn't installed") }
+        // Remote Control needs the normal sign-in; it refuses a long-lived token from `claude setup-token`
+        if !signedIn { return .skip("Claude Code isn't signed in") }
+        guard let f = folder() else { return .ask }
+        return .start(f)
+    }
+
+    /// The folder sessions start in when the Kit sets the server up by itself: ~/src when there is one, else the
+    /// folder that holds the most git repos, one or two levels under the home folder. Never the home folder, a hidden
+    /// folder or ~/Library; and not Desktop, Documents or Downloads, which macOS asks permission to read.
+    static func defaultFolder(home: URL) -> String? {
+        let fm = FileManager.default
+        func isDir(_ u: URL) -> Bool { var d: ObjCBool = false; return fm.fileExists(atPath: u.path, isDirectory: &d) && d.boolValue }
+        func isRepo(_ u: URL) -> Bool { fm.fileExists(atPath: u.appendingPathComponent(".git").path) }
+        func folders(_ u: URL) -> [URL] {
+            ((try? fm.contentsOfDirectory(atPath: u.path)) ?? []).filter { !$0.hasPrefix(".") && $0 != "node_modules" }
+                .map { u.appendingPathComponent($0) }.filter(isDir)
+        }
+        let src = home.appendingPathComponent("src")
+        if isDir(src) { return src.path }
+        let skip: Set<String> = ["Library", "Applications", "Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures", "Public"]
+        let top = folders(home).filter { !skip.contains($0.lastPathComponent) && !isRepo($0) }
+        let candidates = top + top.flatMap { folders($0).filter { !isRepo($0) } }
+        var best: (url: URL, repos: Int)? = nil
+        for c in candidates {
+            let n = folders(c).filter(isRepo).count
+            // more repos wins; on a tie, the folder nearer the home folder
+            if n > 0, best == nil || n > best!.repos || (n == best!.repos && c.pathComponents.count < best!.url.pathComponents.count) {
+                best = (c, n)
+            }
+        }
+        return best?.url.path
+    }
+
+    private static var lastSkip = ""
+
+    /// At launch and every hour: sets the server up for a person who never turned it off, so sessions they start from
+    /// the Claude app run on this Mac without finding the switch. Tells them once, with a notice.
+    static func autoStart() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let step = decide(installed: installed, elsewhere: otherRunning, turnedOff: turnedOff, claudeFound: Setup.claudeFound,
+                          signedIn: Login.read()?.signedIn == true, folder: { defaultFolder(home: home) })
+        switch step {
+        case .skip(let why):
+            if why != lastSkip && why != "already on" { note("server auto: not started, \(why)") }
+            lastSkip = why
+        case .ask:
+            let d = UserDefaults.standard
+            guard !d.bool(forKey: "serverAskSent") else { return }
+            d.set(true, forKey: "serverAskSent")
+            note("server auto: no project folder found, asked with a notice")
+            Updater.post("server-ask", "Start sessions from the Claude app",
+                         "Click to pick the folder that holds your projects. Then sessions you start in the Claude app run on this Mac.")
+        case .start(let folder):
+            if ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] != nil { note("server auto: would start in \(folder)"); return }
+            if let err = start(folder: folder) { note("server auto: couldn't start: \(err)"); return }
+            let shown = folder.replacingOccurrences(of: home.path, with: "~")
+            let name = (folder as NSString).lastPathComponent
+            note("server auto: started in \(shown)")
+            Updater.post("server-on", "Sessions from the Claude app now run on this Mac",
+                         "In the Claude app, open Code and pick Remote Control > \(name). Sessions start in \(shown). Click to open Settings.")
+        }
+    }
+
     /// Turning it on: pick the folder, start.
     static func setUp() {
         NSApp.activate(ignoringOtherApps: true)

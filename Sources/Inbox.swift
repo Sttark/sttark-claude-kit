@@ -4,10 +4,12 @@ import Foundation
 /// The window's Sessions page and the menu's glance both read it, so they always agree.
 ///
 /// Each session shows once, in the first group that fits: held at the usage limit, needs you, Claude working,
-/// waiting on someone else (a wait handed to the Kit), then idle.
+/// waiting on someone else (a wait handed to the Kit), then idle. The sessions that run only on this Mac (Terminal,
+/// or "This computer" in the desktop app, with no Remote Control) show before idle, since each one can move to
+/// Remote Control.
 enum Inbox {
     enum Group: String, CaseIterable {
-        case needs, working, waits, held, idle
+        case needs, working, waits, held, local, idle
 
         var title: String {
             switch self {
@@ -16,6 +18,7 @@ enum Inbox {
             case .waits: return "Waiting on someone else"
             case .held: return "Held at usage limit"
             case .idle: return "Idle"
+            case .local: return "On this Mac only"
             }
         }
 
@@ -26,7 +29,7 @@ enum Inbox {
             case .working: return "Working for"
             case .waits: return "Deadline"
             case .held: return "Goes on"
-            case .idle: return "Last active"
+            case .idle, .local: return "Last active"
             }
         }
     }
@@ -43,8 +46,16 @@ enum Inbox {
         /// The time is late: waited past the notice, or past a deadline.
         var late = false
         var session: Session? = nil
+        /// The first wait (by deadline) and every wait of the session: a session that waits on several things is one row.
         var wait: Waits.Wait? = nil
+        var waits: [Waits.Wait] = []
+        /// `subStrong` is a warning (a check that fails).
+        var subWarn = false
         var hold: Limit.Waiting? = nil
+        /// A session that runs only on this Mac (On this Mac only).
+        var local: LocalSessions.Item? = nil
+        /// What a session runs in the background after its turn ended (Claude working, with no turn).
+        var background: Background? = nil
         /// The link that opens the session in the Claude app.
         var url: String { session?.url.nilIfEmpty ?? wait?.sessionURL.nilIfEmpty ?? "" }
         var target: Limit.Target? {
@@ -143,26 +154,43 @@ enum Inbox {
             snap.rows.append(r)
         }
 
-        // Claude working, the longest first
-        let working = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id)
-            && ((raw[$0.id]?["app"] as? [String: Any])?["working"] as? Bool == true || bucket[$0.id] == "working") }
+        // Claude working, the longest first: in a turn, or with agents or background commands still running after it
+        func inTurn(_ s: Session) -> Bool {
+            (raw[s.id]?["app"] as? [String: Any])?["working"] as? Bool == true || bucket[s.id] == "working"
+        }
+        let working = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id) && (inTurn($0) || background(raw[$0.id]) != nil) }
         func turnAt(_ s: Session) -> Date? { Limit.num(raw[s.id]?["turn_at"]).map { Date(timeIntervalSince1970: $0) } }
-        for s in working.sorted(by: { (turnAt($0) ?? $0.at) < (turnAt($1) ?? $1.at) }) {
+        func since(_ s: Session) -> Date? { inTurn(s) ? turnAt(s) : background(raw[s.id])?.since }
+        for s in working.sorted(by: { (since($0) ?? $0.at) < (since($1) ?? $1.at) }) {
             used.insert(s.id)
-            var r = Row(id: s.id, group: .working, title: s.title, sub: effortWords(s), time: turnAt(s).map(Waiting.ago) ?? "")
+            let bg = inTurn(s) ? nil : background(raw[s.id])
+            var r = Row(id: s.id, group: .working, title: s.title, sub: bg.map(\.words) ?? effortWords(s),
+                        time: since(s).map(Waiting.ago) ?? "")
             r.session = s
+            r.background = bg
             snap.rows.append(r)
         }
 
-        // waits handed to the Kit, by deadline
+        // waits handed to the Kit, one row per session, by its first deadline
+        var bySession: [String: [Waits.Wait]] = [:], order: [String] = []
         for w in Waits.list(state) {
+            let key = w.cse.isEmpty ? "wait:" + w.id : w.cse
+            if bySession[key] == nil { order.append(key) }
+            bySession[key, default: []].append(w)
+        }
+        for key in order {
+            let ws = bySession[key]!, w = ws[0]
             let s = session(cse: w.cse, sid: "")
             if let s { used.insert(s.id) }
-            var r = Row(id: s?.id ?? "wait:" + w.id, group: .waits, title: w.title, sub: w.what, time: w.by.map(day) ?? "")
-            if !w.from.isEmpty { r.subStrong = "from " + w.from }
+            var r = Row(id: s?.id ?? (w.cse.isEmpty ? "wait:" + w.id : w.cse), group: .waits, title: w.title,
+                        sub: ws.count == 1 ? w.what : waitsWords(ws), time: w.by.map(day) ?? "")
+            if ws.count == 1, !w.from.isEmpty { r.subStrong = "from " + w.from }
+            let failing = ws.filter { !$0.failing.isEmpty }.count
+            if failing > 0 { r.subStrong = ws.count == 1 || failing == ws.count ? "check failing" : "\(failing) check\(failing == 1 ? "" : "s") failing"; r.subWarn = true }
             r.late = w.by.map { $0 < Date() } ?? false
             r.session = s
             r.wait = w
+            r.waits = ws
             snap.rows.append(r)
         }
 
@@ -176,7 +204,56 @@ enum Inbox {
             r.session = s
             snap.rows.append(r)
         }
+
+        // on this Mac only: started in Terminal or the desktop app without Remote Control; they can move to it
+        for x in LocalSessions.items {
+            let now = x.pending ? "Moves to Remote Control when its reply ends"
+                : x.busy ? "Open in \(x.whereWords), Claude working" : x.pid != nil ? "Open in \(x.whereWords)" : "In \(x.whereWords)"
+            var r = Row(id: "local:" + x.id, group: .local, title: x.title, sub: now, time: Waiting.ago(x.last))
+            r.local = x
+            snap.rows.append(r)
+        }
         return snap
+    }
+
+    /// Agents (any kind) and background commands a session still runs after its turn, as the hook's minute check
+    /// last found them (effort-hook.py background()). Dropped when that check is more than 3 minutes old.
+    struct Background {
+        let agents: Int
+        let bash: Int
+        /// The newest one's description.
+        let what: String
+        /// When the oldest one started.
+        let since: Date
+
+        /// "2 agents working · Fix the map", "1 background command · Watch CI".
+        var words: String {
+            let a = agents == 1 ? "1 agent" : "\(agents) agents", b = bash == 1 ? "1 background command" : "\(bash) background commands"
+            let head = agents > 0 && bash > 0 ? "\(a) and \(b) working" : agents > 0 ? "\(a) working" : b
+            return head + (what.isEmpty ? "" : " · " + what)
+        }
+    }
+
+    static func background(_ x: [String: Any]?) -> Background? {
+        guard let app = x?["app"] as? [String: Any], let b = app["background"] as? [String: Any],
+              let checked = Limit.num(app["checked"]), Date().timeIntervalSince1970 - checked < 180 else { return nil }
+        let agents = Int(Limit.num(b["agents"]) ?? 0), bash = Int(Limit.num(b["bash"]) ?? 0)
+        guard agents + bash > 0 else { return nil }
+        return Background(agents: agents, bash: bash, what: b["what"] as? String ?? "",
+                          since: Date(timeIntervalSince1970: Limit.num(b["since"]) ?? checked))
+    }
+
+    /// "2 email replies", "2 pull requests", or "3 waits" when they are of more than one kind.
+    static func waitsWords(_ ws: [Waits.Wait]) -> String {
+        let n = ws.count
+        let kinds = Set(ws.map(\.kind))
+        guard kinds.count == 1 else { return "\(n) waits" }
+        switch ws[0].kind {
+        case "email-reply": return "\(n) email replies"
+        case "pr": return "\(n) pull requests"
+        case "at": return "\(n) set times"
+        default: return "\(n) checks"
+        }
     }
 
     /// "Auto · design question on a full app window", or "Manual: you set the effort".

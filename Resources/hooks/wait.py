@@ -147,7 +147,7 @@ def this_session():
             if os.path.exists(p):
                 tp = p
                 break
-    title, url = n.session() if cse else ('', '')
+    title, url = n.session()[:2] if cse else ('', '')
     return {'cse': cse, 'sid': sid, 'transcript': tp, 'cwd': os.getcwd(), 'title': title, 'url': url}
 
 
@@ -188,8 +188,10 @@ READ_TOOLS = [WR + t for t in ('gmail_search', 'gmail_read_message', 'asana_get_
 
 
 def haiku(prompt, tools, timeout=180):
-    """A Haiku run with only `tools` allowed and hooks off: (its final text, the text of each tool result).
-    Run as the person, through Claude Code's connectors."""
+    """A Haiku run with only `tools` allowed and hooks off: (its final text, the text of each result of `tools`, why).
+    Run as the person, through Claude Code's connectors. `why` says, in a few words, why the run gave no usable
+    result: the Workrouter connector did not load (a Claude outage, or its sign-in), the tool answered an error, or
+    the model did not call it. A caller that finds no answer in the results raises it, so the log and the window say."""
     env = {k: v for k, v in os.environ.items() if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
     env['EFFORT_JUDGE'] = '1'
     os.makedirs(os.path.join(KIT, 'wait-checks'), exist_ok=True)
@@ -198,31 +200,56 @@ def haiku(prompt, tools, timeout=180):
                         '--settings', '{"disableAllHooks":true}'],
                        input=prompt, capture_output=True, text=True, timeout=timeout, env=env,
                        cwd=os.path.join(KIT, 'wait-checks'))
-    final, results = '', []
+    final, results, errors, called, init = '', [], [], {}, None
     for line in r.stdout.splitlines():
         try:
             ev = json.loads(line)
         except ValueError:
             continue
+        if ev.get('type') == 'system' and ev.get('subtype') == 'init':
+            init = ev
         if ev.get('type') == 'result':
             final = ev.get('result') or ''
         for part in ((ev.get('message') or {}).get('content') or []) if isinstance(ev.get('message'), dict) else []:
-            if isinstance(part, dict) and part.get('type') == 'tool_result':
+            if not isinstance(part, dict):
+                continue
+            if part.get('type') == 'tool_use':
+                called[part.get('id')] = part.get('name', '')
+            elif part.get('type') == 'tool_result' and called.get(part.get('tool_use_id')) in tools:
                 c = part.get('content')
-                results.append(''.join(x.get('text', '') for x in c if isinstance(x, dict)) if isinstance(c, list) else str(c or ''))
+                text = ''.join(x.get('text', '') for x in c if isinstance(x, dict)) if isinstance(c, list) else str(c or '')
+                (errors if part.get('is_error') else results).append(text)
     if r.returncode and not results and not final:
         raise RuntimeError('claude -p exit %d: %s' % (r.returncode, (r.stderr or r.stdout).strip()[:160]))
-    return final, results
+    why = ''
+    wr = [t for t in tools if t.startswith(WR)]
+    if wr and init is not None:
+        server = [m for m in init.get('mcp_servers') or [] if m.get('name') == 'claude.ai Sttark Workrouter']
+        status = server[0].get('status', '') if server else 'not listed'
+        if status != 'connected':
+            why = 'the Workrouter connector did not load in the check (%s): a Claude outage or its sign-in' % status
+        elif not any(t in (init.get('tools') or []) for t in wr):
+            why = 'the Workrouter connector loaded without %s' % wr[0][len(WR):]
+    if not why and errors:
+        why = '%s answered an error: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', errors[0])[:140])
+    if not why and not any(n in tools for n in called.values()):
+        why = 'Haiku did not call %s; it said: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', final)[:120] or 'nothing')
+    if not why and init is None:
+        why = 'claude -p gave no output: %s' % (r.stderr or '').strip()[:140]
+    return final, results, why
 
 
 def model_due(w, now):
     """Whether a check that costs a model call may run now: between 7 AM and 9 PM, never while the session or the
     account is held at the usage limit, and less often as the wait gets older: its own interval (10 minutes when it
-    has none) for 3 hours, then at least 30 minutes, then after a day at least an hour."""
+    has none) for 3 hours, then at least 30 minutes, then after a day at least an hour. A check whose last run failed
+    runs again after 10 minutes."""
     if not 7 <= dt.datetime.fromtimestamp(now).hour < 21:
         return False
     age = now - w.get('set_at', now)
     gap = max(w.get('every') or 600, 0 if age < 3 * 3600 else 1800 if age < 86400 else 3600)
+    if w.get('failing'):
+        gap = min(gap, 600)  # a check that failed tries again in 10 minutes, not at its slower pace
     if now - w.get('read_at', 0) < gap:
         return False
     try:
@@ -246,26 +273,27 @@ def check_email_reply(w):
     sender given with --from) that is newer than the wait and not from the person."""
     if not w.get('subject') and not w.get('from'):
         # the thread id is its first message's id: read it once for the subject to search by
-        _, res = haiku('Call %sgmail_read_message exactly once with message_id %s and max_chars 100, then reply "done".'
-                       % (WR, json.dumps(w['target'])), [WR + 'gmail_read_message'], timeout=120)
+        _, res, why = haiku('Call %sgmail_read_message exactly once with message_id %s and max_chars 100, then reply "done".'
+                            % (WR, json.dumps(w['target'])), [WR + 'gmail_read_message'], timeout=120)
         for t in res:
             try:
                 w['subject'] = re.sub(r'^((re|fwd?|aw):\s*)+', '', json.loads(t).get('subject') or '', flags=re.I)
             except (ValueError, AttributeError):
                 pass
         if not w.get('subject'):
-            raise RuntimeError('could not read the thread %s' % w['target'])
+            raise RuntimeError('could not read the thread %s: %s' % (w['target'], why or 'no subject in the answer'))
     q = 'after:%d' % int(w['set_at']) + (' from:%s' % w['from'] if w.get('from') else
                                           ' -from:me subject:(%s)' % re.sub(r'[^\w\s]', ' ', w['subject']).strip()[:120])
-    _, results = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'
-                       % (WR, json.dumps(q)), [WR + 'gmail_search'], timeout=120)
-    found = None
+    _, results, why = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'
+                            % (WR, json.dumps(q)), [WR + 'gmail_search'], timeout=120)
+    found, n = None, 0
     for t in results:
         try:
             emails = json.loads(t).get('emails') or []
         except (ValueError, AttributeError):
             continue
         found = found or []
+        n += len(emails)
         for e in emails:
             sender = (e.get('from') or '').lower()
             if me() and me() in sender:
@@ -273,9 +301,9 @@ def check_email_reply(w):
             if e.get('thread_id') == w['target'] or (w.get('from') and w['from'].lower() in sender):
                 found.append(e)
     if found is None:
-        raise RuntimeError('gmail_search gave no result')
+        raise RuntimeError(why or 'gmail_search answered: %s' % re.sub(r'\s+', ' ', ' '.join(results))[:140])
     if not found:
-        return False, ''
+        return False, 'no reply yet' + (' (%d new message%s, none a reply)' % (n, '' if n == 1 else 's') if n else '')
     e = found[0]
     return True, '%s replied: "%s" (%s)' % (e.get('from', 'someone'), e.get('subject', ''), (e.get('snippet') or '')[:160])
 
@@ -283,15 +311,16 @@ def check_email_reply(w):
 def check_prompt(w):
     """(happened, words) for a check-prompt wait: one Haiku run with read-only Workrouter tools and the web, which
     ends with YES or NO."""
-    final, _ = haiku('You check one thing for a work session that waits on it. Use the tools to find out, read '
+    final, _, why = haiku('You check one thing for a work session that waits on it. Use the tools to find out, read '
                      'only, and change nothing. The question: %s\n\nEnd with one line that is exactly YES or NO, '
                      'then one line with what you found.' % w['target'], READ_TOOLS)
     lines = [l.strip() for l in final.strip().splitlines() if l.strip()]
     yes = [i for i, l in enumerate(lines) if l.upper().rstrip('.') in ('YES', 'NO')]
     if not yes:
-        raise RuntimeError('no YES or NO in the answer')
+        raise RuntimeError(why or 'no YES or NO in the answer: %s' % re.sub(r'\s+', ' ', final)[:120])
     i = yes[-1]
-    return lines[i].upper().startswith('YES'), ' '.join(lines[i + 1:i + 2]) or 'the check said yes'
+    yes = lines[i].upper().startswith('YES')
+    return yes, ' '.join(lines[i + 1:i + 2]) or ('the check said yes' if yes else '')
 
 
 def check_script(w):
@@ -323,6 +352,12 @@ def prompt_for(w, what, late):
                      'from the person does it (for an email, a follow-up draft, written by the rules for that '
                      'recipient), and ask in one line, for example "New Star has still not replied about the '
                      'laminator quote. Should I send the follow-up now?" Do not send anything before they answer.')
+    others = [x for k, x in (peek().get('waits') or {}).items()
+              if k != w['id'] and w.get('cse') and x.get('cse') == w['cse'] and x.get('stage') != 'back']
+    if others:
+        lines.append('Your other waits with the Kit stay open: %s. Cancel one you no longer need with claude-wait '
+                     '--cancel <id>.' % '; '.join('%s (id %s, deadline %s)' % (describe(x), x['id'], clock(x['by']) if x.get('by') else 'none')
+                                                   for x in others))
     lines.append('Go on with the work as far as you can. Then send the person one message with claude-notify that '
                  'stands alone: what happened, what this session is for, what is done, what it waits on now (with '
                  'links, such as a pull request and its state), what it does next, and what the person must do, or '
@@ -352,8 +387,10 @@ def bring_back(w, prompt):
         return False
     d = e.sse().session(cse)
     if d.get('status') == 'active':
-        if d.get('worker_status') == 'running' or d.get('status_bucket') == 'working':
-            raise RuntimeError('busy')  # a turn runs now; the next check tries again
+        app = ((peek().get('sessions') or {}).get(cse) or {}).get('app') or {}
+        if d.get('worker_status') == 'running' or d.get('status_bucket') == 'working' or \
+                (app.get('background') and time.time() - app.get('checked', 0) < 180):
+            raise RuntimeError('busy')  # a turn, or its agents, run now (archiving would end them); the next check tries again
         e.api('POST', 'https://api.anthropic.com/v1/code/sessions/%s/archive' % cse, {})
         for _ in range(20):  # archiving ends its process
             time.sleep(1)
@@ -400,7 +437,7 @@ def fallback(w, what, late):
     else:
         body += ' It could not come back by itself; open it to go on.'
     return n.send(('No answer: ' if late else '') + describe(w), body, w.get('url', ''),
-                  title=w.get('title', ''), url=w.get('session_url', ''))
+                  title=w.get('title', ''), url=w.get('session_url', ''), cse=w.get('cse', ''))
 
 
 def notified_since(w, since):
@@ -428,7 +465,14 @@ def check(only=None):
     for wid, w in list((peek().get('waits') or {}).items()):
         if only and wid != only:
             continue
-        upd = {}
+        upd, drop = {}, set()
+
+        def save(s, wid=wid, upd=upd, drop=drop):
+            x = (s.get('waits') or {}).get(wid)
+            if x is not None:
+                x.update(upd)
+                for k in drop:
+                    x.pop(k, None)
         if w.get('stage') == 'back':  # brought back: the session should have told the person
             if now - w.get('back_at', 0) > FALLBACK:
                 if not notified_since(w, w['back_at']) and not DRY:
@@ -445,10 +489,21 @@ def check(only=None):
             happened, what = now >= w['at'], 'The time you set came (%s)' % clock(w['at'])
         elif (model_due(w, now) if w['kind'] in ('email-reply', 'check-prompt') else
               now - w.get('read_at', 0) >= (PR_EVERY if w['kind'] == 'pr' else w.get('every') or 600)):
+            model = w['kind'] in ('email-reply', 'check-prompt')
             try:
                 happened, what = CHECKS[w['kind']](w)
+                if w.get('failing'):
+                    log('%s check works again (it failed since %s)' % (wid, clock(w.get('failing_since') or now)))
+                    drop.update(('failing', 'failing_since', 'failures'))
+                if model:  # each model check says its answer, so the log shows the checks run
+                    log('%s checked: %s%s' % (wid, 'YES' if happened else 'NO', ', ' + what if what and not happened else ''))
+                if not happened:
+                    what = ''
             except Exception as e:
-                log('%s check failed: %s' % (wid, str(e)[:160]))
+                why = str(e)[:200] or type(e).__name__
+                upd.update(failing=why, failing_since=w.get('failing_since') or now, failures=w.get('failures', 0) + 1)
+                log('%s check failed (%s since %s): %s' % (wid, 'once' if upd['failures'] == 1 else '%d times' % upd['failures'],
+                                                         clock(upd['failing_since']), why))
             upd['read_at'] = now
             upd['url'] = w.get('url', '')
             if w.get('subject'):
@@ -457,8 +512,8 @@ def check(only=None):
             happened, late = True, True
             what = 'The deadline came: %s has not happened' % describe(w)
         if not happened:
-            if upd:
-                change(lambda s: (s.get('waits') or {}).get(wid, {}).update(upd))
+            if upd or drop:
+                change(save)
             continue
         log('%s %s "%s" %s%s' % (wid, w.get('cse', '')[:12], w.get('title', ''), what, ' (deadline)' if late else ''))
         if DRY:
@@ -478,7 +533,7 @@ def check(only=None):
         if ok:
             log('%s brought "%s" back on its own link with what happened' % (wid, w.get('title', '')))
             upd.update(stage='back', back_at=time.time(), what=what, late=late)
-            change(lambda s: (s.get('waits') or {}).get(wid, {}).update(upd))
+            change(save)
         else:
             w['stage'] = 'out'
             fallback(w, what, late)
@@ -508,8 +563,10 @@ def main():
     if args[0] == '--list':
         ws = peek().get('waits') or {}
         for wid, w in sorted(ws.items(), key=lambda x: x[1].get('by') or x[1].get('at') or 0):
-            print('%s  %s  %s  by %s  (%s)' % (wid, w.get('title') or '-', describe(w),
-                                              clock(w['by']) if w.get('by') else '-', w.get('why', '')))
+            print('%s  %s  %s  by %s  (%s)%s' % (wid, w.get('title') or '-', describe(w),
+                                                clock(w['by']) if w.get('by') else '-', w.get('why', ''),
+                                                '  CHECK FAILING since %s: %s' % (clock(w.get('failing_since') or 0), w['failing'])
+                                                if w.get('failing') else ''))
         print('' if ws else 'No open waits.', end='')
         return 0
     if args[0] in ('--cancel', '--now'):

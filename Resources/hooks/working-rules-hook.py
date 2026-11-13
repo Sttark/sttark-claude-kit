@@ -17,9 +17,11 @@ unreadable one) is logged and nothing is saved.
 
 The same Stop hook also checks the manager rule, with no model call: when the work since the person's last
 message made more than 8 tool calls in the chat and started no agent, a note goes in front of the next prompt.
+And the status icon check, with no model call: a status table cell in the reply with more than one of
+✅ 🔄 🔴 ⚪ gets a note in front of the next prompt.
 
-Logged to ~/Library/Logs/sttark-claude-kit.log, lines starting "ste" (the reply check) and "agents" (the
-manager check).
+Logged to ~/Library/Logs/sttark-claude-kit.log, lines starting "ste" (the reply check), "agents" (the
+manager check) and "icons" (the status icon check).
 """
 import fcntl, json, os, re, subprocess, sys, time
 
@@ -63,7 +65,10 @@ or did. Keep the chat for direction and decisions. Do the work in the chat only 
 - When a prompt holds more than one ask, number the asks. At every end of turn, give a table with each ask \
 and its status, each status starting with its icon so the person sees it at a glance: ✅ Done, 🔄 In progress, \
 🔴 Needs you (say what you need), ⚪ Dropped (say why). Keep each ask in the table until it is done or the \
-person drops it. Nothing may go missing without showing in the table.
+person drops it. Nothing may go missing without showing in the table. Each row shows exactly one status icon, \
+never two in one cell (not "🔄 In progress. Then 🔴 you select"). When one part of an ask is in progress and \
+one part needs the person, show the icon of the state that matters now and say the other part in words, or \
+split the ask into two rows.
 - Waits on others: before you end a turn that waits on someone or something outside the session (a pull request \
 someone else merges, a reply to an email, a check at a set time), hand the wait to Sttark Claude Kit with \
 claude-wait (claude-wait pr <owner/repo#n> merged --by <deadline> --what "<what you watch for>" --why "<line>"; \
@@ -245,6 +250,27 @@ def chat_calls(path):
     return calls, before, agent
 
 
+ICONS = ('✅', '🔄', '🔴', '⚪')
+
+
+def icon_check(data):
+    """No model call: a status table row with more than one status icon in one cell gets a note in front of
+    the session's next prompt."""
+    full = data.get('session_id') or ''
+    if not full:
+        return
+    bad = [c.strip() for line in prose(last_reply(data.get('transcript_path') or '')).splitlines()
+           if line.strip().startswith('|') for c in line.strip().strip('|').split('|')
+           if sum(c.count(i) for i in ICONS) > 1]
+    if not bad:
+        return
+    notes(lambda a: a.__setitem__(full, (a.get(full, []) + [
+        'Your last status table had a cell with more than one status icon (%s). Show exactly one icon per row: '
+        'the state that matters now, with the other part in words, or split the ask into two rows.'
+        % bad[0][:80]])[-3:]))
+    log('%s status cell with more than one icon: noted for the next prompt' % full[:8], 'icons  ')
+
+
 def manager_check(data):
     """No model call: a turn that made more than MANAGER_MAX tool calls in the chat with no agent gets a note
     in front of the session's next prompt. Noted once, in the turn that passed the count."""
@@ -352,6 +378,10 @@ def main():
             manager_check(data)
         except Exception as e:
             log('%s error manager check %s: %s' % ((data.get('session_id') or '')[:8], type(e).__name__, e), 'agents ')
+        try:
+            icon_check(data)
+        except Exception as e:
+            log('%s error icon check %s: %s' % ((data.get('session_id') or '')[:8], type(e).__name__, e), 'icons  ')
         return check(data)
     text = LEAD + '\n\n' + RULES
     try:
