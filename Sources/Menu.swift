@@ -116,6 +116,7 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
         Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in Server.keepChats() }
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in ChromeWindow.cleanTabs() }
+        Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in KitDefaults.applyBypassSettings() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
@@ -302,11 +303,16 @@ final class Controller: NSObject, NSMenuDelegate {
 
     // MARK: actions
 
-    @objc func toggleBypass() { Bypass.set(!Bypass.on) }
+    @objc func toggleBypass() {
+        let on = !Bypass.on
+        KitDefaults.chose("bypass", on: on)
+        Bypass.set(on)
+        if on { KitDefaults.applyBypassSettings() } else { KitDefaults.bypassOff() }
+    }
     @objc func toggleCredits() { Limit.setCreditsAll(!Limit.creditsAll) }
 
     @objc func toggleChrome() {
-        if ChromeApprover.on { ChromeApprover.stop() } else { ChromeApprover.start() }
+        if ChromeApprover.on { ChromeApprover.stop(); KitDefaults.chose("chrome", on: false) } else { ChromeApprover.start(); KitDefaults.chose("chrome", on: true) }
     }
 
     @objc func signIn() { Login.signIn() }

@@ -21,6 +21,9 @@ On install it also sets remoteControlAtStartup to true when the key is missing, 
 Claude desktop app on "This computer", or in a terminal, connect to Remote Control and show on the phone and in
 the Kit; an explicit false is never changed. A marker in the app's folder records that the Kit set it, so a key
 the person removes later stays removed, and --remove takes out only a true the Kit set.
+--bypass-defaults on sets permissions.defaultMode to bypassPermissions and skipDangerousModePermissionPrompt to
+true, each only when missing, and records what it set in kit-settings.json in the Kit's folder; --bypass-defaults off
+takes out only what it recorded, when the value is still the one it set.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -160,6 +163,7 @@ def set_links(on):
             pass
 
 
+KIT_DIR = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
 PUSH_KEYS = ('inputNeededNotifEnabled', 'agentPushNotifEnabled')
 
 
@@ -251,6 +255,38 @@ def main():
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
+    if '--bypass-defaults' in sys.argv:
+        on = sys.argv[sys.argv.index('--bypass-defaults') + 1] == 'on'
+        rec_path = os.path.join(KIT_DIR, 'kit-settings.json')
+        try:
+            with open(rec_path) as f:
+                rec = json.load(f)
+        except (OSError, ValueError):
+            rec = {}
+        perms = s.setdefault('permissions', {})
+        done = []
+        if on:
+            if 'defaultMode' not in perms:
+                perms['defaultMode'] = 'bypassPermissions'
+                rec['permissions.defaultMode'] = 'bypassPermissions'
+                done.append('permissions.defaultMode')
+            if 'skipDangerousModePermissionPrompt' not in s:
+                s['skipDangerousModePermissionPrompt'] = True
+                rec['skipDangerousModePermissionPrompt'] = True
+                done.append('skipDangerousModePermissionPrompt')
+        else:
+            if rec.pop('permissions.defaultMode', None) and perms.get('defaultMode') == 'bypassPermissions':
+                del perms['defaultMode']
+                done.append('-permissions.defaultMode')
+            if rec.pop('skipDangerousModePermissionPrompt', None) and s.get('skipDangerousModePermissionPrompt') is True:
+                del s['skipDangerousModePermissionPrompt']
+                done.append('-skipDangerousModePermissionPrompt')
+        if not perms:
+            s.pop('permissions', None)
+        os.makedirs(KIT_DIR, exist_ok=True)
+        with open(rec_path, 'w') as f:
+            json.dump(rec, f)
+        return save(s, before, ('set ' if on else 'removed ') + ', '.join(d.lstrip('-') for d in done) if done else 'unchanged')
     if '--defaults' in sys.argv:
         added = [k for k in PUSH_KEYS if k not in s]
         for k in added:
