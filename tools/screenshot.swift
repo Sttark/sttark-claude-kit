@@ -71,6 +71,16 @@ import SwiftUI
             Shot.capture(w, to: folder + "/window-settings.png")
             model.page = .news
             Shot.capture(w, to: folder + "/window-news.png")
+            // the kit-window note's picture: the top of the session list, at the window's narrowest
+            model.page = .sessions
+            let f = w.frame
+            w.setContentSize(NSSize(width: 960, height: 760))
+            w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            let full = "/tmp/kit-shot-\(getpid())-narrow.png"
+            Shot.capture(w, to: full)
+            Shot.crop(full, NSRect(x: 226, y: 60, width: 392, height: 252),
+                      to: "whats-new/kit-window" + (look ? "-dark" : "") + ".png")
+            w.setFrame(f, display: true)
             // the What's new sheet, as the menu's What's new item opens it, over the window
             model.page = .sessions
             model.sheet = WhatsNew.all
@@ -95,6 +105,18 @@ import SwiftUI
         return w
     }
 
+    /// A part of a 2x capture, given in points from the top left.
+    static func crop(_ path: String, _ r: NSRect, to out: String) {
+        let img = NSImage(contentsOfFile: path)!
+        var rect = NSRect(origin: .zero, size: img.size)
+        let cg = img.cgImage(forProposedRect: &rect, context: nil, hints: nil)!
+        let s: CGFloat = 2   // the captures are 2x
+        let part = cg.cropping(to: CGRect(x: r.minX * s, y: r.minY * s, width: r.width * s, height: r.height * s))!
+        let rep = NSBitmapImageRep(cgImage: part)
+        try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: out))
+        print("wrote \(out)")
+    }
+
     /// Shows the window off the screen, lets it draw, and captures it with its own pixels.
     static func capture(_ w: NSWindow, to path: String, wait: TimeInterval = 1.2) {
         if w.sheetParent == nil { w.orderFrontRegardless() }
@@ -104,7 +126,20 @@ import SwiftUI
         t.arguments = ["-x", "-o", "-l\(w.windowNumber)", path]
         try! t.run()
         t.waitUntilExit()
+        if !FileManager.default.fileExists(atPath: path) || t.terminationStatus != 0 { cache(w, to: path) }
         print("wrote \(path)")
+    }
+
+    /// When screencapture can't (the screen is locked): the window's views drawn into a 2x bitmap.
+    static func cache(_ w: NSWindow, to path: String) {
+        guard let v = w.contentView else { return }
+        let size = v.bounds.size
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = size
+        v.cacheDisplay(in: v.bounds, to: rep)
+        try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     }
 }
 

@@ -6,15 +6,19 @@ picture for dark mode as whats-new/<slug>-dark.gif; the app shows the one for th
 
     # Title in sentence case
 
-    **Icon:** an SF Symbol's name, for the What's new sheet (macwindow, pause.circle, tray)
+    **Icon:** an SF Symbol's name (macwindow, pause.circle, tray)
 
-    **In short:** one line for the sheet, at most 15 words.
+    **Kind:** New (a thing people did not have) or Better (a thing they had works better)
 
-    Two to four short sentences in ASD-STE100 Simplified Technical English: what is new.
+    One sentence of at most 20 words: what changes for the person. The sheet and the page both show it.
 
-    **What you do:** what the person does differently, with the exact words of the menu and the commands.
+    - Two or three points, one sentence each, at most 20 words.
+    - One point says how to start, with the exact words of the menu and the commands.
 
     ![What the picture shows, for screen readers](slug.gif)
+
+All words in ASD-STE100 Simplified Technical English. The picture shows only the part that matters, drawn at 2x:
+at most 880 by 560 pixels, so the app shows it at its own size (440 by 280 points) and never makes it smaller.
 
 The slug is how the app remembers who saw the note, so a note's file is never renamed once it ships.
 
@@ -39,9 +43,10 @@ CHECK_NAME = "What's new note"
 
 SLUG = re.compile(r'^[a-z0-9]+(-[a-z0-9]+)*$')
 PICTURE = re.compile(r'^!\[([^\]]*)\]\(([^)\s]+)\)$')
-DO = '**What you do:**'
 ICON = '**Icon:**'
-SHORT = '**In short:**'
+KIND = '**Kind:**'
+KINDS = ('New', 'Better')
+MAX_PX = (880, 560)
 SYMBOL = re.compile(r'^[a-z0-9]+(\.[a-z0-9]+)*$')
 MONTHS = r'(January|February|March|April|May|June|July|August|September|October|November|December|' \
          r'Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)'
@@ -74,7 +79,7 @@ def parse(path):
     paras = [p.strip() for p in re.split(r'\n\s*\n', text.strip()) if p.strip()]
     if not paras or not paras[0].startswith('# ') or '\n' in paras[0]:
         raise ValueError('the first line must be "# Title", alone in its paragraph')
-    note = {'id': slug, 'title': paras[0][2:].strip(), 'text': [], 'do': '', 'picture': '', 'alt': '', 'icon': '', 'summary': ''}
+    note = {'id': slug, 'title': paras[0][2:].strip(), 'lead': '', 'points': [], 'picture': '', 'alt': '', 'icon': '', 'kind': ''}
     for p in paras[1:]:
         m = PICTURE.match(p)
         if m:
@@ -83,17 +88,31 @@ def parse(path):
             note['alt'], note['picture'] = m.group(1).strip(), m.group(2)
         elif p.startswith(ICON):
             note['icon'] = p[len(ICON):].strip()
-        elif p.startswith(SHORT):
-            note['summary'] = ' '.join(p[len(SHORT):].split())
-        elif p.startswith(DO):
-            if note['do']:
-                raise ValueError('one "%s" paragraph only' % DO)
-            note['do'] = ' '.join(p[len(DO):].split())
+        elif p.startswith(KIND):
+            note['kind'] = p[len(KIND):].strip()
+        elif p.startswith('- '):
+            if note['points']:
+                raise ValueError('one list of points only')
+            items = re.split(r'\n- ', p[2:])
+            note['points'] = [' '.join(i.split()) for i in items]
         elif p.startswith(('#', '-', '*', '>', '|', '```')) and not p.startswith('**'):
-            raise ValueError('plain paragraphs only (no headings, lists, quotes, tables or code blocks): %r' % p[:40])
+            raise ValueError('no headings, quotes, tables or code blocks: %r' % p[:40])
+        elif note['lead']:
+            raise ValueError('one sentence before the points only; put the rest in the points')
         else:
-            note['text'].append(' '.join(p.split()))
+            note['lead'] = ' '.join(p.split())
     return note
+
+
+def pixels(path):
+    """A PNG's or GIF's width and height in pixels, or None."""
+    with open(path, 'rb') as f:
+        h = f.read(26)
+    if h[:8] == b'\x89PNG\r\n\x1a\n':
+        return int.from_bytes(h[16:20], 'big'), int.from_bytes(h[20:24], 'big')
+    if h[:4] == b'GIF8':
+        return int.from_bytes(h[6:8], 'little'), int.from_bytes(h[8:10], 'little')
+    return None
 
 
 def dark_picture(name):
@@ -118,25 +137,20 @@ def problems(path):
         out.append('the title has %d characters; 60 at most' % len(n['title']))
     elif n['title'][0].islower() or n['title'].endswith('.'):
         out.append('the title starts with a capital letter and has no full stop')
-    body = ' '.join(n['text'])
-    count = len(sentences(body))
-    if not 2 <= count <= 4:
-        out.append('the text has %d sentences; 2 to 4' % count)
-    for s in sentences(body):
-        if len(s.split()) > 25:
-            out.append('a sentence has %d words; 25 at most (STE): "%s..."' % (len(s.split()), ' '.join(s.split()[:5])))
-    if not n['do']:
-        out.append('no "%s" paragraph: say what the person does differently' % DO)
-    for s in sentences(n['do']):
-        if len(s.split()) > 20:
-            out.append('a sentence in "What you do" has %d words; 20 at most (STE): "%s..."'
-                       % (len(s.split()), ' '.join(s.split()[:5])))
+    if not n['lead']:
+        out.append('no sentence that says what changes for the person')
+    elif len(sentences(n['lead'])) > 1 or len(words_only(n['lead']).split()) > 20:
+        out.append('the sentence before the points is one sentence of at most 20 words')
+    if not 2 <= len(n['points']) <= 3:
+        out.append('%d points; 2 or 3, each a line "- ..."' % len(n['points']))
+    for x in n['points']:
+        if len(sentences(x)) > 1 or len(words_only(x).split()) > 20:
+            out.append('a point is one sentence of at most 20 words: "%s..."' % ' '.join(x.split()[:5]))
     if not SYMBOL.match(n['icon']):
-        out.append('no "%s" line with an SF Symbol name for the sheet, such as macwindow' % ICON)
-    if not n['summary']:
-        out.append('no "%s" line: one line for the sheet' % SHORT)
-    elif len(n['summary'].split()) > 15 or len(sentences(n['summary'])) > 1:
-        out.append('"%s" is one sentence of at most 15 words' % SHORT)
+        out.append('no "%s" line with an SF Symbol name, such as macwindow' % ICON)
+    if n['kind'] not in KINDS:
+        out.append('no "%s" line: New or Better' % KIND)
+    body = ' '.join([n['lead']] + n['points'])
     if not n['picture']:
         out.append('no picture: one line "![what it shows](%s.gif)"' % slug)
     else:
@@ -147,6 +161,11 @@ def problems(path):
             out.append('the picture %s is not in whats-new/' % n['picture'])
         elif os.path.getsize(pic) > MAX_PICTURE:
             out.append('the picture is %.1f MB; 3 MB at most' % (os.path.getsize(pic) / 1048576))
+        else:
+            px = pixels(pic)
+            if px and (px[0] > MAX_PX[0] or px[1] > MAX_PX[1]):
+                out.append('the picture is %d by %d pixels; %d by %d at most: show only the part that matters'
+                           % (px + MAX_PX))
         if not n['alt']:
             out.append('the picture needs words that say what it shows: ![...]')
         dark = os.path.join(os.path.dirname(path), dark_picture(n['picture']))
@@ -155,7 +174,7 @@ def problems(path):
                        % dark_picture(n['picture']))
         elif os.path.getsize(dark) > MAX_PICTURE:
             out.append('the dark picture is %.1f MB; 3 MB at most' % (os.path.getsize(dark) / 1048576))
-    words = ' '.join([n['title'], n['summary'], body, n['do'], n['alt']])
+    words = ' '.join([n['title'], body, n['alt']])
     plain = re.sub(r'`[^`]*`', '', words)
     for rx, what in DATES:
         m = rx.search(plain)
@@ -209,6 +228,25 @@ def build_number(path):
     return int(os.environ.get('BUILD') or git('rev-list', '--count', 'HEAD').strip() or 0) or 0
 
 
+def shipped(path):
+    """(build, date) of the commit on main that first shipped the note: the note's own commit when it is on main,
+    or the merge that brought it. Not committed yet: the build being made, today."""
+    import datetime
+    rel = os.path.relpath(path, ROOT)
+    added = git('log', '--diff-filter=A', '--format=%H', '--', rel).split()
+    if added:
+        c = added[-1]
+        main = git('rev-list', '--first-parent', 'HEAD').split()
+        if c not in main:
+            later = set(git('rev-list', '--ancestry-path', '%s..HEAD' % c).split())
+            c = next((m for m in reversed(main) if m in later), c)
+        n = git('rev-list', '--count', c).strip()
+        d = git('log', '-1', '--format=%cs', c).strip()
+        if n.isdigit():
+            return int(n), d
+    return build_number(path), datetime.date.today().isoformat()
+
+
 def build(out):
     """The app's copy: index.json (newest first) and the pictures. A note that breaks a fact stops the build."""
     files = note_files()
@@ -220,8 +258,7 @@ def build(out):
     notes = []
     for f in files:
         n = parse(f)
-        n['build'] = build_number(f)
-        n['action'] = n.pop('do')   # "do" is a word Swift keeps for itself
+        n['build'], n['date'] = shipped(f)
         shutil.copy(os.path.join(NOTES, n['picture']), os.path.join(out, n['picture']))
         dark = dark_picture(n['picture'])
         if os.path.isfile(os.path.join(NOTES, dark)):
@@ -384,7 +421,7 @@ def ste(path):
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     n = parse(path)
-    text = '\n\n'.join([n['title']] + n['text'] + ['What you do: ' + n['do']])
+    text = '\n\n'.join([n['title'], n['lead']] + n['points'])
     answer = m.ask(text)
     print(answer)
     return 0 if answer.strip().upper().rstrip('.') == 'OK' else 1

@@ -59,7 +59,7 @@ When an update brings a change you'd notice, a short note explains it. Nothing o
 *Drawn by the app's own code, with this repo's notes. The same in dark mode, with dark colors.*
 
 - **A dot and a badge.** While a note is unseen, the gauge in the menu bar has a blue dot, and **What's new** in the menu has a badge such as "3 new".
-- **The sheet.** Click **What's new**: the window opens with a sheet that lists each new change with an icon, its title and one line. Opening it marks the notes seen, and the dot and the badge go away. **Continue** closes it; **All changes** opens the window's What's new page: every note, newest first, with what you do differently and a picture (a dark one in dark mode).
+- **The sheet.** Click **What's new**: the window opens with a sheet that lists each new change with an icon, its title and one line. Opening it marks the notes seen, and the dot and the badge go away. **Continue** closes it; **All changes** opens the window's What's new page: every note, newest first, under a heading with the day and version of the update that brought it. Each note has an icon, its title with a New or Better tag, one sentence on what changes for you, 2 or 3 short points, and a picture of the part that changed (a dark one in dark mode). Click a picture to see it bigger.
 - What you have seen is `whats_new_seen` in the state file. A new install starts with every note seen.
 - Notes are `whats-new/*.md` in this repo, one per change, written in the same pull request as the change. See `AGENTS.md`.
 
