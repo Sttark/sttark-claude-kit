@@ -261,9 +261,9 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     /// One session: its name, then what its time is ("waiting 15 min", "continues Sat 2:00 AM") in steel. A wait
-    /// whose check fails says so instead. Click it to open the window at the session.
+    /// whose check fails says so instead. Click it to open the session in the Claude app (the window when it has no link).
     func sessionRow(_ r: Inbox.Row, width: CGFloat = 360) -> NSMenuItem {
-        let i = action("", #selector(openRow(_:)))
+        let i = action("", #selector(openSession(_:)))
         let warn = r.group == .waits && r.subWarn
         let tail = warn ? "check failing" : r.timeLabel
         let right = NSAttributedString(string: tail.isEmpty ? "" : " · " + tail,
@@ -273,8 +273,11 @@ final class Controller: NSObject, NSMenuDelegate {
                                           attributes: [.font: font(14), .foregroundColor: NSColor.labelColor])
         t.append(right)
         i.attributedTitle = t
-        i.representedObject = r.id
-        i.toolTip = (warn ? (r.waits.first { !$0.failing.isEmpty }?.failing ?? r.sub) : r.sub) + ". Click to see it in Sttark Claude Kit."
+        let rc = r.session?.id ?? r.wait?.cse ?? r.hold?.cse ?? ""
+        i.representedObject = [r.id, rc, r.url]
+        let inApp = Waiting.appLink(id: rc, url: r.url) != nil
+        i.toolTip = (warn ? (r.waits.first { !$0.failing.isEmpty }?.failing ?? r.sub) : r.sub)
+            + (inApp ? ". Click to open it in the Claude app." : ". Click to see it in Sttark Claude Kit.")
         return i
     }
 
@@ -305,6 +308,18 @@ final class Controller: NSObject, NSMenuDelegate {
 
     @objc func openWindow() { KitWindow.shared.show(.sessions, controller: self) }
     @objc func openRow(_ sender: NSMenuItem) { KitWindow.shared.show(.sessions, select: sender.representedObject as? String, controller: self) }
+    /// A session row: opens the session in the Claude desktop app, as the window's Open button does. A session the app
+    /// can't open (no Remote Control link) opens in the window instead.
+    @objc func openSession(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? [String] else { return openRow(sender) }
+        let (id, rc, url) = (p[0], p[1], p[2])
+        if let app = Waiting.appLink(id: rc, url: url) {
+            note("menu   open \(app.absoluteString)")
+            NSWorkspace.shared.open(app)
+        } else {
+            KitWindow.shared.show(.sessions, select: id, controller: self)
+        }
+    }
     @objc func openGroup(_ sender: NSMenuItem) { openRow(sender) }
 
     // MARK: rows
