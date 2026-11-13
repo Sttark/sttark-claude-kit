@@ -176,6 +176,20 @@ enum Events {
 
     // MARK: one line of the Kit's log
 
+    /// No raw ids in what a person reads: a session id becomes the session's name, an email thread id goes.
+    static func scrub(_ s: String, _ names: Names) -> String {
+        guard s.contains("cse_") || s.contains("session_") || s.contains("claude://") || s.contains("thread ") else { return s }
+        var out = s
+        out = out.replacingOccurrences(of: #"claude://code/"#, with: "", options: .regularExpression)
+        while let r = out.range(of: #"(cse|session)_[A-Za-z0-9]{6,}"#, options: .regularExpression) {
+            let n = names.resolve(String(out[r])).name
+            out.replaceSubrange(r, with: n.map { "\u{201C}\($0)\u{201D}" } ?? "a session")
+        }
+        out = out.replacingOccurrences(of: #"email thread [0-9a-f]{10,}"#, with: "an email thread", options: .regularExpression)
+        out = out.replacingOccurrences(of: #"thread [0-9a-f]{10,}"#, with: "a thread", options: .regularExpression)
+        return out
+    }
+
     static func kitLine(_ line: String, _ names: Names) -> KitEvent? {
         guard line.count > 20, let t = stamp.date(from: String(line.prefix(19))) else { return nil }
         let body = line.dropFirst(20)
@@ -428,7 +442,10 @@ enum Events {
             if rest.hasPrefix("started ") { e.text = "The Kit started (version \(words.last ?? ""))"; e.routine = true }
             else if rest.hasPrefix("update: downloading") || rest.hasPrefix("update: check") { e.kind = .update; e.routine = true; e.text = "Downloading the Kit update" + (words.count > 2 ? " " + words[2] : "") }
             else if rest.hasPrefix("update: installed") { e.kind = .update; e.text = "The Kit updated to \(words.count > 2 ? words[2].trimmingCharacters(in: CharacterSet(charactersIn: ",")) : "")" }
-            else if rest.hasPrefix("waiting notice: ") {
+            else if rest.hasPrefix("menu"), let r = rest.range(of: "claude://code/") {
+                who(Substring(rest[r.upperBound...].split(separator: " ").first ?? ""))
+                e.text = "Opened in the Claude app"; e.detail.append("From the menu bar menu.")
+            } else if rest.hasPrefix("waiting notice: ") {
                 let q = String(rest.dropFirst(16)); e.name = q; e.session = names.cseByName[q]
                 e.kind = .wait; e.text = "Notice: it has waited on you for 10 minutes"
             } else if rest.hasPrefix("window:") || tag == "window" || rest.hasPrefix("what's new") {
@@ -473,6 +490,8 @@ enum Events {
             e.text = tag.prefix(1).uppercased() + tag.dropFirst() + ": " + rest.prefix(160)
         }
         if e.text.isEmpty { return nil }
+        e.text = scrub(e.text, names)
+        e.detail = e.detail.map { scrub($0, names) }
         if e.level == .info && (rest.contains(" failed") || rest.hasPrefix("can't")) && e.kind != .effort { e.level = .warn }
         return e
     }

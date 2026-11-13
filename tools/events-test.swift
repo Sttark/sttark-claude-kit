@@ -68,6 +68,12 @@ import Foundation
         let kept = try! Data(contentsOf: t)
         check(kept.count <= 50_000 && kept.first == UInt8(ascii: "2"), "the size cap keeps whole lines, the newest")
 
+        // A menu click on a session shows as that session opened in the Claude app, with no raw link or id.
+        let m = Events.kitLine(f.string(from: Date()) + " app    menu   open claude://code/cse_01AAAtest1", names)
+        check(m?.name == "Press color" && m?.text == "Opened in the Claude app", "a menu open names the session, no link")
+        let w = Events.kitLine(f.string(from: Date()) + " wait   7f15a1 cse_01AAAtest1 \"Press color\" set: a reply on email thread 1a1d6158534acc04, by Wed 5:00 PM", names)
+        check(w.map { !$0.text.contains("1a1d6158") && !$0.text.contains("cse_") } == true, "no email thread id in a wait row")
+
         print(failed == 0 ? "all passed" : "\(failed) failed")
         exit(failed == 0 ? 0 : 1)
     }
