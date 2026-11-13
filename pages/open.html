@@ -13,8 +13,9 @@
     https://sttark.github.io/sttark-claude-kit/open#<cse_ or session_ id>/<claude.ai link id>
   - On a computer: it opens claude://code/<id> (the Claude desktop app). When the browser stays in front for
     1.5 seconds (no app, so nothing happened), it goes on to https://claude.ai/code/<link id>.
-  - On a phone: it shows one button to https://claude.ai/code/<link id>, which the Claude app opens when it is
-    on the phone. A tap is needed: a phone opens an app's link only from a tap, never from a page's script.
+  - On a phone: a button to claude://code/<link id>, which the Claude app opens from any browser (Google Chat
+    and Gmail open links in their own browser, where a claude.ai link never reaches the app), and a second
+    button to https://claude.ai/code/<link id>. A tap is needed: a phone opens an app only from a tap.
   The ids are after the #, so the browser never sends them to this server. The page loads nothing else and
   keeps nothing.
 -->
@@ -111,11 +112,13 @@ h1 { font-size: 32px; line-height: 1.1; font-weight: 600; margin: 0 0 12px; }
 
   var phone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (phone) {
-    // a phone opens the Claude app from a tap on its claude.ai link, never from a script, so one button
-    $('app').hidden = true;
-    $('web').className = 'btn main';
-    $('web').lastChild.textContent = 'Open in Claude';
-    $('state').textContent = 'Tap to open the session. It opens in the Claude app when the app is on this phone, else on claude.ai.';
+    // Google Chat and Gmail open links in their own browser, where a claude.ai link stays in that browser and
+    // never reaches the app. The app's claude:// link opens it from any browser, from a tap.
+    $('app').href = 'claude://code/' + web;
+    $('app').lastChild.textContent = 'Open in the Claude app';
+    $('app').firstChild.innerHTML = '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>';
+    $('web').lastChild.textContent = 'Open on claude.ai';
+    $('state').textContent = 'Tap to open the session in the Claude app. No app on this phone? Open it on claude.ai.';
     return;
   }
 
