@@ -510,7 +510,7 @@ struct Header: View {
         switch model.page {
         case .sessions: return model.snap.summary
         case .settings: return "Saved as you change them"
-        case .news: return "What changed in the Kit, newest first"
+        case .news: return "What changed in the Kit in the last 7 days, newest first"
         case .events:
             let n = model.recentProblems
             return (n == 0 ? "No problems in the last day" : "\(n) problem\(n == 1 ? "" : "s") in the last day") + ". Newest first."
