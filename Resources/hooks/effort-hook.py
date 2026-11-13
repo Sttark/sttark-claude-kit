@@ -511,6 +511,86 @@ def seen_since(spans, iso):
     return any(b - max(a, t) >= 3 for a, b in spans)
 
 
+BG_QUIET = 900  # an unfinished agent whose transcript has not changed for this long, with no task of its own still open, died
+
+
+def open_tasks():
+    """The background tasks running now on this Mac, {session id: {task id, ...}}. A running background Bash
+    command holds its output file (<tmp>/claude-<uid>/<project>/<session>/tasks/<task>.output) open; one that
+    ended, or died with its session, does not. One lsof call, about 0.3 seconds."""
+    try:
+        out = subprocess.run(['/usr/sbin/lsof', '-nP', '-Fn'], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    found = {}
+    for sid, task in re.findall(r'^n/.*/claude-\d+/[^/\n]+/([0-9a-f-]{36})/tasks/(\w+)\.output$', out, re.M):
+        found.setdefault(sid, set()).add(task)
+    return found
+
+
+def background(tp, running):
+    """What a session still runs in the background after its turn: agents (any kind, forks too) that have not
+    finished, and Bash commands its main thread sent to the background that still run. `running`: this session's
+    open tasks, from open_tasks(). {'agents', 'bash', 'what' (the newest one's description), 'since' (the oldest
+    one's start)}, or None. A Kit wait's model check runs outside the session and never counts."""
+    if not tp.endswith('.jsonl'):
+        return None
+    now, items = time.time(), []  # (start, description)
+    agents = bash = 0
+    sub = os.path.join(tp[:-len('.jsonl')], 'subagents')
+    try:
+        metas = [n for n in os.listdir(sub) if n.endswith('.meta.json')]
+    except OSError:
+        metas = []
+    for n in metas:
+        meta = os.path.join(sub, n)
+        try:
+            m = json.load(open(meta))
+            st = os.stat(meta[:-len('.meta.json')] + '.jsonl')
+        except (OSError, ValueError):
+            continue
+        # Claude Code marks an agent finished when it stops; a foreground agent is part of the turn itself
+        if m.get('finished') or m.get('requestShape') == 'foreground':
+            continue
+        if now - st.st_mtime > BG_QUIET:
+            # quiet for long: alive only while a background task of its own still runs (it waits on that)
+            try:
+                text = open(meta[:-len('.meta.json')] + '.jsonl', 'rb').read() if running else b''
+            except OSError:
+                text = b''
+            if not any(('"backgroundTaskId":"%s"' % t).encode() in text for t in running):
+                continue
+        agents += 1
+        items.append((getattr(st, 'st_birthtime', st.st_mtime), m.get('description') or ''))
+    if running:  # Bash the main thread sent to the background; an agent's own count with the agent
+        try:
+            text = open(tp, 'rb').read()
+        except OSError:
+            text = b''
+        for t in running:
+            i = text.find(('"backgroundTaskId":"%s"' % t).encode())
+            if i < 0:
+                continue
+            bash += 1
+            what, start = '', now
+            line = text[text.rfind(b'\n', 0, i) + 1:text.find(b'\n', i)]
+            try:
+                d = json.loads(line)
+                use = next(b.get('tool_use_id') for b in d['message']['content'] if b.get('type') == 'tool_result')
+                start = calendar.timegm(time.strptime(d.get('timestamp', '')[:19], '%Y-%m-%dT%H:%M:%S'))
+                j = text.rfind(('"id":"%s"' % use).encode(), 0, i)
+                if j >= 0:
+                    call = json.loads(text[text.rfind(b'\n', 0, j) + 1:text.find(b'\n', j)])
+                    what = next(b['input'].get('description') or '' for b in call['message']['content']
+                                if b.get('type') == 'tool_use' and b.get('id') == use)
+            except (ValueError, KeyError, TypeError, StopIteration):
+                pass
+            items.append((start, what or 'Background command'))
+    if not items:
+        return None
+    return {'agents': agents, 'bash': bash, 'what': max(items)[1], 'since': min(items)[0]}
+
+
 def app_list():
     """The sessions the Claude app lists (not archived, and not a run of a scheduled task, which the app shows
     under Scheduled), newest first, for the Kit window. Saved as app_list in the state file; kept as it was when
@@ -542,8 +622,11 @@ def track():
     app_list()
     sessions = peek().get('sessions', {})
     shown = on_screen()
+    running = open_tasks()
     ids = [sid for sid, x in sessions.items() if x.get('at', 0) > cutoff]
     for sid in ids:
+        tp = sessions.get(sid, {}).get('transcript', '')
+        bg = background(tp, running.get(os.path.basename(tp)[:-len('.jsonl')], set()))
         try:
             d = sse().session(sid)
         except Exception as e:
@@ -555,13 +638,15 @@ def track():
         bucket, last = d.get('status_bucket'), d.get('last_event_at') or ''
         working = bucket == 'working' or d.get('worker_status') == 'running'
         archived = d.get('status') == 'archived'
-        needs, why = False, ''
+        needs, why, judged = False, '', last
         # opened on any device (the Claude app's own record), or seen on this Mac's screen since Claude last wrote
         seen = not d.get('unread') or seen_since(shown.get(sid, []), last)
         # once you open a session it stops waiting on you, even if it's still asking, until Claude writes again
         if not archived and not working and not seen:
             if bucket == 'blocked':
                 needs, why = True, 'waiting on your answer or permission'
+            elif bg:  # its agents still work: the reply is judged once they finish
+                judged = old.get('judged', '')
             else:
                 ask = ((d.get('post_turn_summary') or {}).get('needs_action') or '').strip()
                 if old.get('judged') == last:  # this reply was already judged
@@ -569,15 +654,16 @@ def track():
                 elif ask:  # the server's own summary of the turn says what the person must do
                     needs, why = True, ask[:200]
                 else:
-                    tp = sessions.get(sid, {}).get('transcript', '')
                     limit_for(os.path.basename(tp)[:-6] if tp.endswith('.jsonl') else None, tp, sid)
                     needs, why = asks_you(last_reply(tp))
                     limit_for()
         # not opened: Claude finished, and you haven't opened it or had it on screen since
-        unseen = not seen and not archived and not working
+        # (a session whose agents still work isn't finished: it shows as Claude working)
+        unseen = not seen and not archived and not working and not bg
         info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working, 'unseen': unseen,
+                'background': bg if bg and not archived else None,
                 'archived': archived, 'unread': bool(d.get('unread')), 'seen': seen, 'needs': needs, 'why': why,
-                'judged': last, 'last_event_at': last, 'checked': time.time()}
+                'judged': judged, 'last_event_at': last, 'checked': time.time()}
         with state() as s:
             x = s['sessions'].setdefault(sid, {})
             x['app'] = info
