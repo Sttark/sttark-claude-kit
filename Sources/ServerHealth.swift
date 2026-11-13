@@ -207,7 +207,7 @@ enum ServerHealth {
         let moved = d.string(forKey: "serverMovedFrom").map { " The server moved there from \($0), where it could not connect." } ?? ""
         d.removeObject(forKey: "serverMovedFrom")
         Updater.post("server-on", "Sessions from the Claude app now run on this Mac",
-                     "In the Claude app, open Code and pick Remote Control > \(name). Sessions start in \(shown).\(moved) To change the folder, open Settings.")
+                     "New Code sessions in the Claude app start on Remote Control > \(name), in \(shown).\(moved) They show on your phone and in the Kit.")
     }
 
     /// The server's screen as text, or nil when no server screen runs.
@@ -242,7 +242,7 @@ enum ServerHealth {
         case .unknown: return nil
         case .connected(let name):
             let f = (Server.folder ?? "").replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
-            return ("Connected. In the Claude app, pick Remote Control > \(name). Sessions start in \(f).", false)
+            return ("Connected: Remote Control > \(name). New sessions in the Claude app start here, in \(f).", false)
         case .connecting: return ("Connecting. The Kit answers the server's questions and starts it again if needed.", false)
         case .failing(let why): return ("Not connected: " + why, true)
         }

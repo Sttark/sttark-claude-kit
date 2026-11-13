@@ -8,7 +8,7 @@ A Mac menu bar app that makes Claude Code easier to live with, for people who ke
 | Shows which sessions are waiting on you, and tells you when one has waited 10 minutes | [Waiting on you](#waiting-on-you) |
 | At your 5-hour or weekly usage limit, holds sessions until the limit resets instead of spending usage credits, then lets them go on by themselves. One session can instead always use credits, or never use them and hold earlier, at a percentage you pick | [Wait at the usage limit](#wait-at-the-usage-limit) |
 | Names sessions with short handles for the topic they belong to | [Name sessions automatically](#name-sessions-automatically) |
-| Warns before your Claude Code login runs out, and starts the sign-in | [Claude Code login](#claude-code-login) |
+| Starts the sign-in before your Claude Code login runs out | [Claude Code login](#claude-code-login) |
 | Sets your Mac up to run sessions you start from the Claude app | [Start sessions from the Claude app](#start-sessions-from-the-claude-app) |
 | Keeps every session that isn't archived running, through restarts | [Sessions stay running](#sessions-stay-running) |
 | Moves a session that runs only on this Mac (Terminal, or This computer in the desktop app) to Remote Control, with its whole conversation | [Move a session to Remote Control](#move-a-session-to-remote-control) |
@@ -45,10 +45,11 @@ The Kit is made to set up every Mac the way Sttark works with Claude. You do not
 
 | Part | When it comes on |
 |---|---|
-| Effort, Waiting on you, the wait at the usage limit, the login warnings, the Claude window in Chrome, the Sttark working rules and the Sttark app rules | At the first start |
+| Effort, Waiting on you, the wait at the usage limit, the sign-in when the login ends, the Claude window in Chrome, the Sttark working rules and the Sttark app rules | At the first start |
 | **Name sessions automatically** and **Links to files** | At the first start |
 | **Sync Claude profile instructions** | At the first start after the Claude desktop app is signed in |
 | **Start sessions from the Claude app**, in `~/src` or the folder that holds the most git repos (its own notice; see [below](#start-sessions-from-the-claude-app)) | About 40 seconds after the first start, when Claude Code is installed and signed in and no other server runs; else it tries again every hour |
+| **New sessions start on this Mac's server**: new Code sessions in the Claude desktop app start on **Remote Control** > the server's folder, with nothing to choose (see [below](#new-sessions-start-on-this-macs-server)) | When the server is connected and the Claude app is closed; the Claude app restarts for each of its updates, so it is often soon |
 | Remote Control for every session (`remoteControlAtStartup`), so desktop app and terminal sessions show on your phone and in the Kit | At the first start, only when `~/.claude/settings.json` does not have the key yet |
 | **Bypass permissions for server sessions**, and Bypass permissions for every other session: Claude Code's `permissions.defaultMode: bypassPermissions` and `skipDangerousModePermissionPrompt: true`, and the Claude desktop app's setting that lets sessions on **This computer** use Bypass permissions (`bypassPermissionsGateByAccount`) | At the first start. Each key is set only when it is missing |
 | **Approve Claude in Chrome** | At the first start. macOS then asks you to allow **SttarkChromeApprover** under **System Settings > Privacy & Security > Accessibility**; the Kit's notice says so too |
@@ -105,7 +106,7 @@ Click the gauge for a glance; open the window for everything else.
 | **Open Sttark Claude Kit** | Opens the window. |
 | **What's new** | Opens the window with the What's new sheet. A badge ("3 new") shows while notes are unseen. See [above](#whats-new). |
 | **Sttark Claude Kit 1.…** | The version you have, above **Quit**. It says **updating…** while an update installs. |
-| **Quit** | Quits the menu bar app. Sessions and the server keep running; the hooks keep working, except the parts the app runs (Waiting on you, keeping sessions running, closing unused Claude window tabs, login warnings and updates). It starts again at your next login. |
+| **Quit** | Quits the menu bar app. Sessions and the server keep running; the hooks keep working, except the parts the app runs (Waiting on you, keeping sessions running, closing unused Claude window tabs, the sign-in when the login ends, and updates). It starts again at your next login. |
 
 ### The window
 
@@ -146,6 +147,7 @@ The 5-hour and weekly usage show at the bottom of the sidebar, with when each re
 | **Use credits at the usage limit** | Off (the default): at the limit, sessions hold until it resets. On: they go on with usage credits. A session with its own setting keeps it either way. See [below](#wait-at-the-usage-limit). |
 | **Reach me by** | How a session tells you that something it waited on happened. Check the ways you want; **Set…** or **Change…** for the address, phone number or webhook a way needs; **Send a test**. See [below](#reach-me-by). |
 | **Start sessions from the Claude app** | Sets this Mac up so you can start Claude Code sessions from the Claude app. Shows the folder sessions start in. On by itself, unless you turn it off. See [below](#start-sessions-from-the-claude-app). |
+| **New sessions start on this Mac's server** | New Code sessions in the Claude desktop app start on this Mac's server. On by itself, unless you turn it off. See [below](#new-sessions-start-on-this-macs-server). |
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). On until you turn it off. |
 | **Name sessions automatically** | See [below](#name-sessions-automatically). On until you turn it off. |
 | **Sttark working rules** | See [below](#sttark-working-rules). On until you turn it off. |
@@ -356,18 +358,28 @@ Sttark Claude Kit sets your Mac up so you start Claude Code sessions from the Cl
 Sessions start in `~/src` on every Mac. The Kit makes that folder when it is missing; an empty folder is fine.
 
 - **Claude Code not installed:** when Claude Code is installed another way (Homebrew or npm), the Kit links it to `~/.local/bin/claude`. Else it runs the official installer (`curl -fsSL https://claude.ai/install.sh | bash`), which needs no password. At most once every 6 hours.
-- **Claude Code signed out:** the Kit starts Claude Code's sign-in, which opens the sign-in page in your browser. You approve it there; the server starts the moment the login is there. At most once every 6 hours.
-- **It checks that the server connects.** Every 30 seconds, and a few times while it starts, the Kit reads what the server shows. In a folder it hasn't used, `claude rc` asks **Trust <folder>? [y/N]**, and on a first run it can ask **Enable Remote Control? (y/n)**. Nobody sees these questions, because the server runs out of sight, so the Kit answers yes. When the server shows that it is connected, you get one notice that says where to find it.
+- **Claude Code signed out, or its login ends within a day:** the Kit starts Claude Code's sign-in, which opens the sign-in page in your browser. You approve it there; the server starts the moment the login is there. At most once every 6 hours. This is the one step the Kit can't do for you.
+- **It checks that the server connects.** Every 30 seconds, and a few times while it starts, the Kit reads what the server shows. In a folder it hasn't used, `claude rc` asks **Trust <folder>? [y/N]**, and on a first run it can ask **Enable Remote Control? (y/n)**. Nobody sees these questions, because the server runs out of sight, so the Kit answers yes. When the server shows that it is connected, you get one notice that says so.
 - **A server that doesn't connect** in 3 minutes, or keeps stopping, starts again, waiting longer each time (1, 2, 4 … up to 60 minutes). When the server gives a reason the Kit can't fix (for example **Remote Control is turned off for your organization**), Settings shows it in plain words and the Events page lists it.
 - **Once, on update:** a server in another folder that isn't connected moves to `~/src`. The notice says so. A connected server stays where it is.
 
 Settings shows the server's state under **Start sessions from the Claude app**: connected, connecting, or not connected and why.
 
-From then on, open the Claude app, go to **Code**, and under **Remote Control** pick the name of that folder (for example **src**). Type, and the session runs on this Mac. Sessions you start on **This computer** in the desktop app also connect to Remote Control (see below), so they show on your phone and in the Kit too.
+From then on, a new Code session in the Claude app starts on **Remote Control** > the folder's name (for example **src**), with nothing to choose (see [below](#new-sessions-start-on-this-macs-server)). Type, and the session runs on this Mac. Sessions you start on **This computer** in the desktop app also connect to Remote Control (see below), so they show on your phone and in the Kit too.
 
 To change the folder, turn the switch off and on again in Settings, then pick the folder. A folder you pick stays. To stop it, turn the switch off. The Kit then never turns it on again by itself. The setting stays on through restarts.
 
 **Every session on Remote Control.** On each launch, when `remoteControlAtStartup` isn't in `~/.claude/settings.json`, the Kit sets it to `true` (a backup of the file is saved first). This is Claude Code's **Enable Remote Control for all sessions** setting in `/config`. With it, every session you start in a terminal connects to Remote Control. So does every session you start on **This computer** in the Claude desktop app, while you never changed the app's own **Connect new sessions to Remote Control** switch in **Settings > Code**. Each of these sessions shows in the Claude app on your phone and in the Kit's window, and the Kit sets its effort. The Kit never changes a `false` you set, and when you take the setting out, the Kit doesn't put it back.
+
+### New sessions start on this Mac's server
+
+A new Code session in the Claude desktop app starts where you started the last one, and the app has no setting for it. So the Kit puts this Mac's server first in the app's own list of where sessions were started (`startedPlaces` and `startedFrom` in the app's Local Storage), the way the app records a session you start there. The next new session starts on **Remote Control** > the server's folder. If you start one somewhere else, the Kit puts the server first again later.
+
+- The app locks its Local Storage while it runs, so the Kit writes only while the Claude app is closed: when you quit it, when it restarts for an update, on the Kit's launch and every 10 minutes. It writes nothing while the app is open, or when the server is first already.
+- It writes with Google's own LevelDB code (`kit-ldb`, in the app), the same code the Claude app reads with, and keeps the folder from before its last write as `desktop-default-backup` in the Kit's folder.
+- It needs the Kit's server, connected (its environment from `GET /v1/environments`). With no server, it does nothing.
+- **Settings > Sessions > New sessions start on this Mac's server** turns it off. The Kit then never changes the list again.
+- Each write is logged, with lines starting `desktop default`.
 
 The Mac has to be on and awake for sessions to run. On a laptop, set **System Settings > Battery > Options > Prevent automatic sleeping when the display is off** while it's plugged in.
 
@@ -558,7 +570,7 @@ When a session works in one of Sttark's app repos, Sttark Claude Kit adds the fi
 
 ## Claude Code login
 
-Claude Code's sign-in lasts about a month. When it runs out, every Claude Code session and the server for **Start sessions from the Claude app** stop working until you sign in again, and nothing tells you. Sttark Claude Kit checks the end date every hour and warns you 3 days, 1 day and 2 hours before, and right away if Claude Code is signed out. Click the notice, or **Sign in to Claude Code…** in the menu: Terminal opens and starts the sign-in, and you finish it in the browser. Within 3 days of the end, the sign-in item also shows at the top of the menu.
+Claude Code's sign-in lasts about a month. When it runs out, every Claude Code session and the server for **Start sessions from the Claude app** stop working until you sign in again, and nothing tells you. Sttark Claude Kit checks the end date every hour. Within a day of the end, or right away when Claude Code is signed out, it starts Claude Code's sign-in itself, which opens the sign-in page in your browser: you only approve it there. It does this at most once every 6 hours. **Sign in to Claude Code…** in the menu does the same at any time. Within 3 days of the end, that item also shows at the top of the menu.
 
 After you sign in, the server picks up the new login by itself the next time it starts. If it stopped because the login ran out, macOS restarts it within seconds.
 
@@ -635,7 +647,8 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/whats-new-motion.swift` | Plays the What's new page and the bigger picture off the screen, with the window's 3-second refresh, and writes a sheet of what each GIF shows every 0.25 seconds, light and dark. |
 | `DESIGN-DECISIONS.md` | Where the window departs from the Sttark Brand and App Guidelines, which are written for web apps, and why. |
 | `AGENTS.md`, `CLAUDE.md` | Notes for coding agents: when a change needs a What's new note, and how to write one. |
-| `Sources/Login.swift` | The login check, warnings and sign-in. |
+| `Sources/Login.swift` | The login check and sign-in. |
+| `Sources/DesktopDefault.swift`, `Resources/hooks/desktop-default.py`, `Helpers/kit-ldb` | New sessions in the Claude desktop app start on this Mac's server. |
 | `Sources/Update.swift` | Checks GitHub for a new version and installs it by itself. |
 | `Sources/Migrate.swift` | Moves settings, state and switches over from Sttark Effort on the first launch. |
 | `Resources/hooks/effort-hook.py` | The effort hook: picks the level, rechecks, Manual and pause. Also `--models` (the model list), `--track` (Waiting on you), `--keep` (sessions stay running) and `--set <cse_…> <level>` (a level picked in the window: the session goes to Manual). |

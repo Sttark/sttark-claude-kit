@@ -255,8 +255,8 @@ enum Server {
         /// Signed out: starts Claude Code's own sign-in, which opens the sign-in page in the browser by itself. The
         /// person only approves it there. At most once every 6 hours. When the login appears, the server starts
         /// (or starts again) at once.
-        static func signIn() {
-            guard Thread.isMainThread else { DispatchQueue.main.async { signIn() }; return }
+        static func signIn(endsSoon: Bool = false) {
+            guard Thread.isMainThread else { DispatchQueue.main.async { signIn(endsSoon: endsSoon) }; return }
             guard ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] == nil else { return }
             let d = UserDefaults.standard
             let last = d.double(forKey: "serverSignInAt")
@@ -267,7 +267,8 @@ enum Server {
             Updater.run("/usr/bin/screen", ["-dmS", "kit-sign-in", claude, "auth", "login"])
             logLine("server", "sign-in started: the Claude sign-in page opens in the browser")
             Updater.post("server-signin", "Approve the Claude sign-in in your browser",
-                         "Claude Code is signed out, so sessions from the Claude app can't run. The Kit opened the sign-in page. The server starts when you approve it.")
+                         endsSoon ? "The Claude Code login ends soon. The Kit opened the sign-in page, so sessions and the server keep running after that."
+                         : "Claude Code is signed out, so sessions from the Claude app can't run. The Kit opened the sign-in page. The server starts when you approve it.")
             var n = 0
             Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { t in
                 n += 1

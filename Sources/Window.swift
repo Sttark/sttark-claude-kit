@@ -1101,6 +1101,9 @@ struct SettingsPage: View {
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             Hairline()
+            toggle("New sessions start on this Mac's server", "New Code sessions in the Claude app start on Remote Control, so your phone and the Kit see them.",
+                   f.desktopDefault) { c?.toggleDesktopDefault() }
+            Hairline()
             toggle("Bypass permissions for server sessions", "Lets sessions on this Mac's server run without asking. The Claude app doesn't offer it.",
                    f.bypass) { c?.toggleBypass() }
             Hairline()

@@ -334,5 +334,6 @@ for dark in [false, true] {
     if wanted("hold-before-limit") { gif(holdPicture(), to: "whats-new/hold-before-limit" + end) }
     if wanted("session-inbox") { gif(inboxPicture(), to: "whats-new/session-inbox" + end) }
     if wanted("server-on-by-itself") { png(serverPicture(), to: "whats-new/server-on-by-itself" + (dark ? "-dark.png" : ".png")) }
+    if wanted("new-sessions-on-server") { png(serverPicture(), to: "whats-new/new-sessions-on-server" + (dark ? "-dark.png" : ".png")) }
     if wanted("browser-guard") { png(browserGuardPicture(), to: "whats-new/browser-guard" + (dark ? "-dark.png" : ".png")) }
 }

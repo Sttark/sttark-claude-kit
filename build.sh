@@ -24,6 +24,8 @@ for arch in arm64 x86_64; do
 done
 lipo -create build/ChromeApprover-arm64 build/ChromeApprover-x86_64 -output $APP/Contents/MacOS/SttarkChromeApprover
 rm build/ChromeApprover-arm64 build/ChromeApprover-x86_64
+# kit-ldb, which sets where new sessions in the Claude desktop app start (Helpers/kit-ldb, desktop-default.py)
+Helpers/kit-ldb/build.sh $PWD/$APP/Contents/MacOS/kit-ldb
 cp Info.plist $APP/Contents/Info.plist
 cp -R Resources/* $APP/Contents/Resources/
 # What's new: the notes and pictures, each with the build that first shipped it (tools/whats-new.py)
@@ -34,5 +36,6 @@ SIGN=${SIGN_ID:--}
 [[ -n $SIGN_ID ]] || echo "No Sttark Effort Signing certificate here, so this build is signed ad hoc."
 # the helper first: it has its own identity, which is what macOS's Accessibility permission is tied to
 codesign --force --sign $SIGN --identifier com.sttark.chrome-approver $APP/Contents/MacOS/SttarkChromeApprover
+codesign --force --sign $SIGN --identifier com.sttark.kit-ldb $APP/Contents/MacOS/kit-ldb
 codesign --force --sign $SIGN --identifier com.sttark.sttark-claude-kit $APP
 echo "built $APP, version 1.$BUILD"

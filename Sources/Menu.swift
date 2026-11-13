@@ -24,6 +24,7 @@ struct MenuFacts {
     var chromeWindow = false
     var chromeWindowClosed = false
     var fileLinks = false
+    var desktopDefault = false
     var names = false
     var profile = false
     var profileSettingUp = false
@@ -63,6 +64,7 @@ struct MenuFacts {
         f.chromeWindow = ChromeWindow.on
         f.chromeWindowClosed = f.chromeWindow && ChromeWindow.chromeRunning && !ChromeWindow.exists
         f.fileLinks = FileLinks.on
+        f.desktopDefault = DesktopDefault.on
         f.names = Names.on
         f.profile = ProfileSync.on
         f.profileSettingUp = ProfileSync.settingUp
@@ -117,6 +119,7 @@ final class Controller: NSObject, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 40) { Server.autoStart() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Server.autoStart() }
         ServerHealth.start()
+        DesktopDefault.start()
         Waiting.watchFront()
         Waiting.refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
@@ -390,6 +393,7 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
     @objc func openChromeWindow() { ChromeWindow.open() }
 
+    @objc func toggleDesktopDefault() { let on = !DesktopDefault.on; KitDefaults.chose(DesktopDefault.id, on: on); if on { DesktopDefault.now() } }
     @objc func toggleFileLinks() { let on = !FileLinks.on; FileLinks.set(on); KitDefaults.chose("fileLinks", on: on) }
     @objc func toggleNames() { let on = !Names.on; Names.set(on); KitDefaults.chose("names", on: on) }
     @objc func toggleWorkingRules() { WorkingRules.set(!WorkingRules.on) }
