@@ -17,6 +17,10 @@ session's own setting are settings it reads, not hook changes.
 --defaults turns on Claude Code's phone notices (inputNeededNotifEnabled: a notice when Claude waits on you;
 agentPushNotifEnabled: Claude may send one, which claude-notify's "Claude app" way needs) when the key is missing;
 a value the person set, true or false, is never changed.
+On install it also sets remoteControlAtStartup to true when the key is missing, so sessions started in the
+Claude desktop app on "This computer", or in a terminal, connect to Remote Control and show on the phone and in
+the Kit; an explicit false is never changed. A marker in the app's folder records that the Kit set it, so a key
+the person removes later stays removed, and --remove takes out only a true the Kit set.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -159,6 +163,25 @@ def set_links(on):
 PUSH_KEYS = ('inputNeededNotifEnabled', 'agentPushNotifEnabled')
 
 
+RC_SET = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/remote-control-at-startup.kit')
+
+
+def set_rc_startup(s, on):
+    """Remote Control for every session, the setting Claude Code's /config calls "Enable Remote Control for all
+    sessions". The Claude desktop app reads it while its own "Connect new sessions to Remote Control" switch was
+    never changed."""
+    if on:
+        if 'remoteControlAtStartup' in s or os.path.exists(RC_SET):
+            return
+        s['remoteControlAtStartup'] = True
+        os.makedirs(os.path.dirname(RC_SET), exist_ok=True)
+        open(RC_SET, 'w').close()
+    elif os.path.exists(RC_SET):
+        if s.get('remoteControlAtStartup') is True:
+            s.pop('remoteControlAtStartup')
+        os.remove(RC_SET)
+
+
 def ours(cmd):
     return cmd.rstrip('"').endswith('effort-hook.py')
 
@@ -223,7 +246,8 @@ def main():
                           'names': has(s, 'UserPromptSubmit', is_names),
                           'rules': has(s, 'UserPromptSubmit', is_rules),
                           'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
-                          'limit': has(s, 'PreToolUse', is_limit)}))
+                          'limit': has(s, 'PreToolUse', is_limit),
+                          'remote_control_at_startup': s.get('remoteControlAtStartup')}))
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -263,6 +287,7 @@ def main():
     set_limit(hooks, not remove)
     set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
+    set_rc_startup(s, not remove)
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])
         for g in groups:  # drop every copy, old paths included

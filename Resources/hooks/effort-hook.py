@@ -133,19 +133,48 @@ def peek():
         return {}
 
 
-def session_id():
+def session_id(transcript=None):
     """The claude.ai id of this session: from `claude --remote-control`'s
-    environment, or the --session-id a `claude rc` server starts it with."""
+    environment, or the --session-id a `claude rc` server starts it with. Else
+    the newest `bridge-session` line in its transcript, which Claude Code writes
+    when Remote Control connects a session some other way (a desktop app session
+    on This computer, `/remote-control`, or remoteControlAtStartup)."""
     b = os.environ.get('CLAUDE_CODE_BRIDGE_SESSION_ID', '')
     if b:
         return 'cse_' + b.split('_', 1)[1] if b.startswith('session_') else b
     pid = os.environ.get('CLAUDE_PID', '')
-    if not pid:
+    if pid:
+        args = subprocess.run(['ps', '-ww', '-o', 'args=', '-p', pid],
+                              capture_output=True, text=True).stdout
+        m = re.search(r'--session-id[= ](cse_\w+)', args)
+        if m:
+            return m.group(1)
+    return transcript_bridge_id(transcript)
+
+
+def transcript_bridge_id(transcript):
+    """The bridgeSessionId of the last `bridge-session` line in the transcript, as cse_."""
+    if not transcript:
         return None
-    args = subprocess.run(['ps', '-ww', '-o', 'args=', '-p', pid],
-                          capture_output=True, text=True).stdout
-    m = re.search(r'--session-id[= ](cse_\w+)', args)
-    return m.group(1) if m else None
+    try:
+        with open(transcript, 'rb') as f:
+            raw = f.read()
+    except OSError:
+        return None
+    end = len(raw)
+    while True:
+        i = raw.rfind(b'"bridge-session"', 0, end)
+        if i < 0:
+            return None
+        start = raw.rfind(b'\n', 0, i) + 1
+        stop = raw.find(b'\n', i)
+        try:
+            b = json.loads(raw[start:stop if stop >= 0 else len(raw)]).get('bridgeSessionId') or ''
+        except ValueError:
+            b = ''
+        if b:
+            return 'cse_' + b.split('_', 1)[1] if b.startswith('session_') else b
+        end = start
 
 
 def session_process():
@@ -1180,7 +1209,7 @@ def main():
         rules = [r for key, r in (('claude_window', BROWSER_RULE), ('file_links', FILE_RULE)) if peek().get(key)]
         if rules:
             print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': '\n\n'.join(rules)}}))
-    sid = session_id()
+    sid = session_id(data.get('transcript_path'))
     if not sid:
         if event == 'UserPromptSubmit':
             log(f'skip   {data.get("session_id", "")[:8]} not a Remote Control session')
