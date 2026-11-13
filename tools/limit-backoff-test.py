@@ -54,8 +54,8 @@ waits = []
 for _ in range(3):
     lh.usage()   # 429
     k = json.load(open(lh.USAGE))
-    waits.append(round(k['retry_at'] - time.time()))
-    k['retry_at'] = 0                          # skip the wait
+    waits.append(round(k['next_read'] - time.time()))
+    k['next_read'] = 0                          # skip the wait
     k['at'] = 0
     json.dump(k, open(lh.USAGE, 'w'))
     lh.usage()   # good read
