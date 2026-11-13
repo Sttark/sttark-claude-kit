@@ -127,8 +127,8 @@ enum Inbox {
             sessions.first { (!cse.isEmpty && $0.id == cse) || (!sid.isEmpty && $0.sid == sid) }
         }
 
-        // The sessions the Claude app lists (not archived, not runs of a scheduled task), read every minute by the
-        // tracker. Only those show as needs you, working or idle; without a fresh list, the Kit's own sessions do.
+        // The sessions the Claude app lists (not archived, not runs of a scheduled task), read every 10 seconds while
+        // the window or the menu is open and every minute otherwise (Sync.swift). Only those show as needs you, working or idle; without a fresh list, the Kit's own sessions do.
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let list = state["app_list"] as? [String: Any]
@@ -179,8 +179,12 @@ enum Inbox {
         }
 
         // Claude working, the longest first: in a turn, or with agents or background commands still running after it
+        // in a turn: the app's list when it is newer than the minute's check of the session, else that check
+        let listAt = Limit.num(list?["at"]) ?? 0
         func inTurn(_ s: Session) -> Bool {
-            (raw[s.id]?["app"] as? [String: Any])?["working"] as? Bool == true || bucket[s.id] == "working"
+            let app = raw[s.id]?["app"] as? [String: Any]
+            if let b = bucket[s.id], listAt > Limit.num(app?["checked"]) ?? 0 { return b == "working" }
+            return app?["working"] as? Bool == true || bucket[s.id] == "working"
         }
         let working = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id) && (inTurn($0) || background(raw[$0.id]) != nil) }
         func turnAt(_ s: Session) -> Date? { Limit.num(raw[s.id]?["turn_at"]).map { Date(timeIntervalSince1970: $0) } }

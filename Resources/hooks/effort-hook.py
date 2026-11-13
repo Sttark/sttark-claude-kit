@@ -625,14 +625,47 @@ def background(tp, running):
     return {'agents': agents, 'bash': bash, 'what': max(items)[1], 'since': min(items)[0]}
 
 
+def open_chats(pages=3):
+    """The account's Claude Code chats that are not archived, newest first: the same short list the Claude app reads
+    (statuses active and paused). One small request in most cases, so the Kit can read it every few seconds."""
+    out, cursor = [], ''
+    for _ in range(pages):
+        d = api('GET', 'https://api.anthropic.com/v1/code/sessions?statuses=active&statuses=paused&limit=100'
+                + (f'&cursor={cursor}' if cursor else ''))
+        out += d.get('data') or []
+        cursor = d.get('next_cursor')
+        if not cursor:
+            break
+    return out
+
+
+LIST_WAIT_MAX = 600  # the longest wait after failed reads of the list, in seconds
+
+
 def app_list():
     """The sessions the Claude app lists (not archived, and not a run of a scheduled task, which the app shows
     under Scheduled), newest first, for the Kit window. Saved as app_list in the state file; kept as it was when
-    the list can't be read."""
+    the list can't be read. After a failed read (too many requests, or no network) every reader on this Mac waits:
+    the wait is in the state file (app_list_wait), honors Retry-After and grows to LIST_WAIT_MAX. Only the first
+    failure of a run of them is logged."""
+    now = time.time()
+    wait = peek().get('app_list_wait') or {}
+    if now < wait.get('until', 0):
+        return
     try:
-        chats = all_chats()
+        chats = open_chats()
     except Exception as e:
-        log(f'error  app list: {e!r}'[:200])
+        fails = wait.get('fails', 0) + 1
+        after = 0
+        try:
+            after = int((getattr(e, 'headers', None) or {}).get('Retry-After') or 0)
+        except (TypeError, ValueError):
+            after = 0
+        secs = min(LIST_WAIT_MAX, max(after, 30 * 2 ** (fails - 1)))
+        with state() as s:
+            s['app_list_wait'] = {'until': now + secs, 'fails': fails}
+        if fails == 1:
+            log(f'error  app list: {e!r}'[:160] + f'; next read in {secs} s, then less often until it works')
         return
     keep = []
     for c in chats:
@@ -642,8 +675,16 @@ def app_list():
         keep.append({'id': c['id'], 'title': c.get('title') or '', 'bucket': c.get('status_bucket') or '',
                      'last': c.get('last_event_at') or '', 'unread': bool(c.get('unread')),
                      'level': (c.get('external_metadata') or {}).get('effort_level') or ''})
+    old = peek().get('app_list') or {}
+    # write only when something changed (or once a minute, to show the list is fresh): every write makes the
+    # window and the menu reload
+    if not wait and old.get('sessions') == keep and now - old.get('at', 0) < 60:
+        return
     with state() as s:
-        s['app_list'] = {'at': time.time(), 'sessions': keep}
+        if wait.get('fails'):
+            log(f'app    app list: read works again after {wait["fails"]} failed read(s)')
+        s.pop('app_list_wait', None)
+        s['app_list'] = {'at': now, 'sessions': keep}
 
 
 def track():
@@ -1203,6 +1244,9 @@ def main():
         return
     if sys.argv[1:] == ['--track']:
         track()
+        return
+    if sys.argv[1:] == ['--list']:  # the short list only, every 10 seconds while the Kit window or menu is open
+        app_list()
         return
     if sys.argv[1:2] == ['--keep']:
         keep(dry='--dry' in sys.argv)
