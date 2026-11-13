@@ -438,6 +438,23 @@ enum Events {
             } else if rest.contains("fail") || rest.contains("error") || rest.contains("can't") {
                 e.kind = .problem; e.level = .warn; e.text = rest.prefix(1).uppercased() + rest.dropFirst()
             } else { e.text = rest.prefix(1).uppercased() + rest.dropFirst() }
+        case "server":   // the Remote Control server: ServerHealth and Server.autoStart
+            e.kind = .app
+            let r = rest.prefix(1).uppercased() + rest.dropFirst()
+            if rest.hasPrefix("not connected: ") || rest.hasPrefix("not started: ") {
+                e.kind = .problem; e.level = .warn
+                e.text = "Remote Control server " + rest
+            } else if rest.hasPrefix("connected: ") {
+                e.text = "Remote Control server connected"
+                e.detail.append(r.replacingOccurrences(of: "Connected: in", with: "In") + ".")
+            } else if rest.hasPrefix("answered yes: ") {
+                e.text = "The server asked a question, so the Kit answered yes"
+                e.detail.append("It asked to " + rest.dropFirst(14) + ".")
+            } else if rest.hasPrefix("started again: ") {
+                e.kind = .restart; e.level = .warn
+                e.text = "Remote Control server started again"
+                e.detail.append("Why: " + rest.dropFirst(15) + ".")
+            } else { e.text = "Remote Control server: " + rest }
         case "log":
             e.kind = .app; e.routine = true; e.text = "Old log lines removed"
         case "error":
