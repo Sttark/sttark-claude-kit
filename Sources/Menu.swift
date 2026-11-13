@@ -109,6 +109,8 @@ final class Controller: NSObject, NSMenuDelegate {
         State.refreshModels()
         Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { _ in State.refreshModels() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 40) { Server.autoStart() }
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Server.autoStart() }
         Waiting.watchFront()
         Waiting.refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
@@ -346,7 +348,8 @@ final class Controller: NSObject, NSMenuDelegate {
             a.runModal()
             return
         }
-        if Server.installed { Server.stop() } else { Server.setUp() }
+        if Server.installed { Server.stop(); KitDefaults.chose("server", on: false) }
+        else { Server.setUp(); if Server.installed { KitDefaults.chose("server", on: true) } }
     }
 
     @objc func togglePaused() { State.setPaused(!State.paused); refreshIcon() }
