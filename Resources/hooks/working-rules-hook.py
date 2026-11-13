@@ -139,6 +139,22 @@ def log(line, tag='ste    '):
         f.write(time.strftime('%F %T ') + tag + line + '\n')
 
 
+def cli_missing(sid):
+    """True when there is no Claude Code to call. Logs one line an hour, not one per reply."""
+    if os.access(CLAUDE, os.X_OK):
+        return False
+    mark = os.path.join(os.path.dirname(NOTES), 'no-claude-code.ste')
+    try:
+        if time.time() - os.path.getmtime(mark) < 3600:
+            return True
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(mark), exist_ok=True)
+    open(mark, 'w').close()
+    log('%s skipped: no Claude Code at ~/.local/bin/claude (menu: Install Claude Code)' % sid)
+    return True
+
+
 def notes(change):
     """Read and change the saved misses under a lock: {session id: [note, ...]}. Returns what change returns."""
     os.makedirs(os.path.dirname(NOTES), exist_ok=True)
@@ -314,6 +330,8 @@ def check(data):
         return  # another hook sent this reply back; its rewrite isn't checked again
     text = prose(last_reply(data.get('transcript_path') or ''))
     if len(text) < MIN_PROSE:
+        return
+    if cli_missing(sid):
         return
     t0 = time.time()
     try:

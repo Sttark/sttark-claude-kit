@@ -174,6 +174,13 @@ final class Controller: NSObject, NSMenuDelegate {
             u.attributedTitle = NSAttributedString(string: "Update to \(v)", attributes: [.font: font(14, true)])
             menu.addItem(u)
         }
+        if !f.claudeFound {
+            let t = "Claude Code isn't installed: Install…"
+            let i = action(t, #selector(installClaudeCode))
+            i.attributedTitle = NSAttributedString(string: t, attributes: [.font: font(14, true)])
+            i.toolTip = Login.missingTip
+            menu.addItem(i)
+        }
         if let warn = f.loginWarning {
             let l = action(warn, #selector(signIn))
             l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true)])
@@ -183,7 +190,6 @@ final class Controller: NSObject, NSMenuDelegate {
         if f.needsAccessibility {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
-        if !f.claudeFound { menu.addItem(caption("Claude Code isn't installed at ~/.local/bin/claude.")) }
 
         menu.addItem(.separator())
         if snap.rows.isEmpty {
@@ -319,6 +325,7 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     @objc func signIn() { Login.signIn() }
+    @objc func installClaudeCode() { Login.installClaudeCode() }
     @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
     @objc func openChromeWindow() { ChromeWindow.open() }
 
