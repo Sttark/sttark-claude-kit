@@ -10,6 +10,8 @@
 # approves it and switches the session to bypass. Bypass still asks about a few
 # commands Claude Code flags as risky (rm on a variable path, for one), so in
 # bypass this approves those too.
+# A forked subagent asks in mode "bubble" (its prompt goes up to the session);
+# the switch it returns moves the whole session to bypass, so it counts too.
 # Plan mode, plan approvals and questions to the person are left alone, and so
 # is any session whose server wasn't started in bypass. Every switch is logged.
 set -uo pipefail
@@ -19,13 +21,19 @@ input=$(cat)
 mode=$(/usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("permission_mode") or "")' <<<"$input")
 tool=$(/usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("tool_name") or "")' <<<"$input")
 
-case "$mode" in default|auto|acceptEdits|bypassPermissions) ;; *) exit 0 ;; esac
+case "$mode" in default|auto|acceptEdits|bubble|bypassPermissions) ;; *) exit 0 ;; esac
 case "$tool" in AskUserQuestion|ExitPlanMode) exit 0 ;; esac
 
-# Only when the session's parent chain includes a Remote Control server started in bypass.
+# Only when the session's parent chain includes a Remote Control server started in bypass
+# (claude rc / claude remote-control), or is a session started on its own with --remote-control
+# in bypass (the Kit's reopened sessions: claude --resume <id> --remote-control --permission-mode bypassPermissions).
+rc_bypass() {
+  [[ "$1" =~ ^([^ ]*/)?claude\ ((rc|remote-control)( |$)|(.*\ )?--remote-control([ =]|$)) ]] &&
+    [[ "$1" =~ \ --permission-mode[=\ ]bypassPermissions( |$) ]]
+}
 pid=$PPID
 while [ "${pid:-1}" -gt 1 ]; do
-  if ps -ww -o args= -p "$pid" | grep -qE 'claude (rc|remote-control)( .*)? --permission-mode[= ]bypassPermissions'; then
+  if rc_bypass "$(ps -ww -o args= -p "$pid")"; then
     sid=$(/usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id") or "")' <<<"$input")
     printf '%s session=%s mode=%s tool=%s\n' "$(date '+%F %T')" "$sid" "$mode" "$tool" >>"$LOG"
     if [ "$mode" = bypassPermissions ]; then

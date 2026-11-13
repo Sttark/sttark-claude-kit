@@ -23,9 +23,9 @@ Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time, uuid
 from contextlib import contextmanager
 
-LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
+LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 HERE = os.path.dirname(os.path.abspath(__file__))
-STATE = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/state.json')
+STATE = os.path.join(os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit'), 'state.json')
 CLAUDE_LOG = os.path.expanduser('~/Library/Logs/Claude/main.log')  # the Claude app's log: which session is open in it
 FRONT = os.path.join(os.path.dirname(STATE), 'claude-front.json')  # when the Claude app was in front, from the menu bar app
 CLAUDE = os.path.expanduser('~/.local/bin/claude')
@@ -268,14 +268,25 @@ def list_models():
 AT_LIMIT = 'NO - skipped at the usage limit'
 
 
+LIMIT_FOR = {}  # the session the side calls are for: {'sid', 'transcript', 'cse'}; empty for the account
+
+
+def limit_for(sid=None, transcript=None, c=None):
+    """Side calls from here on are for this session, so its own usage setting decides whether they wait."""
+    LIMIT_FOR.clear()
+    if sid:
+        LIMIT_FOR.update(sid=sid, transcript=transcript, cse=c)
+
+
 def at_limit():
-    """True at the usage limit when no one chose usage credits (limit-hook.py): the Kit's own side calls to
-    Claude are skipped then, so they spend nothing."""
+    """True when the session the side call is for must wait under its usage setting, or, with no session, at
+    the usage limit when no one chose usage credits (limit-hook.py): the Kit's own side calls to Claude are
+    skipped then, so they spend nothing."""
     try:
         spec = importlib.util.spec_from_file_location('limit', os.path.join(HERE, 'limit-hook.py'))
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        return m.held()
+        return m.held(LIMIT_FOR.get('sid'), LIMIT_FOR.get('transcript'), LIMIT_FOR.get('cse'))
     except Exception:
         return False
 
@@ -446,9 +457,21 @@ def last_reply(path):
     return ''
 
 
+NOTHING_NEEDED = re.compile(r'\b(nothing (is )?needed( from you)?|no action (is )?needed|nothing for you to do|no alert)\b', re.I)
+
+
 def asks_you(text):
+    """Whether the reply needs the person: plain signals first (a step marked needs you, a question at the end,
+    "nothing needed"), the model only when they don't say. The caller keeps the answer per reply."""
     if not text:
         return False, 'no reply text'
+    if '\U0001F534' in text:  # a status table row marked "needs you"
+        return True, 'a step in the reply is marked as needing you'
+    last = [l.strip() for l in text.strip().splitlines() if l.strip()][-1:]
+    if last and last[0].rstrip('*_ ').endswith('?'):
+        return True, 'the reply ends with a question to you'
+    if NOTHING_NEEDED.search(text):
+        return False, 'the reply says nothing is needed'
     t = text if len(text) <= 3000 else text[:1000] + '\n[...]\n' + text[-2000:]
     _, answer = judge(f'Last reply:\n{t}\n\nDoes it need the person?', ASKS)
     return answer.upper().startswith('YES'), answer.split(' - ', 1)[-1]
@@ -488,6 +511,107 @@ def seen_since(spans, iso):
     return any(b - max(a, t) >= 3 for a, b in spans)
 
 
+BG_QUIET = 900  # an unfinished agent whose transcript has not changed for this long, with no task of its own still open, died
+
+
+def open_tasks():
+    """The background tasks running now on this Mac, {session id: {task id, ...}}. A running background Bash
+    command holds its output file (<tmp>/claude-<uid>/<project>/<session>/tasks/<task>.output) open; one that
+    ended, or died with its session, does not. One lsof call, about 0.3 seconds."""
+    try:
+        out = subprocess.run(['/usr/sbin/lsof', '-nP', '-Fn'], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    found = {}
+    for sid, task in re.findall(r'^n/.*/claude-\d+/[^/\n]+/([0-9a-f-]{36})/tasks/(\w+)\.output$', out, re.M):
+        found.setdefault(sid, set()).add(task)
+    return found
+
+
+def background(tp, running):
+    """What a session still runs in the background after its turn: agents (any kind, forks too) that have not
+    finished, and Bash commands its main thread sent to the background that still run. `running`: this session's
+    open tasks, from open_tasks(). {'agents', 'bash', 'what' (the newest one's description), 'since' (the oldest
+    one's start)}, or None. A Kit wait's model check runs outside the session and never counts."""
+    if not tp.endswith('.jsonl'):
+        return None
+    now, items = time.time(), []  # (start, description)
+    agents = bash = 0
+    sub = os.path.join(tp[:-len('.jsonl')], 'subagents')
+    try:
+        metas = [n for n in os.listdir(sub) if n.endswith('.meta.json')]
+    except OSError:
+        metas = []
+    for n in metas:
+        meta = os.path.join(sub, n)
+        try:
+            m = json.load(open(meta))
+            st = os.stat(meta[:-len('.meta.json')] + '.jsonl')
+        except (OSError, ValueError):
+            continue
+        # Claude Code marks an agent finished when it stops; a foreground agent is part of the turn itself
+        if m.get('finished') or m.get('requestShape') == 'foreground':
+            continue
+        if now - st.st_mtime > BG_QUIET:
+            # quiet for long: alive only while a background task of its own still runs (it waits on that)
+            try:
+                text = open(meta[:-len('.meta.json')] + '.jsonl', 'rb').read() if running else b''
+            except OSError:
+                text = b''
+            if not any(('"backgroundTaskId":"%s"' % t).encode() in text for t in running):
+                continue
+        agents += 1
+        items.append((getattr(st, 'st_birthtime', st.st_mtime), m.get('description') or ''))
+    if running:  # Bash the main thread sent to the background; an agent's own count with the agent
+        try:
+            text = open(tp, 'rb').read()
+        except OSError:
+            text = b''
+        for t in running:
+            i = text.find(('"backgroundTaskId":"%s"' % t).encode())
+            if i < 0:
+                continue
+            bash += 1
+            what, start = '', now
+            line = text[text.rfind(b'\n', 0, i) + 1:text.find(b'\n', i)]
+            try:
+                d = json.loads(line)
+                use = next(b.get('tool_use_id') for b in d['message']['content'] if b.get('type') == 'tool_result')
+                start = calendar.timegm(time.strptime(d.get('timestamp', '')[:19], '%Y-%m-%dT%H:%M:%S'))
+                j = text.rfind(('"id":"%s"' % use).encode(), 0, i)
+                if j >= 0:
+                    call = json.loads(text[text.rfind(b'\n', 0, j) + 1:text.find(b'\n', j)])
+                    what = next(b['input'].get('description') or '' for b in call['message']['content']
+                                if b.get('type') == 'tool_use' and b.get('id') == use)
+            except (ValueError, KeyError, TypeError, StopIteration):
+                pass
+            items.append((start, what or 'Background command'))
+    if not items:
+        return None
+    return {'agents': agents, 'bash': bash, 'what': max(items)[1], 'since': min(items)[0]}
+
+
+def app_list():
+    """The sessions the Claude app lists (not archived, and not a run of a scheduled task, which the app shows
+    under Scheduled), newest first, for the Kit window. Saved as app_list in the state file; kept as it was when
+    the list can't be read."""
+    try:
+        chats = all_chats()
+    except Exception as e:
+        log(f'error  app list: {e!r}'[:200])
+        return
+    keep = []
+    for c in chats:
+        tags = c.get('tags') or []
+        if c.get('status') == 'archived' or c.get('trigger_id') or any(t.startswith('routine') for t in tags):
+            continue
+        keep.append({'id': c['id'], 'title': c.get('title') or '', 'bucket': c.get('status_bucket') or '',
+                     'last': c.get('last_event_at') or '', 'unread': bool(c.get('unread')),
+                     'level': (c.get('external_metadata') or {}).get('effort_level') or ''})
+    with state() as s:
+        s['app_list'] = {'at': time.time(), 'sessions': keep}
+
+
 def track():
     """Every minute, from the app: which recent sessions are waiting on you. A session waits on you when it's
     blocked on you (asking a question or a permission), or when its finished reply asks you to answer or
@@ -495,10 +619,14 @@ def track():
     you've opened or had on screen since Claude last wrote don't count.
     Saved as x['app'] for the menu's Waiting on you section and its notices."""
     cutoff = time.time() - 86400
+    app_list()
     sessions = peek().get('sessions', {})
     shown = on_screen()
+    running = open_tasks()
     ids = [sid for sid, x in sessions.items() if x.get('at', 0) > cutoff]
     for sid in ids:
+        tp = sessions.get(sid, {}).get('transcript', '')
+        bg = background(tp, running.get(os.path.basename(tp)[:-len('.jsonl')], set()))
         try:
             d = sse().session(sid)
         except Exception as e:
@@ -510,7 +638,7 @@ def track():
         bucket, last = d.get('status_bucket'), d.get('last_event_at') or ''
         working = bucket == 'working' or d.get('worker_status') == 'running'
         archived = d.get('status') == 'archived'
-        needs, why, prod = False, '', False
+        needs, why, prod, judged = False, '', False, last
         # opened on any device (the Claude app's own record), or seen on this Mac's screen since Claude last wrote
         seen = not d.get('unread') or seen_since(shown.get(sid, []), last)
         # once you open a session it stops waiting on you, even if it's still asking, until Claude writes again
@@ -520,16 +648,25 @@ def track():
                 needs, why, prod = True, 'Approval needed: ' + str(pw['action']), True
             elif bucket == 'blocked':
                 needs, why = True, 'waiting on your answer or permission'
+            elif bg:  # its agents still work: the reply is judged once they finish
+                judged = old.get('judged', '')
             else:
+                ask = ((d.get('post_turn_summary') or {}).get('needs_action') or '').strip()
                 if old.get('judged') == last:  # this reply was already judged
                     needs, why = old.get('needs', False), old.get('why', '')
+                elif ask:  # the server's own summary of the turn says what the person must do
+                    needs, why = True, ask[:200]
                 else:
-                    needs, why = asks_you(last_reply(sessions.get(sid, {}).get('transcript', '')))
+                    limit_for(os.path.basename(tp)[:-6] if tp.endswith('.jsonl') else None, tp, sid)
+                    needs, why = asks_you(last_reply(tp))
+                    limit_for()
         # not opened: Claude finished, and you haven't opened it or had it on screen since
-        unseen = not seen and not archived and not working
+        # (a session whose agents still work isn't finished: it shows as Claude working)
+        unseen = not seen and not archived and not working and not bg
         info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working, 'unseen': unseen,
+                'background': bg if bg and not archived else None,
                 'archived': archived, 'unread': bool(d.get('unread')), 'seen': seen, 'needs': needs, 'why': why,
-                'judged': '' if prod else last, 'last_event_at': last, 'checked': time.time()}
+                'judged': '' if prod else judged, 'last_event_at': last, 'checked': time.time()}
         with state() as s:
             x = s['sessions'].setdefault(sid, {})
             x['app'] = info
@@ -540,7 +677,7 @@ def track():
 
 KEEP_MAX = 30  # chats kept running at once; a `claude rc` server takes 32 by default
 KEEP_RETRY = 180  # seconds before waking the same chat again
-KEEP_MOVE = 2  # wakes that bring no process before the chat is started on its own (an unarchived one goes right away)
+KEEP_MOVE = 2  # wakes that bring no process before the chat is started on its own (an unarchived one goes right away); also the wakes a chat that ran on its own gets after a restart before it is started on its own again
 KEEP_PAUSE = 1800  # after a chat can't be started either way, seconds before trying again
 TRIGGERS = 'https://api.anthropic.com/v1/code/triggers'
 
@@ -597,6 +734,29 @@ def start_alone(transcript):
                     f"cd '{cwd or home}' && exec '{claude}' --resume {cid} --remote-control --permission-mode bypassPermissions"],
                    env=env)
     return cid
+
+
+def stood_down(name):
+    """Whether the chat in screen `name` was taken over elsewhere: Claude Code printed code 4090 and its status
+    line reads /rc failed. It stays open but answers nothing."""
+    import tempfile
+    fd, path = tempfile.mkstemp(prefix='kit-screen-')
+    os.close(fd)
+    text = ''
+    try:
+        subprocess.run(['/usr/bin/screen', '-S', name, '-p', '0', '-X', 'hardcopy', '-h', path], timeout=10)
+        for _ in range(25):  # screen writes the copy a moment after the command returns
+            time.sleep(0.2)
+            with open(path, 'rb') as f:
+                text = f.read().decode('utf-8', 'replace')
+            if text:
+                break
+    except Exception:
+        return False
+    finally:
+        os.unlink(path)
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return 'standing down (code 4090)' in ' '.join(text.split()) and bool(lines) and lines[-1].endswith('/rc failed')
 
 
 def chat_events(sid, pages=5):
@@ -706,13 +866,17 @@ def move(c, seq):
 
 
 def keep(dry=False):
-    """Every minute, from the app: keep every chat on this Mac running unless it's archived.
+    """Every minute, from the app: keep every chat on this Mac running unless it's archived, in one copy.
     A Mac restart ends every chat, and the server only starts a chat again when something reaches it. Each stopped
     chat gets its own effort level sent to it again, which makes the server start it on the same link with its
     whole conversation, and shows nothing in the chat.
     The server won't start a chat that was archived and then unarchived, so after KEEP_MOVE wakes that bring
-    nothing, move() starts it as a chat of its own on a new link. Those run outside the server, so after a restart
-    they're started again here, which brings back the same link.
+    nothing, move() starts it as a chat of its own (`alone`). After a restart those are woken through the server
+    first like any other chat; only after KEEP_MOVE wakes that bring nothing are they started on their own again,
+    which brings back the same link.
+    One chat, one copy: once the server runs a chat that was started on its own, or the copy it runs in was taken
+    over elsewhere (code 4090), that copy is quit and the chat is dropped from `alone`. A taken-over copy stays
+    open doing nothing, and while it lives, reminders for the chat are sent in a form only it reads, so they're lost.
     The server's environment (the place the Claude app lists for this Mac) is learned from the chats it runs,
     and remembered for after a restart."""
     import fcntl
@@ -740,27 +904,59 @@ def keep(dry=False):
     # chats running on their own. Stopping one (a restart) archives it, and starting it again brings it back on
     # the same link, so a stopped one is started again even when it shows as archived. Archived while it's still
     # running means the person archived it: it's stopped and forgotten.
+    by_id = {c['id']: c for c in chats}
     for sid, a in list(alone.items()):
         cid = os.path.basename(a['transcript'])[:-len('.jsonl')]
+        name, title = 'kit-' + cid[:8], a.get('title', '')
         up = f'--resume {cid}' in ps
+        if sid in running:  # the server runs it now: its own copy goes, so reminders reach the server's copy
+            if dry:
+                print(f'would hand over {sid} "{title}" to the server' + (f' and quit {name}' if up else ''))
+            else:
+                if up:
+                    subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                log(f'handover {sid} "{title}" the server runs it now' + (f'; quit its own copy ({name})' if up else ''))
+            alone.pop(sid)
+            continue
+        if up and stood_down(name):  # taken over elsewhere: open but doing nothing; the server wakes it below
+            if dry:
+                print(f'would quit {name}: {sid} "{title}" was taken over elsewhere (code 4090)')
+            else:
+                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                log(f'standdown {sid} "{title}" its own copy was taken over elsewhere (code 4090); quit {name}')
+            alone.pop(sid)
+            continue
         if status.get(sid) not in ('active', 'archived') or (up and status.get(sid) == 'archived' and now - a.get('at', 0) > 120):
             if not dry:
-                subprocess.run(['/usr/bin/screen', '-S', 'kit-' + cid[:8], '-X', 'quit'])
-                log(f'keep   {sid} "{a.get("title", "")}" archived or deleted in the Claude app; stopped it')
+                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                log(f'keep   {sid} "{title}" archived or deleted in the Claude app; stopped it')
             alone.pop(sid)
             continue
         if up or now - a.get('at', 0) < KEEP_RETRY:
             continue
+        tries = a.get('tries', 0)
+        if tries < KEEP_MOVE:  # stopped (a restart): the server first, like any other chat
+            c = by_id.get(sid, {})
+            meta, cfg = c.get('external_metadata') or {}, c.get('config') or {}
+            level = meta.get('effort_level') or cfg.get('effort_level') or 'high'
+            if dry:
+                print(f'would wake {sid} "{title}" at {level} (ran on its own; the server first)')
+                continue
+            code, text, _ = send(sid, level)
+            a.update(at=now, tries=tries + 1)
+            log(f'wake   {sid} "{title}" ran on its own and had stopped; sent {level} so the server starts it'
+                + ('' if 200 <= code < 300 else f' (failed {code}: {text[:120]})'))
+            continue
         if dry:
-            print(f'would start {sid} "{a.get("title", "")}" again on its own')
+            print(f'would start {sid} "{title}" again on its own')
             continue
         try:
             point_at(a['transcript'], sid, waiting_since_reply(chat_events(sid))[0])
         except Exception as e:
             log(f'keep   {sid} couldn\'t read where it left off: {e!r}'[:200])
         start_alone(a['transcript'])
-        a['at'] = now
-        log(f'start  {sid} "{a.get("title", "")}" runs on its own and had stopped; started it again')
+        a.update(at=now, tries=0)
+        log(f'start  {sid} "{title}" ran on its own, had stopped, and {KEEP_MOVE} wakes didn\'t start it; started it on its own again')
 
     mine = [c for c in chats if c.get('environment_id') in envs and c.get('environment_kind') == 'bridge']
     stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running and c['id'] not in alone]
@@ -823,6 +1019,8 @@ def on_prompt(data, sid):
     if not prompt:
         return
     snippet = re.sub(r'\s+', ' ', prompt)[:80]
+    with state() as s:  # when this turn started: the Kit window's "Working for"
+        s['sessions'].setdefault(sid, {})['turn_at'] = time.time()
     st = peek()
     x = st.get('sessions', {}).get(sid, {})
     proc, launched = session_process()
@@ -942,7 +1140,28 @@ def on_tool(data, sid):
         log(f'error  {sid} send {level} failed {status} {text[:120]} | {snippet}')
 
 
+def set_level(sid, level):
+    """The Kit window's effort pick: the person sets this session's level, so it goes to Manual, and the level goes
+    out the way the hook sends its own (the change id is kept, so the check never reads it as a pick in the app)."""
+    if level not in LEVELS:
+        print('Not a level: %s. One of %s.' % (level, ', '.join(LEVELS)), file=sys.stderr)
+        return 2
+    with state() as s:
+        s['sessions'].setdefault(sid, {})['manual'] = True
+    status, text, rid = send(sid, level)
+    if 200 <= status < 300:
+        with state() as s:
+            x = s['sessions'].setdefault(sid, {})
+            x.update(level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid, manual=True)
+        log(f'manual {sid} set to {level} in the Kit window; leaving this session alone')
+        return 0
+    log(f'error  {sid} send {level} from the Kit window failed {status} {text[:120]}')
+    return 1
+
+
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] == '--set':
+        sys.exit(set_level(sys.argv[2], sys.argv[3]))
     if sys.argv[1:] == ['--models']:
         list_models()
         return
@@ -970,6 +1189,7 @@ def main():
             log(f'skip   {data.get("session_id", "")[:8]} not a Remote Control session')
         return
     tp = data.get('transcript_path')
+    limit_for(data.get('session_id'), tp, sid)
     if tp and peek().get('sessions', {}).get(sid, {}).get('transcript') != tp:
         with state() as s:  # the tracker reads the last reply from here
             s['sessions'].setdefault(sid, {})['transcript'] = tp

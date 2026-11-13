@@ -1,0 +1,29 @@
+# What's new notes (AGENTS.md, "What's new notes"). Facts fail: a note in whats-new/ that breaks the format.
+# Judgment asks: a change that looks like something people notice (new menu words, a working rule, a new command,
+# a permission prompt, a new README feature) and adds no note gets one comment and a neutral "What's new note"
+# check. It never fails for that. Answer with a note, or a line "What's new: none, <why>" in the description.
+name: whats-new
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Notes follow the format
+        run: python3 tools/whats-new.py check
+      - name: Ask for a note when one looks needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: python3 tools/whats-new.py ask

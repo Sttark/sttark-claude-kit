@@ -22,7 +22,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
     struct Release { let build: Int; let version: String; let url: URL }
     private(set) var available: Release?
     private(set) var installing = false
-    private var lastCheck = Date.distantPast
+    private(set) var lastCheck = Date.distantPast
     private var retryPending = false
     var changed: () -> Void = {}
     /// True while the person is in the menu or a dialog, so the app doesn't restart under them.
@@ -110,8 +110,9 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
                                 withCompletionHandler done: @escaping () -> Void) {
         let id = response.notification.request.identifier
         let url = response.notification.request.content.userInfo["url"] as? String ?? ""
+        let sid = response.notification.request.content.userInfo["id"] as? String ?? ""
         DispatchQueue.main.async {
-            if id.hasPrefix("login") { Login.signIn() } else if id.hasPrefix("waiting") { Waiting.open(url) } else { self.install() }
+            if id.hasPrefix("login") { Login.signIn() } else if id.hasPrefix("waiting") || id.hasPrefix("notify") { Waiting.open(url, id: sid) } else { self.install() }
         }
         done()
     }

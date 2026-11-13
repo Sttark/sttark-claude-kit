@@ -1,6 +1,4 @@
-# Sttark Claude Kit
-
-Read README.md before you change anything.
+@AGENTS.md
 
 ## Orchestrator branch
 

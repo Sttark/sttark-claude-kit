@@ -237,10 +237,11 @@ enum ChromeWindow {
     static var tool: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude-window") }
     static var chromeRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty }
 
-    /// Asking Chrome while it's closed would open it, so this only asks a running Chrome.
+    /// Asking Chrome while it's closed would open it, so this only asks a running Chrome. claude-window asks the
+    /// person's own Chrome by its process id; "tell application" can reach a test tool's copy instead.
     static var exists: Bool {
         guard chromeRunning else { return false }
-        let r = Updater.run("/usr/bin/osascript", ["-e", #"tell application "Google Chrome" to return (count of (every window whose given name is "Claude")) > 0"#])
+        let r = Updater.run("/bin/zsh", [hooksDir.appendingPathComponent("claude-window.sh").path, "exists"])
         return r.1.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
@@ -279,7 +280,7 @@ enum ChromeWindow {
         } else {
             try? FileManager.default.removeItem(at: tool)
             if chromeRunning {
-                Updater.run("/usr/bin/osascript", ["-e", #"tell application "Google Chrome" to close (every window whose given name is "Claude")"#])
+                Updater.run("/bin/zsh", [hooksDir.appendingPathComponent("claude-window.sh").path, "close-window"])
             }
         }
         note("Claude window in Chrome \(on ? "on" : "off")")

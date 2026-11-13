@@ -20,6 +20,10 @@
 # (Sttark Claude Kit runs `claude-window cleanup` every 30 seconds; its Open Claude window runs `claude-window open`).
 #
 # Needs Chrome's View > Developer > Allow JavaScript from Apple Events.
+#
+# It talks to your own Chrome by its process id, so a Chrome that a test tool runs at the same time (Playwright,
+# Puppeteer: started with --headless, --remote-debugging-…, --enable-automation or --user-data-dir) never gets
+# the commands. Scripts that name "Google Chrome" go to whichever copy macOS picks, often the test one.
 set -uo pipefail
 cmd=${1:-}
 [[ -n $cmd ]] || { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
@@ -34,7 +38,27 @@ logfile="$HOME/Library/Logs/sttark-claude-kit.log"
 
 log() { print -r -- "$(date '+%F %T') window $*" >> "$logfile" 2>/dev/null }
 
-chrome_running() { [[ -n $(lsappinfo find bundleid="$chrome_id" 2>/dev/null) ]] }
+# The person's own Chrome: the main Google Chrome process that no test tool started. Several can run at once;
+# "tell application" picks one of them, so every call here goes to this one by its process id.
+cpid=""
+find_chrome() {
+  local p args
+  cpid=""
+  ps -axww -o pid=,args= | while read -r p args; do
+    [[ $args == */Google\ Chrome.app/Contents/MacOS/Google\ Chrome || $args == */Google\ Chrome.app/Contents/MacOS/Google\ Chrome\ * ]] || continue
+    [[ $args == *--headless* || $args == *--remote-debugging-* || $args == *--enable-automation* || $args == *--user-data-dir* || $args == *--test-type* ]] && continue
+    cpid=$p
+    break
+  done
+  [[ -n $cpid ]]
+}
+
+chrome_running() { find_chrome }
+
+# Apple events to that one process, built by hand in JavaScript for Automation: AppleScript's "tell application"
+# and JXA's Application() both choose a copy of Chrome by name, which can be a test tool's copy.
+ae_lib=$(<"${0:A:h}/chrome-ae.js")  # the library, shared with profile-sync.py
+jxa() { { print -r -- "$ae_lib"; cat } | osascript -l JavaScript - "$cpid" "$@" }  # script on stdin; run(argv) gets the pid first
 
 front_app() {  # the bundle ID of the app in front
   lsappinfo info -only bundleid "$(lsappinfo front)" 2>/dev/null | sed -n 's/.*="\(.*\)"/\1/p'
@@ -48,23 +72,25 @@ open_window() {  # make the Claude window when it's gone, then put the app that 
   before=$(front_app)
   if ! chrome_running; then
     rm -f "$tabs"/*(N)  # Chrome quit, so every tab is gone
-    open -g -j -b "$chrome_id" || { log "Claude window: couldn't start Chrome"; return 1; }  # in the background, hidden
+    # -n: a test tool's Chrome may be running, and without -n macOS would only hand the request to that one
+    open -n -g -j -b "$chrome_id" || { log "Claude window: couldn't start Chrome"; return 1; }  # in the background, hidden
     for i in {1..60}; do
-      chrome_running && osascript -e 'tell application "Google Chrome" to count windows' >/dev/null 2>&1 && break
+      chrome_running && jxa <<<'function run(a) { PID = Number(a[0]); return count("cwin") }' >/dev/null 2>&1 && break
       sleep 0.5
     done
     log "Chrome wasn't running; started it hidden"
   fi
   # Making a window brings Chrome forward (tested: a plain window, a minimized one and Chrome's --new-window all
   # do), so the app that was in front goes back right after. Only this step does it, and only when the window is gone.
-  out=$(osascript <<'OSA' 2>&1
-tell application "Google Chrome"
-  if (count of (every window whose given name is "Claude")) > 0 then return "there"
-  set w to make new window
-  set given name of w to "Claude"
-  return "opened"
-end tell
-OSA
+  chrome_running || { log "Claude window: Chrome didn't start"; return 1; }
+  out=$(jxa <<'JXA' 2>&1
+function run(argv) {
+  PID = Number(argv[0])
+  if (claudeWindow()) return 'there'
+  set(prop('GNam', make('cwin')), str('Claude'))
+  return 'opened'
+}
+JXA
   )
   after=$(front_app) back=""
   if [[ -n $before && $before != "$chrome_id" && $after == "$chrome_id" ]]; then
@@ -81,13 +107,15 @@ OSA
 if ! chrome_running; then
   [[ $cmd == cleanup ]] && { rm -rf "$tabs"; exit 0; }  # Chrome quit, so every tab is gone
   [[ $cmd == done ]] && { rm -f "$mine"; echo "Closed this session's tab."; exit 0; }
+  [[ $cmd == exists ]] && { echo false; exit 0; }
+  [[ $cmd == close-window ]] && exit 0
 fi
 
 chrome() {  # chrome <op> [tab id] [javascript]: work on the Claude window, making it first if it's gone
   local out rc
-  [[ $1 == ids || $1 == close ]] || chrome_running || open_window
+  [[ $1 == ids || $1 == close* || $1 == exists ]] || chrome_running || open_window
   out=$(chrome_raw "$@" 2>&1); rc=$?
-  if [[ $out == *NO_CLAUDE_WINDOW* && $1 != ids && $1 != close ]] && open_window; then
+  if [[ $out == *NO_CLAUDE_WINDOW* && $1 != ids && $1 != close* && $1 != exists ]] && open_window; then
     out=$(chrome_raw "$@" 2>&1); rc=$?
   fi
   if (( rc == 0 )); then print -r -- "$out"; else print -r -- "$out" >&2; fi
@@ -95,49 +123,45 @@ chrome() {  # chrome <op> [tab id] [javascript]: work on the Claude window, maki
 }
 
 chrome_raw() {  # never activates Chrome
-  osascript - "$@" <<'OSA'
-on run argv
-  set op to item 1 of argv
-  tell application "Google Chrome"
-    set ws to (every window whose given name is "Claude")
-    if (count of ws) is 0 then error "NO_CLAUDE_WINDOW"
-    set w to item 1 of ws
-    set ids to id of every tab of w
-    if op is "ids" then
-      set AppleScript's text item delimiters to " "
-      return ids as text
-    end if
-    if op is "new" then
-      -- a plain new tab: giving it an address here (or setting a tab's URL) brings Chrome to the front
-      set t to make new tab at end of tabs of w
-      return id of t
-    end if
-    set n to 0
-    repeat with i from 1 to count of ids
-      if item i of ids is (item 2 of argv) then set n to i
-    end repeat
-    if op is "close" then
-      if n is 0 then return ""
-      -- the window's last tab stays, blank, so the window stays open
-      if (count of ids) > 1 then
-        close tab n of w
-      else
-        execute tab n of w javascript "location.href = 'about:blank'"
-      end if
-      return ""
-    end if
-    if n is 0 then error "NO_TAB"
-    if active tab index of w is not n then set active tab index of w to n
-    return execute (tab n of w) javascript (item 3 of argv)
-  end tell
-end run
-OSA
+  [[ -n $cpid ]] || chrome_running || { echo "NO_CHROME"; return 1; }
+  jxa "$@" <<'JXA'
+function run(argv) {
+  PID = Number(argv[0])
+  var op = argv[1], w = claudeWindow()
+  if (op === 'exists') return !!w
+  if (op === 'close-window') { while (w) { send('core', 'clos', {'----': w}); w = claudeWindow() } return '' }
+  if (!w) throw new Error('NO_CLAUDE_WINDOW')
+  var ids = (get(prop('ID  ', every('CrTb', w))) || []).map(String)
+  if (op === 'ids') return ids.join(' ')
+  // a plain new tab: giving it an address here (or setting a tab's URL) brings Chrome to the front
+  if (op === 'new') return String(get(prop('ID  ', make('CrTb', w))))
+  var n = ids.indexOf(argv[2]) + 1, tab = nth('CrTb', w, n)
+  if (op === 'close') {
+    if (n === 0) return ''
+    // the window's last tab stays, blank, so the window stays open
+    if (ids.length > 1) send('core', 'clos', {'----': tab})
+    else send('CrSu', 'ExJa', {'----': tab, JvSc: str("location.href = 'about:blank'")})
+    return ''
+  }
+  if (n === 0) throw new Error('NO_TAB')
+  if (get(prop('acTI', w)) !== n) set(prop('acTI', w), D.descriptorWithInt32(n))
+  return show(val(send('CrSu', 'ExJa', {'----': tab, JvSc: str(argv[3])})))
+}
+// print a page's answer the way AppleScript did: lists joined with ", ", nothing as "missing value"
+function show(v) {
+  if (v === null || v === undefined) return 'missing value'
+  if (Array.isArray(v)) return v.map(show).join(', ')
+  if (typeof v === 'object') return Object.keys(v).map(function (k) { return k + ':' + show(v[k]) }).join(', ')
+  return String(v)
+}
+JXA
 }
 
 explain() {  # turn a failure from chrome() into a plain message
   case $1 in
-    *NO_CLAUDE_WINDOW*) echo "There's no Chrome window named Claude and making one failed; the Sttark Claude Kit log says why." >&2 ;;
-    *"Apple Events"*|*"JavaScript"*) echo "Chrome blocks scripts: turn on View > Developer > Allow JavaScript from Apple Events." >&2 ;;
+    *NO_CLAUDE_WINDOW*|*NO_CHROME*) echo "There's no Chrome window named Claude and making one failed; the Sttark Claude Kit log says why." >&2 ;;
+    *"(-600)"*|*"(-609)"*) echo "Chrome quit or restarted while the command ran; run it again." >&2 ;;
+    *"Executing JavaScript through AppleScript is turned off"*|*"Allow JavaScript from Apple Events"*) echo "Chrome blocks scripts: turn on View > Developer > Allow JavaScript from Apple Events." >&2 ;;
     *) echo "$1" >&2 ;;
   esac
 }
@@ -212,5 +236,7 @@ case $cmd in
     echo "Closed this session's tab." ;;
   cleanup) cleanup ;;
   open) open_window ;;
+  exists) chrome exists ;;              # for the app: is the Claude window open?
+  close-window) chrome close-window ;;  # for the app: the switch was turned off
   *)    echo "unknown command: $cmd (use go, url, text, js or done)" >&2; exit 2 ;;
 esac
