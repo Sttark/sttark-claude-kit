@@ -1099,11 +1099,16 @@ struct SettingsPage: View {
     @ViewBuilder var sessions: some View {
         heading("Sessions")
         Box {
-            toggle("Start sessions from the Claude app",
-                   f.serverElsewhere ? "A server set up outside Sttark Claude Kit already runs on this Mac."
-                   : f.serverFolder.map { "Sessions start in " + $0.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~") }
-                   ?? "Start Claude Code sessions on this Mac from the Claude app on your phone or any computer.",
-                   f.serverElsewhere || f.serverInstalled) { c?.togglePhone() }
+            SettingRow(title: "Start sessions from the Claude app",
+                       desc: f.serverElsewhere ? "A server set up outside Sttark Claude Kit already runs on this Mac."
+                       : f.serverState?.0
+                       ?? f.serverFolder.map { "Sessions start in " + $0.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~") }
+                       ?? "Start Claude Code sessions on this Mac from the Claude app on your phone or any computer.",
+                       warn: f.serverState?.1 ?? false) {
+                Toggle("Start sessions from the Claude app", isOn: Binding(get: { f.serverElsewhere || f.serverInstalled },
+                                                                          set: { _ in c?.togglePhone(); model.changed() }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
             Hairline()
             toggle("Bypass permissions for server sessions", "Lets sessions on this Mac's server run without asking. The Claude app doesn't offer it.",
                    f.bypass) { c?.toggleBypass() }

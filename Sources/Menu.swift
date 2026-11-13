@@ -15,6 +15,8 @@ struct MenuFacts {
     var claudeFound = true
     var serverElsewhere = false
     var serverInstalled = false
+    /// The server's state in plain words for Settings, and whether it needs attention.
+    var serverState: (String, Bool)? = nil
     var serverFolder: String? = nil
     var bypass = false
     var chromeApprover = false
@@ -52,6 +54,9 @@ struct MenuFacts {
         f.serverElsewhere = Server.otherRunning
         f.serverInstalled = Server.installed
         f.serverFolder = Server.folder
+        f.serverState = Server.installed ? ServerHealth.settingsText
+            : (Server.lastSkip.isEmpty || Server.lastSkip == "already on" || Server.lastSkip == "turned off in Settings" || Server.lastSkip.hasPrefix("a server set up")) ? nil
+            : ("Not started: " + Server.lastSkip + ". The Kit tries again by itself.", true)
         f.bypass = Bypass.on
         f.chromeApprover = ChromeApprover.on
         f.needsAccessibility = ChromeApprover.needsAccessibility
@@ -111,6 +116,7 @@ final class Controller: NSObject, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 40) { Server.autoStart() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Server.autoStart() }
+        ServerHealth.start()
         Waiting.watchFront()
         Waiting.refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }

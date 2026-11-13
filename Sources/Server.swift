@@ -9,6 +9,10 @@ enum Server {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(label).plist")
     }
     static var domain: String { "gui/\(getuid())" }
+    /// The name of the screen the server runs in; the Kit reads it to see what the server shows.
+    static let screenName = ProcessInfo.processInfo.environment["STTARK_SERVER_SCREEN"] ?? "claude-rc"
+    /// Where the server's screen goes, so a reason it stops can be read later.
+    static var logFile: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/claude-rc.log") }
 
     /// Ours: the LaunchAgent this app wrote.
     static var installed: Bool { FileManager.default.fileExists(atPath: plist.path) }
@@ -16,7 +20,7 @@ enum Server {
     /// The folder our server starts sessions in.
     static var folder: String? {
         guard let d = NSDictionary(contentsOf: plist), let args = d["ProgramArguments"] as? [String],
-              let cmd = args.last, let r = cmd.range(of: "cd '"), let end = cmd[r.upperBound...].firstIndex(of: "'") else { return nil }
+              let cmd = args.last, let r = cmd.range(of: "cd '", options: .backwards), let end = cmd[r.upperBound...].firstIndex(of: "'") else { return nil }
         return String(cmd[r.upperBound..<end])
     }
 
@@ -41,30 +45,45 @@ enum Server {
         return false
     }
 
+    /// Loaded in launchd (it may be between restarts).
+    static var loaded: Bool { Updater.run("/bin/launchctl", ["print", "\(domain)/\(label)"]).0 == 0 }
+
     /// Always started in bypass. On its own that changes nothing: the Claude app switches every session it
     /// starts on a server back to asking. "Bypass permissions for server sessions" is what actually turns it on.
-    static func start(folder: String) -> String? {
+    /// The screen's output goes to ~/Library/Logs/claude-rc.log, so a reason it stops can be read; ServerHealth
+    /// reads the live screen and answers its questions.
+    @discardableResult
+    static func start(folder: String, quiet: Bool = false) -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         // the fixed copy, when there is one: macOS keeps Accessibility for a program that stays in one place
         let stable = home + "/.local/share/claude/stable/claude"
         let claude = FileManager.default.isExecutableFile(atPath: stable) ? stable : home + "/.local/bin/claude"
         let mode = " --permission-mode bypassPermissions"
+        // screen saves what the server shows to the log (screen 4.0 on macOS takes the log file from a screenrc)
+        let rc = supportDir.appendingPathComponent("server.screenrc")
+        try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
+        try? "logfile \(logFile.path)\nlogfile flush 5\ndeflog on\n".write(to: rc, atomically: true, encoding: .utf8)
         // screen gives the server a terminal of its own, so it runs with no Terminal window open
-        let cmd = "exec /usr/bin/screen -DmS claude-rc /bin/zsh -c \"cd '\(folder)' && exec '\(claude)' rc\(mode)\""
+        let cmd = "exec /usr/bin/screen -c '\(rc.path)' -DmS \(screenName) /bin/zsh -c \"cd '\(folder)' && exec '\(claude)' rc\(mode)\""
         let d: [String: Any] = [
             "Label": label,
             "ProgramArguments": ["/bin/zsh", "-lc", cmd],
             "EnvironmentVariables": ["PATH": "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"],
             "RunAtLoad": true, "KeepAlive": true, "ThrottleInterval": 10,
-            "StandardOutPath": "\(home)/Library/Logs/claude-rc.log", "StandardErrorPath": "\(home)/Library/Logs/claude-rc.log",
+            "StandardOutPath": logFile.path, "StandardErrorPath": logFile.path,
         ]
         try? FileManager.default.createDirectory(at: plist.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard (d as NSDictionary).write(to: plist, atomically: true) else { return "Couldn't save \(plist.path)." }
         Updater.run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
+        // bootout leaves the screen running; end an old one so the new one has the name to itself
+        Updater.run("/usr/bin/screen", ["-S", screenName, "-X", "quit"])
         let r = Updater.run("/bin/launchctl", ["bootstrap", domain, plist.path])
         guard r.0 == 0 else { return "macOS didn't start it: \(r.1.trimmingCharacters(in: .whitespacesAndNewlines))" }
         Stable.keep(true)
-        note("server sessions on: claude rc in \(folder)")
+        if !quiet { note("server sessions on: claude rc in \(folder)") }
+        // `claude rc` asks "Trust <folder>? [y/N]" in a folder it hasn't seen (its own trust store; a key in
+        // ~/.claude.json doesn't stop it), so look at its screen a few times while it starts and answer it
+        for t in [4.0, 8, 15, 30] { DispatchQueue.main.asyncAfter(deadline: .now() + t) { ServerHealth.check() } }
         return nil
     }
 
@@ -118,60 +137,36 @@ enum Server {
         return .start(f)
     }
 
-    /// The folder sessions start in when the Kit sets the server up by itself: ~/src when there is one, else the
-    /// folder that holds the most git repos, one or two levels under the home folder. Never the home folder, a hidden
-    /// folder or ~/Library; and not Desktop, Documents or Downloads, which macOS asks permission to read.
-    static func defaultFolder(home: URL) -> String? {
-        let fm = FileManager.default
-        func isDir(_ u: URL) -> Bool { var d: ObjCBool = false; return fm.fileExists(atPath: u.path, isDirectory: &d) && d.boolValue }
-        func isRepo(_ u: URL) -> Bool { fm.fileExists(atPath: u.appendingPathComponent(".git").path) }
-        func folders(_ u: URL) -> [URL] {
-            ((try? fm.contentsOfDirectory(atPath: u.path)) ?? []).filter { !$0.hasPrefix(".") && $0 != "node_modules" }
-                .map { u.appendingPathComponent($0) }.filter(isDir)
-        }
+    /// The folder sessions start in when the Kit sets the server up: ~/src on every Mac, made when it is missing
+    /// (an empty folder is fine). A folder the person picks in Settings stays.
+    static func srcFolder(home: URL) -> String {
         let src = home.appendingPathComponent("src")
-        if isDir(src) { return src.path }
-        let skip: Set<String> = ["Library", "Applications", "Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures", "Public"]
-        let top = folders(home).filter { !skip.contains($0.lastPathComponent) && !isRepo($0) }
-        let candidates = top + top.flatMap { folders($0).filter { !isRepo($0) } }
-        var best: (url: URL, repos: Int)? = nil
-        for c in candidates {
-            let n = folders(c).filter(isRepo).count
-            // more repos wins; on a tie, the folder nearer the home folder
-            if n > 0, best == nil || n > best!.repos || (n == best!.repos && c.pathComponents.count < best!.url.pathComponents.count) {
-                best = (c, n)
-            }
-        }
-        return best?.url.path
+        try? FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        return src.path
     }
 
-    private static var lastSkip = ""
+    /// Why the last check didn't start it, for Settings.
+    static var lastSkip = ""
 
     /// At launch and every hour: sets the server up for a person who never turned it off, so sessions they start from
     /// the Claude app run on this Mac without finding the switch. Tells them once, with a notice.
     static func autoStart() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let step = decide(installed: installed, elsewhere: otherRunning, turnedOff: turnedOff, claudeFound: Setup.claudeFound,
-                          signedIn: Login.read()?.signedIn == true, folder: { defaultFolder(home: home) })
+                          signedIn: Login.read()?.signedIn == true, folder: { srcFolder(home: home) })
         switch step {
         case .skip(let why):
-            if why != lastSkip && why != "already on" { note("server auto: not started, \(why)") }
+            if why != lastSkip && why != "already on" { logLine("server", "not started: \(why)") }
             lastSkip = why
+            if why == "Claude Code isn't signed in" { Fix.signIn() }
         case .ask:
-            let d = UserDefaults.standard
-            guard !d.bool(forKey: "serverAskSent") else { return }
-            d.set(true, forKey: "serverAskSent")
-            note("server auto: no project folder found, asked with a notice")
-            Updater.post("server-ask", "Start sessions from the Claude app",
-                         "Click to pick the folder that holds your projects. Then sessions you start in the Claude app run on this Mac.")
+            break   // the folder is always ~/src, so there is always one
         case .start(let folder):
-            if ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] != nil { note("server auto: would start in \(folder)"); return }
-            if let err = start(folder: folder) { note("server auto: couldn't start: \(err)"); return }
+            if ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] != nil { logLine("server", "would start in \(folder)"); return }
+            if let err = start(folder: folder, quiet: true) { logLine("server", "not started: couldn't start: \(err)"); return }
             let shown = folder.replacingOccurrences(of: home.path, with: "~")
-            let name = (folder as NSString).lastPathComponent
-            note("server auto: started in \(shown)")
-            Updater.post("server-on", "Sessions from the Claude app now run on this Mac",
-                         "In the Claude app, open Code and pick Remote Control > \(name). Sessions start in \(shown). Click to open Settings.")
+            // the notice comes when it connects (ServerHealth), not now: started is not connected
+            logLine("server", "started in \(shown)")
         }
     }
 
@@ -187,6 +182,7 @@ enum Server {
         let src = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("src")
         p.directoryURL = FileManager.default.fileExists(atPath: src.path) ? src : FileManager.default.homeDirectoryForCurrentUser
         guard p.runModal() == .OK, let folder = p.url?.path else { return }
+        UserDefaults.standard.set(true, forKey: ServerHealth.movedKey)   // the person's own pick: never moved to ~/src
 
         let a = NSAlert()
         a.messageText = "Start sessions from the Claude app"
@@ -200,6 +196,36 @@ enum Server {
             e.messageText = "Couldn't start it"
             e.informativeText = err
             e.runModal()
+        }
+    }
+
+    /// Fixes the Kit makes by itself, so no one has to press a button.
+    enum Fix {
+        /// Signed out: starts Claude Code's own sign-in, which opens the sign-in page in the browser by itself. The
+        /// person only approves it there. At most once every 6 hours. When the login appears, the server starts
+        /// (or starts again) at once.
+        static func signIn() {
+            guard Thread.isMainThread else { DispatchQueue.main.async { signIn() }; return }
+            guard ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] == nil else { return }
+            let d = UserDefaults.standard
+            let last = d.double(forKey: "serverSignInAt")
+            guard Date().timeIntervalSince1970 - last > 6 * 3600, Setup.claudeFound else { return }
+            d.set(Date().timeIntervalSince1970, forKey: "serverSignInAt")
+            let claude = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/claude").path
+            // a screen gives the sign-in the terminal it needs; it opens the browser itself and ends when done
+            Updater.run("/usr/bin/screen", ["-dmS", "kit-sign-in", claude, "auth", "login"])
+            logLine("server", "sign-in started: the Claude sign-in page opens in the browser")
+            Updater.post("server-signin", "Approve the Claude sign-in in your browser",
+                         "Claude Code is signed out, so sessions from the Claude app can't run. The Kit opened the sign-in page. The server starts when you approve it.")
+            var n = 0
+            Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { t in
+                n += 1
+                if Login.read()?.signedIn == true {
+                    t.invalidate()
+                    logLine("server", "signed in: starting the server")
+                    if installed, let f = folder { start(folder: f, quiet: true) } else { autoStart() }
+                } else if n > 180 { t.invalidate() }   // 15 minutes
+            }
         }
     }
 }
