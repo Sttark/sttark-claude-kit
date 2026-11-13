@@ -59,5 +59,32 @@ log = open(d + '/log').read() if os.path.exists(d + '/log') else ''
 ok = log.count('agents ') == 2 and 'ste    ' not in log
 fails += not ok
 print('ok   ' if ok else 'FAIL ', 'log: one agents line per note, no ste line')
+# The status icon check, called in this process (no Stop run, so no STE model call on these longer replies).
+import importlib.util
+os.environ.update(STTARK_KIT_DIR=d, STTARK_KIT_LOG=d + '/log')
+spec = importlib.util.spec_from_file_location('hook', HOOK)
+hook = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hook)
+
+
+def icons(name, text, want):
+    global fails
+    sid = 'icons-' + name.replace(' ', '-')
+    tp = os.path.join(d, sid + '.jsonl')
+    with open(tp, 'w') as f:
+        f.write(json.dumps(person('do a and b')) + '\n'
+                + json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': text}]}}) + '\n')
+    hook.icon_check({'session_id': sid, 'transcript_path': tp})
+    got = bool(json.load(open(os.path.join(d, 'working-notes.json'))).get(sid))
+    ok = got == want
+    fails += not ok
+    print('ok   ' if ok else 'FAIL ', name, '-> note' if got else '-> no note')
+
+
+head = '| # | Ask | Status |\n|---|---|---|\n'
+icons('status cell with two icons', head + '| 1 | A | 🔄 In progress. Then 🔴 you select |', True)
+icons('one icon per row', head + '| 1 | A | ✅ Done |\n| 2 | B | 🔴 Needs you: pick one |', False)
+icons('two icons outside a table', 'A is ✅ and B is 🔄.', False)
 print('all passed' if not fails else '%d failed' % fails)
 sys.exit(1 if fails else 0)
+
