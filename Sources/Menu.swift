@@ -187,6 +187,15 @@ final class Controller: NSObject, NSMenuDelegate {
             head.representedObject = rows.first?.id
             head.toolTip = "Opens Sttark Claude Kit at \(g.title.lowercased())."
             menu.addItem(head)
+            if g == .waits {  // a wait whose check fails shows, so it never fails silently
+                for r in rows where r.subWarn {
+                    let i = action("", #selector(openRow(_:)))
+                    i.attributedTitle = row(r.title, "check failing", tagBold: true)
+                    i.representedObject = r.id
+                    i.toolTip = (r.waits.first { !$0.failing.isEmpty }?.failing ?? "") + ". Click to see it in Sttark Claude Kit."
+                    menu.addItem(i)
+                }
+            }
             guard g == .needs || g == .held else { continue }
             for r in rows.prefix(g == .needs ? 5 : 3) {
                 let i = action("", #selector(openRow(_:)))

@@ -43,7 +43,11 @@ enum Inbox {
         /// The time is late: waited past the notice, or past a deadline.
         var late = false
         var session: Session? = nil
+        /// The first wait (by deadline) and every wait of the session: a session that waits on several things is one row.
         var wait: Waits.Wait? = nil
+        var waits: [Waits.Wait] = []
+        /// `subStrong` is a warning (a check that fails).
+        var subWarn = false
         var hold: Limit.Waiting? = nil
         /// The link that opens the session in the Claude app.
         var url: String { session?.url.nilIfEmpty ?? wait?.sessionURL.nilIfEmpty ?? "" }
@@ -154,15 +158,26 @@ enum Inbox {
             snap.rows.append(r)
         }
 
-        // waits handed to the Kit, by deadline
+        // waits handed to the Kit, one row per session, by its first deadline
+        var bySession: [String: [Waits.Wait]] = [:], order: [String] = []
         for w in Waits.list(state) {
+            let key = w.cse.isEmpty ? "wait:" + w.id : w.cse
+            if bySession[key] == nil { order.append(key) }
+            bySession[key, default: []].append(w)
+        }
+        for key in order {
+            let ws = bySession[key]!, w = ws[0]
             let s = session(cse: w.cse, sid: "")
             if let s { used.insert(s.id) }
-            var r = Row(id: s?.id ?? "wait:" + w.id, group: .waits, title: w.title, sub: w.what, time: w.by.map(day) ?? "")
-            if !w.from.isEmpty { r.subStrong = "from " + w.from }
+            var r = Row(id: s?.id ?? (w.cse.isEmpty ? "wait:" + w.id : w.cse), group: .waits, title: w.title,
+                        sub: ws.count == 1 ? w.what : waitsWords(ws), time: w.by.map(day) ?? "")
+            if ws.count == 1, !w.from.isEmpty { r.subStrong = "from " + w.from }
+            let failing = ws.filter { !$0.failing.isEmpty }.count
+            if failing > 0 { r.subStrong = ws.count == 1 || failing == ws.count ? "check failing" : "\(failing) check\(failing == 1 ? "" : "s") failing"; r.subWarn = true }
             r.late = w.by.map { $0 < Date() } ?? false
             r.session = s
             r.wait = w
+            r.waits = ws
             snap.rows.append(r)
         }
 
@@ -177,6 +192,19 @@ enum Inbox {
             snap.rows.append(r)
         }
         return snap
+    }
+
+    /// "2 email replies", "2 pull requests", or "3 waits" when they are of more than one kind.
+    static func waitsWords(_ ws: [Waits.Wait]) -> String {
+        let n = ws.count
+        let kinds = Set(ws.map(\.kind))
+        guard kinds.count == 1 else { return "\(n) waits" }
+        switch ws[0].kind {
+        case "email-reply": return "\(n) email replies"
+        case "pr": return "\(n) pull requests"
+        case "at": return "\(n) set times"
+        default: return "\(n) checks"
+        }
     }
 
     /// "Auto · design question on a full app window", or "Manual: you set the effort".
