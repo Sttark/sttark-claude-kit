@@ -31,6 +31,7 @@ got = [lh.usage() for _ in range(50)]
 c = json.load(open(lh.USAGE))
 print('requests:', len(hits))
 print('every call kept the last good read:', all(g == good for g in got))
-print('next read in s:', round(c['retry_at'] - time.time()))
+print('next read in s:', round(c['next_read'] - time.time()))
+print('fence for older copies (s):', round(c['retry_at'] - time.time()))
 print('still at the limit (no guess):', lh.wall(got[-1]) is not None)
 print(open(d + '/log').read().strip())

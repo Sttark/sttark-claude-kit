@@ -381,6 +381,10 @@ enum Events {
                 } else { e.text = "Held: " + why }
             case "wait":
                 return nil   // the hold's own wait, logged in the same second
+            case "reload":
+                if let id = aw.first { who(id) }
+                e.text = "The hold went on in the updated Kit"
+                e.routine = true
             case "resume":
                 if let id = aw.first { who(id) }
                 let why = after.drop { $0 != " " }.drop { $0 == " " }
