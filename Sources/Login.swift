@@ -42,35 +42,23 @@ enum Login {
         return f.string(from: d)
     }
 
-    /// Hourly: one notice per warning step for each end date, and one when the login is gone.
+    /// Hourly: when the login is gone, or ends within a day, the Kit starts the sign-in itself (no notice asks for a step).
     static func check() {
         guard let i = read() else { return }
         let d = UserDefaults.standard
         let key = "loginWarned-\(Int(i.ends?.timeIntervalSince1970 ?? 0))"
         var done = Set(d.stringArray(forKey: key) ?? [])
-        func notify(_ step: String, _ title: String, _ body: String) {
-            guard !done.contains(step) else { return }
-            done.insert(step)
-            d.set(Array(done), forKey: key)
-            note("login notice: \(title)")
-            let c = UNUserNotificationCenter.current()
-            c.requestAuthorization(options: [.alert, .sound]) { ok, _ in
-                guard ok else { return }
-                let n = UNMutableNotificationContent()
-                n.title = title
-                n.body = body
-                n.sound = .default
-                c.add(UNNotificationRequest(identifier: "login-\(step)", content: n, trigger: nil))
-            }
-        }
+        // No step for the person to take: the Kit starts Claude Code's own sign-in, which opens the sign-in page in
+        // the browser by itself (at most once every 6 hours); the person only approves it there.
         if !i.signedIn {
-            notify("out", "Claude Code is signed out", "Sessions and the server can't run until you sign in. Click to start the sign-in.")
+            if !done.contains("out") { done.insert("out"); d.set(Array(done), forKey: key); note("login: signed out, sign-in started") }
+            Server.Fix.signIn()
             return
         }
         guard let ends = i.ends else { return }
-        let left = ends.timeIntervalSinceNow
-        if let step = warnings.last(where: { left < $0.0 }) {
-            notify(step.1, "Claude login ends \(relative(ends))", "Click to sign in again now, so sessions and the server keep running.")
+        if ends.timeIntervalSinceNow < warnings[1].0 {
+            if !done.contains("renew") { done.insert("renew"); d.set(Array(done), forKey: key); note("login: ends \(relative(ends)), sign-in started") }
+            Server.Fix.signIn(endsSoon: true)
         }
     }
 
