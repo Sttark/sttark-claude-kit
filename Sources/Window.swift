@@ -136,6 +136,8 @@ final class KitModel: ObservableObject {
     @Published var unseen = 0
     /// The What's new sheet, with the notes it shows.
     @Published var sheet: [WhatsNew.Note] = []
+    /// A What's new picture shown bigger, over the page.
+    @Published var big: WhatsNew.Note?
     @Published var zoom: CGFloat = K.zoom
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
@@ -232,6 +234,7 @@ enum K {
     static let greenHover = Color(nsColor: Tokens.greenHover), highlight = Color(nsColor: Tokens.highlight)
     static let warnText = Color(nsColor: Tokens.warnText), warnMark = Color(nsColor: Tokens.warnMark)
     static let infoMark = Color(nsColor: Tokens.infoMark), track = Color(nsColor: Tokens.track)
+    static let infoText = Color(nsColor: Tokens.infoText), infoSoft = Color(nsColor: Tokens.infoSoft), infoBorder = Color(nsColor: Tokens.infoBorder)
 
     /// The window's zoom (View > Zoom In, Zoom Out, Actual Size): every size in the window is multiplied by it.
     static var zoom: CGFloat = {
@@ -1007,15 +1010,46 @@ struct NewsPage: View {
     @ObservedObject var model: KitModel
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                if model.notes.isEmpty { Text("No notes yet.").foregroundColor(K.steel).padding(.top, 24) }
-                ForEach(model.notes, id: \.id) { n in NoteCardView(note: n) }
+            Group {
+                if model.notes.isEmpty { Text("No notes yet.").foregroundColor(K.steel).padding(.top, 24) } else { rows }
             }
-            .frame(maxWidth: K.z(560))
             .textSelection(.enabled)
-            .padding(K.z(24))
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, K.z(32))
+            .padding(.vertical, K.z(28))
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(K.paper)
+        .background(K.card)
+        .overlay { if let b = model.big { BigPicture(note: b) { model.big = nil } } }
+    }
+
+    /// A heading for each update; each note's icon and words on the left, its picture on the right (below them
+    /// when the window is narrow).
+    var rows: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(WhatsNew.releases(model.notes), id: \.build) { r in
+                HStack(spacing: 10) {
+                    Text("\(r.notes[0].day.uppercased())  ·  VERSION \(r.notes[0].version)").font(K.font(12, true)).tracking(0.7).foregroundColor(K.steel)
+                    Rectangle().fill(K.hair).frame(height: 1)
+                }
+                .padding(.bottom, K.z(20))
+                VStack(alignment: .leading, spacing: K.z(36)) {
+                    ForEach(r.notes, id: \.id) { n in
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: K.z(32)) { words(n).frame(width: K.z(360), alignment: .leading); NoteImage(note: n) { model.big = $0 } }
+                            VStack(alignment: .leading, spacing: K.z(16)) { words(n).frame(maxWidth: K.z(560), alignment: .leading); NoteImage(note: n) { model.big = $0 } }
+                        }
+                    }
+                }
+                .padding(.bottom, K.z(44))
+            }
+        }
+    }
+
+    func words(_ n: WhatsNew.Note) -> some View {
+        HStack(alignment: .top, spacing: K.z(14)) {
+            Image(systemName: n.icon ?? "sparkles").font(.system(size: 20 * K.zoom)).foregroundColor(K.greenText)
+                .frame(width: K.z(26)).padding(.top, 1).accessibilityHidden(true)
+            NoteText(note: n)
+        }
     }
 }

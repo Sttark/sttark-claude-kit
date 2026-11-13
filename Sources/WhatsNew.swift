@@ -15,15 +15,37 @@ enum WhatsNew {
         let id: String
         let build: Int
         let title: String
-        let text: [String]
-        let action: String
+        /// New or Better.
+        let kind: String
+        /// One sentence: what changes for the person. The sheet shows it too.
+        let lead: String
+        /// Two or three short points; one says how to start.
+        let points: [String]
         let picture: String
         let alt: String
         /// The picture for dark mode, when the note has one (<slug>-dark.gif beside it).
         var picture_dark: String? = nil
-        /// For the sheet: an SF Symbol and one line.
         var icon: String? = nil
-        var summary: String? = nil
+        /// The day the build that first shipped it was made, yyyy-mm-dd.
+        var date: String? = nil
+
+        var version: String { "1.\(build)" }
+        /// "Nov 12"
+        var day: String {
+            let i = DateFormatter(); i.dateFormat = "yyyy-MM-dd"; i.locale = Locale(identifier: "en_US_POSIX")
+            guard let date, let d = i.date(from: date) else { return "" }
+            let o = DateFormatter(); o.dateFormat = "MMM d"
+            return o.string(from: d)
+        }
+    }
+
+    /// The notes in groups, one per build, newest first.
+    static func releases(_ notes: [Note]) -> [(build: Int, notes: [Note])] {
+        var out: [(build: Int, notes: [Note])] = []
+        for n in notes {
+            if out.last?.build == n.build { out[out.count - 1].notes.append(n) } else { out.append((n.build, [n])) }
+        }
+        return out
     }
 
     /// STTARK_WHATS_NEW_DIR points the code at test notes; the drawing tool (tools/screenshot.swift) uses it.
@@ -107,6 +129,9 @@ enum Tokens {
     static let green = token(0x00892f, 0x00892f)
     static let greenHover = token(0x007a2a, 0x00a82d)
     static let infoMark = token(0x0473b1, 0x5aa9e0)
+    static let infoText = token(0x035f93, 0x5aa9e0)
+    static let infoSoft = token(0xe8f1f8, 0x16222d)
+    static let infoBorder = token(0xb6d3e8, 0x24435c)
     static let gray = token(0xa3abb2, 0x5b6570)
     static let warnText = token(0x7a5c00, 0xe8c547)
     static let warnMark = token(0xe5b200, 0xe5b200)
@@ -149,7 +174,7 @@ struct NewsSheet: View {
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(n.title).font(K.font(14, true)).fixedSize(horizontal: false, vertical: true)
-                            Text(n.summary ?? n.text.first ?? "").font(K.font(13)).foregroundColor(K.steel)
+                            Text(NoteText.md(n.lead)).font(K.font(13)).foregroundColor(K.steel)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 0)
@@ -176,37 +201,96 @@ struct NewsSheet: View {
     }
 }
 
-/// One note: its title, its picture (the dark one in dark mode), its words, and what you do differently.
-struct NoteCardView: View {
+/// A note's words: the tag and title, the one sentence, and the points.
+struct NoteText: View {
     let note: WhatsNew.Note
+    var titleSize: CGFloat = 17
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(note.title).font(K.font(15, true)).fixedSize(horizontal: false, vertical: true)
-            if let p = NotePicture.load(note) {
-                NotePicture(light: p.light, dark: p.dark, alt: note.alt)
-                    .aspectRatio(p.ratio, contentMode: .fit)
-                    .frame(maxWidth: p.width * K.zoom)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(K.hair))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(note.title).font(K.font(titleSize, true)).fixedSize(horizontal: false, vertical: true)
+                KindTag(kind: note.kind)
             }
-            ForEach(Array(note.text.enumerated()), id: \.offset) { _, t in
-                Text(Self.md(t)).font(K.font(13)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+            Text(Self.md(note.lead)).font(K.font(14)).lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 6)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(note.points.enumerated()), id: \.offset) { _, t in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Circle().fill(K.steel).frame(width: 4, height: 4).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 4 }
+                        Text(Self.md(t)).font(K.font(13)).foregroundColor(K.ink.opacity(0.86)).lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
-            (Text("What you do: ").font(K.font(13, true)) + Text(Self.md(note.action)).font(K.font(13)))
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(K.highlight, in: RoundedRectangle(cornerRadius: 6))
+            .padding(.top, 12)
         }
-        .padding(14)
-        .background(K.card, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(K.hair))
     }
 
-    /// The note's **bold** and `code`.
+    /// The note's **bold** and `code`; what a person types shows in bold, in the same font as the words.
     static func md(_ s: String) -> AttributedString {
-        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        guard var a = try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        else { return AttributedString(s) }
+        for r in a.runs where r.inlinePresentationIntent?.contains(.code) == true {
+            a[r.range].inlinePresentationIntent = .stronglyEmphasized
+        }
+        return a
+    }
+}
+
+/// New: information blue; Better: a quiet outline.
+struct KindTag: View {
+    let kind: String
+    var body: some View {
+        let new = kind != "Better"
+        Text(kind).font(K.font(11, true)).tracking(0.3)
+            .foregroundColor(new ? K.infoText : K.steel)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(new ? K.infoSoft : .clear, in: Capsule())
+            .overlay(Capsule().strokeBorder(new ? K.infoBorder : K.hair))
+            .fixedSize()
+    }
+}
+
+/// A note's picture at its own size, never smaller; a click shows it bigger.
+struct NoteImage: View {
+    let note: WhatsNew.Note
+    let open: (WhatsNew.Note) -> Void
+    var body: some View {
+        if let p = NotePicture.load(note) {
+            NotePicture(light: p.light, dark: p.dark, alt: note.alt)
+                .frame(width: K.z(p.width), height: K.z(p.width / p.ratio))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(K.hair))
+                .contentShape(Rectangle())
+                .onTapGesture { open(note) }
+                .help("Click to see it bigger")
+                .accessibilityAddTraits(.isButton)
+        }
+    }
+}
+
+/// The picture bigger, over the page; a click or Escape closes it.
+struct BigPicture: View {
+    let note: WhatsNew.Note
+    let close: () -> Void
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture(perform: close)
+            if let p = NotePicture.load(note) {
+                GeometryReader { g in
+                    let w = min(p.width * 1.6, g.size.width - 64, (g.size.height - 96) * p.ratio)
+                    VStack(spacing: 10) {
+                        NotePicture(light: p.light, dark: p.dark, alt: note.alt)
+                            .frame(width: w, height: w / p.ratio)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .onTapGesture(perform: close)
+            }
+        }
+        .onExitCommand(perform: close)
     }
 }
 
@@ -221,7 +305,7 @@ struct NotePicture: NSViewRepresentable {
         guard let img = NSImage(contentsOf: WhatsNew.dir.appendingPathComponent(n.picture)) else { return nil }
         let dark = n.picture_dark.flatMap { NSImage(contentsOf: WhatsNew.dir.appendingPathComponent($0)) }
         let px = img.representations.first.map { NSSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? img.size
-        return (img, dark, px.height > 0 ? px.width / px.height : 2, max(200, px.width / 2))
+        return (img, dark, px.height > 0 ? px.width / px.height : 2, px.width / 2)
     }
 
     final class View: NSImageView {
