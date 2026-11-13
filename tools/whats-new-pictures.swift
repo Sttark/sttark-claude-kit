@@ -1,7 +1,7 @@
 // Draws the pictures of the What's new notes as short GIFs, in the brand's colors and the app's type, from made-up
 // sessions: each frame with AppKit, then ffmpeg (brew install ffmpeg) joins them. A new note with a picture that
 // moves can add a function here the same way; a still picture can be any PNG or SVG.
-//   whats-new/hold-before-limit.gif   a session set to hold stops at 80% and goes on when the limit resets
+//   whats-new/hold-before-limit.gif   the usage fills to 80%, a session set to hold stops, the limit resets to 0%
 //   whats-new/session-inbox.gif       a session that waits is archived, then comes back with a message
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
@@ -98,32 +98,51 @@ func frame(_ h: CGFloat, _ draw: () -> Void) -> NSBitmapImageRep {
     return rep
 }
 
-/// Writes the frames (10 a second) and joins them into a looping GIF with ffmpeg.
-func gif(_ frames: [NSBitmapImageRep], to path: String) {
+/// A frame and how long it shows, in seconds.
+typealias Frame = (rep: NSBitmapImageRep, time: Double)
+
+/// Moving parts play at 25 frames a second, so a bar fills with no jumps; a still part is one frame that shows as
+/// long as it needs, so its words can be read.
+let step = 0.04
+
+/// Joins the frames into a looping GIF with ffmpeg, each frame with its own time. The last frame of a picture is
+/// the state it holds before it starts again, so it shows long enough to see.
+func gif(_ frames: [Frame], to path: String) {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("whats-new-frames-\(getpid())")
     try? FileManager.default.removeItem(at: dir)
     try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: dir) }
+    var list = "ffconcat version 1.0\n"
     for (i, f) in frames.enumerated() {
-        try! f.representation(using: .png, properties: [:])!.write(to: dir.appendingPathComponent(String(format: "f%04d.png", i)))
+        let name = String(format: "f%04d.png", i)
+        try! f.rep.representation(using: .png, properties: [:])!.write(to: dir.appendingPathComponent(name))
+        list += "file '\(name)'\nduration \(String(format: "%.2f", f.time))\n"
     }
+    // concat keeps the last frame's time only when the file is named again; that adds one same frame of 0.04 s
+    list += "file '\(String(format: "f%04d.png", frames.count - 1))'\n"
+    try! list.write(to: dir.appendingPathComponent("frames.txt"), atomically: true, encoding: .utf8)
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    p.arguments = ["ffmpeg", "-v", "error", "-y", "-framerate", "10", "-i", dir.appendingPathComponent("f%04d.png").path,
+    p.arguments = ["ffmpeg", "-v", "error", "-y", "-f", "concat", "-i", dir.appendingPathComponent("frames.txt").path,
                    "-vf", "split[a][b];[a]palettegen=max_colors=96:stats_mode=full[p];[b][p]paletteuse=dither=none",
-                   "-loop", "0", path]
+                   "-fps_mode", "vfr", "-loop", "0", path]
     try! p.run()
     p.waitUntilExit()
     guard p.terminationStatus == 0 else { fatalError("ffmpeg failed; is it installed? brew install ffmpeg") }
     let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
-    print("wrote \(path) (\(frames.count) frames, \(size / 1024) KB)")
+    let total = frames.reduce(0) { $0 + $1.time }
+    print("wrote \(path) (\(frames.count) frames, \(String(format: "%.1f", total)) s, \(size / 1024) KB)")
 }
 
-func ease(_ t: CGFloat) -> CGFloat { t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2 }
+/// Even speed at the middle, a soft start and stop.
+func ease(_ t: CGFloat) -> CGFloat { t * t * (3 - 2 * t) }
 
 // MARK: hold before the limit
 
-func holdPicture() -> [NSBitmapImageRep] {
+/// The 5-hour usage fills from 0 to 80%; at 80% the session set to hold goes on hold and the other stays active.
+/// The limit resets: usage drops to 0 at once, as it does, and the held session is active again. Then it loops,
+/// from the same state it ends in.
+func holdPicture() -> [Frame] {
     let h: CGFloat = 232
     struct S { var usage: CGFloat; var held: Bool; var caption: String }
     func draw(_ s: S) -> NSBitmapImageRep {
@@ -135,8 +154,13 @@ func holdPicture() -> [NSBitmapImageRep] {
             card(bar, radius: 7)
             if s.usage > 0 {
                 C.steel.setFill()
-                NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY, width: max(14, bar.width * s.usage / 100), height: bar.height),
+                let fill = bar.width * s.usage / 100
+                // under the bar's height, the fill is a clipped pill, so it grows from 0 with no jump
+                NSGraphicsContext.saveGraphicsState()
+                NSBezierPath(roundedRect: bar, xRadius: 7, yRadius: 7).addClip()
+                NSBezierPath(roundedRect: NSRect(x: bar.minX - max(0, 14 - fill), y: bar.minY, width: max(14, fill), height: bar.height),
                              xRadius: 7, yRadius: 7).fill()
+                NSGraphicsContext.restoreGraphicsState()
             }
             let mx = bar.minX + bar.width * 0.8
             C.ink.setFill()
@@ -154,26 +178,28 @@ func holdPicture() -> [NSBitmapImageRep] {
             text(s.caption, 20, 200, size: 15, bold: true, width: W - 40)
         }
     }
-    var out: [NSBitmapImageRep] = []
-    func hold(_ s: S, _ n: Int) { let f = draw(s); out += Array(repeating: f, count: n) }
-    func move(_ from: CGFloat, _ to: CGFloat, held: Bool, _ caption: String, _ n: Int) {
-        for i in 1...n { out.append(draw(S(usage: from + (to - from) * ease(CGFloat(i) / CGFloat(n)), held: held, caption: caption))) }
-    }
-    hold(S(usage: 81, held: true, caption: "The limit gets to 80%. This session stops and waits."), 28)
-    hold(S(usage: 81, held: true, caption: "Your other sessions use what is left."), 24)
-    move(81, 6, held: true, "The limit resets.", 8)
-    hold(S(usage: 6, held: true, caption: "The limit resets."), 8)
-    hold(S(usage: 6, held: false, caption: "The session starts again by itself."), 26)
-    move(6, 81, held: false, "The limit gets near 80% again.", 14)
+    var out: [Frame] = []
+    let fill = "The 5-hour usage goes up. Both sessions are active."
+    let n = 75   // 3 s at 25 frames a second
+    for i in 0...n { out.append((draw(S(usage: 80 * ease(CGFloat(i) / CGFloat(n)), held: false, caption: fill)), step)) }
+    out[0].time = 0.6   // the start: 0%, a short look before it fills
+    out.append((draw(S(usage: 80, held: true, caption: "The limit gets to 80%. This session stops and waits.")), 2.4))
+    out.append((draw(S(usage: 0, held: false, caption: "The limit resets. The session starts again by itself.")), 2.0))
     return out
 }
 
 // MARK: the session list as an inbox
 
-func inboxPicture() -> [NSBitmapImageRep] {
+/// A session that waits says so; it is archived, and its row closes up while the Kit takes the wait. The reply comes,
+/// and the row opens again with a Back tag and a message. Or no reply comes in time, and the message asks what to
+/// do. Then it goes back to the start with a fade.
+func inboxPicture() -> [Frame] {
     let h: CGFloat = 252
     enum Right { case bubble, kit, reply, ask }
-    struct S { var rows: [(String, CGFloat)]; var selected: String?; var back: Bool; var right: Right; var rightAlpha: CGFloat; var caption: String }
+    struct S {
+        var rows: [(String, CGFloat)]; var selected: String?; var selAlpha: CGFloat = 1; var back: CGFloat
+        var right: Right; var rightAlpha: CGFloat; var caption: String
+    }
     let list = NSRect(x: 20, y: 16, width: 196, height: 176)
     let side = NSRect(x: 230, y: 16, width: W - 250, height: 176)
     func draw(_ s: S) -> NSBitmapImageRep {
@@ -184,11 +210,11 @@ func inboxPicture() -> [NSBitmapImageRep] {
             for (title, a) in s.rows {
                 let r = NSRect(x: list.minX + 8, y: y, width: list.width - 16, height: 36 * a)
                 if a > 0.05 {
-                    if title == s.selected {
-                        card(r, fill: C.card, border: C.ink.withAlphaComponent(a), radius: 6, lineWidth: 2)
+                    if title == s.selected && s.selAlpha > 0.05 {
+                        card(r, fill: C.card, border: C.ink.withAlphaComponent(a * s.selAlpha), radius: 6, lineWidth: 2)
                     }
                     text(title, r.minX + 8, r.minY + 9 * a, size: 14, alpha: a)
-                    if title == "Supplier quote" && s.back { chip("Back", right: r.maxX - 6, midY: r.midY, good: false, alpha: a) }
+                    if title == "Supplier quote" && s.back > 0.05 { chip("Back", right: r.maxX - 6, midY: r.midY, good: false, alpha: a * s.back) }
                 }
                 y += 38 * a
             }
@@ -217,24 +243,28 @@ func inboxPicture() -> [NSBitmapImageRep] {
     }
     let all = ["Label press PR", "Supplier quote", "Site map plan"]
     func rows(_ a: CGFloat) -> [(String, CGFloat)] { all.map { ($0, $0 == "Supplier quote" ? a : 1) } }
-    var out: [NSBitmapImageRep] = []
-    func hold(_ s: S, _ n: Int) { let f = draw(s); out += Array(repeating: f, count: n) }
+    var out: [Frame] = []
+    /// `n` frames at 25 a second, `t` going from just over 0 to 1 with ease.
+    func move(_ n: Int, _ f: (CGFloat) -> S) { for i in 1...n { out.append((draw(f(ease(CGFloat(i) / CGFloat(n)))), step)) } }
+    func hold(_ s: S, _ seconds: Double) { out.append((draw(s), seconds)) }
     let c1 = "The session waits on a reply. It tells you so in one line."
     let c2 = "You archive it. The Kit watches for the reply."
     let c3 = "The reply comes. The session comes back and sends you a message."
-    let c4 = "No reply in time? The session asks you what to do."
-    hold(S(rows: rows(1), selected: "Supplier quote", back: false, right: .bubble, rightAlpha: 1, caption: c1), 30)
-    for i in 1...6 {   // archived: the row closes up, and the Kit takes the wait
-        let t = ease(CGFloat(i) / 6)
-        out.append(draw(S(rows: rows(1 - t), selected: "Supplier quote", back: false, right: .kit, rightAlpha: t, caption: c2)))
-    }
-    hold(S(rows: rows(0), selected: nil, back: false, right: .kit, rightAlpha: 1, caption: c2), 26)
-    for i in 1...6 {
-        let t = ease(CGFloat(i) / 6)
-        out.append(draw(S(rows: rows(t), selected: nil, back: true, right: .reply, rightAlpha: t, caption: c3)))
-    }
-    hold(S(rows: rows(1), selected: nil, back: true, right: .reply, rightAlpha: 1, caption: c3), 30)
-    hold(S(rows: rows(1), selected: nil, back: true, right: .ask, rightAlpha: 1, caption: c4), 30)
+    let c4 = "If no reply comes in time, the session asks you what to do."
+    hold(S(rows: rows(1), selected: "Supplier quote", back: 0, right: .bubble, rightAlpha: 1, caption: c1), 5.0)
+    // archived: the row closes up, and the Kit takes the wait
+    move(12) { t in S(rows: rows(1 - t), selected: "Supplier quote", back: 0, right: .kit, rightAlpha: t, caption: c2) }
+    hold(S(rows: rows(0), selected: nil, back: 0, right: .kit, rightAlpha: 1, caption: c2), 3.2)
+    // the reply: the row opens again with its Back tag, and the message
+    move(12) { t in S(rows: rows(t), selected: nil, back: 1, right: .reply, rightAlpha: t, caption: c3) }
+    hold(S(rows: rows(1), selected: nil, back: 1, right: .reply, rightAlpha: 1, caption: c3), 4.4)
+    // the other way it ends: no reply, and the message asks
+    move(6) { t in S(rows: rows(1), selected: nil, back: 1, right: .reply, rightAlpha: 1 - t, caption: c4) }
+    move(6) { t in S(rows: rows(1), selected: nil, back: 1, right: .ask, rightAlpha: t, caption: c4) }
+    hold(S(rows: rows(1), selected: nil, back: 1, right: .ask, rightAlpha: 1, caption: c4), 3.6)
+    // back to the start: the message and the Back tag fade, the session is selected and its words come back
+    move(6) { t in S(rows: rows(1), selected: nil, back: 1 - t, right: .ask, rightAlpha: 1 - t, caption: c1) }
+    move(6) { t in S(rows: rows(1), selected: "Supplier quote", selAlpha: t, back: 0, right: .bubble, rightAlpha: t, caption: c1) }
     return out
 }
 

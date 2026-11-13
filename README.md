@@ -537,6 +537,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `whats-new/` | The What's new notes and their pictures, one per change. |
 | `tools/whats-new.py` | Checks the notes, builds them into the app (`build.sh` runs it), and on a pull request asks for a note when one looks needed. |
 | `tools/whats-new-pictures.swift` | Draws the notes' GIFs. |
+| `tools/whats-new-motion.swift` | Plays the What's new page and the bigger picture off the screen, with the window's 3-second refresh, and writes a sheet of what each GIF shows every 0.25 seconds, light and dark. |
 | `DESIGN-DECISIONS.md` | Where the window departs from the Sttark Brand and App Guidelines, which are written for web apps, and why. |
 | `AGENTS.md`, `CLAUDE.md` | Notes for coding agents: when a change needs a What's new note, and how to write one. |
 | `Sources/Login.swift` | The login check, warnings and sign-in. |
