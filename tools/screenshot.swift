@@ -89,6 +89,14 @@ import SwiftUI
             Shot.capture(w, to: folder + "/whats-new.png", wait: 0.2)
             model.sheet = []
             RunLoop.main.run(until: Date().addingTimeInterval(1))
+            // the one-setting note's picture: a held session, pointed at its own setting
+            let before = model.selected
+            model.selected = model.snap.rows.first { $0.title == "Site map plan" }?.id
+            let panel = "/tmp/kit-shot-\(getpid())-held.png"
+            Shot.capture(w, to: panel)
+            Shot.crop(panel, NSRect(x: 845, y: 255, width: 335, height: 250),
+                      to: "whats-new/credits-one-setting" + (look ? "-dark" : "") + ".png")
+            model.selected = before
         }
         w.close()
     }

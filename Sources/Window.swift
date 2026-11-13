@@ -705,9 +705,10 @@ struct DetailView: View {
             .controlSize(K.control)
             .padding(.top, 12)
         } else if let h = row.hold {
-            Button("Use credits until \(Limit.clock(h.until))") { Limit.useCredits(h); model.changed() }
-                .controlSize(K.control)
-                .help("Goes on now, and may use usage credits until the limit resets at \(Limit.clock(h.until)). After that, its setting applies again.")
+            // the session's own setting below is the one control: to go on now, set it to Always use credits
+            Text((h.hold ? "Holds at \(h.at)% until \(Limit.clock(h.until))." : "Waits at the \(h.limit) limit until \(Limit.clock(h.until)).")
+                 + " To go on now, set this session to Always use credits below.")
+                .font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
         }
     }
@@ -759,7 +760,7 @@ struct DetailView: View {
         return VStack(alignment: .leading, spacing: 6) {
             Text("At the usage limit").font(K.font(12.5, true))
             Picker("At the usage limit", selection: pick) {
-                Text("Same as Settings").tag("follow")
+                Text("Same as Settings (" + (model.snap.creditsAll ? "use credits at the limit" : "hold at the limit") + ")").tag("follow")
                 Text("Always use credits").tag("credits")
                 Divider()
                 ForEach(choices, id: \.self) { n in Text("Never use credits; hold at \(n)%").tag("hold:\(n)") }
