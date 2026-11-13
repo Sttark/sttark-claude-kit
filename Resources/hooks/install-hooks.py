@@ -10,8 +10,10 @@ server sessions" switch) and leaves the effort hook alone. The app rules hook
 (app-rules-hook.py, no switch) goes in with the effort hook, and so do the working rules
 hooks (working-rules-hook.py, the "Sttark working rules" switch, on by default) unless
 --working off was run, which leaves a marker in the app's folder; --working on removes it.
-The usage limit hook (limit-hook.py) also goes in with the effort hook; the menu's "Use credits at
-the usage limit" switch is a setting it reads, not a hook change.
+The usage limit hook (limit-hook.py) also goes in with the effort hook, with a second PreToolUse and
+UserPromptSubmit entry (--hold, 8-day limit) for sessions that hold at their own percentage, and the claude-limit-wait and
+claude-limit-mode links in ~/.local/bin; the menu's "Use credits at the usage limit" switch and each
+session's own setting are settings it reads, not hook changes.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -100,6 +102,11 @@ def set_working(hooks, on):
 
 LIMIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'limit-hook.py')
 LIMIT_WAIT = 60  # the hooks only check and answer; the wait runs as a visible command (claude-limit-wait)
+LIMIT_HOLD = 8 * 24 * 3600  # --hold: a session that holds at its own N% waits in this hook, past a weekly reset
+NOTIFY = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'notify.py')
+WAIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wait.py')
+# commands in ~/.local/bin, next to claude, and the script each points at
+LINKS = {'claude-limit-wait': LIMIT, 'claude-limit-mode': LIMIT, 'claude-notify': NOTIFY, 'claude-wait': WAIT}
 
 
 def is_limit(cmd):
@@ -107,7 +114,10 @@ def is_limit(cmd):
 
 
 def set_limit(hooks, on):
-    """Before every tool call, and on every message: wait at the usage limit instead of spending credits."""
+    """Before every tool call, and on every message: wait at the usage limit instead of spending credits.
+    A second entry for each (--hold, with a long limit) holds a session that holds at its own percentage
+    inside the hook, so that hold makes no model calls: its wait command, its agents' tool calls, and, while a
+    reply would use usage credits, its own tool calls and messages. It exits at once for everything else."""
     for event in ('PreToolUse', 'UserPromptSubmit'):
         groups = hooks.get(event, [])
         for g in groups:
@@ -116,10 +126,31 @@ def set_limit(hooks, on):
         if on:
             groups.append({'hooks': [{'type': 'command', 'command': f'"{LIMIT}"',
                                       'timeout': LIMIT_WAIT}]})
+            groups.append({'hooks': [{'type': 'command', 'command': f'"{LIMIT}" --hold', 'timeout': LIMIT_HOLD}]})
         if groups:
             hooks[event] = groups
         else:
             hooks.pop(event, None)
+
+
+def set_links(on):
+    """claude-limit-wait and claude-limit-mode (links to limit-hook.py) and claude-notify (notify.py) and claude-wait (wait.py) in
+    ~/.local/bin, next to claude. Removed on --remove, only when they point at this kit's copy."""
+    home_bin = os.path.expanduser('~/.local/bin')
+    for name, script in LINKS.items():
+        target = os.path.realpath(script)
+        p = os.path.join(home_bin, name)
+        try:
+            if on:
+                if os.path.realpath(p) != target:
+                    if os.path.lexists(p):
+                        os.remove(p)
+                    os.makedirs(home_bin, exist_ok=True)
+                    os.symlink(target, p)
+            elif os.path.islink(p) and os.readlink(p).endswith(os.path.basename(script)):
+                os.remove(p)
+        except OSError:
+            pass
 
 
 def ours(cmd):
@@ -218,6 +249,7 @@ def main():
         set_names(hooks, False)
     set_rules(hooks, not remove)
     set_limit(hooks, not remove)
+    set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])

@@ -33,7 +33,7 @@ enum Waiting {
         var told = d.dictionary(forKey: "waitingTold") as? [String: Double] ?? [:]
         let all = sessions
         let due = all.filter { s in
-            guard let w = s.waitingSince, -w.timeIntervalSinceNow >= after, -w.timeIntervalSinceNow < 86400 else { return false }
+            guard s.needsYou, let w = s.waitingSince, -w.timeIntervalSinceNow >= after, -w.timeIntervalSinceNow < 86400 else { return false }
             return told[s.id] != w.timeIntervalSince1970
         }
         guard let first = due.first else { return }
@@ -43,12 +43,11 @@ enum Waiting {
         c.requestAuthorization(options: [.alert, .sound]) { ok, _ in
             guard ok else { return }
             let n = UNMutableNotificationContent()
-            n.title = due.count == 1 ? (first.needsYou ? "Claude needs you: \(first.title)" : "Claude finished: \(first.title)")
-                : "\(due.count) sessions are waiting on you"
-            n.body = all.prefix(4).map { "\($0.title), \(ago($0.waitingSince!))" }.joined(separator: "\n")
+            n.title = due.count == 1 ? "Claude needs you: \(first.title)" : "\(due.count) sessions need you"
+            n.body = all.filter(\.needsYou).prefix(4).map { "\($0.title), \(ago($0.waitingSince!))" }.joined(separator: "\n")
                 + "\nClick to open \(first.title)."
             n.sound = .default
-            n.userInfo = ["url": first.url]
+            n.userInfo = ["url": first.url, "id": first.id]
             c.add(UNNotificationRequest(identifier: "waiting-\(first.id)", content: n, trigger: nil))
         }
         note("waiting notice: \(due.map(\.title).joined(separator: ", "))")
@@ -87,8 +86,23 @@ enum Waiting {
         if let d = try? JSONSerialization.data(withJSONObject: spans) { try? d.write(to: frontFile, options: .atomic) }
     }
 
-    static func open(_ url: String) {
+    /// Opens a session in the Claude desktop app when it is installed, else in the browser. The app's own link for a
+    /// Claude Code session is claude://code/<cse_… or session_… id> (its open-url handler). `id` is the session's
+    /// Remote Control id; without it the id is read from the link when the link has one.
+    static func open(_ url: String, id: String = "") {
+        if let app = appLink(id: id, url: url) { NSWorkspace.shared.open(app); return }
         guard let u = URL(string: url), !url.isEmpty else { return }
         NSWorkspace.shared.open(u)
+    }
+
+    static func appLink(id: String, url: String) -> URL? {
+        var sid = id
+        if !(sid.hasPrefix("cse_") || sid.hasPrefix("session_")), let u = URL(string: url), u.host == "claude.ai" {
+            let parts = u.path.split(separator: "/")
+            if parts.count == 2, parts[0] == "code", parts[1].hasPrefix("session_") || parts[1].hasPrefix("cse_") { sid = String(parts[1]) }
+        }
+        guard sid.hasPrefix("cse_") || sid.hasPrefix("session_"), let app = URL(string: "claude://code/\(sid)"),
+              NSWorkspace.shared.urlForApplication(toOpen: app) != nil else { return nil }
+        return app
     }
 }

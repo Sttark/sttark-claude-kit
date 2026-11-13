@@ -4,7 +4,7 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: [Sources/**, Resources/**, Helpers/**, Info.plist, build.sh]
+    paths: [Sources/**, Resources/**, Helpers/**, Info.plist, build.sh, whats-new/**, tools/whats-new.py]
   workflow_dispatch:
 permissions:
   contents: write

@@ -8,6 +8,6 @@ for label in com.sttark.chrome-approver com.sttark.claude-rc com.sttark.claude-p
   rm -f ~/Library/LaunchAgents/$label.plist
 done
 pkill -x SttarkClaudeKit 2>/dev/null || true
-rm -rf ~/.local/share/claude/stable ~/.local/bin/claude-window ~/.local/bin/claude-link ~/.local/bin/claude-limit-wait
+rm -rf ~/.local/share/claude/stable ~/.local/bin/claude-window ~/.local/bin/claude-link ~/.local/bin/claude-limit-wait ~/.local/bin/claude-limit-mode ~/.local/bin/claude-notify ~/.local/bin/claude-wait
 rm -rf ~/Applications/SttarkClaudeKit.app /Applications/SttarkClaudeKit.app "$HOME/Library/Application Support/SttarkClaudeKit"
 echo "Removed. Sessions keep whatever effort they have now."

@@ -23,9 +23,9 @@ Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time, uuid
 from contextlib import contextmanager
 
-LOG = os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
+LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 HERE = os.path.dirname(os.path.abspath(__file__))
-STATE = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/state.json')
+STATE = os.path.join(os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit'), 'state.json')
 CLAUDE_LOG = os.path.expanduser('~/Library/Logs/Claude/main.log')  # the Claude app's log: which session is open in it
 FRONT = os.path.join(os.path.dirname(STATE), 'claude-front.json')  # when the Claude app was in front, from the menu bar app
 CLAUDE = os.path.expanduser('~/.local/bin/claude')
@@ -285,14 +285,25 @@ AT_LIMIT = 'NO - skipped at the usage limit'
 NO_CLI = 'NO - skipped, no Claude Code'
 
 
+LIMIT_FOR = {}  # the session the side calls are for: {'sid', 'transcript', 'cse'}; empty for the account
+
+
+def limit_for(sid=None, transcript=None, c=None):
+    """Side calls from here on are for this session, so its own usage setting decides whether they wait."""
+    LIMIT_FOR.clear()
+    if sid:
+        LIMIT_FOR.update(sid=sid, transcript=transcript, cse=c)
+
+
 def at_limit():
-    """True at the usage limit when no one chose usage credits (limit-hook.py): the Kit's own side calls to
-    Claude are skipped then, so they spend nothing."""
+    """True when the session the side call is for must wait under its usage setting, or, with no session, at
+    the usage limit when no one chose usage credits (limit-hook.py): the Kit's own side calls to Claude are
+    skipped then, so they spend nothing."""
     try:
         spec = importlib.util.spec_from_file_location('limit', os.path.join(HERE, 'limit-hook.py'))
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        return m.held()
+        return m.held(LIMIT_FOR.get('sid'), LIMIT_FOR.get('transcript'), LIMIT_FOR.get('cse'))
     except Exception:
         return False
 
@@ -465,9 +476,21 @@ def last_reply(path):
     return ''
 
 
+NOTHING_NEEDED = re.compile(r'\b(nothing (is )?needed( from you)?|no action (is )?needed|nothing for you to do|no alert)\b', re.I)
+
+
 def asks_you(text):
+    """Whether the reply needs the person: plain signals first (a step marked needs you, a question at the end,
+    "nothing needed"), the model only when they don't say. The caller keeps the answer per reply."""
     if not text:
         return False, 'no reply text'
+    if '\U0001F534' in text:  # a status table row marked "needs you"
+        return True, 'a step in the reply is marked as needing you'
+    last = [l.strip() for l in text.strip().splitlines() if l.strip()][-1:]
+    if last and last[0].rstrip('*_ ').endswith('?'):
+        return True, 'the reply ends with a question to you'
+    if NOTHING_NEEDED.search(text):
+        return False, 'the reply says nothing is needed'
     t = text if len(text) <= 3000 else text[:1000] + '\n[...]\n' + text[-2000:]
     _, answer = judge(f'Last reply:\n{t}\n\nDoes it need the person?', ASKS)
     return answer.upper().startswith('YES'), answer.split(' - ', 1)[-1]
@@ -507,6 +530,27 @@ def seen_since(spans, iso):
     return any(b - max(a, t) >= 3 for a, b in spans)
 
 
+def app_list():
+    """The sessions the Claude app lists (not archived, and not a run of a scheduled task, which the app shows
+    under Scheduled), newest first, for the Kit window. Saved as app_list in the state file; kept as it was when
+    the list can't be read."""
+    try:
+        chats = all_chats()
+    except Exception as e:
+        log(f'error  app list: {e!r}'[:200])
+        return
+    keep = []
+    for c in chats:
+        tags = c.get('tags') or []
+        if c.get('status') == 'archived' or c.get('trigger_id') or any(t.startswith('routine') for t in tags):
+            continue
+        keep.append({'id': c['id'], 'title': c.get('title') or '', 'bucket': c.get('status_bucket') or '',
+                     'last': c.get('last_event_at') or '', 'unread': bool(c.get('unread')),
+                     'level': (c.get('external_metadata') or {}).get('effort_level') or ''})
+    with state() as s:
+        s['app_list'] = {'at': time.time(), 'sessions': keep}
+
+
 def track():
     """Every minute, from the app: which recent sessions are waiting on you. A session waits on you when it's
     blocked on you (asking a question or a permission), or when its finished reply asks you to answer or
@@ -514,6 +558,7 @@ def track():
     you've opened or had on screen since Claude last wrote don't count.
     Saved as x['app'] for the menu's Waiting on you section and its notices."""
     cutoff = time.time() - 86400
+    app_list()
     sessions = peek().get('sessions', {})
     shown = on_screen()
     ids = [sid for sid, x in sessions.items() if x.get('at', 0) > cutoff]
@@ -537,10 +582,16 @@ def track():
             if bucket == 'blocked':
                 needs, why = True, 'waiting on your answer or permission'
             else:
+                ask = ((d.get('post_turn_summary') or {}).get('needs_action') or '').strip()
                 if old.get('judged') == last:  # this reply was already judged
                     needs, why = old.get('needs', False), old.get('why', '')
+                elif ask:  # the server's own summary of the turn says what the person must do
+                    needs, why = True, ask[:200]
                 else:
-                    needs, why = asks_you(last_reply(sessions.get(sid, {}).get('transcript', '')))
+                    tp = sessions.get(sid, {}).get('transcript', '')
+                    limit_for(os.path.basename(tp)[:-6] if tp.endswith('.jsonl') else None, tp, sid)
+                    needs, why = asks_you(last_reply(tp))
+                    limit_for()
         # not opened: Claude finished, and you haven't opened it or had it on screen since
         unseen = not seen and not archived and not working
         info = {'title': d.get('title') or '', 'url': d.get('session_url') or '', 'working': working, 'unseen': unseen,
@@ -904,6 +955,8 @@ def on_prompt(data, sid):
     if not prompt:
         return
     snippet = re.sub(r'\s+', ' ', prompt)[:80]
+    with state() as s:  # when this turn started: the Kit window's "Working for"
+        s['sessions'].setdefault(sid, {})['turn_at'] = time.time()
     st = peek()
     x = st.get('sessions', {}).get(sid, {})
     proc, launched = session_process()
@@ -1028,7 +1081,28 @@ def on_tool(data, sid):
         log(f'error  {sid} send {level} failed {status} {text[:120]} | {snippet}')
 
 
+def set_level(sid, level):
+    """The Kit window's effort pick: the person sets this session's level, so it goes to Manual, and the level goes
+    out the way the hook sends its own (the change id is kept, so the check never reads it as a pick in the app)."""
+    if level not in LEVELS:
+        print('Not a level: %s. One of %s.' % (level, ', '.join(LEVELS)), file=sys.stderr)
+        return 2
+    with state() as s:
+        s['sessions'].setdefault(sid, {})['manual'] = True
+    status, text, rid = send(sid, level)
+    if 200 <= status < 300:
+        with state() as s:
+            x = s['sessions'].setdefault(sid, {})
+            x.update(level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid, manual=True)
+        log(f'manual {sid} set to {level} in the Kit window; leaving this session alone')
+        return 0
+    log(f'error  {sid} send {level} from the Kit window failed {status} {text[:120]}')
+    return 1
+
+
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] == '--set':
+        sys.exit(set_level(sys.argv[2], sys.argv[3]))
     if sys.argv[1:] == ['--models']:
         list_models()
         return
@@ -1056,6 +1130,7 @@ def main():
             log(f'skip   {data.get("session_id", "")[:8]} not a Remote Control session')
         return
     tp = data.get('transcript_path')
+    limit_for(data.get('session_id'), tp, sid)
     if tp and peek().get('sessions', {}).get(sid, {}).get('transcript') != tp:
         with state() as s:  # the tracker reads the last reply from here
             s['sessions'].setdefault(sid, {})['transcript'] = tp
