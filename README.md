@@ -160,6 +160,7 @@ Every decision goes into `~/Library/Logs/sttark-claude-kit.log`, one line each:
 | `notify` | Reach me by: each message `claude-notify` sent, each way, and how it went. |
 | `ste` | The working rules' check of a finished reply: ok, noted for the session's next prompt, or error. |
 | `agents` | The working rules' manager check: work that made more than 8 tool calls in the chat with no agent, noted for the session's next prompt. |
+| `icons` | The working rules' status icon check: a status table cell with more than one of ✅ 🔄 🔴 ⚪, noted for the session's next prompt. |
 | `stable` | The fixed copy of Claude Code and its night job. |
 | `app` | The menu bar app itself: switches turned on or off, updates, notices, and What's new (`what's new:` shown, Got it). |
 | `error` | Something failed. The level was left as it was. |
