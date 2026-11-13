@@ -7,7 +7,10 @@ merges, a reply comes in), since a new turn in one of many sessions is easy to m
     claude-notify --test       a test message through every way picked
     claude-notify --show       the ways picked and their settings
 
-Each message names the session it comes from and links back to it. The ways, set in the menu and kept in
+Each message names the session it comes from and links back to it with "Open in Claude": a link to the
+Kit's page https://sttark.github.io/sttark-claude-kit/open (pages/open.html), which opens the session in the
+Claude desktop app when the computer has it, else on claude.ai, and on a phone in the Claude app. Email and
+Google Chat don't make a claude:// link clickable, so the link goes through that page. The ways, set in the menu and kept in
 "reach" in the shared state file:
 
   email  Mail from alerts@sttark.com to the person's @sttark.com address, sent by the notify workflow in
@@ -36,6 +39,7 @@ OPENSSL = '/usr/bin/openssl'  # macOS's own, on every Mac
 WAYS = ('email', 'push', 'chat', 'text', 'mac')
 NAMES = {'email': 'Email', 'push': 'Claude app', 'chat': 'Google Chat', 'text': 'Text message', 'mac': 'Mac notice'}
 APP_WAIT = 10  # seconds to wait for the menu bar app to answer
+OPEN_PAGE = 'https://sttark.github.io/sttark-claude-kit/open'
 
 
 def log(line):
@@ -96,10 +100,11 @@ def cse_id():
 
 
 def session():
-    """(name, link) of the session this runs in, from the state file or the server; ('', '') outside one."""
+    """(name, link, cse id) of the session this runs in, from the state file or the server; ('', '', '')
+    outside one."""
     cse = cse_id()
     if not cse:
-        return '', ''
+        return '', '', ''
     x = (peek().get('sessions') or {}).get(cse) or {}
     title, url = x.get('title') or '', x.get('url') or ''
     if not (title and url):
@@ -111,7 +116,20 @@ def session():
             title, url = title or d.get('title') or '', url or d.get('session_url') or ''
         except Exception:
             pass
-    return title, url or 'https://claude.ai/code/' + cse
+    return title, url or 'https://claude.ai/code/' + cse, cse
+
+
+def open_link(cse, url):
+    """The "Open in Claude" link: the Kit's page, with the session's ids after the # (never sent to the
+    server): the Remote Control id for the desktop app (claude://code/<id>), then the id in its claude.ai link
+    for the browser and phones. Without a Remote Control id, the claude.ai link as it is."""
+    m = re.fullmatch(r'https://claude\.ai/code/([A-Za-z0-9_]+)/?', url or '')
+    web = m.group(1) if m else ''
+    if not cse and web.startswith(('cse_', 'session_')):
+        cse = web
+    if not re.fullmatch(r'(cse|session)_[A-Za-z0-9]+', cse or ''):
+        return url or ''
+    return OPEN_PAGE + '#' + cse + ('/' + web if web and web != cse else '')
 
 
 # --- the ways ----------------------------------------------------------------------------------------------
@@ -140,8 +158,9 @@ def html_of(m):
     if m.get('link'):
         parts.append('<p><a href="%s">%s</a></p>' % (esc(m['link']), esc(m['link'])))
     if m.get('url'):
-        parts.append('<p style="color:#5b6570">From the session <a href="%s">%s</a></p>'
-                     % (esc(m['url']), esc(m['title'] or 'Claude Code')))
+        parts.append('<p><a href="%s" style="display:inline-block;padding:10px 16px;background:#00892f;color:#ffffff;'
+                     'border-radius:6px;font-weight:600;text-decoration:none">Open in Claude</a></p>'
+                     '<p style="color:#5b6570">From the session %s</p>' % (esc(m['url']), esc(m['title'] or 'Claude Code')))
     return '<div style="font-family:Helvetica Neue,Arial,sans-serif;font-size:16px;line-height:1.5">%s</div>' % ''.join(parts)
 
 
@@ -174,7 +193,7 @@ def chat(m, r):
     if m.get('link'):
         t += '\n<%s|Open the result>' % m['link']
     if m.get('url'):
-        t += '\nFrom <%s|%s>' % (m['url'], m['title'] or 'the session')
+        t += '\n<%s|Open in Claude> · from %s' % (m['url'], m['title'] or 'the session')
     if DRY:
         return True, 'would post %d characters to the webhook' % len(t)
     req = urllib.request.Request(hook, data=json.dumps({'text': t}).encode(),
@@ -191,7 +210,7 @@ def text_of(m):
     if m.get('link'):
         t += '\n\n' + m['link']
     if m.get('url'):
-        t += '\n\nFrom the session %s: %s' % (m['title'] or 'Claude Code', m['url'])
+        t += '\n\nFrom the session %s. Open in Claude: %s' % (m['title'] or 'Claude Code', m['url'])
     return t
 
 
@@ -228,12 +247,15 @@ def by_app(ways, m, r):
     return res
 
 
-def send(subject, body, link='', ways=None, title=None, url=None):
+def send(subject, body, link='', ways=None, title=None, url=None, cse=''):
+    """`url` is the session's claude.ai link and `cse` its Remote Control id; the message links to the session
+    through open_link. 'url' in the message is that link, and 'cse' the id the Mac notice opens directly."""
     r = settings()
     ways = [w for w in (ways or r['ways']) if w in WAYS]
     if title is None:
-        title, url = session()
-    m = {'subject': subject.strip(), 'body': body.strip(), 'link': link, 'title': title or '', 'url': url or ''}
+        title, url, cse = session()
+    m = {'subject': subject.strip(), 'body': body.strip(), 'link': link, 'title': title or '',
+         'url': open_link(cse, url), 'cse': cse or ''}
     results = {}
     for w in ways:
         if w in ('text', 'mac'):

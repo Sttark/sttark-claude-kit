@@ -442,6 +442,7 @@ Check as many as you like. A way that needs a setting asks for it when you check
 - Sessions send with `claude-notify "<subject>" "<message>" [--link <url>]`; the working rules tell them when. `claude-notify --show` prints your choice; `claude-notify --test` sends a test.
 - Not offered: **Asana inbox**, since through Workrouter a task or comment comes from you, and Asana never notifies a person of their own task or comment; and paid text services.
 - Each message is logged, with lines starting `notify`; each wait, with lines starting `wait`.
+- **Open in Claude**, the link to the session in each message, opens it in the Claude desktop app on a computer that has it, else on claude.ai, and in the Claude app on a phone (a tap on the button there). Email and Google Chat don't make a `claude://` link clickable, so the link goes to a small page of the Kit, [`pages/open.html`](pages/open.html) at `https://sttark.github.io/sttark-claude-kit/open`, which opens the app. The session's ids are after the `#`, so they never reach that server; the page loads nothing else and keeps nothing. The first time, Chrome asks "Open Claude?": tick **Always allow sttark.github.io to open links of this type**, then click **Open Claude**, and it never asks again. A Mac notice opens the session in the app directly.
 
 ## Sttark working rules
 
@@ -570,6 +571,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
 | `.github/workflows/release.yml` | Builds, signs and publishes a release. |
 | `.github/workflows/notify.yml` | Sends Reach me by's email. |
+| `pages/open.html`, `.github/workflows/pages.yml` | The Open in Claude page, published to GitHub Pages from `pages/` on each change on main. |
 | `.github/workflows/whats-new.yml` | On pull requests: fails a note that breaks the format; asks, never fails, when a change people notice has no note. |
 | `.github/workflows/app-review.yml`, `.github/workflows/page-check.yml` | The shared AI review and page check for Sttark web apps (below). |
 

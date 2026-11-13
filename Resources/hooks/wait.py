@@ -147,7 +147,7 @@ def this_session():
             if os.path.exists(p):
                 tp = p
                 break
-    title, url = n.session() if cse else ('', '')
+    title, url = n.session()[:2] if cse else ('', '')
     return {'cse': cse, 'sid': sid, 'transcript': tp, 'cwd': os.getcwd(), 'title': title, 'url': url}
 
 
@@ -435,7 +435,7 @@ def fallback(w, what, late):
     else:
         body += ' It could not come back by itself; open it to go on.'
     return n.send(('No answer: ' if late else '') + describe(w), body, w.get('url', ''),
-                  title=w.get('title', ''), url=w.get('session_url', ''))
+                  title=w.get('title', ''), url=w.get('session_url', ''), cse=w.get('cse', ''))
 
 
 def notified_since(w, since):
