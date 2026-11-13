@@ -76,18 +76,15 @@ enum Limit {
                             : "credits every session waits at the limit, except one set to use credits (menu)")
     }
 
-    /// One session goes on with usage credits until its limit resets.
-    static func useCredits(_ w: Waiting) {
+    /// Older Kits had a one-time "use credits" per session (limit_credits). A session's own setting is now the one
+    /// control, so an entry left from then is dropped, once, at start.
+    static func dropOldCredits() {
+        var n = 0
         State.change { s in
-            // keep every other session's entry as the hooks wrote it (a number), drop the ones that have passed
-            var c: [String: Any] = [:]
-            for (k, v) in s["limit_credits"] as? [String: Any] ?? [:] {
-                if let t = (v as? NSNumber)?.doubleValue, t > Date().timeIntervalSince1970 { c[k] = t }
-            }
-            c[w.sid] = w.until.timeIntervalSince1970
-            s["limit_credits"] = c
+            n = (s["limit_credits"] as? [String: Any])?.count ?? 0
+            if s["limit_credits"] != nil { s.removeValue(forKey: "limit_credits") }
         }
-        logLine("limit", "credits \(w.target.short) uses credits until \(clock(w.until)) (menu)")
+        if n > 0 { logLine("limit", "credits dropped the old one-time \"use credits\" of \(n) session(s): each session's setting decides") }
     }
 
     // MARK: each session's own setting

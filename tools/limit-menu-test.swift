@@ -118,19 +118,15 @@ import Foundation
         Limit.setCreditsAll(true)
         check("switch on", Limit.creditsAll)
         Limit.setCreditsAll(false)
-        let row = Limit.waiting.first { $0.sid == py }!
-        Limit.useCredits(row)
-        let credits = State.read()["limit_credits"] as? [String: Any] ?? [:]
-        check("Use credits: this session until its reset, other sessions kept, passed ones dropped",
-              Limit.num(credits[py]) == row.until.timeIntervalSince1970 && Limit.num(credits["77777777-cccc"]) == now + 1000
-              && credits["passed"] == nil)
+        Limit.dropOldCredits()
+        check("old one-time use credits: all dropped at start", State.read()["limit_credits"] == nil)
         let newLines = ((try? String(contentsOf: dir.appendingPathComponent("log"), encoding: .utf8)) ?? "")
             .split(separator: "\n").dropFirst(before).map(String.init)
         newLines.forEach { print($0) }
         check("switch and click: three `limit` lines, no `app` line", newLines.count == 3 && newLines.allSatisfy { $0.dropFirst(20).hasPrefix("limit  credits ") })
         check("switch on line", newLines.first?.hasSuffix("limit  credits every session uses credits at the limit, except one set to hold (menu)") == true)
         check("switch off line", newLines.dropFirst().first?.hasSuffix("limit  credits every session waits at the limit, except one set to use credits (menu)") == true)
-        check("click line, with the short id", newLines.last?.hasSuffix("limit  credits abcdef12 uses credits until \(Limit.clock(row.until)) (menu)") == true)
+        check("drop line", newLines.last?.contains("limit  credits dropped the old one-time \"use credits\" of") == true)
 
         // the stand-in usage file: the menu says "Usage limit reached" only at 100% with credits on the account
         func usage(_ percent: Int, credits: Bool = true, scoped: Bool = false, resetsIn: Double = 3600) {
