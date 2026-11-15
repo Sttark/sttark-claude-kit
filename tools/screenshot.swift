@@ -295,7 +295,8 @@ enum Sample {
     static var phone: [(String, PhoneLink.Status)] {
         [("Not linked", PhoneLink.Status(stage: .notLinked)),
          ("Linking: the link page is open in the browser", PhoneLink.Status(stage: .linking, code: "KXRT")),
-         ("Linked", PhoneLink.Status(stage: .linked, email: "name@sttark.com", connected: true, lastSent: at(11, 30))),
+         ("Linked", PhoneLink.Status(stage: .linked, email: "name@sttark.com", connected: true, lastSent: at(11, 30), phones: 1)),
+         ("Linked, no phone gets notices yet", PhoneLink.Status(stage: .linked, email: "name@sttark.com", connected: true, lastSent: at(11, 30), phones: 0)),
          ("Linked, the network down", PhoneLink.Status(stage: .linked, email: "name@sttark.com", lastSent: at(11, 2), problem: "no network")),
          ("Removed on the phone", PhoneLink.Status(stage: .removed)),
          ("Not on the roster", PhoneLink.Status(stage: .refused, email: "name@sttark.com",

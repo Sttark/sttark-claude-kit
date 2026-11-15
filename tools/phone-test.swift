@@ -14,6 +14,11 @@
 // live one: as a Mac and as a phone page, the link, the signed challenge, the snapshot, watching, the archived list,
 // an action of each kind (STTARK_WAIT_DRY, STTARK_EFFORT_DRY: nothing is started or sent to a session), bye, a
 // reconnect after a restart and after a network change, STTARK_PHONE_DRY, the removal on the phone and turning it off.
+// Then where a Needs you reminder goes (Waiting.notifyDue, PhoneLink.reminderPlace; phone/DESIGN.md section 5): this
+// Mac's notice when the person is at the Mac, else remind to the server when a phone can get a push, else this Mac's
+// notice, never both; none for a session that sent a Reach me by message in the last 30 minutes (notify.py's
+// reach_sent). On copies, with this Mac's presence and its notice put in by the test; and end to end, when the server
+// has Web Push, with a stand-in push service (phone/tools/push-sink.mjs) that decrypts each push.
 // Needs Node (and the server's npm packages for the end-to-end part). Run from the repo root:
 //   swiftc -parse-as-library -o /tmp/phone-test tools/phone-test.swift $(ls Sources/*.swift | grep -v main.swift) && /tmp/phone-test
 import CryptoKit
@@ -22,6 +27,8 @@ import Foundation
 @main struct PhoneTest {
     static var fails = 0
     static func check(_ name: String, _ ok: Bool) { print((ok ? "ok   " : "FAIL ") + name); if !ok { fails += 1 } }
+    /// The Mac notices the reminder tests saw, each a list of session ids.
+    static var shown: [[String]] = []
 
     /// Planted in places that must never leave the Mac.
     static let markers = ["PROMPTMARK", "REPLYMARK", "TRANSCRIPTMARK", "PATHMARK", "TARGETMARK", "SCRIPTMARK", "OUTPUTMARK",
@@ -32,6 +39,9 @@ import Foundation
 
     static func main() {
         if CommandLine.arguments.contains("--dry-child") { E2E.dryChild() }
+        // This test is no app: a Mac notice would stop it. Each reminder test puts its own, and its own presence.
+        Waiting.showNotice = { due, _ in shown.append(due.map(\.id)) }
+        PhoneLink.atMac = { false }
         let fm = FileManager.default
         guard fm.fileExists(atPath: "phone/schema/check.mjs") else { print("Run from the repo root."); exit(2) }
         let dir = fm.temporaryDirectory.appendingPathComponent("kit-phonetest-\(getpid())")
@@ -328,7 +338,9 @@ import Foundation
               r.0 == 0 && r.1.contains("Contract OK"))
 
         linkChecks(dir: dir)
+        reminderChecks(dir: dir, kit: kit)
         E2E.run(dir: dir, kit: kit)
+        UserDefaults.standard.removeObject(forKey: "waitingTold")
         finish(dir)
     }
 
@@ -416,8 +428,99 @@ import Foundation
               && event("connected to kit.sttark.com")?.routine == true && event("bye: sleep")?.text == "Told 127.0.0.1:9 that this Mac sleeps")
         check("Events: linked, and the link page with its code", event("linked to kip.valve@sttark.com")?.text == "This Mac is linked to your phone"
               && event("link page opened, code KXRT, until 11:40 AM")?.detail == ["This Mac's code: KXRT.", "It works until 11:40 AM."])
+        let r = event("reminder to your phone: Order page login")
+        check("Events: a reminder that went to the phone, under its session", r?.kind == .phone && r?.name == "Order page login"
+              && r?.text == "Reminder to your phone: it has waited on you for 10 minutes")
+        check("Events: a reminder that could not go is a warning; the phones count is routine",
+              event("reminder did not go to your phone, a Mac notice instead: Order page login")?.level == .warn
+              && event("phones that get notices: 0")?.routine == true && event("phones that get notices: 2")?.text == "2 phones get Needs you notices")
+        let q = Events.kitLine("2026-11-15 11:32:10 app    waiting notice skipped: Order page login: it sent a Reach me by message in the last 30 min", Events.Names())
+        check("Events: no reminder after a Reach me by message, under its session", q?.kind == .wait && q?.name == "Order page login"
+              && q?.text == "No reminder: it sent you a Reach me by message in the last 30 minutes")
         unsetenv("STTARK_PHONE_KEY")
         unsetenv("STTARK_PHONE_URL")
+    }
+
+    // MARK: where a Needs you reminder goes
+
+    /// A session's last reply, as the minute's check writes it: the Claude app's time of its last event.
+    static func reply(_ cse: String, ago: Int) {
+        State.change { s in
+            var all = s["sessions"] as? [String: Any] ?? [:]
+            var x = all[cse] as? [String: Any] ?? [:]
+            var app = x["app"] as? [String: Any] ?? [:]
+            app["last_event_at"] = Sample.iso(Int(Date().timeIntervalSince1970) - ago)
+            x["app"] = app
+            all[cse] = x
+            s["sessions"] = all
+        }
+    }
+
+    /// `claude-notify` in a session, on the test folder, sending nothing (STTARK_NOTIFY_DRY).
+    @discardableResult
+    static func notify(_ args: [String], session: String?) -> Int32 {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        p.arguments = ["Resources/hooks/notify.py"] + args
+        var env = ProcessInfo.processInfo.environment.filter { $0.key != "CLAUDE_PID" && $0.key != "CLAUDE_CODE_SESSION_ID" }
+        env["STTARK_NOTIFY_DRY"] = "1"
+        if let session { env["CLAUDE_CODE_BRIDGE_SESSION_ID"] = session } else { env.removeValue(forKey: "CLAUDE_CODE_BRIDGE_SESSION_ID") }
+        p.environment = env
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return -1 }
+        p.waitUntilExit()
+        return p.terminationStatus
+    }
+
+    /// The rules with no server: where, never both, and the Reach me by rule, on the test folder.
+    static func reminderChecks(dir: URL, kit: URL) {
+        check("where: at the Mac, always this Mac's notice", PhoneLink.place(atMac: true, connected: true, phones: 2) == .mac
+              && PhoneLink.place(atMac: true, connected: false, phones: 0) == .mac)
+        check("where: away, connected, a phone gets pushes: the phone", PhoneLink.place(atMac: false, connected: true, phones: 1) == .phone)
+        check("where: away with no connection, or no phone with notices on: this Mac's notice, as before the phone",
+              PhoneLink.place(atMac: false, connected: false, phones: 1) == .mac && PhoneLink.place(atMac: false, connected: true, phones: 0) == .mac)
+        var st = PhoneLink.Status(stage: .linked, email: "kip.valve@sttark.com", connected: true)
+        st.phones = 1
+        check("Settings: the line on Needs you notices while linked", st.notices == "Needs you notices go to your phone when you are away from this Mac.")
+        st.phones = 0
+        check("Settings: with no phone that gets them, what to do", st.notices == "Needs you notices go to your phone when you are away from this Mac. No phone gets them now: turn them on in Menu on your phone.")
+        check("Settings: no line while not linked or off", PhoneLink.Status(stage: .notLinked).notices == nil && PhoneLink.Status(stage: .off).notices == nil)
+
+        UserDefaults.standard.removeObject(forKey: "waitingTold")
+        Sample.write(dir: dir, kit: kit, now: Int(Date().timeIntervalSince1970))
+        let log = { (try? String(contentsOf: logURL, encoding: .utf8)) ?? "" }
+        shown = []
+        PhoneLink.atMac = { true }
+        Waiting.notifyDue()
+        check("at the Mac: this Mac's notice for the session that has needed you 22 min, not the one at 3 min", shown == [["cse_01PhoneOrderLogin"]])
+        Waiting.notifyDue()
+        check("once per reply: no second notice a minute later", shown.count == 1)
+        reply("cse_01PhoneOrderLogin", ago: 660)
+        PhoneLink.atMac = { false }
+        Waiting.notifyDue()
+        check("away, with no connection to the server: this Mac's notice, as before the phone", shown.count == 2 && shown[1] == ["cse_01PhoneOrderLogin"])
+
+        // the Reach me by rule: notify.py notes reach_sent[cse] when a message goes at least one way
+        check("claude-notify in a session (a dry send): it goes", notify(["Laminator quote", "The supplier answered."], session: "session_01PhoneOrderLogin") == 0)
+        let sent = Waiting.reachSent()
+        check("notify.py noted reach_sent for the session, now", sent["cse_01PhoneOrderLogin"].map { abs($0 - Date().timeIntervalSince1970) < 30 } == true)
+        reply("cse_01PhoneOrderLogin", ago: 700)
+        Waiting.notifyDue()
+        check("a session that sent a Reach me by message in the last 30 min: no reminder anywhere, and the log says why",
+              shown.count == 2 && log().contains("waiting notice skipped: Order page login: it sent a Reach me by message in the last 30 min"))
+        State.change { s in s["reach_sent"] = ["cse_01PhoneOrderLogin": Date().timeIntervalSince1970 - 31 * 60, "cse_01PhoneOld": Date().timeIntervalSince1970 - 2 * 86400] }
+        reply("cse_01PhoneOrderLogin", ago: 740)
+        Waiting.notifyDue()
+        check("31 min after the message: the reminder comes again", shown.count == 3)
+        notify(["Nozzle check", "The test page is ready."], session: "session_01PhoneNozzle")
+        check("the next message keeps the newer ones and drops one over a day old", Set(Waiting.reachSent().keys) == ["cse_01PhoneOrderLogin", "cse_01PhoneNozzle"])
+        notify(["--test"], session: nil)
+        check("claude-notify --test, from no session, notes nothing", Waiting.reachSent().count == 2)
+        State.change { s in s["reach"] = ["ways": ["chat"], "email": ""] }
+        notify(["Price drop", "It is under 9000 now."], session: "session_01PhoneKitDesign")
+        check("a message that went no way (no Chat webhook) notes nothing", Waiting.reachSent()["cse_01PhoneKitDesign"] == nil)
+        UserDefaults.standard.removeObject(forKey: "waitingTold")
     }
 
     static func finish(_ dir: URL) {
@@ -811,6 +914,24 @@ enum E2E {
 
     static func get(_ path: String) -> (Int, String) { request("GET", URL(string: origin + path)!) }
 
+    /// A phone page's JSON call (Menu > Notices): this site's Origin, signed in as the made-up person.
+    static func postJSON(_ path: String, _ body: [String: Any]) -> (Int, [String: Any]) {
+        var req = URLRequest(url: URL(string: origin + path)!)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.httpBody = Phone.json(body)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(origin, forHTTPHeaderField: "Origin")
+        let sem = DispatchSemaphore(value: 0)
+        var out: (Int, [String: Any]) = (0, [:])
+        browser.dataTask(with: req) { d, r, _ in
+            out = ((r as? HTTPURLResponse)?.statusCode ?? 0, d.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any] ?? [:])
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 20)
+        return out
+    }
+
     static func serverSaid(_ s: String) -> Int {
         ((try? String(contentsOf: serverLog, encoding: .utf8)) ?? "").components(separatedBy: s).count - 1
     }
@@ -1036,6 +1157,9 @@ enum E2E {
         check("the phone's session page gets a record of each change", page.payloads("record").contains { $0["act"] as? String == "set_level" && $0["reason"] as? String == "ok" })
         check("after the actions the Kit is still connected", PhoneLink.status.connected)
 
+        // ---- Needs you reminders: where they go, end to end ----
+        reminders(dir: dir, page: page)
+
         // ---- STTARK_PHONE_DRY: builds and logs, connects to nothing (another copy of the Kit, on this Mac's same link) ----
         let before = serverSaid("connected, Kit")
         let child = Process()
@@ -1118,6 +1242,104 @@ enum E2E {
         let after = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
         let tailLines = after.split(separator: "\n").filter { $0.contains(" phone ") }.suffix(8).map { "       log: " + $0.dropFirst(20) }
         print(tailLines.joined(separator: "\n"))
+    }
+
+    /// Where a Needs you reminder goes, against the server: a stand-in push service (phone/tools/push-sink.mjs, in the
+    /// server's folder) makes a phone's subscription and decrypts each push the server sends it.
+    static func reminders(dir: URL, page: Page) {
+        guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("tools/push-sink.mjs").path) else {
+            print("skip the reminders end to end: \(folder.path) has no Web Push yet (tools/push-sink.mjs, step 10). Set STTARK_PHONE_SERVER to the phone folder of a checkout of feature/phone-push.")
+            return
+        }
+        let subFile = dir.appendingPathComponent("push-subscription.json"), out = dir.appendingPathComponent("pushes.jsonl")
+        let sink = Process()
+        sink.executableURL = URL(fileURLWithPath: "/bin/sh")
+        sink.arguments = ["-c", "node tools/push-sink.mjs --subscription '\(subFile.path)' --out '\(out.path)' & n=$!; trap 'kill $n 2>/dev/null; exit 0' TERM INT; "
+                          + "while kill -0 $PPID 2>/dev/null && kill -0 $n 2>/dev/null; do sleep 0.2; done; kill $n 2>/dev/null"]
+        sink.currentDirectoryURL = folder
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = (env["PATH"] ?? "/usr/bin:/bin") + ":/opt/homebrew/bin:/usr/local/bin"
+        sink.environment = env
+        sink.standardOutput = FileHandle.nullDevice
+        sink.standardError = FileHandle.nullDevice
+        guard (try? sink.run()) != nil, wait(15, { FileManager.default.fileExists(atPath: subFile.path) }),
+              let raw = try? Data(contentsOf: subFile), let sub = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] else {
+            check("the stand-in push service starts", false)
+            return
+        }
+        defer { sink.terminate(); sink.waitUntilExit() }
+        func pushes() -> [[String: Any]] {
+            ((try? String(contentsOf: out, encoding: .utf8)) ?? "").split(separator: "\n")
+                .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+        }
+        let shownBefore = PhoneTest.shown.count
+        var notices: Int { PhoneTest.shown.count - shownBefore }
+        let cse = "cse_01PhoneOrderLogin"
+        func due(_ ago: Int) {   // a new reply that has needed you `ago` seconds, not told yet
+            PhoneTest.reply(cse, ago: ago)
+        }
+        let log = { (try? String(contentsOf: logURL, encoding: .utf8)) ?? "" }
+
+        check("welcome said no phone gets pushes yet, and Settings says to turn notices on", PhoneLink.phones == 0
+              && PhoneLink.status.notices?.hasSuffix("No phone gets them now: turn them on in Menu on your phone.") == true)
+        let (st, on) = postJSON("/api/push/subscribe", sub)
+        check("Menu > Notices on a phone: the server keeps its subscription (\(st))", st == 200 && on["on"] as? Bool == true)
+        check("the Kit hears phones: 1 at once, and Settings drops what to do", wait(5) { PhoneLink.phones == 1 }
+              && PhoneLink.status.notices == "Needs you notices go to your phone when you are away from this Mac.")
+
+        // away from this Mac: remind to the server, one push, no Mac notice
+        PhoneLink.atMac = { false }
+        due(660)
+        Waiting.notifyDue()
+        check("away: the reminder goes to the phone, and the stand-in push service decrypts one push", wait(10) { pushes().count == 1 })
+        let p = (pushes().first?["payload"] as? [String: Any]) ?? [:]
+        check("the push: Claude needs you: Order page login, its line, its tag and the session's page (\(p["body"] as? String ?? "-"))",
+              p["title"] as? String == "Claude needs you: Order page login" && p["tag"] as? String == "needs-" + cse
+              && (p["body"] as? String ?? "").hasPrefix("Waiting 11 min: a plan waits for your go-ahead") && (p["url"] as? String ?? "").hasSuffix("/s/" + cse))
+        check("never both: no Mac notice, and the log says it went to the phone", notices == 0 && log().contains("phone  reminder to your phone: Order page login"))
+        UserDefaults.standard.removeObject(forKey: "waitingTold")
+        Waiting.notifyDue()
+        spin(1.5)
+        check("the same reminder again (a reconnect, a second Mac): the server sends no second push", pushes().count == 1 && notices == 0
+              && serverSaid("it went already") >= 1)
+
+        // a phone page that shows: the server sends nothing, and this Mac shows nothing either
+        page.send("visible", ["visible": true])
+        wait(5) { PhoneLink.watching }
+        due(700)
+        Waiting.notifyDue()
+        spin(1.5)
+        check("a phone page shows: no push, and no Mac notice (the page shows the session)", pushes().count == 1 && notices == 0
+              && serverSaid("a page of theirs shows") >= 1)
+        page.send("visible", ["visible": false])
+        wait(5) { !PhoneLink.watching }
+
+        // at this Mac: this Mac's notice, no push
+        PhoneLink.atMac = { true }
+        due(740)
+        Waiting.notifyDue()
+        spin(1)
+        check("at the Mac: this Mac's notice, and no push", notices == 1 && pushes().count == 1)
+
+        // a Reach me by message in the last 30 minutes: no reminder anywhere
+        PhoneLink.atMac = { false }
+        PhoneTest.notify(["Laminator quote", "The supplier answered."], session: "session_01PhoneOrderLogin")
+        due(780)
+        Waiting.notifyDue()
+        spin(1.5)
+        check("a session that sent a Reach me by message 0 min ago: no push and no Mac notice", pushes().count == 1 && notices == 1)
+        State.change { s in s["reach_sent"] = [String: Any]() }
+
+        // the phone turns notices off: phones 0, and the reminder is this Mac's notice again
+        let (st2, off) = postJSON("/api/push/notices", ["endpoint": sub["endpoint"] ?? "", "on": false])
+        check("Menu > Notices off on the phone (\(st2))", st2 == 200 && off["on"] as? Bool == false)
+        check("the Kit hears phones: 0", wait(5) { PhoneLink.phones == 0 })
+        due(820)
+        Waiting.notifyDue()
+        spin(1)
+        check("away, but no phone gets pushes: this Mac's notice, and no push", notices == 2 && pushes().count == 1)
+        check("every push reached the stand-in signed and decrypted", pushes().allSatisfy { $0["problem"] is NSNull })
+        UserDefaults.standard.removeObject(forKey: "waitingTold")
     }
 
     /// Another copy of the Kit with STTARK_PHONE_DRY=1, on the same folder and key: it builds and logs a snapshot, and

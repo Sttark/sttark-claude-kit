@@ -16,6 +16,10 @@ import Security
 ///   the whole snapshot, then each change (Phone.Feed). A ping every 25 seconds. After a drop it connects again at
 ///   once on wake or a network change, else after 1, 2, 4 … 60 seconds. `bye` before sleep, quit or an update.
 ///   4401 (removed on the phone) drops the key; 4403 (not on the roster) says why and tries again each hour.
+/// - **Needs you reminders** (section 5): `welcome` and then each `phones` say how many of the person's phones can get a
+///   push. Waiting.notifyDue asks `reminderPlace()` where a reminder goes: this Mac's notice when the person is at it
+///   (`Presence`), else `remind` on the socket when it is up and a phone can get a push, else this Mac's notice. Never
+///   both.
 enum PhoneLink {
     // MARK: the server
 
@@ -114,6 +118,8 @@ enum PhoneLink {
         /// Why it is not linked or not connected, in words, when something went wrong.
         var problem: String?
         var dry = false
+        /// How many of the person's phones can get a push, as the server last said while connected.
+        var phones: Int?
 
         /// The line under Kit on your phone.
         var words: String {
@@ -146,6 +152,14 @@ enum PhoneLink {
 
         /// Link this Mac… shows while the switch is on and the Mac is not linked.
         var canLink: Bool { [.notLinked, .linking, .removed].contains(stage) && !dry }
+
+        /// The line on Needs you notices, while the Mac is linked; with what to do when the server says no phone gets
+        /// them.
+        var notices: String? {
+            guard stage == .linked else { return nil }
+            let line = "Needs you notices go to your phone when you are away from this Mac."
+            return connected && phones == 0 ? line + " No phone gets them now: turn them on in Menu on your phone." : line
+        }
     }
 
     private(set) static var status = Status()
@@ -164,6 +178,7 @@ enum PhoneLink {
         else { s.stage = .notLinked }
         s.connected = socket?.welcomed == true
         s.lastSent = lastSent
+        s.phones = s.connected ? phones : nil
         s.problem = saved.refused ?? problem
         guard s != status else { return }
         status = s
@@ -613,6 +628,7 @@ enum PhoneLink {
                 return
             }
             setWatching(p["watching"] as? Bool ?? false)
+            setPhones(p["phones"])
             feed?.stop()
             let f = Phone.Feed(send: { send($0) })
             feed = f
@@ -620,6 +636,8 @@ enum PhoneLink {
             publish()
         case "watching":
             setWatching(p["on"] as? Bool ?? false)
+        case "phones":
+            setPhones(p["phones"])
         case "want_archived":
             sendArchived(have: p["have"] as? String)
         case "action":
@@ -701,6 +719,15 @@ enum PhoneLink {
     static func connectNow() {
         backoff = 0
         if socket == nil { connect() }
+    }
+
+    /// `welcome`'s and `phones`' count of the person's phones that can get a push. A change is logged.
+    private static func setPhones(_ v: Any?) {
+        guard let n = Limit.num(v).map({ Int($0) }), (0...50).contains(n) else { return }
+        guard n != phones else { return }
+        phones = n
+        logLine("phone", "phones that get notices: \(n)")
+        publish()
     }
 
     private static func setWatching(_ on: Bool) {
@@ -835,6 +862,48 @@ enum PhoneLink {
     static func strictBool(_ v: Any?) -> Bool? {
         guard let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
         return n.boolValue
+    }
+
+    // MARK: Needs you reminders
+
+    /// How many of the person's phones can get a push: `welcome`'s `phones`, then each `phones` message.
+    private(set) static var phones = 0
+
+    /// Where a Needs you reminder goes (phone/DESIGN.md section 5).
+    enum Place: String { case mac, phone }
+
+    /// "No double notices", rule 3: this Mac's notice when the person is at the Mac; else the phone, when the socket
+    /// is up and a phone of theirs can get a push; else this Mac's notice, as before there was a phone. Never both.
+    static func place(atMac: Bool, connected: Bool, phones: Int) -> Place {
+        !atMac && connected && phones > 0 ? .phone : .mac
+    }
+
+    /// Is the person at this Mac now (Presence.atMac)? Tests put their own.
+    static var atMac: () -> Bool = { Presence.atMac() }
+
+    /// Where a reminder due now goes.
+    static func reminderPlace() -> Place {
+        place(atMac: atMac(), connected: !dry && socket?.welcomed == true, phones: phones)
+    }
+
+    /// One `remind` per session (mac_to_server.remind): the server sends a push to each of the person's phones with
+    /// notices on, unless a page of theirs shows or it sent that one already. `done` gets, on the main thread, the
+    /// sessions whose message did not go, for this Mac's notice instead.
+    static func remind(_ list: [Session], done: @escaping ([Session]) -> Void) {
+        guard !dry, let s = socket, s.welcomed else { done(list); return }
+        var failed: [Session] = []
+        let group = DispatchGroup()
+        for x in list {
+            guard let cse = Phone.id(x.id), let since = Phone.time(x.waitingSince) as? Int else { failed.append(x); continue }
+            group.enter()
+            s.send("remind", ["cse": cse, "waiting_since": since, "title": Phone.cut(x.title), "why": Phone.label(x.why)]) { e in
+                DispatchQueue.main.async {
+                    if e != nil { failed.append(x) }
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) { done(failed) }
     }
 
     // MARK: start, the switch, sleep and quit
@@ -1025,5 +1094,21 @@ enum PhoneLink {
         case .badServerResponse: return "\(shown) did not take the connection"
         default: return u.localizedDescription
         }
+    }
+}
+
+/// Whether the person is at this Mac, for where a Needs you reminder goes (phone/DESIGN.md section 5, rule 3): the
+/// screen is on and unlocked, this login is the one on the screen, and a key, the mouse or the trackpad was used in the
+/// last 2 minutes. Read when a reminder is due; it needs no permission.
+enum Presence {
+    static let recent: TimeInterval = 2 * 60
+
+    static func atMac() -> Bool {
+        let s = CGSessionCopyCurrentDictionary() as? [String: Any] ?? [:]
+        if s["CGSSessionScreenIsLocked"] as? Bool == true { return false }
+        if s[kCGSessionOnConsoleKey as String] as? Bool == false { return false }
+        if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { return false }
+        guard let any = CGEventType(rawValue: ~0) else { return false }
+        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: any) < recent
     }
 }

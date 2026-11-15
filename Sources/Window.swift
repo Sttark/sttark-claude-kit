@@ -1431,8 +1431,8 @@ struct SettingsPage: View {
 }
 
 /// Kit on your phone: the switch, what it does now (not linked, linking with this Mac's code, linked with the account
-/// and when it last sent), and Link this Mac… while it is not linked. The window never opens the browser by itself:
-/// only the button, or the link notice, does.
+/// and when it last sent, and where Needs you notices go), and Link this Mac… while it is not linked. The window never
+/// opens the browser by itself: only the button, or the link notice, does.
 struct PhoneRow: View {
     let status: PhoneLink.Status
     var link: () -> Void
@@ -1443,6 +1443,10 @@ struct PhoneRow: View {
                 Text("Kit on your phone").font(K.font(13))
                 Text(status.words).font(K.font(12)).foregroundColor(status.warn ? K.warnText : K.steel)
                     .fixedSize(horizontal: false, vertical: true)
+                if let notices = status.notices {
+                    Text(notices).font(K.font(12)).foregroundColor(K.steel)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if status.stage == .linking, let code = status.code {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text("Code").font(K.font(12)).foregroundColor(K.steel)

@@ -495,6 +495,12 @@ enum Events {
             } else if rest.hasPrefix("waiting notice: ") {
                 let q = String(rest.dropFirst(16)); e.name = q; e.session = names.cseByName[q]
                 e.kind = .wait; e.text = "Notice: it has waited on you for 10 minutes"
+            } else if rest.hasPrefix("waiting notice skipped: ") {
+                // "waiting notice skipped: Order page login: it sent a Reach me by message in the last 30 min"
+                let body = rest.dropFirst(24)
+                let q = body.range(of: ": it sent").map { String(body[..<$0.lowerBound]) } ?? String(body)
+                e.name = q; e.session = names.cseByName[q]
+                e.kind = .wait; e.text = "No reminder: it sent you a Reach me by message in the last 30 minutes"
             } else if rest.hasPrefix("window:") || tag == "window" || rest.hasPrefix("what's new") {
                 e.routine = true
                 e.text = tag == "window" ? rest.replacingOccurrences(of: "Claude window: ", with: "Claude window in Chrome ") : rest.prefix(1).uppercased() + rest.dropFirst()
@@ -577,6 +583,18 @@ enum Events {
                 e.text = why == "sleep" ? "Told \(host) that this Mac sleeps" : why == "update" ? "Told \(host) that the Kit updates" : "Told \(host) that the Kit quits"
             } else if rest.hasPrefix("notice: ") {
                 e.text = "Notice: use the Kit on your phone"
+            } else if rest.hasPrefix("reminder to your phone: ") {
+                let q = String(rest.dropFirst(24)); e.name = q; e.session = names.cseByName[q]
+                e.text = "Reminder to your phone: it has waited on you for 10 minutes"
+                e.detail = ["You were away from this Mac, so the reminder went to your phone, not to this Mac."]
+            } else if rest.hasPrefix("reminder did not go to your phone") {
+                e.level = .warn
+                if let c = rest.range(of: "instead: ") { let q = String(rest[c.upperBound...]); e.name = q; e.session = names.cseByName[q] }
+                e.text = "The reminder did not reach \(host), so this Mac showed it"
+            } else if rest.hasPrefix("phones that get notices: ") {
+                e.routine = true
+                let n = Int(rest.dropFirst(25)) ?? 0
+                e.text = n == 0 ? "No phone gets Needs you notices now" : n == 1 ? "1 phone gets Needs you notices" : "\(n) phones get Needs you notices"
             } else if rest.hasPrefix("dry: ") {
                 e.routine = true
                 e.text = "Dry run: " + rest.dropFirst(5)

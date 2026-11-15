@@ -25,7 +25,9 @@ clickable, so it goes through that page. With no page link, one "Open in Claude"
   mac    A notice on this Mac; the menu bar app shows it, and a click opens the session.
 
 The app's part (text, mac) goes through notify-queue/ in the Application Support folder: the app answers
-within a few seconds. Logged with lines starting "notify". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a
+within a few seconds. Logged with lines starting "notify". A message that went at least one way is noted in
+reach_sent[<cse>] in the state file: for 30 minutes the Kit sends that session no Needs you reminder, on the phone or
+the Mac, since this message already told the person (phone/DESIGN.md section 5). STTARK_KIT_DIR and STTARK_KIT_LOG point it at a
 test folder and log; STTARK_NOTIFY_DRY=1 does everything except send (the sealed email is checked instead).
 """
 import base64, fcntl, importlib.util, json, os, re, subprocess, sys, time, urllib.request, uuid
@@ -75,6 +77,27 @@ def settings(state=None):
     if not isinstance(r.get('ways'), list):
         r['ways'] = ['email'] if r['email'].lower().endswith('@sttark.com') else ['mac']
     return r
+
+
+def mark_sent(cse, now=None):
+    """reach_sent[cse] = now in the state file, under its lock as the hooks and the app write it. Entries over a day
+    old go."""
+    now = int(now or time.time())
+    os.makedirs(KIT, exist_ok=True)
+    with open(STATE + '.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            s = json.load(open(STATE))
+        except (OSError, ValueError):
+            s = {}
+        sent = {k: v for k, v in (s.get('reach_sent') or {}).items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and v > now - 86400}
+        sent[cse] = now
+        s['reach_sent'] = sent
+        tmp = STATE + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(s, f, indent=1)
+        os.replace(tmp, STATE)
 
 
 # --- the session -------------------------------------------------------------------------------------------
@@ -289,6 +312,11 @@ def send(subject, body, link='', ways=None, title=None, url=None, cse=''):
     for w in ways:
         ok, words = results[w]
         log('%s %s %s: %s | %s' % ((title or '-')[:40], w, 'ok' if ok else 'failed', words[:120], subject[:80]))
+    if cse and any(results[w][0] for w in ways):
+        try:
+            mark_sent(cse)
+        except OSError as e:
+            log('%s reach_sent not noted: %s' % ((title or '-')[:40], e))
     return [(w, results[w]) for w in ways]
 
 
