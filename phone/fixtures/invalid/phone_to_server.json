@@ -1,0 +1,17 @@
+[
+  {
+    "why": "an action with no basis",
+    "value": {
+      "event": "action",
+      "success": true,
+      "payload": {
+        "id": "a",
+        "mac": "m",
+        "act": "unarchive",
+        "args": {
+          "cse": "x"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="780" fill="#f8f5f2"/>
+  <text x="40" y="54" font-size="30" font-weight="700" fill="#1d1d1b">Kit on your phone: how the data moves</text>
+  <text x="40" y="86" font-size="17" fill="#5b6570">One Sttark server. Each Mac dials out to it, so it works behind any router and on any network.</text>
+
+  <g transform="translate(40,130)">
+    <rect width="280" height="320" rx="16" fill="#eef0ff" stroke="#55577a" stroke-width="2"/>
+    <text x="20" y="40" font-size="24" font-weight="700" fill="#1d1d1b">Phone</text>
+    <text x="20" y="74" font-size="15" fill="#1d1d1b">Home Screen web app</text>
+    <text x="20" y="98" font-size="15" fill="#1d1d1b">iPhone (iOS 16.4+) and Android</text>
+    <text x="20" y="122" font-size="15" fill="#1d1d1b">Sessions, Archived, Usage</text>
+    <text x="20" y="162" font-size="15" font-weight="600" fill="#1d1d1b">Sign in once</text>
+    <text x="20" y="186" font-size="15" fill="#1d1d1b">Google, verified @sttark.com</text>
+    <text x="20" y="226" font-size="15" font-weight="600" fill="#1d1d1b">Mac asleep or off</text>
+    <text x="20" y="250" font-size="15" fill="#1d1d1b">Shows when it was last seen</text>
+    <text x="20" y="274" font-size="15" fill="#1d1d1b">and turns its buttons off</text>
+  </g>
+
+  <g transform="translate(460,130)">
+    <rect width="300" height="320" rx="16" fill="#fff4dc" stroke="#a87b1d" stroke-width="2"/>
+    <text x="20" y="40" font-size="24" font-weight="700" fill="#1d1d1b">kit.sttark.com</text>
+    <text x="20" y="74" font-size="15" fill="#1d1d1b">On the sttark-building Linode</text>
+    <text x="20" y="98" font-size="15" fill="#1d1d1b">nginx and TLS, then claude-kit</text>
+    <text x="20" y="122" font-size="15" fill="#1d1d1b">(Node 24, Astro, ws, web-push)</text>
+    <text x="20" y="162" font-size="15" font-weight="600" fill="#1d1d1b">kit.db (one SQLite file)</text>
+    <text x="20" y="186" font-size="15" fill="#1d1d1b">Macs and their public keys,</text>
+    <text x="20" y="210" font-size="15" fill="#1d1d1b">phones, change records,</text>
+    <text x="20" y="234" font-size="15" fill="#1d1d1b">the last snapshot of each Mac</text>
+    <text x="20" y="274" font-size="15" fill="#1d1d1b">Roster from Workrouter, hourly</text>
+  </g>
+
+  <g transform="translate(900,130)">
+    <rect width="260" height="320" rx="16" fill="#e3efe6" stroke="#3d7a4f" stroke-width="2"/>
+    <text x="20" y="40" font-size="24" font-weight="700" fill="#1d1d1b">Your Mac</text>
+    <text x="20" y="74" font-size="15" fill="#1d1d1b">Sttark Claude Kit</text>
+    <text x="20" y="114" font-size="15" font-weight="600" fill="#1d1d1b">Phone.swift</text>
+    <text x="20" y="138" font-size="15" fill="#1d1d1b">Links once, keeps the socket,</text>
+    <text x="20" y="162" font-size="15" fill="#1d1d1b">sends Inbox.snapshot()</text>
+    <text x="20" y="202" font-size="15" font-weight="600" fill="#1d1d1b">KitActions</text>
+    <text x="20" y="226" font-size="15" fill="#1d1d1b">The same code the</text>
+    <text x="20" y="250" font-size="15" fill="#1d1d1b">window's buttons run</text>
+    <text x="20" y="282" font-size="15" fill="#1d1d1b">state.json, wait.py,</text>
+    <text x="20" y="304" font-size="15" fill="#1d1d1b">effort-hook.py</text>
+  </g>
+
+  <text x="390" y="168" font-size="13" font-weight="700" fill="#1d1d1b" text-anchor="middle">WebSocket /live</text>
+  <text x="390" y="184" font-size="12" fill="#5b6570" text-anchor="middle">while the app is open</text>
+  <text x="390" y="212" font-size="12" fill="#1d1d1b" text-anchor="middle">action</text>
+  <line x1="326" y1="222" x2="452" y2="222" stroke="#444" stroke-width="2" marker-end="url(#a)"/>
+  <text x="390" y="252" font-size="12" fill="#1d1d1b" text-anchor="middle">snapshots, results</text>
+  <line x1="452" y1="262" x2="328" y2="262" stroke="#444" stroke-width="2" marker-end="url(#a)"/>
+
+  <text x="830" y="168" font-size="13" font-weight="700" fill="#1d1d1b" text-anchor="middle">WebSocket /mac</text>
+  <text x="830" y="184" font-size="12" fill="#5b6570" text-anchor="middle">the Mac dials out</text>
+  <text x="830" y="212" font-size="12" fill="#1d1d1b" text-anchor="middle">snapshot on change</text>
+  <line x1="894" y1="222" x2="768" y2="222" stroke="#444" stroke-width="2" marker-end="url(#a)"/>
+  <text x="830" y="252" font-size="12" fill="#1d1d1b" text-anchor="middle">action</text>
+  <line x1="766" y1="262" x2="892" y2="262" stroke="#444" stroke-width="2" marker-end="url(#a)"/>
+  <text x="830" y="292" font-size="12" fill="#1d1d1b" text-anchor="middle">result</text>
+  <line x1="894" y1="302" x2="768" y2="302" stroke="#444" stroke-width="2" marker-end="url(#a)"/>
+  <text x="830" y="350" font-size="12" fill="#1d1d1b" text-anchor="middle">Link once: a browser</text>
+  <text x="830" y="366" font-size="12" fill="#1d1d1b" text-anchor="middle">sign-in pins its key</text>
+  <line x1="894" y1="380" x2="768" y2="380" stroke="#444" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#a)"/>
+
+  <rect x="290" y="500" width="240" height="70" rx="12" fill="#ffffff" stroke="#a3abb2" stroke-width="2"/>
+  <text x="410" y="528" font-size="15" font-weight="700" fill="#1d1d1b" text-anchor="middle">Apple or Google push</text>
+  <text x="410" y="550" font-size="13" fill="#5b6570" text-anchor="middle">encrypted: a title and one line</text>
+  <polyline points="600,450 600,535 536,535" fill="none" stroke="#444" stroke-width="2" marker-end="url(#a)"/>
+  <polyline points="290,535 180,535 180,458" fill="none" stroke="#444" stroke-width="2" marker-end="url(#a)"/>
+  <text x="614" y="486" font-size="13" font-weight="700" fill="#1d1d1b">Web Push: Needs you</text>
+  <text x="614" y="504" font-size="13" fill="#1d1d1b">after 10 minutes, once per reply,</text>
+  <text x="614" y="522" font-size="13" fill="#1d1d1b">only when you are away from the Mac</text>
+
+  <g transform="translate(40,610)">
+    <rect width="540" height="130" rx="14" fill="#ffffff" stroke="#a3abb2" stroke-width="2"/>
+    <text x="20" y="36" font-size="17" font-weight="700" fill="#1d1d1b">Keys: GitHub production environment</text>
+    <text x="20" y="62" font-size="15" fill="#1d1d1b">In Sttark/sttark-claude-kit, which admits only main.</text>
+    <text x="20" y="86" font-size="15" fill="#1d1d1b">Google sign-in client, Web Push key pair,</text>
+    <text x="20" y="110" font-size="15" fill="#1d1d1b">Workrouter org-sync key, deploy key.</text>
+  </g>
+  <g transform="translate(620,610)">
+    <rect width="540" height="130" rx="14" fill="#fdecea" stroke="#b42318" stroke-width="2"/>
+    <text x="20" y="36" font-size="17" font-weight="700" fill="#b42318">Never leaves the Mac</text>
+    <text x="20" y="62" font-size="15" fill="#1d1d1b">Prompts, replies, transcripts and file contents.</text>
+    <text x="20" y="86" font-size="15" fill="#1d1d1b">File and folder paths, Reach me by addresses.</text>
+    <text x="20" y="110" font-size="15" fill="#1d1d1b">Idle and On this Mac only sessions.</text>
+  </g>
+</svg>

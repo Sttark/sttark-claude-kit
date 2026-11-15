@@ -1,0 +1,56 @@
+[
+  {
+    "why": "an act with the args of another act",
+    "value": {
+      "event": "action",
+      "success": true,
+      "payload": {
+        "id": "act-1",
+        "act": "set_level",
+        "args": {
+          "cse": "session_01SampleWeeklyPlan"
+        },
+        "by": {
+          "email": "person@sttark.com",
+          "name": "Sample Person"
+        }
+      }
+    }
+  },
+  {
+    "why": "an act that does not exist",
+    "value": {
+      "event": "action",
+      "success": true,
+      "payload": {
+        "id": "act-1",
+        "act": "run_command",
+        "args": {
+          "cse": "x"
+        },
+        "by": {
+          "email": "person@sttark.com",
+          "name": "Sample Person"
+        }
+      }
+    }
+  },
+  {
+    "why": "an action from outside sttark.com",
+    "value": {
+      "event": "action",
+      "success": true,
+      "payload": {
+        "id": "act-1",
+        "act": "unarchive",
+        "args": {
+          "cse": "x"
+        },
+        "by": {
+          "email": "someone@example.com",
+          "name": "X"
+        }
+      }
+    }
+  }
+]

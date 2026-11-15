@@ -1,0 +1,40 @@
+[
+  {
+    "why": "success true on a result that is not ok",
+    "value": {
+      "event": "result",
+      "success": true,
+      "payload": {
+        "id": "a",
+        "reason": "gone",
+        "words": "w",
+        "before": null,
+        "after": null
+      }
+    }
+  },
+  {
+    "why": "success false on a result that is ok",
+    "value": {
+      "event": "result",
+      "success": false,
+      "payload": {
+        "id": "a",
+        "reason": "ok",
+        "words": "w",
+        "before": null,
+        "after": null
+      }
+    }
+  },
+  {
+    "why": "a bye with a reason the contract does not know",
+    "value": {
+      "event": "bye",
+      "success": true,
+      "payload": {
+        "why": "crash"
+      }
+    }
+  }
+]

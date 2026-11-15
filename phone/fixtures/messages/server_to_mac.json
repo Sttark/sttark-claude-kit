@@ -1,0 +1,144 @@
+[
+  {
+    "event": "challenge",
+    "success": true,
+    "payload": {
+      "nonce": "q8Zr2kLm9vX4tN7pB1sD3fG6"
+    }
+  },
+  {
+    "event": "welcome",
+    "success": true,
+    "payload": {
+      "phones": 1,
+      "watching": false
+    }
+  },
+  {
+    "event": "watching",
+    "success": true,
+    "payload": {
+      "on": true
+    }
+  },
+  {
+    "event": "want_archived",
+    "success": true,
+    "payload": {
+      "have": null
+    }
+  },
+  {
+    "event": "want_archived",
+    "success": true,
+    "payload": {
+      "have": "a1b2c3d4e5f60718"
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0001",
+      "act": "bring_back",
+      "args": {
+        "wait": "w02"
+      },
+      "by": {
+        "email": "person@sttark.com",
+        "name": "Sample Person"
+      }
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0002",
+      "act": "stop_waits",
+      "args": {
+        "waits": [
+          "w02",
+          "w03"
+        ]
+      },
+      "by": {
+        "email": "person@sttark.com",
+        "name": "Sample Person"
+      }
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0003",
+      "act": "set_level",
+      "args": {
+        "cse": "session_01SampleLaminator",
+        "level": "high"
+      },
+      "by": {
+        "email": "person@sttark.com",
+        "name": "Sample Person"
+      }
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0004",
+      "act": "set_auto",
+      "args": {
+        "cse": "session_01SamplePressColor",
+        "on": true
+      },
+      "by": {
+        "email": "person@sttark.com",
+        "name": "Sample Person"
+      }
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0005",
+      "act": "set_limit",
+      "args": {
+        "cse": "session_01SampleSiteMap",
+        "sid": null,
+        "mode": "credits",
+        "at": null
+      },
+      "by": {
+        "email": "person@sttark.com",
+        "name": "Sample Person"
+      }
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0006",
+      "act": "unarchive",
+      "args": {
+        "cse": "session_01SampleWeeklyPlan"
+      },
+      "by": {
+        "email": "person@sttark.com",
+        "name": "Sample Person"
+      }
+    }
+  },
+  {
+    "event": "error",
+    "success": false,
+    "payload": {
+      "code": "old_version",
+      "words": "This Kit is too old for the phone. Update the Kit."
+    }
+  }
+]

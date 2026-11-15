@@ -1,0 +1,209 @@
+asyncapi: 3.1.0
+info:
+  title: Sttark Claude Kit phone server
+  version: 1.0.0
+  description: |
+    The two WebSockets of kit.sttark.com. A Mac's Kit opens /mac and keeps it open (the Mac is behind NAT, so
+    it dials out). A phone page opens /live while it is open. Every message is {event, success, payload};
+    success is true except on an error message and on a result whose reason is not ok. The message schemas
+    are in schema/messages.v1.json, which references schema/snapshot.v1.json and schema/archived.v1.json.
+    Every schema refuses fields it does not know. Run `node phone/schema/check.mjs` after a change.
+    This file is written from the server's side: send is a message the server sends, receive is one it takes.
+    Why each message exists, and what never leaves the Mac: phone/DESIGN.md.
+servers:
+  production:
+    host: kit.sttark.com
+    protocol: wss
+    description: On the sttark-building Linode, behind nginx with TLS.
+  local:
+    host: localhost:4350
+    protocol: ws
+    description: A local copy for tests (STTARK_PHONE_URL on the Mac side).
+
+channels:
+  mac:
+    address: /mac
+    title: A Mac's Kit
+    description: |
+      One socket per linked Mac. The server sends challenge; the Mac answers with auth (a P-256 signature with the
+      key it made at linking). A wrong signature closes with 4401, a person not on the roster with 4403. Then the
+      Mac sends its snapshot, and again on each change. Actions come down and results go back on the same socket.
+      The Mac pings every 25 seconds.
+    messages:
+      challenge: { $ref: '#/components/messages/server_to_mac.challenge' }
+      welcome: { $ref: '#/components/messages/server_to_mac.welcome' }
+      watching: { $ref: '#/components/messages/server_to_mac.watching' }
+      want_archived: { $ref: '#/components/messages/server_to_mac.want_archived' }
+      action: { $ref: '#/components/messages/server_to_mac.action' }
+      error: { $ref: '#/components/messages/server_to_mac.error' }
+      auth: { $ref: '#/components/messages/mac_to_server.auth' }
+      snapshot: { $ref: '#/components/messages/mac_to_server.snapshot' }
+      archived: { $ref: '#/components/messages/mac_to_server.archived' }
+      archived_delta: { $ref: '#/components/messages/mac_to_server.archived_delta' }
+      result: { $ref: '#/components/messages/mac_to_server.result' }
+      remind: { $ref: '#/components/messages/mac_to_server.remind' }
+      bye: { $ref: '#/components/messages/mac_to_server.bye' }
+      unlink: { $ref: '#/components/messages/mac_to_server.unlink' }
+  live:
+    address: /live
+    title: A phone page
+    description: |
+      Opened by a signed-in phone page (the sign-in cookie, Origin checked). The server sends the person's Macs,
+      each Mac's snapshot, and each new one at once. On iPhone the socket closes when the app goes to the
+      background; on return the page connects again and draws again.
+    messages:
+      hello: { $ref: '#/components/messages/phone_to_server.hello' }
+      visible: { $ref: '#/components/messages/phone_to_server.visible' }
+      open_archived: { $ref: '#/components/messages/phone_to_server.open_archived' }
+      phone_action: { $ref: '#/components/messages/phone_to_server.action' }
+      macs: { $ref: '#/components/messages/server_to_phone.macs' }
+      phone_snapshot: { $ref: '#/components/messages/server_to_phone.snapshot' }
+      phone_archived: { $ref: '#/components/messages/server_to_phone.archived' }
+      action_result: { $ref: '#/components/messages/server_to_phone.action_result' }
+      record: { $ref: '#/components/messages/server_to_phone.record' }
+      phone_error: { $ref: '#/components/messages/server_to_phone.error' }
+
+operations:
+  sendToMac:
+    action: send
+    channel: { $ref: '#/channels/mac' }
+    summary: The server to a Mac.
+    messages:
+      - $ref: '#/channels/mac/messages/challenge'
+      - $ref: '#/channels/mac/messages/welcome'
+      - $ref: '#/channels/mac/messages/watching'
+      - $ref: '#/channels/mac/messages/want_archived'
+      - $ref: '#/channels/mac/messages/action'
+      - $ref: '#/channels/mac/messages/error'
+  receiveFromMac:
+    action: receive
+    channel: { $ref: '#/channels/mac' }
+    summary: A Mac to the server.
+    messages:
+      - $ref: '#/channels/mac/messages/auth'
+      - $ref: '#/channels/mac/messages/snapshot'
+      - $ref: '#/channels/mac/messages/archived'
+      - $ref: '#/channels/mac/messages/archived_delta'
+      - $ref: '#/channels/mac/messages/result'
+      - $ref: '#/channels/mac/messages/remind'
+      - $ref: '#/channels/mac/messages/bye'
+      - $ref: '#/channels/mac/messages/unlink'
+  receiveFromPhone:
+    action: receive
+    channel: { $ref: '#/channels/live' }
+    summary: A phone page to the server.
+    messages:
+      - $ref: '#/channels/live/messages/hello'
+      - $ref: '#/channels/live/messages/visible'
+      - $ref: '#/channels/live/messages/open_archived'
+      - $ref: '#/channels/live/messages/phone_action'
+  sendToPhone:
+    action: send
+    channel: { $ref: '#/channels/live' }
+    summary: The server to a phone page.
+    messages:
+      - $ref: '#/channels/live/messages/macs'
+      - $ref: '#/channels/live/messages/phone_snapshot'
+      - $ref: '#/channels/live/messages/phone_archived'
+      - $ref: '#/channels/live/messages/action_result'
+      - $ref: '#/channels/live/messages/record'
+      - $ref: '#/channels/live/messages/phone_error'
+
+components:
+  messages:
+    server_to_mac.challenge:
+      name: challenge
+      summary: First message on a new connection; the Mac signs kit-mac-v1, its Mac id and the nonce.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.challenge' }
+    server_to_mac.welcome:
+      name: welcome
+      summary: The signature is good. How many phones can get a push, and whether a phone page is visible.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.welcome' }
+    server_to_mac.watching:
+      name: watching
+      summary: A phone page became visible, or none is. While on, the Kit reads the Claude app's list every 10 seconds.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.watching' }
+    server_to_mac.want_archived:
+      name: want_archived
+      summary: A phone opened Archived and the server's copy is old. The Mac sends archived, or archived_delta from have.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.want_archived' }
+    server_to_mac.action:
+      name: action
+      summary: One of six actions, with who asked. The Mac checks its own state when it runs it and answers with result.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.action' }
+    server_to_mac.error:
+      name: error
+      summary: The server refused a message (bad_message, old_version, too_fast).
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.error' }
+    mac_to_server.auth:
+      name: auth
+      summary: The Mac id, its signature of the challenge, and the Kit version.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.auth' }
+    mac_to_server.snapshot:
+      name: snapshot
+      summary: On connect, on change (at most every 2 seconds), and every 5 minutes if it changed.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.snapshot' }
+    mac_to_server.archived:
+      name: archived
+      summary: The full archived list, only after want_archived.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.archived' }
+    mac_to_server.archived_delta:
+      name: archived_delta
+      summary: The changes to the archived list since rev base.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.archived_delta' }
+    mac_to_server.result:
+      name: result
+      summary: The answer to an action. ok, gone, not_now, not_here or bad, with before and after.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.result' }
+    mac_to_server.remind:
+      name: remind
+      summary: A session needed the person for 10 minutes while they are away from the Mac. The server sends one Web Push.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.remind' }
+    mac_to_server.bye:
+      name: bye
+      summary: Before sleep, quit or an update, so the phone shows the right state.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.bye' }
+    mac_to_server.unlink:
+      name: unlink
+      summary: The person turned Kit on your phone off. The server removes this Mac.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.unlink' }
+    phone_to_server.hello:
+      name: hello
+      summary: First message from a phone page.
+      payload: { $ref: './schema/messages.v1.json#/$defs/phone_to_server.hello' }
+    phone_to_server.visible:
+      name: visible
+      summary: The page became visible or hidden.
+      payload: { $ref: './schema/messages.v1.json#/$defs/phone_to_server.visible' }
+    phone_to_server.open_archived:
+      name: open_archived
+      summary: The Archived tab opened.
+      payload: { $ref: './schema/messages.v1.json#/$defs/phone_to_server.open_archived' }
+    phone_to_server.action:
+      name: action
+      summary: A tap on a control, with the Mac and the time of the snapshot the phone showed.
+      payload: { $ref: './schema/messages.v1.json#/$defs/phone_to_server.action' }
+    server_to_phone.macs:
+      name: macs
+      summary: The person's Macs and the state of each (live, updating, asleep, quit, not_heard).
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_phone.macs' }
+    server_to_phone.snapshot:
+      name: snapshot
+      summary: A Mac's snapshot, live or as of its time for a Mac that is away.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_phone.snapshot' }
+    server_to_phone.archived:
+      name: archived
+      summary: A Mac's archived list from the server's copy.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_phone.archived' }
+    server_to_phone.action_result:
+      name: action_result
+      summary: The answer to an action, with offline, timeout and denied added to the Mac's reasons.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_phone.action_result' }
+    server_to_phone.record:
+      name: record
+      summary: A new change record for the session page that is open.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_phone.record' }
+    server_to_phone.error:
+      name: error
+      summary: The server refused a message.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_phone.error' }
