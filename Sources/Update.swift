@@ -108,6 +108,7 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
         let sid = response.notification.request.content.userInfo["id"] as? String ?? ""
         DispatchQueue.main.async {
             if id == "server-ask" { Server.setUp() }
+            else if id == "phone-link" { NotificationCenter.default.post(name: .init("kitPhoneLink"), object: nil) }   // PhoneLink.link
             else if id.hasPrefix("login") { Login.signIn() } else if id.hasPrefix("defaults") || id.hasPrefix("server-") { NotificationCenter.default.post(name: .init("kitOpenSettings"), object: nil) } else if id.hasPrefix("waiting") || id.hasPrefix("notify") { Waiting.open(url, id: sid) } else { self.install() }
         }
         done()
@@ -164,6 +165,8 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
                     return
                 }
                 note("update: installed \(r.version), restarting")
+                // Kit on your phone says bye with why "update" as the app quits (PhoneLink)
+                NotificationCenter.default.post(name: .init("kitWillUpdate"), object: nil)
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: "/bin/sh")
                 p.arguments = ["-c", "sleep 1; /usr/bin/open -g \"$0\"", Bundle.main.bundlePath]

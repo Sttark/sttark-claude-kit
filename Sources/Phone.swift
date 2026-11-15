@@ -10,7 +10,7 @@ import SystemConfiguration
 /// No payload holds a prompt, a reply, a transcript line, a file's contents, a path, a wait's target, a check script
 /// or its output, a check-prompt's question or a Reach me by address. The rows come from `Inbox.snapshot()`, the
 /// window's own rows, and every field is picked by name; tools/phone-test.swift plants each of those things in sample
-/// state and fails if one shows. Nothing here connects to a server yet, and the app does not start it yet.
+/// state and fails if one shows. PhoneLink.swift links the Mac, keeps the socket and sends what this builds.
 enum Phone {
     /// The groups the phone shows, in its order, with the schema's name for each. Idle and On this Mac only stay here.
     static let groups: [(Inbox.Group, String)] = [(.needs, "needs_you"), (.working, "working"), (.waits, "waiting"), (.held, "held")]
@@ -293,11 +293,15 @@ enum Phone {
             lastSent = nil
             sentAt = nil
         }
+
+        /// After an action from the phone: the next build goes up even when it is the same as the last one sent, still
+        /// at most once every `gap` seconds.
+        mutating func forget() { lastSent = nil }
     }
 
     /// Builds the snapshot on each change of the Kit's state (Sync posts kitStateChanged 0.2 seconds after any write in
     /// the Kit's folder) and `every` seconds after the last build, and hands it to `send` when the pacer lets it go.
-    /// The socket, a later step, does the sending. Main thread only.
+    /// PhoneLink sends it on the socket. Main thread only.
     final class Feed {
         private(set) var pacer: Pacer
         private let build: () -> [String: Any]
@@ -330,6 +334,12 @@ enum Phone {
             held = nil
             timer?.cancel()
             timer = nil
+        }
+
+        /// After an action from the phone: a snapshot goes up even when nothing changed, so the phone draws the truth.
+        func sendNext() {
+            pacer.forget()
+            tick()
         }
 
         /// Builds now, unless a build already waits for the end of the gap: that one reads the state when it runs.

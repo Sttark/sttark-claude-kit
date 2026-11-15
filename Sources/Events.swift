@@ -5,7 +5,7 @@ import SwiftUI
 /// never shown as raw lines: each line becomes one sentence about one session, under the session's name.
 struct KitEvent: Identifiable, Equatable {
     enum Kind: String, CaseIterable {
-        case effort, limit, restart, name, wait, update, check, app, problem
+        case effort, limit, restart, name, wait, phone, update, check, app, problem
         var title: String {
             switch self {
             case .effort: return "Effort and permissions"
@@ -13,6 +13,7 @@ struct KitEvent: Identifiable, Equatable {
             case .restart: return "Sessions started again"
             case .name: return "Session names"
             case .wait: return "Waits and messages"
+            case .phone: return "Kit on your phone"
             case .update: return "Updates"
             case .check: return "Reply checks"
             case .app: return "The Kit"
@@ -26,6 +27,7 @@ struct KitEvent: Identifiable, Equatable {
             case .restart: return "arrow.clockwise.circle"
             case .name: return "tag"
             case .wait: return "hourglass"
+            case .phone: return "iphone"
             case .update: return "arrow.down.circle"
             case .check: return "checkmark.seal"
             case .app: return "menubar.rectangle"
@@ -517,6 +519,73 @@ enum Events {
                 e.text = "Remote Control server started again"
                 e.detail.append("Why: " + rest.dropFirst(15) + ".")
             } else { e.text = "Remote Control server: " + rest }
+        case "phone":   // Kit on your phone (PhoneLink.swift): the link, the socket, and each action from the phone
+            e.kind = .phone
+            let host = PhoneLink.shown
+            if rest.hasPrefix("action "), let by = rest.range(of: " by ") {
+                // "action set_level cse_01Abc by name@sttark.com: ok: Effort is High now. Auto is off for this session."
+                let head = rest[rest.index(rest.startIndex, offsetBy: 7)..<by.lowerBound].split(separator: " ")
+                let tail = rest[by.upperBound...]
+                let parts = tail.components(separatedBy: ": ")
+                let asker = parts.first ?? "", reason = parts.count > 1 ? parts[1] : "", said = parts.count > 2 ? parts[2...].joined(separator: ": ") : ""
+                if head.count > 1, head[1] != "-" { who(head[1]) }
+                e.text = "From the phone: " + (said.isEmpty ? "the Kit did not run it" : said)
+                let asked = ["bring_back": "Bring it back now", "stop_waits": "Stop waiting", "set_level": "an effort level",
+                             "set_auto": "Auto effort", "set_limit": "At the usage limit", "unarchive": "Bring it back, from Archived"][String(head.first ?? "")]
+                e.detail = ["Asked by \(asker)" + (asked.map { ", with \($0)" } ?? "") + "."]
+                if reason == "bad" { e.level = .warn }
+            } else if rest.hasPrefix("linked to ") {
+                e.text = "This Mac is linked to your phone"
+                e.detail = ["Signed in as \(rest.dropFirst(10)). Its sessions show at \(host)."]
+            } else if rest.hasPrefix("link page opened") {
+                e.text = "Link page opened in your browser"
+                let parts = rest.components(separatedBy: ", ")
+                e.detail = parts.dropFirst().map { p in p.hasPrefix("code ") ? "This Mac's code: \(p.dropFirst(5))." : p.hasPrefix("until ") ? "It works until \(p.dropFirst(6))." : p }
+            } else if rest.hasPrefix("link page ended") {
+                e.text = "The link page ended before this Mac was linked"
+                e.detail = ["Click Link this Mac… in Settings to try again."]
+            } else if rest.hasPrefix("link: ") {
+                e.kind = .problem; e.level = .warn
+                e.text = rest.hasPrefix("link: no key") ? "This Mac could not make its key for Kit on your phone" : "Could not get a link page from \(host)"
+                if let c = rest.range(of: ": ", options: .backwards) { e.detail = ["Why: " + rest[c.upperBound...] + "."] }
+            } else if rest.hasPrefix("connected") {
+                e.text = "Connected to \(host)"; e.routine = true
+                if let a = rest.range(of: " after ") { e.detail = ["It connected " + rest[a.lowerBound...].dropFirst() + "."] }
+            } else if rest.hasPrefix("not connected: ") {
+                let why = rest.dropFirst(15).components(separatedBy: "; ").first ?? ""
+                e.text = "Not connected to \(host): \(why)"
+                e.detail = [rest.contains("in a minute") ? "The Kit tries again in a minute."
+                            : "The Kit tries again by itself: at once when the Mac wakes or the network changes, else after 1, 2, 4 … 60 seconds."]
+            } else if rest.hasPrefix("removed from your phone") {
+                e.level = .warn
+                e.text = "Removed from your phone"
+                e.detail = ["The Kit dropped this Mac's key and does not link it again by itself. To link it again, click Link this Mac… in Settings."]
+            } else if rest.hasPrefix("refused (4403)") {
+                e.level = .warn
+                e.text = "Not on the Sttark roster, so \(host) does not take this Mac"
+                e.detail = ["The Kit tries again each hour."]
+            } else if rest.hasPrefix("this Mac's key is gone") {
+                e.level = .warn
+                e.text = "This Mac's key for Kit on your phone is gone, so it is not linked now"
+                e.detail = ["To link it again, click Link this Mac… in Settings."]
+            } else if rest.hasPrefix("turned off") {
+                e.text = "Kit on your phone turned off"
+                if let c = rest.range(of: ": ") { e.detail = [rest[c.upperBound...].prefix(1).uppercased() + rest[c.upperBound...].dropFirst() + "."] }
+            } else if rest.hasPrefix("bye: ") {
+                e.routine = true
+                let why = rest.dropFirst(5)
+                e.text = why == "sleep" ? "Told \(host) that this Mac sleeps" : why == "update" ? "Told \(host) that the Kit updates" : "Told \(host) that the Kit quits"
+            } else if rest.hasPrefix("notice: ") {
+                e.text = "Notice: use the Kit on your phone"
+            } else if rest.hasPrefix("dry: ") {
+                e.routine = true
+                e.text = "Dry run: " + rest.dropFirst(5)
+            } else if rest.contains("refused") || rest.contains("cannot") || rest.contains("no id") {
+                e.level = .warn
+                e.text = rest.prefix(1).uppercased() + rest.dropFirst()
+            } else {
+                e.text = rest.prefix(1).uppercased() + rest.dropFirst()
+            }
         case "log":
             e.kind = .app; e.routine = true; e.text = "Old log lines removed"
         case "error":

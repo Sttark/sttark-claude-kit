@@ -4,6 +4,7 @@
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
 //   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
 //   docs/window-settings.png  the window's Settings page
+//   docs/settings-phone.png   the Settings page's Phone box in each of its states (Kit on your phone)
 //   docs/window-news.png      the window's What's new page
 //   docs/window-events.png    the window's Events page, newest first, from sample log lines
 //   docs/whats-new.png        the What's new sheet over the window, with this repo's notes
@@ -84,6 +85,10 @@ import SwiftUI
         model.fixedFacts = facts
         model.reload()
         model.reloadFacts()
+        model.phone = Sample.phone[2].1   // Settings shows Kit on your phone linked
+        for look in [false, true] where !look || dark != nil {
+            Shot.phoneStates(dark: look, to: (look ? dark! : "docs") + "/settings-phone.png")
+        }
         model.selected = model.snap.rows.first { $0.wait?.kind == "email-reply" }?.id
         let w = Shot.window(model)
         for look in [false, true] where !look || dark != nil {
@@ -185,6 +190,29 @@ import SwiftUI
         w.close()
     }
 
+    /// The Phone box in Settings in each of its states, one under the other with a caption each, at the width of the
+    /// Settings page's column: docs/settings-phone.png.
+    static func phoneStates(dark: Bool, to path: String) {
+        let view = VStack(alignment: .leading, spacing: 16) {
+            ForEach(Sample.phone, id: \.0) { caption, s in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(caption).font(K.font(12, true)).foregroundColor(K.steel).padding(.leading, 2)
+                    Box { PhoneRow(status: s, link: {}, toggle: {}) }
+                }
+            }
+        }
+        .padding(20).frame(width: 480).background(K.card).font(K.font(13)).foregroundColor(K.ink)
+        let host = NSHostingView(rootView: view)
+        let size = host.fittingSize
+        let w = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        w.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        w.isReleasedWhenClosed = false
+        w.contentView = host
+        w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+        capture(w, to: path)
+        w.close()
+    }
+
     /// The window as the app makes it, off the screen.
     static func window(_ model: KitModel) -> NSWindow {
         let w = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 760),
@@ -247,6 +275,18 @@ enum Sample {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.string(from: d)
+    }
+
+    /// Kit on your phone in each state Settings shows, with the words for the picture's captions.
+    static var phone: [(String, PhoneLink.Status)] {
+        [("Not linked", PhoneLink.Status(stage: .notLinked)),
+         ("Linking: the link page is open in the browser", PhoneLink.Status(stage: .linking, code: "KXRT")),
+         ("Linked", PhoneLink.Status(stage: .linked, email: "name@sttark.com", connected: true, lastSent: at(11, 30))),
+         ("Linked, the network down", PhoneLink.Status(stage: .linked, email: "name@sttark.com", lastSent: at(11, 2), problem: "no network")),
+         ("Removed on the phone", PhoneLink.Status(stage: .removed)),
+         ("Not on the roster", PhoneLink.Status(stage: .refused, email: "name@sttark.com",
+                                                problem: PhoneLink.notOnRoster)),
+         ("Off", PhoneLink.Status(stage: .off))]
     }
 
     static var facts: MenuFacts {

@@ -174,6 +174,8 @@ final class KitModel: ObservableObject {
     @Published var archivedSelected: String?
     @Published var bringing: String? = nil
     @Published var backNote: (ok: Bool, words: String, at: Date, id: String, title: String)? = nil
+    /// Kit on your phone, as PhoneLink last said: Settings draws the Phone box from it at once.
+    @Published var phone = PhoneLink.Status()
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
     var fixedFacts: MenuFacts?
@@ -1229,7 +1231,7 @@ struct SettingsPage: View {
                 ProgressView().controlSize(.small).padding(.top, 40).frame(maxWidth: .infinity)
             } else {
                 HStack(alignment: .top, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 0) { effort; usage; reach }.frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: 0) { effort; usage; reach; phone }.frame(maxWidth: .infinity)
                     VStack(alignment: .leading, spacing: 0) { sessions; chrome; mac }.frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 28)
@@ -1331,6 +1333,13 @@ struct SettingsPage: View {
         .frame(minHeight: K.z(40))
     }
 
+    @ViewBuilder var phone: some View {
+        heading("Phone")
+        Box {
+            PhoneRow(status: model.phone, link: { c?.linkPhone() }, toggle: { c?.toggleKitPhone() })
+        }
+    }
+
     @ViewBuilder var sessions: some View {
         heading("Sessions")
         Box {
@@ -1418,6 +1427,47 @@ struct SettingsPage: View {
         let d = DateFormatter()
         d.dateFormat = "MMM d"
         return "Ends \(d.string(from: e))"
+    }
+}
+
+/// Kit on your phone: the switch, what it does now (not linked, linking with this Mac's code, linked with the account
+/// and when it last sent), and Link this Mac… while it is not linked. The window never opens the browser by itself:
+/// only the button, or the link notice, does.
+struct PhoneRow: View {
+    let status: PhoneLink.Status
+    var link: () -> Void
+    var toggle: () -> Void
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Kit on your phone").font(K.font(13))
+                Text(status.words).font(K.font(12)).foregroundColor(status.warn ? K.warnText : K.steel)
+                    .fixedSize(horizontal: false, vertical: true)
+                if status.stage == .linking, let code = status.code {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Code").font(K.font(12)).foregroundColor(K.steel)
+                        Text(code).font(K.font(17, true)).tracking(3).foregroundColor(K.ink)
+                    }
+                    .padding(.top, K.z(4))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("This Mac's code: " + code.map(String.init).joined(separator: " "))
+                }
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 8) {
+                if status.canLink {
+                    // while the link page is open, the same button opens it again (a closed tab)
+                    Button(status.stage == .linking ? "Open the page again" : "Link this Mac…", action: link)
+                        .help("Opens the link page in your browser. Sign in with Google, then click Link.")
+                }
+                Toggle("Kit on your phone", isOn: Binding(get: { status.stage != .off }, set: { _ in toggle() }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            .controlSize(K.control)
+        }
+        .padding(.horizontal, K.z(12))
+        .padding(.vertical, K.z(9))
+        .frame(minHeight: K.z(44))
     }
 }
 

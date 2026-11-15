@@ -7,8 +7,16 @@
 // snapshot, the archived list and a delta are written to phone/fixtures/from-mac/ for the server and the pages, with
 // the times moved to a fixed day, so the files change only when the builder does. It also tests when the Kit sends:
 // the pacer with a made-up clock, and the feed on real writes to the state.
-// Needs Node. Run from the repo root:
+// Then the link (Sources/PhoneLink.swift): its checks of an action, the key in a key file (STTARK_PHONE_KEY: the
+// Keychain and the Secure Enclave are never touched), and the server's address with a path. And end to end, against
+// a local copy of the server built and started from phone/ (or the phone folder in STTARK_PHONE_SERVER, such as a
+// checkout of feature/phone-link before it merges) on a free port, with a test database and DEV_FAKE_USER, never the
+// live one: as a Mac and as a phone page, the link, the signed challenge, the snapshot, watching, the archived list,
+// an action of each kind (STTARK_WAIT_DRY, STTARK_EFFORT_DRY: nothing is started or sent to a session), bye, a
+// reconnect after a restart and after a network change, STTARK_PHONE_DRY, the removal on the phone and turning it off.
+// Needs Node (and the server's npm packages for the end-to-end part). Run from the repo root:
 //   swiftc -parse-as-library -o /tmp/phone-test tools/phone-test.swift $(ls Sources/*.swift | grep -v main.swift) && /tmp/phone-test
+import CryptoKit
 import Foundation
 
 @main struct PhoneTest {
@@ -23,6 +31,7 @@ import Foundation
     static let fixtureNow = 1_794_587_400
 
     static func main() {
+        if CommandLine.arguments.contains("--dry-child") { E2E.dryChild() }
         let fm = FileManager.default
         guard fm.fileExists(atPath: "phone/schema/check.mjs") else { print("Run from the repo root."); exit(2) }
         let dir = fm.temporaryDirectory.appendingPathComponent("kit-phonetest-\(getpid())")
@@ -317,7 +326,98 @@ import Foundation
         print(r.1.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n").map { "     " + $0 }.joined(separator: "\n"))
         check("every payload and fixture matches phone/schema, and a field planted in any object fails (node phone/schema/check.mjs)",
               r.0 == 0 && r.1.contains("Contract OK"))
+
+        linkChecks(dir: dir)
+        E2E.run(dir: dir, kit: kit)
         finish(dir)
+    }
+
+    /// The link's own checks, with no server: an action the Kit must refuse, the words that go up, the key in a key
+    /// file, and the server's address with a path.
+    static func linkChecks(dir: URL) {
+        func act(_ p: [String: Any]) -> [String: Any]? {
+            var got: [String: Any]?
+            PhoneLink.act(p) { got = $0 }
+            return got
+        }
+        let by: [String: Any] = ["email": "kip.valve@sttark.com", "name": "Kip Valve"]
+        let refused = [("an act that is not one of the six", ["id": "t1", "act": "rm_rf", "args": ["cse": "cse_x"], "by": by]),
+                       ("Auto as a number, not true or false", ["id": "t2", "act": "set_auto", "args": ["cse": "cse_x", "on": 1], "by": by]),
+                       ("Stop waiting with 21 waits", ["id": "t3", "act": "stop_waits", "args": ["waits": (0..<21).map { "w\($0)" }], "by": by]),
+                       ("a hold with no percent", ["id": "t4", "act": "set_limit", "args": ["cse": "cse_x", "sid": NSNull(), "mode": "hold", "at": NSNull()], "by": by]),
+                       ("a level that does not exist", ["id": "t5", "act": "set_level", "args": ["cse": "cse_x", "level": "huge"], "by": by]),
+                       ("an id with a slash", ["id": "t6", "act": "unarchive", "args": ["cse": "../cse_x"], "by": by])] as [(String, [String: Any])]
+        for (what, p) in refused {
+            let r = act(p), pl = r?["payload"] as? [String: Any] ?? [:]
+            check("action refused before anything runs: \(what): bad, with its id, nothing before or after",
+                  r?["event"] as? String == "result" && r?["success"] as? Bool == false && pl["reason"] as? String == "bad"
+                  && pl["id"] as? String == p["id"] as? String && pl["before"] is NSNull && pl["after"] is NSNull
+                  && pl["words"] as? String == KitActions.Words.bad)
+        }
+        check("an action with no id gets no answer", act(["act": "set_auto", "args": ["cse": "cse_x", "on": true]]) == nil)
+        check("a path in a hook's words never goes up", PhoneLink.safeWords("would bring cse_X back from /private/var/folders/x/PATHMARK.jsonl")
+              == "would bring cse_X back from a file on this Mac" && PhoneLink.safeWords("It did not come back: ~/src/a b.") == "It did not come back: a file on this Mac b."
+              && PhoneLink.safeWords("Effort is High now.") == "Effort is High now.")
+        let v = PhoneLink.values(KitActions.Values(level: "high", manual: true, waits: (0..<25).map { "w\($0)" } + ["bad id"]))
+        check("before and after: at most 20 waits, ids only", (v["waits"] as? [String])?.count == 20 && v["level"] as? String == "high")
+        check("what the Mac signs: kit-mac-v1, its id and the challenge, one per line, as the server checks it",
+              PhoneLink.signed(mac: "mac_ab", nonce: "n0nce") == Data("kit-mac-v1\nmac_ab\nn0nce".utf8))
+
+        // the server's address: one setting, and STTARK_PHONE_URL for tests; a path is allowed
+        unsetenv("STTARK_PHONE_URL")
+        check("the address: kit.sttark.com, its socket wss://kit.sttark.com/mac", PhoneLink.shown == "kit.sttark.com"
+              && PhoneLink.socketURL.absoluteString == "wss://kit.sttark.com/mac" && PhoneLink.url("api/mac/link").absoluteString == "https://kit.sttark.com/api/mac/link")
+        setenv("STTARK_PHONE_URL", "https://building.sttark.com/kit/", 1)
+        check("an address with a path: the API and the socket under it", PhoneLink.shown == "building.sttark.com/kit"
+              && PhoneLink.socketURL.absoluteString == "wss://building.sttark.com/kit/mac"
+              && PhoneLink.url("api/mac/link").absoluteString == "https://building.sttark.com/kit/api/mac/link")
+        check("a link page on another host is never opened", PhoneLink.page(from: ["link": "https://evil.example/link/x", "poll": String(repeating: "a", count: 43), "code": "ABCD"]) == nil
+              && PhoneLink.page(from: ["link": "https://building.sttark.com/kit/link/abc", "poll": String(repeating: "a", count: 43), "code": "ABCD", "expires_at": 1_800_000_000])?.code == "ABCD")
+        setenv("STTARK_PHONE_URL", "http://127.0.0.1:9", 1)
+        check("a local copy: ws, not wss", PhoneLink.socketURL.absoluteString == "ws://127.0.0.1:9/mac" && PhoneLink.shown == "127.0.0.1:9")
+
+        // the key in a key file
+        let keyFile = dir.appendingPathComponent("unit-key.pem")
+        setenv("STTARK_PHONE_KEY", keyFile.path, 1)
+        if let k = try? PhoneLink.Key.make(), let back = PhoneLink.Key.load("file") {
+            let mode = (try? FileManager.default.attributesOfItem(atPath: keyFile.path)[.posixPermissions] as? Int) ?? 0
+            let msg = PhoneLink.signed(mac: "mac_x", nonce: "abcdefghijklmnop")
+            let sig = (try? back.sign(msg)).flatMap { try? P256.Signing.ECDSASignature(derRepresentation: $0) }
+            let pub = try? P256.Signing.PublicKey(derRepresentation: k.publicKey)
+            check("a key file: made only this user can read, the same key loads, it signs in DER, the server records keychain",
+                  mode == 0o600 && back.publicKey == k.publicKey && sig.map { pub?.isValidSignature($0, for: msg) == true } == true
+                  && k.kind == "file" && k.serverKind == "keychain" && k.publicKey.count == 91)
+            check("a key of another kind does not load from it", PhoneLink.Key.load("secure-enclave") == nil && PhoneLink.Key.load("keychain") == nil)
+            PhoneLink.Key.drop("file")
+            check("drop: the key file is gone", !FileManager.default.fileExists(atPath: keyFile.path) && PhoneLink.Key.load("file") == nil)
+        } else {
+            check("a key file is made and loads", false)
+        }
+        check("a new Mac id: mac_ and 32 hex digits, a new one each time", PhoneLink.newMacId().count == 36 && PhoneLink.newMacId() != PhoneLink.newMacId())
+        var s = PhoneLink.Status(stage: .linked, email: "kip.valve@sttark.com", connected: true, lastSent: Date())
+        check("Settings when linked: the account and Last sent", s.words.hasPrefix("Your sessions show at 127.0.0.1:9, signed in as kip.valve@sttark.com.")
+              && s.words.contains("Last sent") && !s.warn && !s.canLink)
+        s.connected = false
+        s.problem = "no network"
+        check("linked, not connected: why, as a warning", s.words.contains("Not connected: no network. The Kit tries again by itself.") && s.warn)
+        check("removed on the phone: a warning, and Link this Mac… again", PhoneLink.Status(stage: .removed).warn && PhoneLink.Status(stage: .removed).canLink)
+        check("off: nothing goes up", PhoneLink.Status(stage: .off).words == "Nothing goes to 127.0.0.1:9." && !PhoneLink.Status(stage: .off).canLink)
+
+        // the phone lines on the Events page, in plain words
+        func event(_ rest: String) -> KitEvent? { Events.kitLine("2026-11-15 11:32:10 phone  " + rest, Events.Names()) }
+        let a = event("action set_level cse_01PhoneKitDesign by kip.valve@sttark.com: ok: Effort is High now. Auto is off for this session.")
+        check("Events: an action from the phone, its words and who asked", a?.kind == .phone && a?.level == .info
+              && a?.text == "From the phone: Effort is High now. Auto is off for this session." && a?.detail == ["Asked by kip.valve@sttark.com, with an effort level."])
+        check("Events: an action the Kit refused is a warning", event("action rm_rf - by kip.valve@sttark.com: bad: This change is not possible.")?.level == .warn)
+        check("Events: not connected, and why", event("not connected: no network; the Kit tries again")?.text == "Not connected to 127.0.0.1:9: no network"
+              && event("not connected: another copy of the Kit on this Mac took over the connection; the Kit tries again in a minute")?.detail == ["The Kit tries again in a minute."])
+        check("Events: removed and refused are warnings; connected and bye are routine",
+              event("removed from your phone (4401): the Kit dropped this Mac's key")?.level == .warn && event("refused (4403): not on the roster")?.level == .warn
+              && event("connected to kit.sttark.com")?.routine == true && event("bye: sleep")?.text == "Told 127.0.0.1:9 that this Mac sleeps")
+        check("Events: linked, and the link page with its code", event("linked to kip.valve@sttark.com")?.text == "This Mac is linked to your phone"
+              && event("link page opened, code KXRT, until 11:40 AM")?.detail == ["This Mac's code: KXRT.", "It works until 11:40 AM."])
+        unsetenv("STTARK_PHONE_KEY")
+        unsetenv("STTARK_PHONE_URL")
     }
 
     static func finish(_ dir: URL) {
@@ -577,6 +677,457 @@ enum Sample {
             items.insert(item("cse_01PhoneHvacOld", "HVAC fan curve", folder: "/Users/sample/PATHMARK/hvac_automation", at: 1_794_587_700), at: 0)
         }
         let file: [String: Any] = ["at": Date().timeIntervalSince1970, "rev": "0000stale0000rev", "items": items]
-        try! JSONSerialization.data(withJSONObject: file).write(to: kit.appendingPathComponent("archived.json"))
+        // as effort-hook.py writes it: a new file, then a rename, so the Kit's watch on its folder sees it
+        try! JSONSerialization.data(withJSONObject: file).write(to: kit.appendingPathComponent("archived.json"), options: .atomic)
+    }
+}
+
+/// End to end: the Kit's link (PhoneLink) against a local copy of the server, as a Mac, and as a phone page on /live.
+/// The server runs from its own folder on a free port with a test database, DEV_FAKE_USER and no secrets; it is never
+/// the live one. A small shell around it ends it when this test ends, even when the test stops early.
+enum E2E {
+    /// A made-up person (phone/test/sample-people.json).
+    static let person = "kip.valve@sttark.com"
+    static var server: Process?
+    static var port = 0
+    static var origin: String { "http://127.0.0.1:\(port)" }
+    static var folder: URL!
+    static var db: URL!
+    static var serverLog: URL!
+
+    static func check(_ n: String, _ ok: Bool) { PhoneTest.check(n, ok) }
+
+    /// Spins the run loop until `cond` holds, at most `secs` seconds.
+    @discardableResult
+    static func wait(_ secs: Double, _ cond: () -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(secs)
+        while !cond() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        return cond()
+    }
+
+    static func spin(_ secs: Double) { RunLoop.main.run(until: Date().addingTimeInterval(secs)) }
+
+    /// The server's folder: STTARK_PHONE_SERVER, else this repo's phone/. Nil, with why, when it has no sockets yet.
+    static func find() -> URL? {
+        let env = ProcessInfo.processInfo.environment["STTARK_PHONE_SERVER"] ?? ""
+        let f = URL(fileURLWithPath: env.isEmpty ? "phone" : (env as NSString).expandingTildeInPath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: f.appendingPathComponent("src/lib/hub.ts").path) else {
+            print("skip the end-to-end part: \(f.path) has no sockets yet (src/lib/hub.ts, step 7a). Set STTARK_PHONE_SERVER to the phone folder of a checkout of feature/phone-link.")
+            return nil
+        }
+        return f
+    }
+
+    /// A port nothing listens on now.
+    static func freePort() -> Int {
+        let s = socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(s) }
+        var a = sockaddr_in()
+        a.sin_family = sa_family_t(AF_INET)
+        a.sin_addr.s_addr = inet_addr("127.0.0.1")
+        a.sin_port = 0
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(s, $0, len) } }
+        _ = withUnsafeMutablePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(s, $0, &len) } }
+        return Int(UInt16(bigEndian: a.sin_port))
+    }
+
+    /// A command in the server's folder, its output to a file. Returns its exit code.
+    static func sh(_ args: [String], log: URL) -> Int32 {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = args
+        p.currentDirectoryURL = folder
+        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("VAULT_") && !$0.key.hasPrefix("STTARK_") && $0.key != "BASE_PATH" }
+        env["PATH"] = (env["PATH"] ?? "/usr/bin:/bin") + ":/opt/homebrew/bin:/usr/local/bin"
+        p.environment = env
+        FileManager.default.createFile(atPath: log.path, contents: nil)
+        let h = try? FileHandle(forWritingTo: log)
+        p.standardOutput = h
+        p.standardError = h
+        guard (try? p.run()) != nil else { return -1 }
+        p.waitUntilExit()
+        return p.terminationStatus
+    }
+
+    static func tail(_ u: URL, _ n: Int = 15) -> String {
+        ((try? String(contentsOf: u, encoding: .utf8)) ?? "").split(separator: "\n").suffix(n).map { "       " + $0 }.joined(separator: "\n")
+    }
+
+    /// `node server.mjs`: the built app, a test database, the made-up person, this port, no secrets.
+    static func start() -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "node server.mjs & n=$!; trap 'kill $n 2>/dev/null; wait $n; exit 0' TERM INT; "
+                       + "while kill -0 $PPID 2>/dev/null && kill -0 $n 2>/dev/null; do sleep 0.2; done; kill $n 2>/dev/null"]
+        p.currentDirectoryURL = folder
+        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("VAULT_") && !$0.key.hasPrefix("STTARK_") && $0.key != "BASE_PATH" }
+        env["PATH"] = (env["PATH"] ?? "/usr/bin:/bin") + ":/opt/homebrew/bin:/usr/local/bin"
+        env["PORT"] = "\(port)"
+        env["HOST"] = "127.0.0.1"
+        env["KIT_DB"] = db.path
+        env["DEV_FAKE_USER"] = person
+        env["APP_ORIGIN"] = origin
+        env["NODE_ENV"] = "development"   // server.mjs makes it production unless told, and DEV_FAKE_USER is only for a local run
+        p.environment = env
+        if !FileManager.default.fileExists(atPath: serverLog.path) { FileManager.default.createFile(atPath: serverLog.path, contents: nil) }
+        let h = try? FileHandle(forWritingTo: serverLog)
+        h?.seekToEndOfFile()
+        p.standardOutput = h
+        p.standardError = h
+        guard (try? p.run()) != nil else { return false }
+        server = p
+        return wait(30) { get("/healthz").0 == 200 }
+    }
+
+    static func stop() {
+        guard let p = server else { return }
+        p.terminate()
+        p.waitUntilExit()
+        server = nil
+    }
+
+    /// The test's browser: no cookie needed (DEV_FAKE_USER), a form post with the site's Origin, redirects followed.
+    static let browser = URLSession(configuration: .ephemeral)
+
+    static func request(_ method: String, _ url: URL, form: String? = nil) -> (Int, String) {
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.timeoutInterval = 15
+        if let form {
+            req.httpBody = Data(form.utf8)
+            req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            req.setValue(origin, forHTTPHeaderField: "Origin")
+        }
+        let sem = DispatchSemaphore(value: 0)
+        var out: (Int, String) = (0, "")
+        browser.dataTask(with: req) { d, r, _ in
+            out = ((r as? HTTPURLResponse)?.statusCode ?? 0, d.flatMap { String(data: $0, encoding: .utf8) } ?? "")
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 20)
+        return out
+    }
+
+    static func get(_ path: String) -> (Int, String) { request("GET", URL(string: origin + path)!) }
+
+    static func serverSaid(_ s: String) -> Int {
+        ((try? String(contentsOf: serverLog, encoding: .utf8)) ?? "").components(separatedBy: s).count - 1
+    }
+
+    /// A phone page's socket, as the pages open it: /live with the site's Origin, signed in as the made-up person.
+    final class Page {
+        let task: URLSessionWebSocketTask
+        private(set) var got: [[String: Any]] = []
+        init() {
+            var req = URLRequest(url: URL(string: "ws://127.0.0.1:\(E2E.port)/live")!)
+            req.setValue(E2E.origin, forHTTPHeaderField: "Origin")
+            task = URLSession.shared.webSocketTask(with: req)
+            task.resume()
+            receive()
+        }
+        private func receive() {
+            task.receive { [weak self] r in
+                guard let self, case .success(let m) = r else { return }
+                var text = ""
+                if case .string(let s) = m { text = s }
+                if let j = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
+                    DispatchQueue.main.async { self.got.append(j) }
+                }
+                self.receive()
+            }
+        }
+        func send(_ event: String, _ payload: [String: Any]) {
+            let d = Phone.json(["event": event, "success": true, "payload": payload])
+            task.send(.string(String(data: d, encoding: .utf8)!)) { _ in }
+        }
+        /// The payloads of each message of this event, oldest first.
+        func payloads(_ event: String) -> [[String: Any]] { got.filter { $0["event"] as? String == event }.compactMap { $0["payload"] as? [String: Any] } }
+        func lastSnapshot(_ mac: String) -> [String: Any]? {
+            payloads("snapshot").last { $0["mac"] as? String == mac }?["snapshot"] as? [String: Any]
+        }
+        func macState(_ mac: String) -> String? {
+            ((payloads("macs").last?["macs"] as? [[String: Any]]) ?? []).first { $0["id"] as? String == mac }?["state"] as? String
+        }
+        func close() { task.cancel(with: .normalClosure, reason: nil) }
+    }
+
+    static var opened: [URL] = []
+
+    /// Remove on the phone, after its confirm: the form the server's page draws for this Mac (Menu > Macs; the
+    /// first server had it on /macs).
+    static func removeOnPhone(_ mac: String) -> Int {
+        for path in ["/menu", "/macs"] {
+            let html = get(path).1
+            let pattern = #"action="([^"]*/macs/"# + NSRegularExpression.escapedPattern(for: mac) + #"/remove)""#
+            if let r = html.range(of: pattern, options: .regularExpression) {
+                let action = html[r].dropFirst(8).dropLast().replacingOccurrences(of: "&amp;", with: "&")
+                return request("POST", URL(string: origin + action)!, form: "").0
+            }
+            if html.contains("name=\"remove\" value=\"\(mac)\"") { return request("POST", URL(string: origin + path)!, form: "remove=" + mac).0 }
+        }
+        return 0
+    }
+
+    /// Links the Mac as a person does: Link this Mac… (the Kit opens the page in the test's browser), then Link on the page.
+    static func link(_ what: String) -> Bool {
+        let n = opened.count
+        PhoneLink.link()
+        guard wait(15, { opened.count > n }), let page = opened.last else { check("\(what): the Kit got a link page and opened it", false); return false }
+        check("\(what): POST api/mac/link made a link page on the server's own host, and only the click opened it",
+              page.host == "127.0.0.1" && page.path.hasPrefix("/link/") && opened.count == n + 1)
+        let code = PhoneLink.status.code ?? ""
+        check("\(what): Settings shows this Mac's 4-letter code, and Open the page again", PhoneLink.status.stage == .linking
+              && code.count == 4 && code.allSatisfy { $0.isUppercase } && PhoneLink.status.canLink)
+        let (g, html) = request("GET", page)
+        check("\(what): the link page asks to link this Mac, with one Link button", g == 200 && html.contains("<form") && html.contains(">Link<"))
+        let (p, after) = request("POST", page, form: "")
+        check("\(what): Link on the page links it", p == 200 && after.contains("Linked"))
+        return wait(15) { PhoneLink.status.stage == .linked && PhoneLink.status.connected }
+    }
+
+    static func run(dir: URL, kit: URL) {
+        guard let f = find() else { return }
+        folder = f
+        db = dir.appendingPathComponent("kit.db")
+        serverLog = dir.appendingPathComponent("server.log")
+        let fm = FileManager.default
+        print("     end to end, with the server in \(f.path)")
+        if !fm.fileExists(atPath: f.appendingPathComponent("node_modules").path) {
+            print("     npm ci …")
+            guard sh(["npm", "ci", "--no-audit", "--no-fund"], log: dir.appendingPathComponent("npm.log")) == 0 else {
+                check("the server's packages install (npm ci)", false)
+                print(tail(dir.appendingPathComponent("npm.log")))
+                return
+            }
+        }
+        print("     npm run build …")
+        guard sh(["npm", "run", "build"], log: dir.appendingPathComponent("build.log")) == 0 else {
+            check("the server builds (npm run build)", false)
+            print(tail(dir.appendingPathComponent("build.log")))
+            return
+        }
+        port = freePort()
+        guard start() else { check("the server starts and answers /healthz", false); print(tail(serverLog)); return }
+        defer { stop() }
+        check("a local copy of the server answers /healthz on port \(port), with a test database", fm.fileExists(atPath: db.path))
+
+        // the Mac, on copies: a key file, the dry hooks, a stand-in for Claude's list of sessions
+        let keyFile = dir.appendingPathComponent("phone-key.pem")
+        let claude = dir.appendingPathComponent("claude")
+        try? fm.createDirectory(at: claude.appendingPathComponent("projects"), withIntermediateDirectories: true)
+        let list = dir.appendingPathComponent("sessions.json")
+        for (k, v) in ["STTARK_PHONE_URL": origin, "STTARK_PHONE_KEY": keyFile.path, "STTARK_WAIT_DRY": "1", "STTARK_EFFORT_DRY": "1",
+                       "STTARK_NOTIFY_DRY": "1", "STTARK_CLAUDE_KIT_TEST": "1", "STTARK_CLAUDE_DIR": claude.path, "STTARK_ARCHIVED_TEST": list.path] {
+            setenv(k, v, 1)
+        }
+        try? fm.createDirectory(at: hooksDir, withIntermediateDirectories: true)
+        let src = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("Resources/hooks")
+        for h in (try? fm.contentsOfDirectory(atPath: src.path)) ?? [] where h.hasSuffix(".py") {
+            try? fm.removeItem(at: hooksDir.appendingPathComponent(h))
+            try? fm.copyItem(at: src.appendingPathComponent(h), to: hooksDir.appendingPathComponent(h))
+        }
+        let now = Int(Date().timeIntervalSince1970)
+        var state = Sample.write(dir: dir, kit: kit, now: now)
+        // Claude's list of sessions, for the hooks (STTARK_ARCHIVED_TEST): the sample's open ones as the Claude app
+        // lists them, and the archived one that unarchive brings back. Nothing is read from Claude.
+        func standIn(_ app: [String: Any]) {
+            var sessions: [[String: Any]] = (app["sessions"] as? [[String: Any]] ?? []).map { x in
+                ["id": x["id"] ?? "", "title": x["title"] ?? "", "status": "active", "status_bucket": x["bucket"] ?? "",
+                 "last_event_at": x["last"] ?? "", "unread": x["unread"] ?? false, "external_metadata": ["effort_level": x["level"] ?? ""]]
+            }
+            // one more open session, idle, that only a read of this list puts in the state
+            sessions.append(["id": "cse_01PhoneListedOnly", "title": "Listed by the Claude app", "status": "active", "status_bucket": "idle",
+                             "last_event_at": Sample.iso(now - 900), "unread": false, "external_metadata": ["effort_level": ""]])
+            sessions.append(["id": "cse_01PhoneWeeklyPlan", "status": "archived", "title": "Weekly plan"])
+            try? JSONSerialization.data(withJSONObject: ["sessions": sessions]).write(to: list, options: .atomic)
+        }
+        standIn(state["app_list"] as? [String: Any] ?? [:])
+        UserDefaults.standard.removeObject(forKey: KitDefaults.offKey)
+        PhoneLink.openPage = { opened.append($0) }
+
+        // ---- on, not linked: nothing goes up, and the browser opens only from a click ----
+        PhoneLink.start()
+        spin(1)
+        check("on, not linked: no connection, no page opened, Settings offers Link this Mac…",
+              PhoneLink.on && PhoneLink.status.stage == .notLinked && PhoneLink.socket == nil && opened.isEmpty && PhoneLink.status.canLink)
+
+        // ---- the link, the challenge and the snapshot ----
+        guard link("link") else { check("linked and connected", false); print(tail(serverLog)); return }
+        let saved = PhoneLink.readSaved()
+        let mac = saved.mac ?? "?"
+        let phoneJSON = (try? String(contentsOf: PhoneLink.file, encoding: .utf8)) ?? ""
+        let mode = (try? fm.attributesOfItem(atPath: keyFile.path)[.posixPermissions] as? Int) ?? 0
+        check("the poll saw linked: the account in Settings and in phone.json, the key in its own file (only this user reads it), never in phone.json",
+              PhoneLink.status.email == person && saved.email == person && saved.kind == "file" && mode == 0o600
+              && !phoneJSON.contains("PRIVATE") && !phoneJSON.contains((try? String(contentsOf: keyFile, encoding: .utf8))?.split(separator: "\n").dropFirst().first.map(String.init) ?? "-"))
+        check("challenge and auth: the server checked the signature and said welcome", PhoneLink.status.connected && serverSaid("connected, Kit") == 1)
+        let page = Page()
+        wait(10) { page.lastSnapshot(mac) != nil }
+        let want = (Phone.snapshot()["rows"] as? [[String: Any]] ?? []).compactMap { $0["cse"] as? String }
+        let got = (page.lastSnapshot(mac)?["rows"] as? [[String: Any]] ?? []).compactMap { $0["cse"] as? String }
+        check("the snapshot reached a phone page: the four groups' \(got.count) rows, as the Mac builds them", !got.isEmpty && got == want)
+        check("Settings says when it last sent", PhoneLink.status.lastSent != nil && PhoneLink.status.words.contains("Last sent"))
+        wait(5) { page.macState(mac) == "live" }
+        check("the phone sees this Mac live", page.macState(mac) == "live")
+
+        // ---- watching ----
+        func listed() -> [String] { ((State.read()["app_list"] as? [String: Any])?["sessions"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String } }
+        let unread = !listed().contains("cse_01PhoneListedOnly")
+        page.send("hello", ["visible": true])
+        check("a phone page shows: watching, and the Kit reads the Claude app's list at once (a stand-in here)", wait(5) { PhoneLink.watching }
+              && unread && wait(10) { listed().contains("cse_01PhoneListedOnly") })
+        page.send("visible", ["visible": false])
+        check("no phone page shows: not watching", wait(5) { !PhoneLink.watching })
+
+        // ---- a change on the Mac goes up, at once ----
+        var al = state["app_list"] as? [String: Any] ?? [:]
+        al["sessions"] = (al["sessions"] as? [[String: Any]] ?? []).map { x -> [String: Any] in
+            var y = x
+            if y["id"] as? String == "cse_01PhoneKitDesign" { y["title"] = "Kit design, take 2" }
+            return y
+        }
+        state["app_list"] = al
+        standIn(al)
+        Sample.hookWrite(state, kit: kit)
+        check("a change on the Mac reaches the phone page in seconds", wait(6) {
+            (page.lastSnapshot(mac)?["rows"] as? [[String: Any]] ?? []).contains { $0["title"] as? String == "Kit design, take 2" }
+        })
+
+        // ---- the archived list: only when a phone opens Archived, then its changes ----
+        page.send("open_archived", [:])
+        check("Archived opens: the server asks, the Kit sends its list, the phone gets it", wait(15) {
+            (page.payloads("archived").last { $0["mac"] as? String == mac }?["items"] as? [Any])?.count == Phone.archived()?.items.count
+        })
+        Sample.archived(dir: dir, kit: kit, version: 2)
+        let v2 = Phone.archived()?.rev ?? "?"
+        check("a change of the archived list goes up as archived_delta, and the phone's list follows", wait(15) {
+            page.payloads("archived").last { $0["mac"] as? String == mac }?["rev"] as? String == v2
+        })
+
+        // ---- an action of each kind, from the phone ----
+        let basis = page.lastSnapshot(mac)?["at"] as? Int ?? now
+        let actions: [(String, String, [String: Any], String)] = [
+            ("set an effort level", "set_level", ["cse": "cse_01PhoneKitDesign", "level": "high"], "ok"),
+            ("Auto on", "set_auto", ["cse": "cse_01PhonePressColor", "on": true], "ok"),
+            ("At the usage limit: hold at 70%", "set_limit", ["cse": "cse_01PhoneNozzle", "sid": NSNull(), "mode": "hold", "at": 70], "ok"),
+            ("Stop, one wait", "stop_waits", ["waits": ["d4e5f6"]], "ok"),
+            ("Bring it back now", "bring_back", ["wait": "b8c9d0"], "ok"),
+            ("Bring it back, from Archived", "unarchive", ["cse": "cse_01PhoneWeeklyPlan"], "ok"),
+            ("an effort level while it waits on someone else", "set_level", ["cse": "cse_01PhoneLaminator", "level": "low"], "not_now"),
+            ("Bring it back now for a wait that ended", "bring_back", ["wait": "zz9999"], "gone"),
+        ]
+        for (i, a) in actions.enumerated() {
+            let id = "e2e-\(i)"
+            page.send("action", ["id": id, "mac": mac, "act": a.1, "args": a.2, "basis": basis])
+            wait(25) { page.payloads("action_result").contains { $0["id"] as? String == id } }
+            let r = page.payloads("action_result").first { $0["id"] as? String == id }
+            check("action from the phone: \(a.0) (\(a.1)): \(a.3)" + (r.map { ", \"\($0["words"] as? String ?? "")\"" } ?? ", no answer"),
+                  r?["reason"] as? String == a.3)
+        }
+        let log = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        let lines = log.split(separator: "\n").filter { $0.contains(" phone  action ") && $0.contains("by \(person)") }
+        check("each action is a phone line in the log, with who asked and how it went (\(lines.count))", lines.count == actions.count
+              && lines.contains { $0.contains("action set_level cse_01PhoneKitDesign by \(person): ok: Effort is High now.") })
+        check("each hook says the phone asked", log.contains("set to high (phone)") && log.contains("cancelled (phone)") && log.contains("(phone)"))
+        let events = Events.read(kitLog: logURL).filter { $0.kind == .phone && $0.text.hasPrefix("From the phone: ") }
+        check("the Events page shows each action under Kit on your phone (\(events.count))", events.count >= actions.count - 1
+              && events.contains { $0.text == "From the phone: Effort is High now. Auto is off for this session." && $0.detail.first?.contains(person) == true })
+        check("the phone's session page gets a record of each change", page.payloads("record").contains { $0["act"] as? String == "set_level" && $0["reason"] as? String == "ok" })
+        check("after the actions the Kit is still connected", PhoneLink.status.connected)
+
+        // ---- STTARK_PHONE_DRY: builds and logs, connects to nothing (another copy of the Kit, on this Mac's same link) ----
+        let before = serverSaid("connected, Kit")
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        child.arguments = ["--dry-child"]
+        var env = ProcessInfo.processInfo.environment
+        env["STTARK_PHONE_DRY"] = "1"
+        child.environment = env
+        child.standardOutput = FileHandle.nullDevice
+        try? child.run()
+        child.waitUntilExit()
+        let dryLog = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        check("STTARK_PHONE_DRY: the Kit built and logged the snapshot and connected to nothing, though this Mac is linked",
+              dryLog.contains("phone  dry: snapshot with") && dryLog.contains("phone  dry: would ask") && serverSaid("connected, Kit") == before
+              && PhoneLink.status.connected)
+
+        // ---- bye, and back ----
+        PhoneLink.bye("sleep")
+        check("bye sleep: the socket closes and the phone shows this Mac asleep", wait(5) { page.macState(mac) == "asleep" } && PhoneLink.socket == nil)
+        PhoneLink.connectNow()
+        check("on wake: connected again at once, and the phone shows it live", wait(5) { PhoneLink.status.connected && page.macState(mac) == "live" })
+
+        // ---- a reconnect after the server restarts ----
+        page.close()
+        stop()
+        check("the server stops: the Kit sees the drop", wait(5) { !PhoneLink.status.connected })
+        spin(2)
+        guard start() else { check("the server starts again", false); return }
+        check("the server is back: the Kit connects again by itself (1, 2, 4 … seconds) and sends the whole snapshot again",
+              wait(20) { PhoneLink.status.connected } && wait(5) { (try? String(contentsOf: serverLog, encoding: .utf8))?.contains("connected, Kit") == true })
+        let page2 = Page()
+        check("a new phone page gets this Mac's snapshot", wait(10) { page2.lastSnapshot(mac) != nil })
+
+        // ---- a network change: at once, not after the wait ----
+        page2.close()
+        stop()
+        wait(30) { PhoneLink.backoff >= 8 }
+        let waitWas = PhoneLink.backoff
+        guard start() else { check("the server starts again", false); return }
+        let t0 = Date()
+        PhoneLink.networkChanged(up: true)
+        PhoneLink.networkChanged(up: true)
+        let fast = wait(5) { PhoneLink.status.connected }
+        check("a network change connects at once (in \(String(format: "%.1f", -t0.timeIntervalSinceNow)) s), not after the \(Int(waitWas)) s wait",
+              fast && -t0.timeIntervalSinceNow < Double(waitWas) - 1)
+
+        // ---- removed on the phone: 4401, the key dropped, and it does not link again by itself ----
+        let page3 = Page()
+        wait(10) { page3.macState(mac) == "live" }
+        check("Remove on the phone (Menu > Macs, after its confirm)", removeOnPhone(mac) == 200)
+        check("removed: the server closed with 4401, the Kit dropped its key, Settings says Removed from your phone",
+              wait(10) { PhoneLink.status.stage == .removed } && !fm.fileExists(atPath: keyFile.path)
+              && PhoneLink.readSaved().mac == nil && PhoneLink.readSaved().removedAt != nil && PhoneLink.status.canLink)
+        let connects = serverSaid("connected, Kit")
+        spin(4)
+        check("removed: no new connection and no new link by itself", PhoneLink.socket == nil && serverSaid("connected, Kit") == connects && opened.count == 1)
+        check("the Events page says Removed from your phone", Events.read(kitLog: logURL).contains { $0.kind == .phone && $0.text == "Removed from your phone" && $0.level == .warn })
+
+        // ---- link again, then turn it off ----
+        guard link("link again") else { check("linked again", false); return }
+        let mac2 = PhoneLink.readSaved().mac ?? "?"
+        check("linked again: a new Mac id and a new key", mac2 != mac && mac2.hasPrefix("mac_") && fm.fileExists(atPath: keyFile.path))
+        wait(10) { page3.macState(mac2) == "live" }
+        PhoneLink.set(false)
+        check("off: the Kit sent unlink, the server removed this Mac, the key is dropped, Settings says nothing goes up",
+              wait(10) { PhoneLink.status.stage == .off } && !fm.fileExists(atPath: keyFile.path) && PhoneLink.readSaved().mac == nil
+              && wait(10) { page3.macState(mac2) == nil } && KitDefaults.turnedOff("phone"))
+        spin(3)
+        check("off: no connection again", PhoneLink.socket == nil && !PhoneLink.status.connected)
+        PhoneLink.set(true)
+        check("on again: the record is gone, and the Mac waits for Link this Mac…", PhoneLink.on && PhoneLink.status.stage == .notLinked
+              && !KitDefaults.turnedOff("phone") && PhoneLink.socket == nil)
+        page3.close()
+        UserDefaults.standard.removeObject(forKey: KitDefaults.offKey)
+        // the server checks every message against phone/schema and says when one does not fit
+        let refusedByServer = ((try? String(contentsOf: serverLog, encoding: .utf8)) ?? "").split(separator: "\n")
+            .filter { $0.contains("bad message") || $0.contains("not sending") || $0.contains("answered an action it was not sent") }
+        check("the server took every message the Kit sent: none refused against the contract" + (refusedByServer.isEmpty ? "" : ": " + refusedByServer.prefix(3).joined(separator: "; ")),
+              refusedByServer.isEmpty)
+        let after = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        let tailLines = after.split(separator: "\n").filter { $0.contains(" phone ") }.suffix(8).map { "       log: " + $0.dropFirst(20) }
+        print(tailLines.joined(separator: "\n"))
+    }
+
+    /// Another copy of the Kit with STTARK_PHONE_DRY=1, on the same folder and key: it builds and logs a snapshot, and
+    /// must connect to nothing. Link this Mac… must ask nothing either.
+    static func dryChild() -> Never {
+        PhoneLink.openPage = { _ in logLine("phone", "dry child opened a page: FAIL") }
+        PhoneLink.start()
+        RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+        PhoneLink.link()
+        RunLoop.main.run(until: Date().addingTimeInterval(2.5))
+        exit(0)
     }
 }

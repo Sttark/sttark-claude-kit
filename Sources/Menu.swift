@@ -138,14 +138,19 @@ final class Controller: NSObject, NSMenuDelegate {
         WhatsNew.start(changed: { [weak self] in self?.refreshIcon(); KitWindow.shared.model.unseen = WhatsNew.unseen.count })
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
-        // a change on disk shows at once: the icon, the open menu and the window (Sync.swift)
-        Sync.watching = { [weak self] in self?.menuOpen == true || KitWindow.shared.window?.isVisible == true }
+        // a change on disk shows at once: the icon, the open menu and the window (Sync.swift); the Claude app's list is
+        // read every 10 seconds while the person looks, here or on a phone page (PhoneLink.watching)
+        Sync.watching = { [weak self] in self?.menuOpen == true || KitWindow.shared.window?.isVisible == true || PhoneLink.watching }
         NotificationCenter.default.addObserver(forName: .kitStateChanged, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.refreshIcon()
             if self.menuOpen, let menu = self.item.menu { self.rebuildOpen(menu) }
         }
         Sync.start()
+        // Kit on your phone: the link and the socket; Settings shows its state as it changes
+        PhoneLink.changed = { KitWindow.shared.model.phone = $0 }
+        PhoneLink.start()
+        KitWindow.shared.model.phone = PhoneLink.status
     }
 
     /// The open menu again, only when what it shows changed, so it doesn't flicker on a write that changed nothing.
@@ -459,6 +464,11 @@ final class Controller: NSObject, NSMenuDelegate {
     }
 
     @objc func togglePaused() { State.setPaused(!State.paused); refreshIcon() }
+
+    /// Kit on your phone in Settings: off unlinks this Mac and records the choice; on lets the person link it.
+    @objc func toggleKitPhone() { PhoneLink.set(!PhoneLink.on) }
+    /// Link this Mac… in Settings: opens the link page in the browser, from the person's click.
+    @objc func linkPhone() { PhoneLink.link() }
 
     /// The window's Events page: what the Kit did, in plain words, newest first.
     @objc func openLog() { KitWindow.shared.show(.events, controller: self) }

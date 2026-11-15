@@ -1,6 +1,11 @@
 #!/bin/zsh
 # Removes Sttark Claude Kit and everything it set up: the hooks in Claude Code's settings, the Chrome
 # approver, and the server for Claude app sessions if it was turned on from the app. Leaves the logs.
+# Kit on your phone first, while the app is here: unlink this Mac (when the server answers in 10 seconds) and drop its key
+for A in /Applications/SttarkClaudeKit.app ~/Applications/SttarkClaudeKit.app; do
+  [[ -x $A/Contents/MacOS/SttarkClaudeKit ]] && { "$A/Contents/MacOS/SttarkClaudeKit" --phone-unlink; break; }
+done
+security delete-generic-password -s com.sttark.sttark-claude-kit.phone >/dev/null 2>&1
 H="$HOME/Library/Application Support/SttarkClaudeKit/hooks/install-hooks.py"
 [[ -f $H ]] && /usr/bin/python3 "$H" --remove
 for label in com.sttark.chrome-approver com.sttark.claude-rc com.sttark.claude-profile-sync com.sttark.claude-stable com.sttark.claude-file-links; do

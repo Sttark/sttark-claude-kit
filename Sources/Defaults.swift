@@ -8,6 +8,9 @@ import AppKit
 ///
 /// Claude Code's own phone notice settings (install-hooks.py --defaults) need no record: a value the person set,
 /// true or false, is never changed; only a missing one is set.
+///
+/// Kit on your phone ("phone") is on whenever it is not in the record (PhoneLink.on), so it needs nothing here at
+/// launch and no "came on" notice: it sends nothing until the person links the Mac, and linking has its own notice.
 enum KitDefaults {
     static let offKey = "turnedOff"
     static var test: Bool { ProcessInfo.processInfo.environment["STTARK_CLAUDE_KIT_TEST"] != nil }
@@ -15,7 +18,7 @@ enum KitDefaults {
     /// The switches the Kit turns on, with the names Settings shows.
     static let names = ["names": "Name sessions automatically", "profile": "Sync Claude profile instructions",
                         "fileLinks": "Links to files", "bypass": "Bypass permissions",
-                        "chrome": "Approve Claude in Chrome"]
+                        "chrome": "Approve Claude in Chrome", "phone": "Kit on your phone"]
     static var desktopPrefs: String { hooksDir.appendingPathComponent("desktop-prefs.py").path }
 
     static func turnedOff(_ id: String) -> Bool {
