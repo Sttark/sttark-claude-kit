@@ -1,7 +1,7 @@
-// Walks every phone page and state, headless, against the stand-in for
-// /live (test/live-stand-in.mjs), and saves a screenshot of each at 390 by
-// 844 and at 1280 by 800, light and dark. It fails on a script error, one
-// of the app's own files that does not load, a page that never connects
+// Walks every phone page and state, headless, against the real server and
+// the fake Mac (test/sample-server.mjs), and saves a screenshot of each at
+// 390 by 844 and at 1280 by 800, light and dark. It fails on a script error,
+// one of the app's own files that does not load, a page that never connects
 // to /live, or an action whose answer never shows. Test only; never a live
 // server, never a visible browser.
 //
@@ -14,7 +14,8 @@ import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { start } from './live-stand-in.mjs';
+import { start } from './sample-server.mjs';
+import { SAMPLE_LINK } from './sample.mjs';
 
 const arg = (k, d) => {
   const i = process.argv.indexOf(k);
@@ -58,14 +59,15 @@ const shot = async (page, name, { tall = false } = {}) => {
     await page.setViewportSize(vp);
   } else await page.screenshot({ path: file });
 };
-/** Taps a control and waits for the answer to show. */
-const answer = async (page, sel, name, { sending = true } = {}) => {
+/** Taps a control and waits for the answer to show (a timeout takes the
+ *  server's 20 seconds). */
+const answer = async (page, sel, name, { sending = true, wait = 8000 } = {}) => {
   await page.click(sel);
   if (sending) {
     await page.waitForTimeout(120);
     await shot(page, `${name}-sending`);
   }
-  await page.waitForSelector('.result', { timeout: 8000 }).catch(() => problems.push(`${name}: no answer showed`));
+  await page.waitForSelector('.result', { timeout: wait }).catch(() => problems.push(`${name}: no answer showed`));
   await page.waitForTimeout(250);
   await shot(page, name);
 };
@@ -111,18 +113,19 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
     await go(page, P.powder);
     await answer(page, '[data-act=stopall]', 'stop-waiting', { sending: false });
 
-    // Every answer's words.
+    // Every answer's words. denied never comes from these pages (they act
+    // only on the person's own Macs); the server's tests cover it.
     for (const [reason, sel, path] of [
       ['gone', '[data-act=stop][data-wait=w03]', P.lam],
       ['not_now', '[data-act=level][data-level=max]', P.kit],
       ['offline', '[data-act=level][data-level=low]', P.press],
       ['timeout', '[data-act=level][data-level=low]', P.press],
-      ['denied', '[data-act=auto]', P.press],
       ['bad', '[data-act=auto]', P.press],
     ]) {
       await go(page, path);
-      s.next(reason);
-      await answer(page, sel, `result-${reason}`, { sending: reason === 'timeout' });
+      await s.next(reason);
+      await answer(page, sel, `result-${reason}`, { sending: reason === 'timeout', wait: reason === 'timeout' ? 25000 : 8000 });
+      if (reason === 'offline') await page.waitForTimeout(2000);
     }
 
     // Archived.
@@ -138,7 +141,7 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
     await shot(page, 'archived-item');
     await answer(page, '[data-act=unarchive]', 'unarchive');
     await go(page, '/archived/session_01SampleTileFan');
-    s.next('not_here');
+    await s.next('not_here');
     await answer(page, '[data-act=unarchive]', 'unarchive-not-here', { sending: false });
 
     // Usage.
@@ -162,7 +165,7 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
     // The Mac goes to sleep while a session page is open: the page turns
     // to "As of", gray, with no buttons; it comes back live.
     await go(page, P.press);
-    s.setMac('pro', 'asleep');
+    await s.setMac('pro', 'asleep');
     await page.waitForTimeout(400);
     await shot(page, 'mac-fell-asleep-session', { tall: true });
     await go(page, '/');
@@ -190,6 +193,17 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
     await shot(page, 'menu-one-mac');
     await go(page, '/');
     await shot(page, 'sessions-one-mac', { tall: true });
+
+    // Linking a Mac: the link page, with the code (it was asked from
+    // another address), then Link, then the QR code for the phone.
+    await go(page, `/link/${SAMPLE_LINK.token}`, { live: false });
+    await shot(page, 'link-ask', { tall: true });
+    await page.click('.link-page button[type=submit]');
+    await page.waitForLoadState('networkidle');
+    await shot(page, 'linked', { tall: true });
+    if (!(await page.textContent('h1'))?.includes('Linked')) problems.push('link: Link did not link');
+    await go(page, `/link/${SAMPLE_LINK.token.replace(/1$/, '2')}`, { live: false });
+    await shot(page, 'link-unknown');
   }
   await ctx.close();
 }
@@ -208,8 +222,8 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
 // ---------- phone, dark ----------
 if (!SHORT) {
   const { ctx, page } = await context(390, 844, 'dark');
-  for (const [path, name] of [['/', 'd-sessions'], [P.lam, 'd-session'], ['/usage', 'd-usage'], ['/archived', 'd-archived'], ['/menu', 'd-menu']]) {
-    await go(page, path);
+  for (const [path, name] of [['/', 'd-sessions'], [P.lam, 'd-session'], ['/usage', 'd-usage'], ['/archived', 'd-archived'], ['/menu', 'd-menu'], [`/link/${SAMPLE_LINK.token}`, 'd-linked']]) {
+    await go(page, path, { live: !path.startsWith('/link/') });
     await shot(page, name);
   }
   await ctx.close();

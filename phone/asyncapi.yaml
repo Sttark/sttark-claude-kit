@@ -10,6 +10,9 @@ info:
     Every schema refuses fields it does not know. Run `node phone/schema/check.mjs` after a change.
     This file is written from the server's side: send is a message the server sends, receive is one it takes.
     Why each message exists, and what never leaves the Mac: phone/DESIGN.md.
+    Linking a Mac comes first, over HTTP, not a socket: POST /api/mac/link and GET /api/mac/link/<poll>, in
+    schema/link.v1.json. Every path here and there is under the site's BASE_PATH ("" at kit.sttark.com, "/kit" at
+    building.sttark.com/kit).
 servers:
   production:
     host: kit.sttark.com
@@ -25,10 +28,15 @@ channels:
     address: /mac
     title: A Mac's Kit
     description: |
-      One socket per linked Mac. The server sends challenge; the Mac answers with auth (a P-256 signature with the
-      key it made at linking). A wrong signature closes with 4401, a person not on the roster with 4403. Then the
-      Mac sends its snapshot, and again on each change. Actions come down and results go back on the same socket.
-      The Mac pings every 25 seconds.
+      One socket per linked Mac. The server sends challenge; the Mac answers with auth: an ECDSA P-256 signature,
+      SHA-256, with the key it made at linking, of the UTF-8 text "kit-mac-v1", the Mac id and the nonce, one per
+      line ("kit-mac-v1\n<mac>\n<nonce>", no newline at the end), DER (X9.62) or the 64-byte r and s, base64. Then
+      welcome, and the Mac sends its snapshot, and again on each change. Actions come down and results go back on
+      the same socket. A message that does not match its schema gets error bad_message and changes nothing.
+      Close codes: 4400 no valid auth in 15 seconds (connect again later); 4401 an unknown or removed Mac, or a
+      wrong signature; 4403 its person is not on the roster; 4409 a newer connection of the same Mac took over;
+      1000 after unlink; 1012 the server restarts (connect again at once). The Mac pings every 25 seconds and so
+      does the server; a socket that sends nothing, not even a pong, for 60 seconds is dropped.
     messages:
       challenge: { $ref: '#/components/messages/server_to_mac.challenge' }
       welcome: { $ref: '#/components/messages/server_to_mac.welcome' }
@@ -48,9 +56,11 @@ channels:
     address: /live
     title: A phone page
     description: |
-      Opened by a signed-in phone page (the sign-in cookie, Origin checked). The server sends the person's Macs,
-      each Mac's snapshot, and each new one at once. On iPhone the socket closes when the app goes to the
-      background; on return the page connects again and draws again.
+      Opened by a signed-in phone page: the sign-in cookie, and an Origin of the site's own origin. Without them
+      the upgrade is refused with HTTP 401 or 403 (429 past 12 pages of one person). The server sends the person's
+      Macs, each Mac's last snapshot, and each new one at once. On iPhone the socket closes when the app goes to
+      the background; on return the page connects again and draws again. Close codes: 4401 the sign-in ended
+      (Sign out, Sign out everywhere), 4403 the person left the roster, 1012 the server restarts.
     messages:
       hello: { $ref: '#/components/messages/phone_to_server.hello' }
       visible: { $ref: '#/components/messages/phone_to_server.visible' }
@@ -113,7 +123,7 @@ components:
   messages:
     server_to_mac.challenge:
       name: challenge
-      summary: First message on a new connection; the Mac signs kit-mac-v1, its Mac id and the nonce.
+      summary: First message on a new connection; the Mac signs "kit-mac-v1\n<mac>\n<nonce>" (the channel says how).
       payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.challenge' }
     server_to_mac.welcome:
       name: welcome

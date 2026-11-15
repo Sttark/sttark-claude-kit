@@ -6,13 +6,12 @@
 // (lib/roster.ts).
 import * as oidc from 'openid-client';
 import { onRoster, rosterSize } from './roster.ts';
-import { basePath } from './paths.ts';
+import { appUrl } from './paths.ts';
+
+export { appOrigin } from './paths.ts';
 
 const WORKSPACE_DOMAIN = 'sttark.com';
-
-export function appOrigin(): string {
-  return (process.env.APP_ORIGIN || 'http://localhost:4350').replace(/\/+$/, '');
-}
+const HINT = /^[a-z0-9._%+-]+@sttark\.com$/;
 
 export function oauthConfigured(): boolean {
   return Boolean(process.env.VAULT_GOOGLE_CLIENT_ID && process.env.VAULT_GOOGLE_CLIENT_SECRET);
@@ -32,20 +31,25 @@ function config(): Promise<oidc.Configuration> {
   return configPromise;
 }
 
-export async function beginLogin(): Promise<{ url: string; state: string; codeVerifier: string; nonce: string }> {
+/** Google's sign-in, to come back to APP_ORIGIN + BASE_PATH + /auth/callback.
+ *  `hint` (a @sttark.com address, else ignored) is the account Google offers
+ *  first: the link page passes the Claude Code login the Kit sent. */
+export async function beginLogin(hint?: string | null): Promise<{ url: string; state: string; codeVerifier: string; nonce: string }> {
   const c = await config();
   const codeVerifier = oidc.randomPKCECodeVerifier();
   const codeChallenge = await oidc.calculatePKCECodeChallenge(codeVerifier);
   const state = oidc.randomState();
   const nonce = oidc.randomNonce();
+  const loginHint = hint?.trim().toLowerCase();
   const url = oidc.buildAuthorizationUrl(c, {
-    redirect_uri: `${appOrigin()}${basePath()}/auth/callback`,
+    redirect_uri: appUrl('/auth/callback'),
     scope: 'openid email profile',
     hd: WORKSPACE_DOMAIN,
     state,
     nonce,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
+    ...(loginHint && HINT.test(loginHint) ? { login_hint: loginHint } : {}),
   });
   return { url: url.href, state, codeVerifier, nonce };
 }

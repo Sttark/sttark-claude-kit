@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kit.sttark.com/schema/link.v1.json",
+  "title": "Linking a Mac, version 1",
+  "description": "The two HTTP calls a Mac's Kit makes to link itself to its person, before it opens /mac. POST /api/mac/link with request (JSON) is answered 201 with answer: the link page's address (it works once, for 10 minutes), the poll token and the 4-letter code. The Kit then polls GET /api/mac/link/<poll> every 2 seconds, answered with poll, until it says linked (the person clicked Link) or expired. Any other answer is a refusal, with an HTTP status of 400 or more. The paths are under the site's BASE_PATH, as /mac is. See phone/DESIGN.md, section 2.",
+  "$defs": {
+    "time": { "type": "number", "minimum": 1700000000, "maximum": 4102444800, "description": "Unix seconds." },
+    "email": { "type": "string", "maxLength": 254, "pattern": "^[^@\\s]+@sttark\\.com$" },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "mac", "name", "kit", "key", "kind", "hint"],
+      "description": "POST /api/mac/link. Made once per link: a Mac id the server already knows (linked, or removed) is refused with mac_taken.",
+      "properties": {
+        "v": { "const": 1 },
+        "mac": { "type": "string", "minLength": 8, "maxLength": 80, "pattern": "^[A-Za-z0-9_.:-]+$", "description": "A random id the Kit makes for this Mac. It never changes while the Mac is linked; it names the Mac in auth." },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80, "description": "The Mac's name, as in System Settings > General > Sharing." },
+        "kit": { "type": "string", "maxLength": 20, "pattern": "^[0-9]+(\\.[0-9]+)*$", "description": "The Kit version." },
+        "key": { "type": "string", "minLength": 80, "maxLength": 200, "pattern": "^[A-Za-z0-9+/=_-]+$", "description": "The public half of the Mac's P-256 signing key: SubjectPublicKeyInfo, DER, base64 (CryptoKit's derRepresentation)." },
+        "kind": { "enum": ["secure-enclave", "keychain"], "description": "Where the private half lives: made in the Secure Enclave and never able to leave it, or in the Keychain, this device only." },
+        "hint": { "oneOf": [{ "$ref": "#/$defs/email" }, { "type": "null" }], "description": "The Claude Code login when it is a @sttark.com address: Google's sign-in offers that account first. Null otherwise." }
+      }
+    },
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["link", "poll", "code", "expires_at"],
+      "description": "201 to request. The Kit shows its notice; a click opens link in the browser. The Kit never opens it by itself.",
+      "properties": {
+        "link": { "type": "string", "maxLength": 300, "pattern": "^https?://[^\\s]+/link/[A-Za-z0-9_-]{43}$", "description": "The link page: sign in, then Link." },
+        "poll": { "type": "string", "minLength": 43, "maxLength": 43, "pattern": "^[A-Za-z0-9_-]+$", "description": "GET /api/mac/link/<poll> every 2 seconds." },
+        "code": { "type": "string", "minLength": 4, "maxLength": 4, "pattern": "^[A-HJ-NP-Z]{4}$", "description": "The Kit shows it while it waits. The link page shows it too when the browser is not on the Mac's public address, and asks the person to check that they match." },
+        "expires_at": { "$ref": "#/$defs/time", "description": "When the link page stops working: 10 minutes after the request." }
+      }
+    },
+    "poll": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "email", "name"],
+      "description": "200 to GET /api/mac/link/<poll> while the link waits or once it is linked; 404 with status expired for a poll the server does not know (or no longer keeps, after a day).",
+      "properties": {
+        "status": { "enum": ["waiting", "linked", "expired"], "description": "waiting: nobody clicked Link yet. linked: the Mac is linked; open /mac. expired: 10 minutes passed with no Link; ask again." },
+        "email": { "oneOf": [{ "$ref": "#/$defs/email" }, { "type": "null" }], "description": "Who the Mac is linked to, once linked (Settings says signed in as this)." },
+        "name": { "type": ["string", "null"], "maxLength": 120, "description": "That person's name, once linked." }
+      }
+    },
+    "refusal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "words"],
+      "description": "Any answer with an HTTP status of 400 or more, except the poll's 404.",
+      "properties": {
+        "error": { "enum": ["bad_request", "mac_taken", "too_many", "too_large"], "description": "bad_request (400): the body is not JSON or does not match request (an unknown field included), or the key is not a P-256 public key. mac_taken (409): make a new Mac id and ask again. too_many (429): too many link requests from this address; try again in 10 minutes. too_large (413): the body is over 8 KB." },
+        "words": { "type": "string", "maxLength": 160 }
+      }
+    }
+  }
+}

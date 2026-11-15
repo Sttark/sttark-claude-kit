@@ -56,14 +56,14 @@ The contract is in this folder and is the source of truth for every message: `as
 **The key.** When the switch is on and the Mac is not linked, the Kit makes a P-256 signing key. On a Mac with a Secure Enclave (Apple silicon, T2) the key is made there and can never leave it; its saved form is useless on another Mac. Other Macs keep the key in the Keychain, this device only. Only the public half leaves the Mac.
 
 **Linking, once.**
-1. The Kit sends `POST /api/mac/link` with the public key, the Mac's name, the Kit version and a random Mac id. The server answers with a link page address, a poll token and a 4-letter code. The link page works once, for 10 minutes.
+1. The Kit sends `POST /api/mac/link` with the public key (SPKI, DER, base64), the Mac's name, the Kit version, a random Mac id, where the key lives, and the Claude Code login as the account hint (`schema/link.v1.json` has every field and answer). The server answers with a link page address, a poll token and a 4-letter code. The link page works once, for 10 minutes. A Mac id the server knows is refused: a Mac id is linked once.
 2. The Kit shows one Mac notice: "Use the Kit on your phone. Click to link this Mac with your Sttark sign-in." Settings shows **Link this Mac...** too. The Kit never opens the browser by itself, since it never takes the screen.
 3. The click opens the link page. Google sign-in comes first, with the Claude Code login as the account hint when it is a @sttark.com address. The server checks a verified @sttark.com account on the roster.
 4. The page says "Link MacBook Pro to your account?" with one green **Link** button. When the browser is not on the same public address as the Mac that asked, the page also shows the code and asks the person to check that the Kit shows the same code.
 5. **Link** saves the Mac's public key to the person, and records the change. The Kit sees the answer (it polls every 2 seconds) and connects.
 6. The page then says "Linked. On your phone, open kit.sttark.com", with a QR code.
 
-**Each connection.** The server sends a random challenge. The Mac signs "kit-mac-v1", its Mac id and the challenge. The server checks the signature with the saved key, that the Mac is not removed and that its person is on the roster. Otherwise it closes with code 4401 (removed) or 4403 (not on the roster). A copy of the server's database cannot pose as a Mac, because the server holds only public keys. This follows the door controllers: the device's own key, saved when it is admitted.
+**Each connection.** The server sends a random challenge. The Mac signs the UTF-8 text "kit-mac-v1", its Mac id and the challenge, one per line with no newline at the end (ECDSA P-256 with SHA-256; DER or the 64-byte r and s). The server checks the signature with the saved key, that the Mac is not removed and that its person is on the roster. Otherwise it closes with code 4401 (removed, unknown or a wrong signature) or 4403 (not on the roster); 4400 when no valid auth comes in 15 seconds, and 4409 when a newer connection of the same Mac takes over. A copy of the server's database cannot pose as a Mac, because the server holds only public keys. This follows the door controllers: the device's own key, saved when it is admitted.
 
 **Removing a Mac.**
 - On the phone: Menu > Macs > **Remove** (red, asks first). The server marks it removed (the record stays) and closes its socket. The Kit drops its key, shows "Removed from your phone" in Settings, and does not link again by itself.
@@ -361,7 +361,7 @@ Results:
 
 ## Appendix: the two sockets
 
-Every message is `{event, success, payload}`.
+Every message is `{event, success, payload}`. Linking comes before `/mac`, over HTTP: `POST /api/mac/link` and `GET /api/mac/link/<poll>` (`schema/link.v1.json`).
 
 | Socket | From | Event | Payload |
 |---|---|---|---|

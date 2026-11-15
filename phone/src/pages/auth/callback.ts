@@ -8,11 +8,11 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const stashed = state ? takeOauthState(state) : null;
   if (!state || !stashed) return redirect(href('/signin?error=expired'));
   try {
+    // url.pathname holds BASE_PATH, as the redirect URI Google was given does.
     const callbackUrl = new URL(url.pathname + url.search, appOrigin());
     const person = await completeLogin(callbackUrl, { state, codeVerifier: stashed.codeVerifier, nonce: stashed.nonce });
     touchPerson(person.email, person.name);
     createSession(cookies, person);
-    // returnTo is the app's own path; the browser needs it under BASE_PATH.
     return redirect(href(stashed.returnTo));
   } catch (err) {
     if (err instanceof SignInRefused) {

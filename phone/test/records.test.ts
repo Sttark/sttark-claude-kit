@@ -67,7 +67,7 @@ describe('records', () => {
     const push = d.prepare("INSERT INTO pushes_sent (email, cse, waiting_since, sent_at) VALUES ('avery.stone@sttark.com', 'cse_1', ?, ?)");
     push.run(t - 3 * DAY, t - 3 * DAY);
     push.run(t - DAY, t - DAY);
-    expect(expireOld(t)).toEqual({ webSessions: 1, oauthStates: 1, links: 1, pushesSent: 1, records: 0 });
+    expect(expireOld(t)).toEqual({ webSessions: 1, oauthStates: 1, links: 1, pushesSent: 1, records: 0, quietMacs: 0 });
     for (const [table, key] of [['web_sessions', 'id'], ['oauth_states', 'state'], ['links', 'token_hash']]) {
       expect(d.prepare(`SELECT ${key} AS k FROM ${table}`).all(), table).toEqual([{ k: 'kept' }]);
     }
