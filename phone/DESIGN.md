@@ -116,15 +116,15 @@ Some labels are short lines the Kit or Claude wrote about the work. They are not
 
 **The same code the window runs.** New `Sources/Actions.swift`: one function per action, each with an origin (`window` or `phone`), each returning a result with before and after. The window's buttons change to call them. The phone calls the same ones.
 
-| Phone control | Action | The window's code today | What runs |
+| Phone control | Action | `KitActions` (the window calls it too) | What runs |
 |---|---|---|---|
-| Bring it back now | `bring_back {wait}` | `DetailView.actions`: `Waits.run(["--now", w.id])` | `wait.py --now <id>`, `check(only=id)` |
-| Stop waiting | `stop_waits {waits}` | `Waits.run(["--cancel", x.id])` for each wait of the row | `wait.py --cancel <id>` for each |
-| Stop (one wait) | `stop_waits {waits: [id]}` | `waitList`: `Waits.run(["--cancel", w.id])` | `wait.py --cancel <id>` |
-| Effort level | `set_level {cse, level}` | `DetailView.setLevel`: `effort-hook.py --set <cse> <level>` | `set_level()`: Manual, then `apply_flag_settings` |
-| Auto | `set_auto {cse, on}` | `DetailView.effort`: `State.setManual(cse, !on)` | `sessions[cse].manual` |
-| At the usage limit | `set_limit {cse, sid, mode, at}` | `DetailView.usage`: `Limit.setMode(m, for: target)` | `limit_modes` |
-| Bring it back (archived) | `unarchive {cse}` | The window's Archived page: `KitActions.unarchive(cse:by:)` (section 13) | `wait.py --unarchive <cse>`, then the existing `bring_back(w, None)` |
+| Bring it back now | `bring_back {wait}` | `bringBack(wait:origin:)` | `wait.py --now <id> --by <origin>`, `check(only=id)` |
+| Stop waiting | `stop_waits {waits}` | `stopWaits(_:origin:)` with each wait of the row | `wait.py --cancel <id> --by <origin>` for each |
+| Stop (one wait) | `stop_waits {waits: [id]}` | `stopWaits(_:origin:)` with one id | `wait.py --cancel <id> --by <origin>` |
+| Effort level | `set_level {cse, level}` | `setLevel(cse:level:origin:)` | `effort-hook.py --set <cse> <level> --by <origin>`: Manual, then `apply_flag_settings` |
+| Auto | `set_auto {cse, on}` | `setAuto(cse:on:origin:)` | `State.setManual`: `sessions[cse].manual` |
+| At the usage limit | `set_limit {cse, sid, mode, at}` | `setLimit(cse:sid:mode:origin:)` | `Limit.setMode`: `limit_modes` |
+| Bring it back (archived) | `unarchive {cse}` | `unarchive(cse:origin:)` (section 13) | `wait.py --unarchive <cse> --by <origin>`, then the existing `bring_back(w, None)` |
 | Open in Claude | none | `Waiting.open` | The phone opens the claude.ai link. Nothing runs on the Mac |
 | Use credits at the usage limit | none | `Menu.toggleCredits` | Read only on the phone: "Change it in Settings on your Mac" |
 

@@ -77,7 +77,8 @@ enum State {
         note(on ? "auto effort turned off for every session" : "auto effort turned on")
     }
 
-    static func setManual(_ id: String, _ on: Bool) {
+    /// Manual on or off for one session: KitActions.setAuto, from the window or the phone (`origin`, for the log).
+    static func setManual(_ id: String, _ on: Bool, by origin: KitActions.Origin) {
         change { s in
             var all = s["sessions"] as? [String: Any] ?? [:]
             var x = all[id] as? [String: Any] ?? [:]
@@ -89,7 +90,7 @@ enum State {
             all[id] = x
             s["sessions"] = all
         }
-        note("\(id) set to \(on ? "Manual" : "Auto") from the menu")
+        note("\(id) set to \(on ? "Manual" : "Auto") (\(origin.rawValue))")
     }
 
     /// The models the hook can use: the two newest Haiku and two newest Sonnet, as the hook last listed them.
