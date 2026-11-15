@@ -18,6 +18,10 @@
 // once, and no answer in 20 seconds is timeout. Each outcome is one record
 // (lib/records.ts) with before and after.
 //
+// Web Push: welcome tells a Mac how many of its person's phones can get a
+// push, and phones each change after; a Mac's remind goes to the sender
+// (lib/push.ts) with whether one of the person's pages is visible.
+//
 // What is in memory only: the open sockets, which phone pages are visible,
 // and the actions waiting for an answer (lib/macs.ts keeps presence).
 import type { IncomingMessage } from 'node:http';
@@ -30,6 +34,7 @@ import { events } from './events.ts';
 import { checkMessage, type Direction, type Message } from './contract.ts';
 import { newNonce, verifyMacSignature } from './keys.ts';
 import { href, isAppOrigin } from './paths.ts';
+import { phonesFor } from './push.ts';
 import { onRoster } from './roster.ts';
 import { devUser, sessionFromCookieHeader, sessionStillValid } from './session.ts';
 import { onUpgrade } from './upgrade.ts';
@@ -84,7 +89,7 @@ function take(b: Bucket): boolean {
 type Sock = { ws: WebSocket; lastFrame: number; lastPing: number; bucket: Bucket };
 type MacSock = Sock & {
   kind: 'mac'; nonce: string; authed: boolean; id: string; email: string; name: string;
-  authTimer?: ReturnType<typeof setTimeout>; wantAt: number; watching: boolean | null; bye: boolean; closing: number | null;
+  authTimer?: ReturnType<typeof setTimeout>; wantAt: number; watching: boolean | null; phones: number | null; bye: boolean; closing: number | null;
 };
 type PhoneSock = Sock & { kind: 'phone'; email: string; name: string; session: string | null; visible: boolean; archived: boolean };
 type Asked = {
@@ -182,9 +187,15 @@ function updateWatching(email: string): void {
   }
 }
 
-function pushPhones(email: string): number {
-  const n = (db().prepare('SELECT count(*) AS n FROM push_subs WHERE email = ? AND notices = 1').get(email) as { n: number }).n;
-  return Math.min(50, n);
+/** Tells the person's Macs how many of their phones can get a push, when
+ *  it changed since welcome or the last phones (lib/push.ts says when). */
+function updatePhones(email: string): void {
+  const n = phonesFor(email);
+  for (const m of macSocksOf(email)) {
+    if (m.phones === n) continue;
+    m.phones = n;
+    send(m.ws, 'server_to_mac', { event: 'phones', success: true, payload: { phones: n } });
+  }
 }
 
 // ---------- archived lists ----------
@@ -251,7 +262,7 @@ function parse(data: RawData, isBinary: boolean, max: number): unknown {
 function acceptMac(req: IncomingMessage, socket: Duplex, head: Buffer): void {
   wss.handleUpgrade(req, socket, head, (ws) => {
     const m: MacSock = {
-      kind: 'mac', ws, nonce: newNonce(), authed: false, id: '', email: '', name: '', wantAt: 0, watching: null, bye: false, closing: null,
+      kind: 'mac', ws, nonce: newNonce(), authed: false, id: '', email: '', name: '', wantAt: 0, watching: null, phones: null, bye: false, closing: null,
       lastFrame: Date.now(), lastPing: Date.now(), bucket: bucket(30, 1),
     };
     H.unauthed.add(m);
@@ -290,7 +301,8 @@ function onAuth(m: MacSock, value: unknown): void {
   clearBye(id);
   if (kit !== row.kitVersion) db().prepare('UPDATE macs SET kit_version = ? WHERE id = ?').run(kit, id);
   m.watching = watchingOf(row.email);
-  send(m.ws, 'server_to_mac', { event: 'welcome', success: true, payload: { phones: pushPhones(row.email), watching: m.watching } });
+  m.phones = phonesFor(row.email);
+  send(m.ws, 'server_to_mac', { event: 'welcome', success: true, payload: { phones: m.phones, watching: m.watching } });
   console.log(`[hub] ${row.name} (${id}) connected, Kit ${kit}`);
   showMacs(row.email);
 }
@@ -321,7 +333,9 @@ function onMacMessage(m: MacSock, data: RawData, isBinary: boolean): void {
     case 'result':
       return onResult(m, payload);
     case 'remind':
-      events.emit('remind', { macId: m.id, email: m.email, cse: payload.cse, waitingSince: payload.waiting_since, title: payload.title, why: payload.why });
+      // The Mac chose the phone: the person is away from it. A page of
+      // theirs that shows the session already gets no push (lib/push.ts).
+      events.emit('remind', { macId: m.id, email: m.email, cse: payload.cse, waitingSince: payload.waiting_since, title: payload.title, why: payload.why, visible: watchingOf(m.email) });
       return;
     case 'bye':
       m.bye = true;
@@ -608,6 +622,7 @@ function listen(): void {
     }
     showMacs(email, true);
   });
+  events.on('push-subs-changed', ({ email }) => updatePhones(email));
   events.on('roster-synced', () => {
     for (const m of H.macs.values()) if (!allowed(m.email)) close(m.ws, 4403, 'its person is not on the Sttark roster');
     for (const p of H.phones) if (!allowed(p.email)) close(p.ws, 4403, 'not on the Sttark roster');

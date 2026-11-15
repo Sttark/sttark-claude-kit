@@ -52,5 +52,25 @@
         }
       }
     }
+  },
+  {
+    "why": "a count of phones under 0",
+    "value": {
+      "event": "phones",
+      "success": true,
+      "payload": {
+        "phones": -1
+      }
+    }
+  },
+  {
+    "why": "a count of phones as text",
+    "value": {
+      "event": "phones",
+      "success": true,
+      "payload": {
+        "phones": "2"
+      }
+    }
   }
 ]

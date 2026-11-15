@@ -14,6 +14,11 @@
 //   next <ok|gone|not_now|not_here|bad|timeout|offline>   how the Mac answers the next action
 //   mac <pro|mini> <live|asleep|quit|updating|not_heard>   a Mac comes or goes
 //   drop                                                   every page loses its socket
+//   remind                                                 MacBook Pro sends remind for its session
+//                                                          that needs you: a phone page with notices
+//                                                          on gets a push when no page of the
+//                                                          person's is visible (a local run takes a
+//                                                          stand-in push service: tools/push-sink.mjs)
 // test/walk.mjs and the page check use start() the same way.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -159,6 +164,9 @@ export async function start({ port = 4352, email = 'avery.stone@sttark.com', mac
     refuse(on) {
       refusing = on;
     },
+    /** MacBook Pro sends remind for its session that needs you, as a Kit
+     *  does when the person is away (lib/push.ts sends the push). */
+    remind: () => fakes.pro.remind(),
     /** Drops every page's socket, as a network change would. */
     dropAll() {
       for (const s of pages) s.destroy();
@@ -180,11 +188,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   };
   const s = await start({ port: Number(arg('--port', 4352)), macs: arg('--macs', 'two') });
   if (arg('--next')) s.next(arg('--next'));
-  console.log(`sample: ${s.url}/ (type: next <reason> | mac <pro|mini> <state> | drop)`);
+  console.log(`sample: ${s.url}/ (type: next <reason> | mac <pro|mini> <state> | drop | remind)`);
   createInterface({ input: process.stdin }).on('line', (line) => {
     const [cmd, a, b] = line.trim().split(/\s+/);
     if (cmd === 'next') s.next(a);
     else if (cmd === 'mac') s.setMac(a, b);
     else if (cmd === 'drop') s.dropAll();
+    else if (cmd === 'remind') console.log(`remind: ${JSON.stringify(s.remind())}`);
   });
 }

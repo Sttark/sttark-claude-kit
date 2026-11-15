@@ -16,7 +16,7 @@ What it serves (under `BASE_PATH`, Environment below):
 | `/archived/<cse>` | One archived session, with **Bring it back** |
 | `/usage` | **Usage** |
 | `/mac/<id>` | One Mac's sessions; for a Mac that is away, its last list "As of" its time, in gray, with no buttons |
-| `/menu` | **Menu**: the Macs (state, last seen, **Remove**), **Sign out everywhere**, Needs you notices (not ready yet), Light / Auto / Dark, **Sign out** |
+| `/menu` | **Menu**: the Macs (state, last seen, **Remove**), **Sign out everywhere**, **Needs you notices** on this phone (Needs you notices, below), Light / Auto / Dark, **Sign out** |
 | `/macs` | Goes to `/menu` |
 | `/macs/<id>/remove` | Remove (POST, from Menu after its confirm): the person's own Mac only, with a record |
 | `/signin` | Sign in with Google |
@@ -25,6 +25,9 @@ What it serves (under `BASE_PATH`, Environment below):
 | `/healthz` | `{"ok": true, "db": true, "sha": "<commit>"}`: the database answers, and which commit runs; 503 when the database does not |
 | `/link/<token>` | The link page a Mac's Kit opens: sign in, then **Link** (Linking a Mac, below) |
 | `/api/mac/link`, `/api/mac/link/<poll>` | The Kit asks to link (POST) and polls for the answer (GET); no sign-in (`schema/link.v1.json`) |
+| `/api/push/subscribe`, `/api/push/notices`, `/api/push/state`, `/api/push/key` | Menu's notices switch and the service worker: this phone's subscription, its on or off, what the server knows of it, and the key to subscribe with (JSON from this site only; Needs you notices, below) |
+| `/site.webmanifest`, `/sw.js` | The web app manifest (start and scope under `BASE_PATH`) and the service worker; no sign-in |
+| `/favicon.svg`, `/favicon.ico`, `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable-512.png`, `/notice-badge.png` | The Kit's icons (`public/`), and the small one Android shows beside a notice; no sign-in |
 | `/mac` | Each linked Mac's WebSocket (The sockets, below) |
 | `/live` | The phone pages' WebSocket (The sockets, below) |
 
@@ -73,6 +76,7 @@ npm run check:pages:changed   # the shared page check on the pages you changed
 npm run fake-mac -- --approve   # with npm run dev: a made-up Mac links, connects and answers
 npm run build && npm run sample   # the built app, sample data, the real sockets and the fake Mac
 npm run build && npm run walk -- --out <folder>   # every page and state, screenshots
+npm run build && node test/notices-walk.mjs --out <folder>   # the manifest, the service worker, Menu > Notices, one push
 ```
 
 **The fake Mac** (`tools/fake-mac.mjs`, local runs only) is a made-up Mac:
@@ -100,7 +104,24 @@ seconds; `offline` drops the Mac's socket just before), `mac <pro|mini>
 800, light and dark, through every page, action and answer and the link
 page, and fails on a script error, a file that does not load, a page that
 does not connect or an answer that never shows. Build with the `BASE_PATH`
-to try (`BASE_PATH=/kit npm run build`, then `--short`).
+to try (`BASE_PATH=/kit npm run build`, then `--short`). Type `remind` in
+the sample server to make MacBook Pro send a reminder, as a Kit does when a
+session has waited 10 minutes and its person is away from the Mac.
+
+**The notices walk** (`test/notices-walk.mjs`) starts the sample server
+and a stand-in push service (`tools/push-sink.mjs`, test and local runs
+only: it makes subscriptions as a browser does, checks each push's VAPID
+signature and decrypts it), and drives it headless at 390 by 844: the
+manifest and every icon without a sign-in, the service worker and its
+scope, Menu > Notices off, on (light and dark), on an iPhone in Safari,
+blocked, in a browser with no Web Push and when the push service does not
+answer, and one reminder end to end: the fake Mac's `remind`, the push the
+stand-in decrypts, and the notice the page's real service worker shows when
+that payload is delivered to it through the DevTools protocol. Headless
+Chromium has no push service, so the page's `PushManager` hands out the
+stand-in's subscription; the headless shell cannot show a notice, so it
+uses Playwright's full Chromium (`npx playwright install chromium`, or
+`--chrome <path>`).
 
 `npm run dev` and `npm run build` first copy the licensed fonts in (Fonts,
 below). An AI agent's `npm run dev` runs in the background (Astro's own
@@ -194,6 +215,64 @@ allow.
   the daily job all mark the Mac removed with a record and close its
   socket (`events.ts`).
 
+## Needs you notices
+
+`phone/DESIGN.md`, section 5, and its 8 "no double notices" rules; the
+sender is `src/lib/push.ts`.
+
+- **One kind, chosen by the Mac.** A Mac sends `remind` when a session has
+  needed its person for 10 minutes, once per reply, and only when the
+  person is away from that Mac (screen off or locked, or no input in 2
+  minutes), a phone of theirs can get a push (`welcome`'s `phones`, then
+  each `phones` message), and the session sent no Reach me by message in
+  the last 30 minutes. Otherwise the Mac shows its own notice. Never both.
+- **What the server skips:** no key pair (production without
+  `VAULT_VAPID_*`); no phone with notices on; a reminder it sent already
+  (`pushes_sent`: the person, the session and its waiting time, 2 days, so
+  a reconnect or two Macs never send one twice; two at once make one); a
+  page of the person's that is visible (it shows the session already).
+- **One push to each phone with notices on:** the title ("Claude needs you:
+  Order page login"), one line ("Waiting 11 min: a plan waits for your
+  go-ahead."), the tag `needs-<cse>` (a newer one replaces the old one), the
+  One session page, and the Needs you count for the app icon's badge. Each
+  is encrypted for its phone and signed with the key pair (`web-push`), sent
+  with a TTL of an hour, urgency high and a topic per session, so a push
+  service holds one per session. A push service that says a subscription is
+  gone (404, 410) gets it dropped, with a record by `push sender`.
+- **Which push services:** only those of the browsers people use: Chrome
+  and Android (`fcm.googleapis.com`), iPhone and Safari (`*.push.apple.com`),
+  Firefox (`*.push.services.mozilla.com`) and Edge (`*.notify.windows.com`),
+  over https. Any other endpoint is refused, so nobody can make the server
+  post to an address of their choosing. A local run also takes a stand-in
+  on this computer (`tools/push-sink.mjs`).
+- **Menu > Notices** (`src/view/render.ts`, `src/scripts/app.ts`): one
+  switch for this phone. Opening Menu changes nothing: the page asks its
+  browser for its subscription and the server what it knows of it
+  (`/api/push/state`). A tap turns notices on: the phone's permission
+  question comes straight from the tap (an iPhone asks only then), then a
+  subscription with the server's key goes to `/api/push/subscribe`. A
+  second tap turns them off for this phone (`/api/push/notices`); the
+  subscription stays, so on again asks nothing. Each change has a record,
+  and the line under the switch says since when. On an iPhone in Safari the
+  line says how to add Claude Kit to the Home Screen (iOS 16.4 or later
+  gets notices only there); a browser with no Web Push, blocked notices and
+  a server with no keys each say so, and the switch waits.
+- **The service worker** (`public/sw.js`), registered by every page under
+  `BASE_PATH`: a push shows one notice and sets the badge; a tap on it
+  opens the session's page in the app's window, or a new one; a renewed
+  subscription goes to the server, which keeps the phone's on or off. It
+  keeps no copy of any page and answers no request.
+- **The app on the Home Screen:** the manifest names it Claude Kit, starts
+  and scopes it at `BASE_PATH`, standalone, black; the icons are the Kit's
+  own, from the Sttark icon script (Sttark/sttark-docs,
+  `scripts/src/app-icons.ts`) with the Lucide `inbox`, its slot in brand
+  Light Green. `APP_ICON_V` (`src/lib/icons.ts`, and `public/sw.js`) is
+  raised when they change.
+- **The badge:** each page sets the app icon's badge to the Needs you count
+  as it draws; a push sets it while the app is closed.
+- **Sign out** on a phone ends its subscription; **Sign out everywhere** all
+  of the person's. The person's Macs hear the new count either way.
+
 ## Environment
 
 | Variable | Needed | What |
@@ -201,6 +280,7 @@ allow.
 | `APP_ORIGIN` | production | The site's origin: `https://kit.sttark.com`, or `https://building.sttark.com` with a `BASE_PATH` of `/kit`. Google returns to it (with `BASE_PATH`); the link page's address and QR code start with it; a form post and a `/live` socket must come from it; an `https` origin makes the sign-in cookie secure. Default `http://localhost:4350` |
 | `VAULT_GOOGLE_CLIENT_ID`, `VAULT_GOOGLE_CLIENT_SECRET` | production | The shared Sttark Workspace sign-in client. Unset, Sign in with Google says it is not set up |
 | `VAULT_ORG_SYNC_TOKEN` | production | The Kit's own read-only Workrouter org-sync key (`sk_org_...`), for the hourly roster. Unset, the roster stays as stored |
+| `VAULT_VAPID_PUBLIC_KEY`, `VAULT_VAPID_PRIVATE_KEY` | production | The Web Push key pair (P-256, base64url, as `web-push` makes it). Unset (or not a P-256 pair), Menu says notices are not set up and nothing is sent. A local run makes its own and keeps it in the database. A new pair ends every phone's subscription, so it is made once and kept: `node -e "import('web-push').then(w=>{const k=w.generateVAPIDKeys();process.stdout.write(k.publicKey+' '+k.privateKey)})"` piped into `gh secret set`, never shown |
 | `KIT_DB` | production | The database file, default `data/kit.db` (made with its folder) |
 | `HOST`, `PORT` | optional | Where `server.mjs` listens, default `127.0.0.1` and `4350` |
 | `BASE_PATH` | build only | The path the site lives under: empty at `kit.sttark.com` (the default), `/kit` at `building.sttark.com/kit`. Set when building (and for `npm run dev`); the build writes it to `dist/kit-build.json`, and every link, file, cookie and socket path starts with it (`src/lib/paths.ts`). Google returns to `APP_ORIGIN` + `BASE_PATH` + `/auth/callback`, and nginx passes the path as it came |
@@ -256,7 +336,7 @@ each kind of row is kept:
 | `macs` | Linked Macs and their public keys | For good; a removed Mac keeps its row, with when, why (`phone`, `mac`, `roster`, `quiet`) and by whom. A Mac not heard from in 90 days is removed by the daily job |
 | `links` | Link pages waiting for a sign-in (hashes of their tokens) | 1 day |
 | `snapshots`, `archived` | The last snapshot and archived list each Mac sent | Replaced each time; deleted when the Mac is removed |
-| `push_subs` | Web Push subscriptions, one per phone | Until sign-out, or the push service says it is gone |
+| `push_subs` | Web Push subscriptions, one per phone: its person, the sign-in it was made under, its keys, notices on or off, when that last changed, and the kind of device | Until sign-out, or the push service says it is gone |
 | `pushes_sent` | Needs you pushes sent | 2 days |
 | `records` | Every change, with who made it | **1 year** |
 
@@ -296,7 +376,19 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   missing base; and every message the server sent matches the contract.
   `BASE_PATH` `/kit` in the gate, the cookie, Google's return, the link
   page and the sockets (`paths.test.ts`, `middleware.test.ts`,
-  `hub.test.ts`). The server's checks agree with the fixtures
+  `hub.test.ts`). Web Push (`push.test.ts`, with the stand-in push service):
+  no keys in production, a bad pair, a local run's own pair; a phone turning
+  notices on and off with a record each, only its own person, a renewed
+  subscription keeping its choice, a phone that moves to another person,
+  Sign out and Sign out everywhere; what is not a browser subscription and
+  a push service the Kit does not send to; every skip rule (no phone,
+  notices off, a visible page, sent already, two Macs at once, a new reply
+  sends again, not set up); the push itself decrypted, its VAPID claims,
+  TTL, urgency and topic; a gone subscription dropped with a record, a
+  failing push service kept; `pushes_sent` kept 2 days; the pages' calls
+  (this site's JSON only); the manifest under `BASE_PATH`; and on real
+  sockets, `welcome`'s `phones`, each `phones` change, and a Mac's `remind`
+  becoming one push, none while a page shows. The server's checks agree with the fixtures
   (`contract.test.ts`); the fake Mac links over HTTP and answers
   (`fake-mac.test.ts`); removal and the 90 days (`macs.test.ts`).
 - **The page check** (`scripts/page-check.mjs`, the shared Sttark check
@@ -326,6 +418,8 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
 | `src/lib/macs.ts`, `src/lib/upgrade.ts` | Linked Macs: state, what each sent, Remove; the WebSocket hook |
 | `src/lib/hub.ts`, `src/lib/contract.ts`, `src/lib/events.ts` | The two sockets; the contract's checks; what removal and the roster tell the sockets |
 | `src/lib/link.ts`, `src/lib/keys.ts`, `src/lib/net.ts`, `src/lib/qr.ts` | Linking a Mac; keys, signatures and tokens; the code check's addresses; the QR code |
+| `src/lib/push.ts`, `src/lib/json-request.ts`, `src/pages/api/push/` | Web Push: the key pair, each phone's subscription, the sender and its skip rules; the pages' JSON calls |
+| `src/pages/site.webmanifest.ts`, `public/sw.js`, `public/*.png`, `public/favicon.*` | The web app manifest, the service worker, the Kit's icons |
 | `src/pages/link/[token].astro`, `src/pages/api/mac/` | The link page; the Kit's link calls |
 | `src/layouts/Base.astro` | The page frame (top bar with Search and Menu, tabs), and the data the page was drawn from |
 | `src/view/` | The pages as HTML (`render.ts`), what they draw from (`model.ts`), times in words (`time.ts`): the server and the browser both use them |
@@ -335,3 +429,4 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
 | `scripts/fonts.mjs`, `scripts/check-style.mjs` | The licensed fonts; the shared style file check |
 | `test/` | The tests, and `sample-people.json`, the made-up people they use; `sample.mjs`, `sample-server.mjs` and `walk.mjs` (above) |
 | `tools/fake-mac.mjs` | The fake Mac (above) |
+| `tools/push-sink.mjs`, `test/notices-walk.mjs` | The stand-in push service, and the notices walk (above) |

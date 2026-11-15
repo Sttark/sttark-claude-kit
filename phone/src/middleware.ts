@@ -17,13 +17,17 @@ import { devUser, readSession } from './lib/session.ts';
 import { startRosterSync } from './lib/roster.ts';
 import { startExpiry } from './lib/expiry.ts';
 import { startHub } from './lib/hub.ts';
+import { startPush } from './lib/push.ts';
 import { appPath, href, isAppOrigin } from './lib/paths.ts';
 
 export { devUser };
 
-// Phones fetch the tab icon without the sign-in cookie; the Kit links with
-// no cookie at all.
-export const PUBLIC = new Set(['/signin', '/healthz', '/favicon.svg', '/robots.txt']);
+// Phones fetch the icons, the web app manifest and the service worker
+// without the sign-in cookie; the Kit links with no cookie at all.
+export const PUBLIC = new Set([
+  '/signin', '/healthz', '/robots.txt', '/site.webmanifest', '/sw.js',
+  '/favicon.svg', '/favicon.ico', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png', '/notice-badge.png',
+]);
 export const PUBLIC_PREFIX = ['/auth/', '/_astro/', '/api/mac/', '/link/'];
 
 export function isPublic(pathname: string): boolean {
@@ -40,13 +44,14 @@ export function crossSiteForm(request: Request): boolean {
   return !isAppOrigin(request.headers.get('origin'));
 }
 
-// The hourly roster sync, the daily expiry job and the sockets start with
-// the server (server.mjs makes one request at boot), not with the first
-// visitor.
+// The hourly roster sync, the daily expiry job, the sockets and the Web Push
+// sender start with the server (server.mjs makes one request at boot), not
+// with the first visitor.
 if (!process.env.VITEST) {
   startRosterSync();
   startExpiry();
   startHub();
+  startPush();
 }
 
 export const onRequest = defineMiddleware(async (ctx, next) => {

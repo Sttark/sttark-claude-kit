@@ -161,7 +161,7 @@ The Mac always sends a new snapshot after, so the phone draws the truth.
 **No double notices.**
 1. One kind only: Needs you. No push for working, waits, holds or a finished reply.
 2. Same moment as today's Mac notice: once per reply, when a session that needs you has waited 10 minutes (`Waiting.notifyDue` with `waitingTold`).
-3. One place, chosen by the Mac. If the person is at the Mac (screen on and unlocked, input in the last 2 minutes), the Mac notice shows. If they are away, the phone push goes out. Never both. With no linked phone, or no socket, the Mac notice shows as today.
+3. One place, chosen by the Mac. If the person is at the Mac (screen on and unlocked, input in the last 2 minutes), the Mac notice shows. If they are away, the phone push goes out. Never both. With no linked phone, or no socket, the Mac notice shows as today. The Mac knows how many phones can get a push from `welcome`'s `phones`, then from each `phones` message when it changes (a phone turns notices on or off, signs out, or its push service says it is gone).
 4. The Claude app's own push (`inputNeededNotifEnabled`) comes the moment Claude asks. The Kit's comes 10 minutes later and only if the session is still not opened, so it is a reminder, not a repeat.
 5. Reach me by: a session that sent a Reach me by message in the last 30 minutes gets no reminder, on the phone or the Mac. `notify.py` records the time in `reach_sent[cse]` in the state file.
 6. A visible phone page gets no push. The page already shows it.
@@ -193,7 +193,7 @@ A Mac that is not live is never drawn as live. Its sessions leave the four group
 | `links` | Link pages waiting for a sign-in | 1 day |
 | `snapshots` | The last snapshot per Mac | Replaced; deleted with the Mac |
 | `archived` | One row per Mac: the archived list's `rev` and its items (section 13) | Replaced at each update; deleted with the Mac |
-| `push_subs` | Endpoint and keys per phone, notices on or off | Until sign-out or the push service says gone |
+| `push_subs` | Endpoint and keys per phone, notices on or off, when that changed, the kind of device | Until sign-out or the push service says gone |
 | `pushes_sent` | Person, session, waiting time | 2 days |
 | `records` | Every change, append only | 1 year |
 
@@ -244,7 +244,7 @@ On by default, the Kit's rule: `KitDefaults` turns `phone` on at the first start
 - Existing: `STTARK_KIT_DIR`, `STTARK_KIT_LOG`, `STTARK_WAIT_DRY`, `STTARK_NOTIFY_DRY`, `STTARK_CLAUDE_KIT_TEST`.
 - New: `STTARK_PHONE_URL` (a local server), `STTARK_PHONE_KEY` (a key file in the test folder, not the Keychain), `STTARK_PHONE_DRY=1` (builds and logs snapshots, connects to nothing), `STTARK_EFFORT_DRY=1` (`--set` writes Manual and logs, sends nothing).
 - `tools/phone-test.swift`: builds snapshots and the archived list from sample state in a temp folder. It plants marker words in transcripts, prompts, paths (archived folder paths included), wait targets and the Reach me by settings, and fails if any marker is in the JSON. It writes the fixture the server and the pages test against. It runs every `KitActions` function on copies with the dry variables, including a gone wait, an archived session, an effort change while waiting, and `unarchive` with `STTARK_WAIT_DRY=1`. It talks to a local copy of the server with a test database.
-- Server: `vitest` for linking, the signed challenge, ownership (one person cannot act on another's Mac), the action allowlist, offline and timeout, append-only records and their expiry, the push skip rules, roster removal, and a schema that refuses extra fields. Local runs use `DEV_FAKE_USER` and a stand-in push endpoint, as Building does.
+- Server: `vitest` for linking, the signed challenge, ownership (one person cannot act on another's Mac), the action allowlist, offline and timeout, append-only records and their expiry, the push skip rules, roster removal, and a schema that refuses extra fields. Local runs use `DEV_FAKE_USER`, as Building does, and a stand-in push service (`tools/push-sink.mjs`) that decrypts each push.
 
 **What's new note** (`whats-new/kit-on-your-phone.md`, with `kit-on-your-phone.png` and `-dark.png`, a crop of the phone screens at most 880 by 560 at 2x):
 
@@ -373,6 +373,7 @@ Every message is `{event, success, payload}`. Linking comes before `/mac`, over 
 | `/mac` | Mac | `archived` | `rev`, `items` (section 13) |
 | `/mac` | Mac | `archived_delta` | `base`, `rev`, `add`, `remove` |
 | `/mac` | server | `watching` | `on` |
+| `/mac` | server | `phones` | `phones` (how many can get a push, when it changes after `welcome`) |
 | `/mac` | server | `action` | `id`, `act`, `args`, `by` (email, name) |
 | `/mac` | Mac | `result` | `id`, `reason` (`ok`, `gone`, `not_now`, `not_here`, `bad`), `words`, `before`, `after` |
 | `/mac` | Mac | `remind` | `cse`, `waiting_since`, `title`, `why` |

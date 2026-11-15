@@ -13,7 +13,7 @@
 // with the same code, as new snapshots arrive.
 // Founders Grotesk comes with the shared style (styles/fonts/, README).
 import '../styles/app.css';
-import { ICONS } from '../lib/icons.ts';
+import { APP_ICON_V, ICONS } from '../lib/icons.ts';
 import { basePath, appPath, href } from '../lib/paths.ts';
 import { kitJson } from '../lib/state.ts';
 import { needsCount, type Kit, type Ui } from '../view/model.ts';
@@ -43,8 +43,7 @@ const TABS = [
   { key: 'archived', name: 'Archived', href: href('/archived'), icon: ICONS.archive },
   { key: 'usage', name: 'Usage', href: href('/usage'), icon: ICONS.gauge },
 ] as const;
-// Raise when the icon changes, so browsers fetch the new one.
-const V = '?v=1';
+const V = APP_ICON_V;
 ---
 <!doctype html>
 <html lang="en" data-base={basePath()}>
@@ -53,7 +52,16 @@ const V = '?v=1';
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex" />
     <meta name="theme-color" content="#000000" />
+    {/* The Kit's own icon (the Sttark icon script, Lucide inbox), and what a
+        phone needs to add it to the Home Screen as its own app: the
+        manifest (start and scope under BASE_PATH) and, on iPhone, the
+        touch icon, the name and a black status bar like the top bar. */}
+    <link rel="icon" href={href(`/favicon.ico${V}`)} sizes="any" />
     <link rel="icon" href={href(`/favicon.svg${V}`)} type="image/svg+xml" />
+    <link rel="apple-touch-icon" href={href(`/apple-touch-icon.png${V}`)} />
+    <link rel="manifest" href={href('/site.webmanifest')} />
+    <meta name="apple-mobile-web-app-title" content="Claude Kit" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     {/* "Page · App · Sttark", per the brand guide. */}
     <title>{title} · Claude Kit · Sttark</title>
     <script is:inline>

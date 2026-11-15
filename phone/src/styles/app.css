@@ -1247,6 +1247,19 @@ main > div > h1.page-title,
 .set-row .switch[aria-disabled='true'] {
   opacity: 0.55;
 }
+/* A turn on or off under way: the switch shows where it goes, and waits. */
+.set-row .switch[aria-busy='true'] {
+  opacity: 1;
+  cursor: progress;
+}
+/* An icon inside a sentence, the size of its words (the Share button). */
+.inline-i svg.i {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  vertical-align: -3px;
+}
 
 /* ---------- no Mac linked yet ---------- */
 

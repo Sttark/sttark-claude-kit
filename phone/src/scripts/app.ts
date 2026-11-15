@@ -5,11 +5,16 @@
 // sends one action; its button says "Sending..." until the server answers,
 // and the page shows only the answer the server sent: never a success the
 // Mac did not confirm. Also: the ⓘ notes, search, Remove's confirm, the
-// light / auto / dark choice, and forms that ask first.
+// light / auto / dark choice, and forms that ask first. And Web Push: every
+// page registers the service worker (public/sw.js) and puts the Needs you
+// count on the app icon's badge; Menu turns this phone's notices on and off.
 //
 // It knows nothing of how the socket is served: only the messages.
 import { draw, drawList, type View } from '../view/render.ts';
-import { NO_SERVER_WORDS, emptyUi, findArchived, findRow, needsCount, type Kit, type MacInfo, type Reason, type Result, type Ui } from '../view/model.ts';
+import {
+  NO_SERVER_WORDS, emptyUi, findArchived, findRow, needsCount, noticesOf,
+  type Kit, type MacInfo, type Notices, type Reason, type Result, type Ui,
+} from '../view/model.ts';
 
 // ---------- light / auto / dark, on every page ----------
 
@@ -65,6 +70,14 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
 
   let queued = false;
   let held = false;
+  /** The Needs you count on the app icon (a Home Screen app, once notices
+   *  are allowed; a browser tab ignores it). */
+  let badgeWas = -1;
+  function appBadge(n: number) {
+    if (n === badgeWas || !('setAppBadge' in navigator)) return;
+    badgeWas = n;
+    (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+  }
   /** Draw again on the next frame. While someone is in a field or a
    *  dropdown, only the list under a search field is drawn, so nothing
    *  moves under their hand; the rest waits until they leave it. */
@@ -100,6 +113,7 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       badge.hidden = !n;
       badge.setAttribute('aria-label', `${n} need you`);
     }
+    appBadge(n);
     applyTheme();
     if (focusKey) root.querySelector<HTMLElement>(`[data-k="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
   }
@@ -376,6 +390,134 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       }
     }
   });
+
+  // ---------- Web Push: the service worker, the badge, Menu > Notices ----------
+
+  const canPush = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  let worker: Promise<ServiceWorkerRegistration> | null = null;
+  if ('serviceWorker' in navigator) {
+    worker = navigator.serviceWorker.register(`${base}/sw.js`, { scope: `${base}/` }).then(() => navigator.serviceWorker.ready);
+    worker.catch(() => {});
+    // A tap on a notice while this page is open: the service worker asks
+    // this page to open the session's page when it cannot itself.
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      const d = ev.data as { kit?: string; url?: string } | null;
+      if (d?.kit !== 'open' || typeof d.url !== 'string') return;
+      const u = new URL(d.url, location.href);
+      if (u.origin === location.origin && u.pathname.startsWith(`${base}/`)) location.assign(u.href);
+    });
+  }
+
+  const ua = navigator.userAgent;
+  const ipad = /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const ios = ipad || /iPhone|iPod/.test(ua);
+  const device: Notices['device'] = ipad ? 'iPad' : ios ? 'iPhone' : 'phone';
+  const installed = matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true;
+
+  function setNotices(n: Partial<Notices>) {
+    ui.notices = { ...noticesOf(kit, ui), device, ...n };
+    drawAll();
+  }
+
+  async function post(path: string, body: unknown): Promise<{ ok: boolean; status: number; body: any }> {
+    try {
+      const r = await fetch(base + path, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      let b: any = null;
+      try {
+        b = await r.json();
+      } catch {}
+      return { ok: r.ok, status: r.status, body: b };
+    } catch {
+      return { ok: false, status: 0, body: null };
+    }
+  }
+  const failed = (r: { status: number; body: any }) =>
+    r.status === 0 ? 'Your phone is not connected to the server. Try again when it is back.' : String(r.body?.words || 'The server did not take it. Try again.');
+
+  /** Does this subscription use the server's key? A new key on the server
+   *  needs a new subscription. */
+  function sameKey(sub: PushSubscription, key: string): boolean {
+    const have = sub.options?.applicationServerKey;
+    if (!have) return true;
+    const a = new Uint8Array(have);
+    const b = Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (key.length % 4)) % 4)), (c) => c.charCodeAt(0));
+    return a.length === b.length && a.every((x, i) => x === b[i]);
+  }
+
+  /** What this phone can do, and what the server knows of the subscription
+   *  its browser holds. Opening Menu changes nothing. */
+  async function checkNotices() {
+    const key = kit.notices?.key;
+    if (!key) return setNotices({ state: 'not_set_up', since: null });
+    if (!canPush || !worker) return setNotices({ state: ios && !installed ? 'install' : 'unsupported', since: null });
+    if (Notification.permission === 'denied') return setNotices({ state: 'blocked', since: null });
+    let sub: PushSubscription | null = null;
+    try {
+      sub = await (await worker).pushManager.getSubscription();
+    } catch {
+      return;
+    }
+    if (!sub) return setNotices({ state: 'off', since: null });
+    const r = await post('/api/push/state', { endpoint: sub.endpoint });
+    if (!r.ok) return; // the server's own view stays
+    setNotices({ state: r.body.known && r.body.on ? 'on' : 'off', since: r.body.known ? r.body.since : null });
+  }
+
+  /** On: the phone's permission (asked straight from the tap, as an iPhone
+   *  needs), a subscription with the server's key, and the server keeps it. */
+  async function turnOn(asked: Promise<NotificationPermission>) {
+    const key = kit.notices?.key;
+    if (!key || !worker) return;
+    setNotices({ state: 'turning_on', problem: null });
+    const permission = await asked.catch(() => Notification.permission);
+    if (permission !== 'granted') return setNotices(permission === 'denied' ? { state: 'blocked', since: null } : { state: 'off', problem: 'The phone did not allow notices. Tap the switch again and choose Allow.' });
+    try {
+      const reg = await worker;
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && !sameKey(sub, key)) {
+        await sub.unsubscribe().catch(() => false);
+        sub = null;
+      }
+      sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      const r = await post('/api/push/subscribe', sub.toJSON());
+      if (!r.ok) return setNotices({ state: 'off', problem: failed(r) });
+      setNotices({ state: r.body.on ? 'on' : 'off', since: r.body.since, problem: null });
+    } catch {
+      if (Notification.permission === 'denied') return setNotices({ state: 'blocked', since: null });
+      setNotices({ state: 'off', problem: "The phone's push service did not answer. Try again." });
+    }
+  }
+
+  async function turnOff() {
+    setNotices({ state: 'turning_off', problem: null });
+    let sub: PushSubscription | null = null;
+    try {
+      if (worker) sub = await (await worker).pushManager.getSubscription();
+    } catch {}
+    if (!sub) return setNotices({ state: 'off', since: null });
+    const r = await post('/api/push/notices', { endpoint: sub.endpoint, on: false });
+    if (r.ok) return setNotices({ state: r.body.on ? 'on' : 'off', since: r.body.since });
+    if (r.status === 404) return setNotices({ state: 'off', since: null });
+    setNotices({ state: 'on', problem: failed(r) });
+  }
+
+  document.addEventListener('click', (ev) => {
+    const el = (ev.target as Element).closest<HTMLElement>('[data-act="notices"], [data-act="notices-clear"]');
+    if (!el || view.page !== 'menu') return;
+    if (el.dataset.act === 'notices-clear') {
+      setNotices({ problem: null });
+      return;
+    }
+    const n = noticesOf(kit, ui);
+    if (n.state === 'off') {
+      // The permission question comes straight from the tap: an iPhone asks
+      // only then.
+      const asked = canPush && Notification.permission === 'default' ? Notification.requestPermission() : Promise.resolve(canPush ? Notification.permission : 'denied');
+      void turnOn(asked);
+    } else if (n.state === 'on') void turnOff();
+  });
+
+  if (view.page === 'menu') void checkNotices();
 
   connect();
 }
