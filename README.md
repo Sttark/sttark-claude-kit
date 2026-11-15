@@ -672,6 +672,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `DESIGN-DECISIONS.md` | Where the window departs from the Sttark Brand and App Guidelines, which are written for web apps, and why. |
 | `AGENTS.md`, `CLAUDE.md` | Notes for coding agents: when a change needs a What's new note, and how to write one. |
 | `Sources/Sync.swift` | Keeps the window and the menu up to date: watches the state for changes, and reads the Claude app's session list every 8 to 10 seconds while you look. |
+| `Sources/Phone.swift` | Kit on your phone, the Mac side: builds what the Kit sends to kit.sttark.com (the rows of the four groups the phone shows, the usage, the archived list and its changes) and decides when to send it. The app does not start it yet. See `phone/DESIGN.md`. |
 | `Sources/Login.swift` | The login check and sign-in. |
 | `Sources/DesktopDefault.swift`, `Resources/hooks/desktop-default.py`, `Helpers/kit-ldb` | New sessions in the Claude desktop app start on this Mac's server. |
 | `Sources/Update.swift` | Checks GitHub for a new version and installs it by itself. |
@@ -711,6 +712,9 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `tools/events-test.swift` | Tests the Events page's reading of a sample log (plain words, session names, a problem folded into one row with its count, no ids in the sentences) and the trim of a log on a temporary folder: 30 days, the 10 MB cap at whole lines, and a writer that holds the file open. |
 | `tools/limit-menu-test.swift` | Tests the app's side of each session's usage setting on a temporary folder, with a stand-in state file and usage file: reading and writing the settings as the hooks do, the log lines, the holding rows, and when the limit counts as reached. |
 | `tools/make-icon.py` | Draws the app icon. The menu bar gauge is drawn in code to match it. |
+| `tools/phone-test.swift` | Tests what the Kit sends to the phone, on copies (a test state folder and log: `STTARK_KIT_DIR`, `STTARK_KIT_LOG`): each group, waits of each kind, holds, agents in the background and archived sessions. Marker words in transcripts, prompts, file and folder paths, wait targets, check scripts, check-prompt questions and the Reach me by settings must not show in any payload. Checks every payload with `phone/schema/check.mjs`, writes `phone/fixtures/from-mac/`, and tests when the Kit sends. Needs Node. |
+| `phone/` | Kit on your phone: the design (`DESIGN.md`), the two sockets (`asyncapi.yaml`), the message schemas and their check (`schema/`), and sample messages (`fixtures/`; `fixtures/from-mac/` comes from the Mac's own builder). |
+| `.github/workflows/phone-contract.yml` | On each change to the phone contract: every fixture against the schemas, and `asyncapi.yaml`. |
 | `.github/workflows/release.yml` | Builds, signs and publishes a release. |
 | `.github/workflows/notify.yml` | Sends Reach me by's email. |
 | `pages/open.html`, `.github/workflows/pages.yml` | The Open in Claude page, published to GitHub Pages from `pages/` on each change on main. |

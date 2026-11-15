@@ -331,7 +331,11 @@ final class KitModel: ObservableObject {
 
 /// The 5-hour and weekly limits, from the usage the hooks read (usage.json, at most a minute old while sessions run).
 struct Usage {
-    struct Bar: Identifiable { let id: String; let name: String; let percent: Int; let resets: Date? }
+    struct Bar: Identifiable {
+        let id: String; let name: String; let percent: Int; let resets: Date?
+        /// The usage API's kind: session (the 5-hour limit), weekly_all, or weekly_scoped (one model's weekly limit).
+        var kind = ""
+    }
     var bars: [Bar] = []
     var at: Date?
 
@@ -345,10 +349,12 @@ struct Usage {
         for (i, l) in (u["limits"] as? [[String: Any]] ?? []).enumerated() {
             let kind = l["kind"] as? String ?? ""
             let scope = l["scope"] as? [String: Any]
-            let model = (scope?["model"] as? String ?? scope?["name"] as? String ?? "").capitalized
+            // a model's own limit names its model as {"model": {"display_name": "Opus"}}
+            let model = ((scope?["model"] as? [String: Any])?["display_name"] as? String
+                         ?? scope?["model"] as? String ?? scope?["name"] as? String ?? "").capitalized
             let name = kind == "session" ? "5-hour limit" : kind == "weekly_all" ? "Weekly" : model.isEmpty ? "Weekly, one model" : "Weekly, \(model)"
             let r = (l["resets_at"] as? String).flatMap { iso.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }
-            out.bars.append(Bar(id: "\(i)", name: name, percent: Int(Limit.num(l["percent"]) ?? 0), resets: r))
+            out.bars.append(Bar(id: "\(i)", name: name, percent: Int(Limit.num(l["percent"]) ?? 0), resets: r, kind: kind))
         }
         return out
     }

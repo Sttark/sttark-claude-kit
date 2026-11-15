@@ -55,6 +55,9 @@ enum Inbox {
         /// A part of `sub` drawn in ink (who or what it waits on).
         var subStrong = ""
         let time: String
+        /// What the time column counts from (needs you, working, idle, on this Mac only) or to (a wait's deadline, a
+        /// hold's end). The phone gets this time, not the words (Phone.swift).
+        var timeAt: Date? = nil
         /// The time is late: waited past the notice, or past a deadline.
         var late = false
         var session: Session? = nil
@@ -159,6 +162,7 @@ enum Inbox {
             let sub = h.hold ? "Hold \(h.at)%" + agents
                 : (snap.creditsAll ? "Goes on with usage credits" : "Waits at the \(h.limit) limit") + agents
             var r = Row(id: s?.id ?? "hold:" + h.sid, group: .held, title: s?.title ?? h.title, sub: sub, time: Limit.clock(h.until))
+            r.timeAt = h.until
             r.session = s
             r.hold = h
             snap.rows.append(r)
@@ -173,6 +177,7 @@ enum Inbox {
             let w = s.waitingSince!
             var r = Row(id: s.id, group: .needs, title: s.title, sub: "Needs you" + (s.why.isEmpty ? "" : ": " + s.why),
                         time: Waiting.ago(w))
+            r.timeAt = w
             r.late = -w.timeIntervalSinceNow >= Waiting.after
             r.session = s
             snap.rows.append(r)
@@ -194,6 +199,7 @@ enum Inbox {
             let bg = inTurn(s) ? nil : background(raw[s.id])
             var r = Row(id: s.id, group: .working, title: s.title, sub: bg.map(\.words) ?? effortWords(s),
                         time: since(s).map(Waiting.ago) ?? "")
+            r.timeAt = since(s)
             r.session = s
             r.background = bg
             snap.rows.append(r)
@@ -215,6 +221,7 @@ enum Inbox {
             if ws.count == 1, !w.from.isEmpty { r.subStrong = "from " + w.from }
             let failing = ws.filter { !$0.failing.isEmpty }.count
             if failing > 0 { r.subStrong = ws.count == 1 || failing == ws.count ? "check failing" : "\(failing) check\(failing == 1 ? "" : "s") failing"; r.subWarn = true }
+            r.timeAt = w.by
             r.late = w.by.map { $0 < Date() } ?? false
             r.session = s
             r.wait = w
@@ -229,6 +236,7 @@ enum Inbox {
         for s in rest.sorted(by: { (unread[$0.id] ?? $0.at) > (unread[$1.id] ?? $1.at) }) {
             let sub = unread[s.id] != nil ? "Finished; reply not opened" : effortWords(s)
             var r = Row(id: s.id, group: .idle, title: s.title, sub: sub, time: Waiting.ago(unread[s.id] ?? s.at))
+            r.timeAt = unread[s.id] ?? s.at
             r.session = s
             snap.rows.append(r)
         }
@@ -238,6 +246,7 @@ enum Inbox {
             let now = x.pending ? "Moves to Remote Control when its reply ends"
                 : x.busy ? "Open in \(x.whereWords), Claude working" : x.pid != nil ? "Open in \(x.whereWords)" : "In \(x.whereWords)"
             var r = Row(id: "local:" + x.id, group: .local, title: x.title, sub: now, time: Waiting.ago(x.last))
+            r.timeAt = x.last
             r.local = x
             snap.rows.append(r)
         }

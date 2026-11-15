@@ -2,7 +2,7 @@
 
 How the Kit's phone web app works: where its server runs, how a Mac and a phone sign in, what goes up from a Mac and what never does, how a tap on the phone runs on the Mac, and the build steps.
 
-The contract is in this folder and is the source of truth for every message: `asyncapi.yaml` (both sockets), `schema/` (JSON Schemas that refuse unknown fields), and `fixtures/` (sample messages, and cases that must fail). `node phone/schema/check.mjs` checks them; `.github/workflows/phone-contract.yml` runs it on each change. Change the schema, a fixture and this note in the same pull request.
+The contract is in this folder and is the source of truth for every message: `asyncapi.yaml` (both sockets), `schema/` (JSON Schemas that refuse unknown fields), and `fixtures/` (sample messages, and cases that must fail; `fixtures/from-mac/` is made by the Mac's own builder, `tools/phone-test.swift`). `node phone/schema/check.mjs` checks them; `.github/workflows/phone-contract.yml` runs it on each change. Change the schema, a fixture and this note in the same pull request.
 
 ![How the data moves: phone, building.sttark.com/kit, your Mac](design.png)
 
@@ -87,7 +87,7 @@ The contract is in this folder and is the source of truth for every message: `as
 - A ping every 25 seconds keeps the socket and the router's mapping open. It carries no data.
 - Before sleep, quit or an update the Kit sends `bye` with why (`sleep`, `quit`, `update`).
 
-**What.** The same rows the window draws: `Inbox.snapshot()`, reduced to the four groups the phone shows (Needs you, Claude working, Waiting on someone else, Held at usage limit). Idle and On this Mac only sessions are not sent. Each label is cut to 160 characters on the Mac, and the server's schema refuses any field it does not know.
+**What.** The same rows the window draws: `Inbox.snapshot()`, reduced to the four groups the phone shows (Needs you, Claude working, Waiting on someone else, Held at usage limit). Idle and On this Mac only sessions are not sent, nor is a row with no Remote Control id (a held or waiting session that runs only in Terminal), since the schema needs each row's `cse` and claude.ai link. Each label is cut to 160 characters on the Mac, and the server's schema refuses any field it does not know.
 
 | Field | What it is | Where the window gets it today |
 |---|---|---|
@@ -109,7 +109,7 @@ The contract is in this folder and is the source of truth for every message: `as
 | `rows[].limit_mode` (`mode`, `at`) | At the usage limit setting | `Limit.mode(target)` (`limit_modes`) |
 | `archived_rev`, `archived_count` | The archived list's version and length; the list itself goes up only when the server asks (section 13) | `archived.json` (`rev`, `items`) |
 
-**Never leaves the Mac.** Prompts, replies, transcript lines, file contents, and the log. File and folder paths: transcripts, working folders, the server's folder. An archived session's folder goes up as its own name only (for example `src`), never the path. A wait's target (Gmail thread id, pull request), its check script and its output. A check-prompt's question: the phone shows "A yes/no check" unless the session gave `--what`. The Reach me by address, phone number and Chat webhook. Tokens and the Keychain. Idle and On this Mac only sessions.
+**Never leaves the Mac.** Prompts, replies, transcript lines, file contents, and the log. File and folder paths: transcripts, working folders, the server's folder. An archived session's folder goes up as its own name only (for example `src`), never the path. A wait's target (Gmail thread id, pull request), its check script and its output. A check-prompt's question: the phone shows "A yes/no check" unless the session gave `--what`. An email wait's sender address: `from` gets its domain only (sessions give `--from` as a full address). The Reach me by address, phone number and Chat webhook. Tokens and the Keychain. Idle and On this Mac only sessions.
 
 Some labels are short lines the Kit or Claude wrote about the work. They are not prompt or reply text, and the window already shows them: the effort reason, why a session needs you, an agent's task, a wait's what and why.
 
@@ -340,7 +340,7 @@ The phone and the Mac window both list archived sessions, so a person can find a
 
 **Which sessions are listed.** A session is listed only when it is archived, is not a run of a scheduled task, its conversation is on this Mac, and it has no open Kit wait. A session with an open wait shows under "Waiting on someone else", so a session is never in two lists.
 
-**What goes up, and when.** The snapshot carries only `archived_rev` and `archived_count`. The full list goes up only when the server asks with `want_archived {have}`, which it sends when a phone opens the Archived tab and its copy is older than the Mac's `archived_rev`. After that, the Mac sends changes as `archived_delta {base, rev, add, remove}` (`remove` is a list of `cse`). When the server does not have `base`, it asks for the full list again. Each item sent:
+**What goes up, and when.** The snapshot carries only `archived_rev` and `archived_count`. The Kit makes the rev itself from the items it sends (after it drops a session that has a wait, or that the Claude app lists again), so the rev always names the list sent, whatever `archived.json`'s own rev covers. The full list goes up only when the server asks with `want_archived {have}`, which it sends when a phone opens the Archived tab and its copy is older than the Mac's `archived_rev`. After that, the Mac sends changes as `archived_delta {base, rev, add, remove}` (`remove` is a list of `cse`). When the server does not have `base`, it asks for the full list again. Each item sent:
 
 | Field | What it is |
 |---|---|

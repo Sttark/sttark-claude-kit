@@ -1,0 +1,636 @@
+{
+  "archived_count": 5,
+  "archived_rev": "897c16df23d6f473",
+  "at": 1794587400,
+  "flags": {
+    "credits_all": false,
+    "paused": false
+  },
+  "mac": {
+    "account": "4dda8c7f7874da00",
+    "kit": "1.150",
+    "name": "MacBook Pro",
+    "tz": "America/New_York"
+  },
+  "reach": [
+    "email",
+    "chat",
+    "text",
+    "mac"
+  ],
+  "rows": [
+    {
+      "background": null,
+      "cse": "cse_01PhoneOrderLogin",
+      "group": "needs_you",
+      "hold": null,
+      "id": "cse_01PhoneOrderLogin",
+      "late": true,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": {
+        "level": "high",
+        "manual": false,
+        "needs_you": true,
+        "reason": "A plan with several steps",
+        "turn_at": null,
+        "waiting_since": 1794586080,
+        "why": "a plan waits for your go-ahead"
+      },
+      "sid": "5b0c2f4e-1d7a-4c11-9e2b-3a6f8d0c1e21",
+      "sub": "Needs you: a plan waits for your go-ahead",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794586080,
+      "title": "Order page login",
+      "url": "https://claude.ai/code/session_01PhoneOrderLogin",
+      "waits": []
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneNozzle",
+      "group": "needs_you",
+      "hold": null,
+      "id": "cse_01PhoneNozzle",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": {
+        "level": "medium",
+        "manual": false,
+        "needs_you": true,
+        "reason": "Page edits",
+        "turn_at": null,
+        "waiting_since": 1794587220,
+        "why": "it asks which head to test first"
+      },
+      "sid": "6c1d3e5f-2e8b-4d22-8f3c-4b7a9e1d2f32",
+      "sub": "Needs you: it asks which head to test first",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794587220,
+      "title": "Nozzle check page",
+      "url": "https://claude.ai/code/session_01PhoneNozzle",
+      "waits": []
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneBinLabels",
+      "group": "needs_you",
+      "hold": null,
+      "id": "cse_01PhoneBinLabels",
+      "late": true,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": {
+        "level": null,
+        "manual": false,
+        "needs_you": true,
+        "reason": null,
+        "turn_at": null,
+        "waiting_since": 1794586680,
+        "why": "waiting on your answer or permission"
+      },
+      "sid": null,
+      "sub": "Needs you: waiting on your answer or permission",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794586680,
+      "title": "Bin label sizes",
+      "url": "https://claude.ai/code/session_01PhoneBinLabels",
+      "waits": []
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhonePressColor",
+      "group": "working",
+      "hold": null,
+      "id": "cse_01PhonePressColor",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "credits"
+      },
+      "session": {
+        "level": "high",
+        "manual": true,
+        "needs_you": false,
+        "reason": null,
+        "turn_at": 1794586560,
+        "waiting_since": null,
+        "why": null
+      },
+      "sid": "9f4a6b8c-5b1e-4a55-9c6f-7e0d2b4a5c65",
+      "sub": "Manual: you set the effort",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794586560,
+      "title": "Press color",
+      "url": "https://claude.ai/code/session_01PhonePressColor",
+      "waits": []
+    },
+    {
+      "background": {
+        "agents": 2,
+        "bash": 0,
+        "since": 1794586860,
+        "what": "Photos of the B unit heads"
+      },
+      "cse": "cse_01PhoneHvac",
+      "group": "working",
+      "hold": null,
+      "id": "cse_01PhoneHvac",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": {
+        "level": "medium",
+        "manual": false,
+        "needs_you": false,
+        "reason": "Reads photos and compares them",
+        "turn_at": null,
+        "waiting_since": null,
+        "why": null
+      },
+      "sid": "8e3f5a7b-4a0d-4f44-8b5e-6d9c1a3f4b54",
+      "sub": "2 agents working · Photos of the B unit heads",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794586860,
+      "title": "HVAC updates",
+      "url": "https://claude.ai/code/session_01PhoneHvac",
+      "waits": []
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneKitDesign",
+      "group": "working",
+      "hold": null,
+      "id": "cse_01PhoneKitDesign",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": {
+        "level": "xhigh",
+        "manual": false,
+        "needs_you": false,
+        "reason": "Design question on a full app window",
+        "turn_at": 1794587040,
+        "waiting_since": null,
+        "why": null
+      },
+      "sid": "7d2e4f6a-3f9c-4e33-9a4d-5c8b0f2e3a43",
+      "sub": "Auto · Design question on a full app window",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794587040,
+      "title": "Sttark Claude Kit",
+      "url": "https://claude.ai/code/session_01PhoneKitDesign",
+      "waits": []
+    },
+    {
+      "background": {
+        "agents": 0,
+        "bash": 1,
+        "since": 1794587160,
+        "what": "Watch the release build"
+      },
+      "cse": "cse_01PhoneCiWatch",
+      "group": "working",
+      "hold": null,
+      "id": "cse_01PhoneCiWatch",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": {
+        "level": "low",
+        "manual": false,
+        "needs_you": false,
+        "reason": "Waits for the build",
+        "turn_at": null,
+        "waiting_since": null,
+        "why": null
+      },
+      "sid": "0a5b7c9d-6c2f-4b66-8d7a-8f1e3c5b6d76",
+      "sub": "1 background command · Watch the release build",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794587160,
+      "title": "Rework the label press color profiles for the new matte stock, then compare each run against the reference prints and write up which settings changed and why t…",
+      "url": "https://claude.ai/code/session_01PhoneCiWatch",
+      "waits": []
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhonePressCheck",
+      "group": "waiting",
+      "hold": null,
+      "id": "cse_01PhonePressCheck",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": null,
+      "sid": null,
+      "sub": "A set time",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794594600,
+      "title": "Press check",
+      "url": "https://claude.ai/code/session_01PhonePressCheck",
+      "waits": [
+        {
+          "by": 1794594600,
+          "checks": "The clock",
+          "failing": false,
+          "failing_since": null,
+          "from": null,
+          "id": "b8c9d0",
+          "kind": "at",
+          "what": "A set time",
+          "why": "Look at the press run at the end of the shift"
+        }
+      ]
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneProof",
+      "group": "waiting",
+      "hold": null,
+      "id": "cse_01PhoneProof",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": null,
+      "sid": null,
+      "sub": "Customer's go-ahead on the label proof",
+      "sub_strong": "from customer.example",
+      "sub_warn": null,
+      "time_at": 1794673800,
+      "title": "Label proof",
+      "url": "https://claude.ai/code/session_01PhoneProof",
+      "waits": [
+        {
+          "by": 1794673800,
+          "checks": "Your email, for mail from customer.example, every 10 min, 7 AM to 9 PM",
+          "failing": false,
+          "failing_since": null,
+          "from": "customer.example",
+          "id": "e1f2a3",
+          "kind": "email-reply",
+          "what": "Customer's go-ahead on the label proof",
+          "why": "They sign off within a day"
+        }
+      ]
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneRetry",
+      "group": "waiting",
+      "hold": null,
+      "id": "cse_01PhoneRetry",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": {
+        "level": "medium",
+        "manual": false,
+        "needs_you": false,
+        "reason": "Small fix",
+        "turn_at": null,
+        "waiting_since": null,
+        "why": null
+      },
+      "sid": "6a1b3c5d-2c8f-4bcc-8d3a-4f7e9c1b2d3c",
+      "sub": "2 pull requests",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794760200,
+      "title": "Usage report retry",
+      "url": "https://claude.ai/code/session_01PhoneRetry",
+      "waits": [
+        {
+          "by": 1794760200,
+          "checks": "The pull request on GitHub, every 5 min",
+          "failing": false,
+          "failing_since": null,
+          "from": null,
+          "id": "a1b2c3",
+          "kind": "pr",
+          "what": "Merge of the retry fix PR",
+          "why": "Sunday 5 PM: the reviewer merges within a day"
+        },
+        {
+          "by": 1794763800,
+          "checks": "The pull request on GitHub, every 5 min",
+          "failing": false,
+          "failing_since": null,
+          "from": null,
+          "id": "d4e5f6",
+          "kind": "pr",
+          "what": "Pull request closed",
+          "why": "The old branch closes after the merge"
+        }
+      ]
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneLaminator",
+      "group": "waiting",
+      "hold": null,
+      "id": "cse_01PhoneLaminator",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": null,
+      "sid": null,
+      "sub": "2 email replies",
+      "sub_strong": null,
+      "sub_warn": "1 check failing",
+      "time_at": 1794846600,
+      "title": "Laminator quote",
+      "url": "https://claude.ai/code/session_01PhoneLaminator",
+      "waits": [
+        {
+          "by": 1794846600,
+          "checks": "Your email, for mail from supplier.example, every 30 min, 7 AM to 9 PM",
+          "failing": false,
+          "failing_since": null,
+          "from": "supplier.example",
+          "id": "b2c3d4",
+          "kind": "email-reply",
+          "what": "Supplier's reply to the deposit email",
+          "why": "They said 2 workdays; later misses this week's slot"
+        },
+        {
+          "by": 1794850200,
+          "checks": "Your email, every 1 hr, 7 AM to 9 PM",
+          "failing": true,
+          "failing_since": 1794580200,
+          "from": null,
+          "id": "c3d4e5",
+          "kind": "email-reply",
+          "what": "Email reply",
+          "why": "Same supplier, the older thread"
+        }
+      ]
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneParts",
+      "group": "waiting",
+      "hold": null,
+      "id": "cse_01PhoneParts",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": null,
+      "sid": null,
+      "sub": "A yes/no check",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794933000,
+      "title": "Supplier parts",
+      "url": "https://claude.ai/code/session_01PhoneParts",
+      "waits": [
+        {
+          "by": 1794933000,
+          "checks": "A short Haiku check, every 1 hr, 7 AM to 9 PM",
+          "failing": false,
+          "failing_since": null,
+          "from": null,
+          "id": "f6a7b8",
+          "kind": "check-prompt",
+          "what": "A yes/no check",
+          "why": "They promised Friday"
+        }
+      ]
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhonePrice",
+      "group": "waiting",
+      "hold": null,
+      "id": "cse_01PhonePrice",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": null,
+      "sid": null,
+      "sub": "Price drop on the laminator",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1795019400,
+      "title": "Laminator price",
+      "url": "https://claude.ai/code/session_01PhonePrice",
+      "waits": [
+        {
+          "by": 1795019400,
+          "checks": "A short Haiku check, every 1 hr, 7 AM to 9 PM",
+          "failing": false,
+          "failing_since": null,
+          "from": null,
+          "id": "a7b8c9",
+          "kind": "check-prompt",
+          "what": "Price drop on the laminator",
+          "why": "The quote ends Monday"
+        }
+      ]
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhonePowder",
+      "group": "waiting",
+      "hold": null,
+      "id": "cse_01PhonePowder",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": null,
+      "sid": null,
+      "sub": "12 in of new snow at the resort",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1798043400,
+      "title": "Powder watch",
+      "url": "https://claude.ai/code/session_01PhonePowder",
+      "waits": [
+        {
+          "by": 1798043400,
+          "checks": "The session's own check script, every 2 hr",
+          "failing": false,
+          "failing_since": null,
+          "from": null,
+          "id": "e5f6a7",
+          "kind": "check-script",
+          "what": "12 in of new snow at the resort",
+          "why": "Ski season ends then"
+        }
+      ]
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneInventory",
+      "group": "held",
+      "hold": {
+        "agents": 0,
+        "at": 60,
+        "hold": true,
+        "limit": "Weekly, Opus",
+        "percent": 64,
+        "since": 1794582000,
+        "until": 1794846600
+      },
+      "id": "cse_01PhoneInventory",
+      "late": false,
+      "limit_mode": {
+        "at": 60,
+        "mode": "hold"
+      },
+      "session": {
+        "level": "medium",
+        "manual": false,
+        "needs_you": false,
+        "reason": "Many small edits",
+        "turn_at": null,
+        "waiting_since": null,
+        "why": null
+      },
+      "sid": "3d8e0f2a-9f5c-4e99-9a0d-1c4b6f8e9a09",
+      "sub": "Hold 60%",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794846600,
+      "title": "Inventory photo cleanup",
+      "url": "https://claude.ai/code/session_01PhoneInventory",
+      "waits": []
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneSiteMap",
+      "group": "held",
+      "hold": {
+        "agents": 1,
+        "at": 80,
+        "hold": true,
+        "limit": "5-hour limit",
+        "percent": 81,
+        "since": 1794584400,
+        "until": 1794594600
+      },
+      "id": "cse_01PhoneSiteMap",
+      "late": false,
+      "limit_mode": {
+        "at": 80,
+        "mode": "hold"
+      },
+      "session": {
+        "level": "high",
+        "manual": false,
+        "needs_you": false,
+        "reason": "A plan for one map in all apps",
+        "turn_at": null,
+        "waiting_since": null,
+        "why": null
+      },
+      "sid": "1b6c8d0e-7d3a-4c77-9e8b-9a2f4d6c7e87",
+      "sub": "Hold 80% · 1 of its agents holds too",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794594600,
+      "title": "Site map plan",
+      "url": "https://claude.ai/code/session_01PhoneSiteMap",
+      "waits": []
+    },
+    {
+      "background": null,
+      "cse": "cse_01PhoneUsageReport",
+      "group": "held",
+      "hold": {
+        "agents": 0,
+        "at": 100,
+        "hold": false,
+        "limit": "5-hour limit",
+        "percent": 100,
+        "since": 1794586200,
+        "until": 1794594600
+      },
+      "id": "cse_01PhoneUsageReport",
+      "late": false,
+      "limit_mode": {
+        "at": null,
+        "mode": "follow"
+      },
+      "session": {
+        "level": "medium",
+        "manual": false,
+        "needs_you": false,
+        "reason": "A short report",
+        "turn_at": null,
+        "waiting_since": null,
+        "why": null
+      },
+      "sid": "2c7d9e1f-8e4b-4d88-8f9c-0b3a5e7d8f98",
+      "sub": "Waits at the 5-hour limit",
+      "sub_strong": null,
+      "sub_warn": null,
+      "time_at": 1794594600,
+      "title": "Usage report",
+      "url": "https://claude.ai/code/session_01PhoneUsageReport",
+      "waits": []
+    }
+  ],
+  "usage": {
+    "at": 1794587340,
+    "bars": [
+      {
+        "kind": "session",
+        "name": "5-hour limit",
+        "percent": 100,
+        "resets": 1794594600
+      },
+      {
+        "kind": "weekly_all",
+        "name": "Weekly",
+        "percent": 64,
+        "resets": 1794846600
+      },
+      {
+        "kind": "weekly_scoped",
+        "name": "Weekly, Opus",
+        "percent": 64,
+        "resets": 1794850200
+      }
+    ],
+    "reached": {
+      "name": "5-hour limit",
+      "until": 1794594600
+    }
+  },
+  "v": 1
+}

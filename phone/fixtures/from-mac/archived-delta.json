@@ -1,0 +1,24 @@
+{
+  "add": [
+    {
+      "archived_at": 1794587700,
+      "cse": "cse_01PhoneHvacOld",
+      "folder": "hvac_automation",
+      "title": "HVAC fan curve",
+      "url": "https://claude.ai/code/session_01PhoneHvacOld"
+    },
+    {
+      "archived_at": 1794580200,
+      "cse": "cse_01PhoneWeeklyPlan",
+      "folder": "src",
+      "title": "Weekly plan, week 47",
+      "url": "https://claude.ai/code/session_01PhoneWeeklyPlan"
+    }
+  ],
+  "base": "897c16df23d6f473",
+  "remove": [
+    "cse_01PhoneDoorPi"
+  ],
+  "rev": "47bec3f2e6187a5b",
+  "v": 1
+}

@@ -2,14 +2,17 @@
 // Checks the phone contract (phone/DESIGN.md), with no dependencies:
 //   1. The schemas follow the contract's rules: every object schema refuses fields it does not know
 //      (additionalProperties: false) and every free string has a length cap.
-//   2. Every fixture in phone/fixtures matches its schema.
+//   2. Every fixture in phone/fixtures matches its schema, and so does each one in phone/fixtures/from-mac, which
+//      tools/phone-test.swift writes from the Mac's own builder (Sources/Phone.swift).
 //   3. A field planted in any object of any fixture makes it fail, so no part of a message is open.
 //   4. Every case in phone/fixtures/invalid fails, for its own reason.
 //   5. Each message the schema defines has at least one fixture, and asyncapi.yaml names the same messages.
 // It knows the small part of JSON Schema 2020-12 that these schemas use, and stops on any other keyword.
-// Run: node phone/schema/check.mjs
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+// Run: node phone/schema/check.mjs [folder ...]
+// Each folder given is checked as in 2 and 3 (snapshot*.json, archived*.json, archived-delta*.json): tools/phone-test.swift
+// checks every payload it builds this way.
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { join, dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const schemaDir = dirname(fileURLToPath(import.meta.url));
@@ -131,12 +134,19 @@ function expectValid(value, ref, label) {
 const read = (...p) => JSON.parse(readFileSync(join(fixtureDir, ...p), 'utf8'));
 const files = (dir) => readdirSync(join(fixtureDir, dir)).filter((f) => f.endsWith('.json')).sort();
 
-for (const f of files('.')) {
-  if (f.startsWith('snapshot')) expectValid(read(f), 'snapshot.v1.json', f);
-  else if (f.startsWith('archived-delta')) expectValid(read(f), 'archived.v1.json#/$defs/delta', f);
-  else if (f.startsWith('archived')) expectValid(read(f), 'archived.v1.json#/$defs/list', f);
-  else fail(`${f}: no schema for this name (snapshot*, archived*, archived-delta*)`);
+function payloads(dir, label) {
+  for (const f of readdirSync(dir).filter((f) => f.endsWith('.json')).sort()) {
+    const value = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    const name = label + f;
+    if (f.startsWith('snapshot')) expectValid(value, 'snapshot.v1.json', name);
+    else if (f.startsWith('archived-delta')) expectValid(value, 'archived.v1.json#/$defs/delta', name);
+    else if (f.startsWith('archived')) expectValid(value, 'archived.v1.json#/$defs/list', name);
+    else fail(`${name}: no schema for this name (snapshot*, archived*, archived-delta*)`);
+  }
 }
+payloads(fixtureDir, '');
+if (existsSync(join(fixtureDir, 'from-mac'))) payloads(join(fixtureDir, 'from-mac'), 'from-mac/');
+for (const dir of process.argv.slice(2)) payloads(resolvePath(dir), `${dir}/`);
 for (const d of DIRECTIONS) {
   const list = read('messages', `${d}.json`);
   list.forEach((m, i) => {
