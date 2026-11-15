@@ -107,9 +107,13 @@ import SwiftUI
             // the archived note's picture: the selected session with Open and Bring it back
             Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
                       to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
+            ShotWindow.key = true   // Settings as the person sees it while using it: an on switch in its accent color
             model.page = .settings
+            Shot.redraw(w)
             Shot.capture(w, to: folder + "/window-settings.png")
+            ShotWindow.key = false
             model.page = .news
+            Shot.redraw(w)
             Shot.capture(w, to: folder + "/window-news.png")
             model.page = .events
             model.readEvents()
@@ -204,18 +208,28 @@ import SwiftUI
         .padding(20).frame(width: 480).background(K.card).font(K.font(13)).foregroundColor(K.ink)
         let host = NSHostingView(rootView: view)
         let size = host.fittingSize
-        let w = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)
         w.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         w.isReleasedWhenClosed = false
         w.contentView = host
         w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+        ShotWindow.key = true   // each switch on or off as it really is: on in its accent color, as in the key window
+        redraw(w)
         capture(w, to: path)
+        ShotWindow.key = false
         w.close()
+    }
+
+    /// Every view of the window draws again, so a change of ShotWindow.key shows in the next capture.
+    static func redraw(_ w: NSWindow) {
+        func all(_ v: NSView) { v.needsDisplay = true; v.subviews.forEach(all) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        if let v = w.contentView { all(v) }
     }
 
     /// The window as the app makes it, off the screen.
     static func window(_ model: KitModel) -> NSWindow {
-        let w = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 760),
+        let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 760),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
@@ -593,4 +607,13 @@ enum Draw {
         try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
         print("wrote \(path) (\(Int(w))×\(Int(h)) pt)")
     }
+}
+
+/// The tool's windows. AppKit draws a control in its accent color (an on switch, a checked box) only in the key window
+/// of the active app, and gray in any other window, where an on switch reads as off. The tool never activates the app,
+/// since nothing may come to the front, so while `key` is set its window says it has the key window's look (AppKit's own
+/// `hasKeyAppearance`, which the controls ask when they draw) and they draw as the person sees them in use.
+final class ShotWindow: NSWindow {
+    static var key = false
+    @objc(hasKeyAppearance) func keyLook() -> Bool { ShotWindow.key }
 }
