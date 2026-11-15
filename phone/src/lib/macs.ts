@@ -164,15 +164,6 @@ export function lastSnapshot(id: string): any | null {
   return row ? JSON.parse(row.data) : null;
 }
 
-/** Each linked Mac of a person with its last snapshot, for the pages. */
-export function snapshotsOf(email: string, now = nowS()): { mac: Mac; snapshot: any; receivedAt: number }[] {
-  // No column name is in both tables, so COLS needs no table names.
-  const rows = db()
-    .prepare(`SELECT ${COLS}, s.data, s.received_at AS receivedAt FROM macs m JOIN snapshots s ON s.mac_id = m.id WHERE m.email = ? AND m.removed_at IS NULL ORDER BY m.linked_at, m.name`)
-    .all(email) as (MacRow & { data: string; receivedAt: number })[];
-  return rows.map((r) => ({ mac: macView(r, now), snapshot: JSON.parse(r.data), receivedAt: r.receivedAt }));
-}
-
 export type ArchivedItem = { cse: string; title: string; folder: string; archived_at: number | null; url: string };
 
 /** The last archived list a Mac sent (rev and items; replaced each time). */

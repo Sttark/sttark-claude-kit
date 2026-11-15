@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { db, resetDbForTests } from '../src/lib/db.ts';
 import { events } from '../src/lib/events.ts';
 import { expireOld } from '../src/lib/expiry.ts';
-import { getMac, heard, macsOf, removeMac, resetPresenceForTests, saveSnapshot, setBye, setConnected, snapshotsOf } from '../src/lib/macs.ts';
+import { getMac, heard, lastSnapshot, macsOf, removeMac, resetPresenceForTests, saveSnapshot, setBye, setConnected } from '../src/lib/macs.ts';
 import { storeSampleRoster } from './helpers.ts';
 import snapshot from '../fixtures/snapshot.macbook-pro.json';
 
@@ -37,7 +37,7 @@ describe('Macs', () => {
     addMac('m1', ADA, 'MacBook Pro', now());
     saveSnapshot('m1', { ...structuredClone(snapshot), at: now() });
     db().prepare("INSERT INTO archived (mac_id, hash, received_at, data) VALUES ('m1', 'abcdef12', ?, '[]')").run(now());
-    expect(snapshotsOf(ADA)).toHaveLength(1);
+    expect(lastSnapshot('m1')).toMatchObject({ v: 1 });
     const heardOf: unknown[] = [];
     const listen = (e: unknown) => heardOf.push(e);
     events.on('mac-removed', listen);

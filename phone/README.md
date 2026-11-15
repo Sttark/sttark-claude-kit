@@ -23,7 +23,10 @@ What it serves (under `BASE_PATH`, Environment below):
 | `/auth/login`, `/auth/callback` | The Google sign-in and its return |
 | `/auth/logout`, `/auth/logout-everywhere` | Sign out (POST): this phone, or every phone and browser |
 | `/healthz` | `{"ok": true, "db": true, "sha": "<commit>"}`: the database answers, and which commit runs; 503 when the database does not |
-| `/live` | The phone pages' WebSocket (`asyncapi.yaml`), served by the socket module through `onUpgrade()` |
+| `/link/<token>` | The link page a Mac's Kit opens: sign in, then **Link** (Linking a Mac, below) |
+| `/api/mac/link`, `/api/mac/link/<poll>` | The Kit asks to link (POST) and polls for the answer (GET); no sign-in (`schema/link.v1.json`) |
+| `/mac` | Each linked Mac's WebSocket (The sockets, below) |
+| `/live` | The phone pages' WebSocket (The sockets, below) |
 
 Until a person links a Mac, each page says "No Mac linked yet" and how to
 link one. The tabs sit at the foot of a phone's screen and under the top
@@ -57,7 +60,6 @@ connection to the server, the action is not sent and the page says so.
 The page code knows only the messages, not how the socket is served.
 
 ## Run it
-## Run it
 
 ```bash
 npm install
@@ -68,22 +70,37 @@ npm run build           # dist/
 npm run check           # TypeScript
 npm run check:style     # sttark-shared.css matches sttark-docs main
 npm run check:pages:changed   # the shared page check on the pages you changed
-npm run build && npm run stand-in   # the built app, sample data, a stand-in /live
+npm run fake-mac -- --approve   # with npm run dev: a made-up Mac links, connects and answers
+npm run build && npm run sample   # the built app, sample data, the real sockets and the fake Mac
 npm run build && npm run walk -- --out <folder>   # every page and state, screenshots
 ```
 
-**The stand-in** (`test/live-stand-in.mjs`, test only) runs the built app
-on a temp database with two made-up Macs from `fixtures/`
+**The fake Mac** (`tools/fake-mac.mjs`, local runs only) is a made-up Mac:
+it links itself with a key file (`data/fake-macs/<name>.json`, made on the
+first run; `--approve` clicks Link as `DEV_FAKE_USER`, else open the link
+page it prints), opens `/mac`, signs the challenge, sends a fixture's
+snapshot with every time moved to now, sends its archived list when the
+server asks, answers each action (`--answer auto` from its own state, as a
+Kit would; or `ok`, `gone`, `not_now`, `not_here`, `bad`, `cycle` for each
+in turn, `silent` for a timeout), sends the snapshot the change makes, and
+says bye when it stops (`--for <seconds>`, `--bye sleep|quit|update`, or
+Ctrl-C). `--url http://localhost:4350/kit` for a `BASE_PATH` of `/kit`. A
+second Mac: `--name "Mac mini" --snapshot fixtures/snapshot.mac-mini-away.json
+--for 5 --bye sleep`. `--help` lists every option. The tests use its parts.
+
+**The sample server** (`test/sample-server.mjs`, test only) runs the built
+app on a temp database with two made-up Macs from `fixtures/`
 (`test/sample.mjs`: MacBook Pro live, Mac mini asleep, every time moved to
-now), and answers `/live` as a fake server and Mac: snapshots, the
-archived list, each action with the Mac's words, a new snapshot and a
-change record. Type `next <reason>` to make the next action answer that
-reason, `mac <pro|mini> <state>` to change a Mac's state, `drop` to drop
-the sockets. **The walk** (`test/walk.mjs`) drives it headless at 390 by
-844 and 1280 by 800, light and dark, through every page, action and
-answer, and fails on a script error, a file that does not load, a page
-that does not connect or an answer that never shows. Build with the
-`BASE_PATH` to try (`BASE_PATH=/kit npm run build`, then `--short`).
+now) and a link page waiting for Link, with its real sockets: the fake Mac
+signs in as MacBook Pro and answers each action. Type `next <reason>` to
+make the next action answer that reason (`timeout` waits the server's 20
+seconds; `offline` drops the Mac's socket just before), `mac <pro|mini>
+<state>` to make a Mac come or go, `drop` to drop the pages' sockets.
+**The walk** (`test/walk.mjs`) drives it headless at 390 by 844 and 1280 by
+800, light and dark, through every page, action and answer and the link
+page, and fails on a script error, a file that does not load, a page that
+does not connect or an answer that never shows. Build with the `BASE_PATH`
+to try (`BASE_PATH=/kit npm run build`, then `--short`).
 
 `npm run dev` and `npm run build` first copy the licensed fonts in (Fonts,
 below). An AI agent's `npm run dev` runs in the background (Astro's own
@@ -94,23 +111,99 @@ choice); `npx astro dev stop` stops it.
 `HOST` and `PORT`: the built files in `dist/client`, then Astro's pages
 (the node adapter in middleware mode), and the WebSocket upgrades. It sets
 `NODE_ENV=production` unless told otherwise, and makes one request at boot
-so the roster sync and the daily job start at once. nginx passes `/` and,
-with the Upgrade headers, `/mac` and `/live` to it, with `Host` and
-`X-Forwarded-Proto` (the form posts' origin check needs both).
+so the roster sync, the daily job and the sockets start at once. nginx
+passes `/` and, with the Upgrade headers, `/mac` and `/live` to it (under
+`BASE_PATH`, as they came), with `Host`, `X-Forwarded-Proto` and
+`X-Real-IP` (or `X-Forwarded-For`): the link page compares the browser's
+address with the Mac's, and an address it cannot know shows the code. A
+restart (`SIGTERM`) closes every socket with 1012 first, so each Kit and
+page connects again at once.
 
 **Sockets.** `server.mjs` passes every upgrade request to the handler set
-with `onUpgrade()` (`src/lib/upgrade.ts`) and refuses it while none is set.
+with `onUpgrade()` (`src/lib/upgrade.ts`) and refuses it while none is set;
+`npm run dev` passes `/mac` and `/live` to the same handler
+(`astro.config.mjs`). The handler is `src/lib/hub.ts`.
+
+## Linking a Mac
+
+`DESIGN.md`, section 2; the calls are in `schema/link.v1.json`.
+
+1. The Kit sends `POST /api/mac/link` (JSON): its P-256 public key (SPKI,
+   DER, base64), its name, the Kit version, a random Mac id, where the key
+   lives (`secure-enclave` or `keychain`) and its Claude Code login as
+   Google's account hint (or null). A field the schema does not know is
+   refused (400), and so is a key that is not P-256, a Mac id the server
+   knows already (409: a Mac id is linked once, so linking never puts a new
+   key on a Mac someone has), and more than 20 requests in 10 minutes from
+   one address (429). The answer: the link page's address, a poll token
+   and a 4-letter code. The page works once, for 10 minutes; only hashes of
+   the two tokens are kept (`links`), and rows go after a day.
+2. The Kit polls `GET /api/mac/link/<poll>` every 2 seconds: `waiting`,
+   then `linked` with the person's address and name, or `expired` (404 for
+   a poll it does not know).
+3. The link page (`src/pages/link/[token].astro`) signs the person in
+   first (Google, with the hint), then asks "Link MacBook Pro to your
+   account?" with one green **Link**. When the browser is not on the
+   address the Kit asked from (the same IPv4 address, or the same IPv6
+   /64), it also shows the code and asks the person to check that the Kit
+   shows the same. **Link** saves the key to the person (`macs`) with a
+   record, and the page says "Linked. On your phone, open
+   <site>", with a QR code of the address. A person has at most 20 linked
+   Macs.
+
+## The sockets
+
+`src/lib/hub.ts`; the messages are in `asyncapi.yaml` and `schema/`, and
+`src/lib/contract.ts` checks each one, in and out, against them: a message
+with a field the contract does not know gets `error bad_message` and
+changes nothing, and the server never sends one the contract does not
+allow.
+
+- **`/mac`**: the server sends `challenge`; the Mac answers `auth` with an
+  ECDSA P-256 SHA-256 signature, with its saved key, of the UTF-8 text
+  `kit-mac-v1`, its Mac id and the nonce, one per line (no newline at the
+  end), DER or the 64-byte r and s, base64 (`src/lib/keys.ts`). Then
+  `welcome`. Closes: 4400 no valid `auth` in 15 seconds, 4401 an unknown
+  or removed Mac or a wrong signature, 4403 its person is off the roster,
+  4409 a newer connection of the same Mac took over, 1000 after `unlink`,
+  1012 a restart. The server pings every 25 seconds (the Mac does too), and
+  drops a socket that sends nothing for 60 seconds. It keeps the last
+  snapshot and archived list of each Mac (replaced; no history), and
+  forwards each new snapshot to the person's pages at once.
+- **A Mac's state** (`src/lib/macs.ts`, the same on the pages and on
+  `/live`): live (heard from in the last 60 seconds), updating (2 minutes
+  after `bye update`), asleep, quit (after that `bye`), not heard from.
+  When it was last heard from is kept in memory on every frame, and in the
+  database at most once a minute.
+- **`/live`**: a signed-in page (the sign-in cookie, and an `Origin` of
+  `APP_ORIGIN`; a local run takes `localhost` and `127.0.0.1` as one). It
+  gets the person's Macs and each one's last snapshot, then each change.
+  While one of the person's pages is visible, their Macs get `watching:
+  true`. `open_archived` gets the server's copy of each archived list, and
+  a live Mac whose copy is older (its snapshot's `archived_rev`) gets
+  `want_archived`; an `archived_delta` from a list the server does not
+  hold gets `want_archived` again. Sign out closes that sign-in's pages,
+  Sign out everywhere every page of the person.
+- **Actions**: only the six of the contract. The server checks that the
+  Mac is the person's (else `denied`) and connected and live (else
+  `offline` at once; nothing is kept for later), sends it with who asked,
+  and waits 20 seconds for `result` (else `timeout`). Each outcome is one
+  record with before and after, and the person's pages get a `record` for
+  the session; a result that comes after its timeout is recorded too.
+- **Removal**: Menu > Remove, `unlink` from the Kit, the roster sync and
+  the daily job all mark the Mac removed with a record and close its
+  socket (`events.ts`).
 
 ## Environment
 
 | Variable | Needed | What |
 |---|---|---|
-| `APP_ORIGIN` | production | `https://kit.sttark.com`. Google returns to `APP_ORIGIN/auth/callback`; an `https` origin makes the sign-in cookie secure. Default `http://localhost:4350` |
+| `APP_ORIGIN` | production | The site's origin: `https://kit.sttark.com`, or `https://building.sttark.com` with a `BASE_PATH` of `/kit`. Google returns to it (with `BASE_PATH`); the link page's address and QR code start with it; a form post and a `/live` socket must come from it; an `https` origin makes the sign-in cookie secure. Default `http://localhost:4350` |
 | `VAULT_GOOGLE_CLIENT_ID`, `VAULT_GOOGLE_CLIENT_SECRET` | production | The shared Sttark Workspace sign-in client. Unset, Sign in with Google says it is not set up |
 | `VAULT_ORG_SYNC_TOKEN` | production | The Kit's own read-only Workrouter org-sync key (`sk_org_...`), for the hourly roster. Unset, the roster stays as stored |
 | `KIT_DB` | production | The database file, default `data/kit.db` (made with its folder) |
 | `HOST`, `PORT` | optional | Where `server.mjs` listens, default `127.0.0.1` and `4350` |
-| `BASE_PATH` | build only | The path the site lives under: empty at `kit.sttark.com` (the default), `/kit` at `building.sttark.com/kit`. Set when building; the build writes it to `dist/kit-build.json`, and every link, file, cookie and socket path starts with it. Google returns to `APP_ORIGIN` + `BASE_PATH` + `/auth/callback`, and nginx passes the path as it came |
+| `BASE_PATH` | build only | The path the site lives under: empty at `kit.sttark.com` (the default), `/kit` at `building.sttark.com/kit`. Set when building (and for `npm run dev`); the build writes it to `dist/kit-build.json`, and every link, file, cookie and socket path starts with it (`src/lib/paths.ts`). Google returns to `APP_ORIGIN` + `BASE_PATH` + `/auth/callback`, and nginx passes the path as it came |
 | `WORKROUTER_URL` | optional | Workrouter's base URL, default `https://www.sttark.com` |
 | `DEV_FAKE_USER` | local only | Signs everyone in as this address. Ignored when `NODE_ENV` is `production` |
 | `STTARK_FONTS_DIR` | build only | A folder with the font files (Fonts, below) |
@@ -128,7 +221,9 @@ with `onUpgrade()` (`src/lib/upgrade.ts`) and refuses it while none is set.
   forward at most once a day while used, in the database and the cookie.
 - **Sign out** ends this sign-in and its push subscription. **Sign out
   everywhere** (Menu) ends every sign-in and push subscription of the
-  person; their Macs stay linked.
+  person; their Macs stay linked. Each closes the pages' sockets too.
+- **Form posts** must come from `APP_ORIGIN` (`src/middleware.ts`; Astro's
+  own check is off, since it needs the origin when the app is built).
 - **Access** is one rule: everyone on the roster, and each person sees only
   their own Macs. So there is no access page.
 
@@ -143,7 +238,7 @@ roster, so nobody's access changes, and logs `[roster] ALERT`. A good read
 logs `[roster] synced from Workrouter: N people on the roster`; a 304 keeps
 the roster. Someone who leaves the roster loses access at that sync: their
 sign-ins and push subscriptions end, and their Macs are removed, each with
-a record.
+a record; their Macs' and pages' sockets close with 4403.
 
 ## Storage
 
@@ -158,8 +253,8 @@ each kind of row is kept:
 | `oauth_states` | Google sign-ins under way | 10 minutes |
 | `people` | Who has signed in | For good |
 | `roster`, `meta` | The last good roster, and the sync's state | Replaced by each good sync |
-| `macs` | Linked Macs and their public keys | For good; a removed Mac keeps its row, with when, why and by whom |
-| `links` | Link pages waiting for a sign-in | 1 day |
+| `macs` | Linked Macs and their public keys | For good; a removed Mac keeps its row, with when, why (`phone`, `mac`, `roster`, `quiet`) and by whom. A Mac not heard from in 90 days is removed by the daily job |
+| `links` | Link pages waiting for a sign-in (hashes of their tokens) | 1 day |
 | `snapshots`, `archived` | The last snapshot and archived list each Mac sent | Replaced each time; deleted when the Mac is removed |
 | `push_subs` | Web Push subscriptions, one per phone | Until sign-out, or the push service says it is gone |
 | `pushes_sent` | Needs you pushes sent | 2 days |
@@ -188,14 +283,28 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   unverified email and a person off the roster; sign-ins end after 30 days
   unused and roll while used; Sign out and Sign out everywhere; a failed
   roster sync keeps the last good roster; leaving the roster ends access;
-  records refuse change and delete, and the daily job's expiry; the gate;
-  `/healthz`; and no real person's address anywhere in `phone/`.
+  records refuse change and delete, and the daily job's expiry; the gate
+  and its form origin check; `/healthz`; and no real person's address
+  anywhere in `phone/`. Linking (`link.test.ts`): once, the 10 minutes, a
+  field the contract does not know, a wrong key, a Mac id linked twice, the
+  code check, 20 Macs. The sockets (`hub.test.ts`, real sockets on a free
+  port): the signed challenge (a wrong signature, an unknown, removed or
+  off-roster Mac), a refused unknown field, snapshots to their person only,
+  bye and unlink, the page's cookie and Origin, watching, an action and its
+  record, one person acting on another's Mac (denied), offline, timeout and
+  a late answer, the six actions only, archived want and delta with a
+  missing base; and every message the server sent matches the contract.
+  `BASE_PATH` `/kit` in the gate, the cookie, Google's return, the link
+  page and the sockets (`paths.test.ts`, `middleware.test.ts`,
+  `hub.test.ts`). The server's checks agree with the fixtures
+  (`contract.test.ts`); the fake Mac links over HTTP and answers
+  (`fake-mac.test.ts`); removal and the 90 days (`macs.test.ts`).
 - **The page check** (`scripts/page-check.mjs`, the shared Sttark check
   from Sttark/sttark-docs `page-check/`; this app's part is
   `scripts/page-check.config.mjs`): every page at 390 and 1280 px, light and
   dark, as one made-up person twice: on an empty database, and with the two
-  sample Macs on the stand-in (each session group, archived, a Mac away,
-  Menu).
+  sample Macs on the sample server (each session group, archived, a Mac
+  away, Menu, a link page).
 - **The pages** (`test/pages.test.ts`): the groups and their order, a Mac
   that is away, Mac names only with several Macs, search, every answer,
   `BASE_PATH` in every link, a Mac's state from the database, and Remove.
@@ -214,11 +323,15 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
 | `src/lib/auth.ts`, `src/lib/session.ts` | Google sign-in and sign-ins |
 | `src/lib/roster.ts` | The roster sync |
 | `src/lib/records.ts`, `src/lib/expiry.ts` | Change records, and the daily job |
-| `src/lib/macs.ts`, `src/lib/upgrade.ts` | Linked Macs and Remove (it calls the hook at `sttark.kit.macRemoved`, so the socket module can close the Mac's socket); the WebSocket hook |
+| `src/lib/macs.ts`, `src/lib/upgrade.ts` | Linked Macs: state, what each sent, Remove; the WebSocket hook |
+| `src/lib/hub.ts`, `src/lib/contract.ts`, `src/lib/events.ts` | The two sockets; the contract's checks; what removal and the roster tell the sockets |
+| `src/lib/link.ts`, `src/lib/keys.ts`, `src/lib/net.ts`, `src/lib/qr.ts` | Linking a Mac; keys, signatures and tokens; the code check's addresses; the QR code |
+| `src/pages/link/[token].astro`, `src/pages/api/mac/` | The link page; the Kit's link calls |
 | `src/layouts/Base.astro` | The page frame (top bar with Search and Menu, tabs), and the data the page was drawn from |
 | `src/view/` | The pages as HTML (`render.ts`), what they draw from (`model.ts`), times in words (`time.ts`): the server and the browser both use them |
 | `src/scripts/app.ts` | The pages in the browser: `/live`, actions, search, ⓘ notes, Remove's confirm, the theme |
 | `src/lib/state.ts`, `src/lib/paths.ts` | The data a page is drawn from, from the database; `BASE_PATH` |
 | `src/styles/sttark-shared.css`, `src/styles/app.css` | The guide's shared style file, byte for byte, and this app's own |
 | `scripts/fonts.mjs`, `scripts/check-style.mjs` | The licensed fonts; the shared style file check |
-| `test/` | The tests, and `sample-people.json`, the made-up people they use; `sample.mjs`, `live-stand-in.mjs` and `walk.mjs` (above) |
+| `test/` | The tests, and `sample-people.json`, the made-up people they use; `sample.mjs`, `sample-server.mjs` and `walk.mjs` (above) |
+| `tools/fake-mac.mjs` | The fake Mac (above) |

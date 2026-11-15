@@ -15,6 +15,23 @@ export function appOrigin(): string {
   return (process.env.APP_ORIGIN || 'http://localhost:4350').replace(/\/+$/, '');
 }
 
+/** Is this request Origin this site? APP_ORIGIN exactly. On a local run (not
+ *  production), localhost and 127.0.0.1 with the same port count as one. */
+export function isAppOrigin(origin: string | null | undefined, env: Record<string, string | undefined> = process.env): boolean {
+  if (!origin) return false;
+  const app = appOrigin();
+  if (origin === app) return true;
+  if (env.NODE_ENV === 'production') return false;
+  try {
+    const a = new URL(app);
+    const o = new URL(origin);
+    const local = (h: string) => h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+    return a.protocol === o.protocol && a.port === o.port && local(a.hostname) && local(o.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** The path the app is served under: "" or "/kit" (no trailing slash). */
 export function basePath(): string {
   return normalizeBase(import.meta.env?.BASE_URL);

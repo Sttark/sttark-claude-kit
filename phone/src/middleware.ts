@@ -17,7 +17,7 @@ import { devUser, readSession } from './lib/session.ts';
 import { startRosterSync } from './lib/roster.ts';
 import { startExpiry } from './lib/expiry.ts';
 import { startHub } from './lib/hub.ts';
-import { appOrigin, appPath, href } from './lib/paths.ts';
+import { appPath, href, isAppOrigin } from './lib/paths.ts';
 
 export { devUser };
 
@@ -37,7 +37,7 @@ export function crossSiteForm(request: Request): boolean {
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return false;
   const type = request.headers.get('content-type') ?? '';
   if (!FORM.test(type)) return false;
-  return request.headers.get('origin') !== appOrigin();
+  return !isAppOrigin(request.headers.get('origin'));
 }
 
 // The hourly roster sync, the daily expiry job and the sockets start with

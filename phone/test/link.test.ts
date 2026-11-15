@@ -9,7 +9,6 @@ import { checkLink } from '../src/lib/contract.ts';
 import { qrSvg } from '../src/lib/qr.ts';
 import { POST } from '../src/pages/api/mac/link.ts';
 import { GET } from '../src/pages/api/mac/link/[poll].ts';
-// @ts-expect-error: a plain .mjs tool, no types
 import { publicKeyOf } from '../tools/fake-mac.mjs';
 import { storeSampleRoster } from './helpers.ts';
 import { newMac } from './kit.ts';

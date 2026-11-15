@@ -8,32 +8,34 @@
 // made-up person, twice: on an empty database with no Mac linked (a dev
 // server; --ignore-lock keeps it in the foreground, also when an AI agent
 // runs it), and with two linked Macs from the contract's fixtures, one live
-// and one asleep (test/sample.mjs), on the built app with the test-only
-// stand-in for /live (test/live-stand-in.mjs), so each page is measured as
-// it is once connected.
+// and one asleep (test/sample.mjs), on the built app with its real sockets
+// and the fake Mac signed in (test/sample-server.mjs), so each page is
+// measured as it is once connected. A pending link page is the link page's
+// sample.
 import { fileURLToPath } from 'node:url';
+import { SAMPLE_LINK } from '../test/sample.mjs';
 
 const PERSON = 'avery.stone@sttark.com';
 /** A dev server signed in as one made-up person, never a real one. */
 const devServer = (name, person) => ({
   name,
   command: 'npx astro dev --port {port} --ignore-lock',
-  env: { DEV_FAKE_USER: person, KIT_DB: `{dir}/${name}.db` },
+  env: { DEV_FAKE_USER: person, KIT_DB: `{dir}/${name}.db`, APP_ORIGIN: 'http://localhost:{port}' },
   ready: '/healthz',
 });
-/** The same person with two Macs: the built app and the stand-in for /live.
- *  It runs first, so its build never overlaps the dev server's start. */
+/** The same person with two Macs: the built app, its sockets and the fake
+ *  Mac. It runs first, so its build never overlaps the dev server's start. */
 const sampleServer = (name, person) => ({
   name,
   before: 'npx astro build',
-  command: 'node test/live-stand-in.mjs --port {port}',
+  command: 'node test/sample-server.mjs --port {port}',
   env: { DEV_FAKE_USER: person, BASE_PATH: '' },
   ready: '/healthz',
   timeout: 240,
 });
 /** The sample's pages: the three tabs, Menu, a search, a session of each
  *  group, an archived session, the Mac that is away and one of its
- *  sessions. */
+ *  sessions, and a link page waiting for Link. */
 const SAMPLE_PAGES = [
   '/menu',
   '/',
@@ -47,6 +49,7 @@ const SAMPLE_PAGES = [
   '/archived/session_01SampleDoorPi',
   '/mac/mac_2Vd8Rt5Wn1',
   '/s/session_01SampleBinLabels?from=mac%3Amac_2Vd8Rt5Wn1',
+  `/link/${SAMPLE_LINK.token}`,
 ];
 
 /** A page file as a path; sign-in, the error pages and routes are not walked. */
@@ -76,7 +79,7 @@ export default {
     pagePath,
     // Files no page imports that reach every page: this config, and the
     // middleware (sign-in runs on every request).
-    always: ['scripts/page-check.config.mjs', 'src/middleware.ts', 'test/sample.mjs', 'test/live-stand-in.mjs'],
+    always: ['scripts/page-check.config.mjs', 'src/middleware.ts', 'test/sample.mjs', 'test/sample-server.mjs', 'tools/fake-mac.mjs'],
     // What the middleware only starts once: the roster sync and the daily
     // job. A change to one reaches the pages that import it, not every page.
     services: ['src/lib/roster.ts', 'src/lib/expiry.ts'],

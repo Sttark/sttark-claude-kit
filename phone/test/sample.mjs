@@ -6,7 +6,7 @@
 //
 //   node test/sample.mjs <database file> [email]
 //
-// Also imported by test/live-stand-in.mjs.
+// Also imported by test/sample-server.mjs.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -16,6 +16,9 @@ const read = (p) => JSON.parse(readFileSync(here(p), 'utf8'));
 /** The fixture's moment: MacBook Pro's snapshot time. */
 export const FIXTURE_AT = 1794587400;
 export const MACS = { pro: 'mac_7Hq2Lx9Kp4', mini: 'mac_2Vd8Rt5Wn1' };
+/** A link page waiting for Link (test/sample-server.mjs makes it): a third
+ *  Mac, Mac Studio, asked from another address, so the page shows its code. */
+export const SAMPLE_LINK = { token: 'sample-link-page-made-up-for-local-runs-001', mac: 'mac_SampleStudio1', name: 'Mac Studio', code: 'KXQM', address: '203.0.113.5' };
 
 const TIME_KEYS = new Set(['at', 'time_at', 'resets', 'until', 'since', 'waiting_since', 'turn_at', 'by', 'failing_since', 'archived_at', 'last_seen']);
 /** A copy of a fixture with every time moved by delta seconds. */

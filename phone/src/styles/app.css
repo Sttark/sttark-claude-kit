@@ -1332,7 +1332,11 @@ main > div > h1.page-title,
   max-width: 560px;
 }
 .link-page .page-title {
-  margin: 0;
+  margin: 8px 0 0;
+}
+.link-page .hint {
+  color: var(--steel);
+  font-size: 14px;
 }
 /* The code check: attention, in the warn wash, with the code big enough to
    compare with the Kit's from a step away. */

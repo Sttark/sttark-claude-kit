@@ -29,7 +29,7 @@ import { addRecord } from './records.ts';
 import { events } from './events.ts';
 import { checkMessage, type Direction, type Message } from './contract.ts';
 import { newNonce, verifyMacSignature } from './keys.ts';
-import { appOrigin, href } from './paths.ts';
+import { href, isAppOrigin } from './paths.ts';
 import { onRoster } from './roster.ts';
 import { devUser, sessionFromCookieHeader, sessionStillValid } from './session.ts';
 import { onUpgrade } from './upgrade.ts';
@@ -496,7 +496,7 @@ function onResult(m: MacSock, r: { id: string; reason: string; words: string; be
 // ---------- /live ----------
 
 function acceptPhone(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-  if (req.headers.origin !== appOrigin()) return refuse(socket, 403, 'Forbidden');
+  if (!isAppOrigin(req.headers.origin)) return refuse(socket, 403, 'Forbidden');
   const s = sessionFromCookieHeader(req.headers.cookie);
   const dev = s ? null : devUser();
   const who = s ? { email: s.email, name: s.name, session: s.id } : dev ? { ...dev, session: null } : null;
@@ -636,9 +636,4 @@ export function resetHubForTests(): void {
   H.pending.clear();
   H.late.clear();
   H.shown.clear();
-}
-
-/** What the server holds now, for the tests. */
-export function hubFacts(): { macs: string[]; phones: number; pending: number } {
-  return { macs: [...H.macs.keys()], phones: H.phones.size, pending: H.pending.size };
 }

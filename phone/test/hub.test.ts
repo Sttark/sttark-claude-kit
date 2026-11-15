@@ -7,7 +7,6 @@ import { db, resetDbForTests } from '../src/lib/db.ts';
 import { resetHubForTests, settings, sweep, WORDS } from '../src/lib/hub.ts';
 import { getMac, macState, removeMac, resetPresenceForTests, archivedOf, lastSnapshot } from '../src/lib/macs.ts';
 import { resetLinkRateForTests } from '../src/lib/link.ts';
-// @ts-expect-error: a plain .mjs tool, no types
 import { macConnect, signChallenge, FakeMac } from '../tools/fake-mac.mjs';
 import { ROSTER, storeSampleRoster } from './helpers.ts';
 import { Conn, allValid, linkedMac, newMac, phone, sleep, startServer, type At } from './kit.ts';

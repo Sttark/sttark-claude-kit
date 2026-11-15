@@ -13,7 +13,6 @@ import { appOrigin, href } from '../src/lib/paths.ts';
 import { checkMessage, type Direction } from '../src/lib/contract.ts';
 import { POST as linkPost } from '../src/pages/api/mac/link.ts';
 import { GET as pollGet } from '../src/pages/api/mac/link/[poll].ts';
-// @ts-expect-error: a plain .mjs tool, no types
 import { Conn, loadKey, publicKeyOf, where } from '../tools/fake-mac.mjs';
 import { fakeCookies } from './helpers.ts';
 

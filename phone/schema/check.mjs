@@ -17,7 +17,7 @@ const phoneDir = dirname(schemaDir);
 const fixtureDir = join(phoneDir, 'fixtures');
 const docs = {};
 const load = (name) => (docs[name] ??= JSON.parse(readFileSync(join(schemaDir, name), 'utf8')));
-const SCHEMAS = ['snapshot.v1.json', 'archived.v1.json', 'messages.v1.json'];
+const SCHEMAS = ['snapshot.v1.json', 'archived.v1.json', 'messages.v1.json', 'link.v1.json'];
 const DIRECTIONS = ['server_to_mac', 'mac_to_server', 'phone_to_server', 'server_to_phone'];
 
 const KNOWN = new Set(['$schema', '$id', '$defs', '$ref', 'title', 'description', 'type', 'const', 'enum',

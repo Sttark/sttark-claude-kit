@@ -80,7 +80,11 @@ export function where(url) {
 
 // ---------- linking ----------
 
-export async function requestLink(at, k, { hint = null, kit = '1.140' } = {}) {
+/** Asks to link (schema/link.v1.json, request); answers the link page, the
+ *  poll token and the code.
+ *  @param {{ hint?: string | null, kit?: string }} [options] */
+export async function requestLink(at, k, options = {}) {
+  const { hint = null, kit = '1.140' } = options;
   const r = await fetch(`${at.http}/api/mac/link`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -243,6 +247,8 @@ export class FakeMac {
     this.history = new Map([[revOf(this.archived), this.archived]]);
     this.serverHas = null;
     this.answer = answer;
+    /** How it answers the next action only, then as `answer` says. */
+    this.once = null;
     this.turn = 0;
     this.delay = delay;
     this.log = log;
@@ -366,7 +372,8 @@ export class FakeMac {
   /** How this Mac answers one action: from its own state (auto), or with a
    *  reason the run asked for. */
   respond(act, args) {
-    const how = this.answer === 'cycle' ? REASONS[this.turn++ % REASONS.length] : this.answer;
+    const how = this.once ?? (this.answer === 'cycle' ? REASONS[this.turn++ % REASONS.length] : this.answer);
+    this.once = null;
     if (how === 'silent') return null;
     const auto = this.decide(act, args);
     if (how === 'auto' || how === auto.reason) return auto;

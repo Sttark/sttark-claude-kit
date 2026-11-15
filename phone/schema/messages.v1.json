@@ -88,7 +88,7 @@
     },
     "server_to_mac.challenge": {
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
-      "description": "First message on a new connection. The Mac signs kit-mac-v1, its Mac id and the nonce.",
+      "description": "First message on a new connection. The Mac signs the UTF-8 text kit-mac-v1, its Mac id and the nonce, one per line, with no newline at the end: ECDSA P-256 with SHA-256.",
       "properties": {
         "event": { "const": "challenge" }, "success": { "const": true },
         "payload": { "type": "object", "additionalProperties": false, "required": ["nonce"], "properties": { "nonce": { "type": "string", "minLength": 16, "maxLength": 128, "pattern": "^[A-Za-z0-9_-]+$" } } }
@@ -167,14 +167,14 @@
     },
     "mac_to_server.auth": {
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
-      "description": "The answer to challenge. Wrong signature: the server closes with 4401. Its person is not on the roster: 4403.",
+      "description": "The answer to challenge. Wrong signature, or an unknown or removed Mac: the server closes with 4401. Its person is not on the roster: 4403. No valid auth in 15 seconds: 4400.",
       "properties": {
         "event": { "const": "auth" }, "success": { "const": true },
         "payload": {
           "type": "object", "additionalProperties": false, "required": ["mac", "sig", "kit"],
           "properties": {
             "mac": { "$ref": "#/$defs/id", "description": "The random Mac id made at linking." },
-            "sig": { "type": "string", "minLength": 64, "maxLength": 256, "pattern": "^[A-Za-z0-9+/=_-]+$", "description": "P-256 ECDSA signature, base64." },
+            "sig": { "type": "string", "minLength": 64, "maxLength": 256, "pattern": "^[A-Za-z0-9+/=_-]+$", "description": "P-256 ECDSA signature with SHA-256 of kit-mac-v1, the Mac id and the nonce, one per line: DER (X9.62) or the 64-byte r and s, base64." },
             "kit": { "type": "string", "maxLength": 20, "pattern": "^[0-9]+(\\.[0-9]+)*$" }
           }
         }
