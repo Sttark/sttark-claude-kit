@@ -7,7 +7,7 @@
 //   docs/settings-phone.png   the Settings page's Phone box in each of its states (Kit on your phone)
 //   docs/window-news.png      the window's What's new page
 //   docs/window-events.png    the window's Events page, newest first, from sample log lines
-//   docs/whats-new.png        the What's new sheet over the window, with this repo's notes
+//   docs/whats-new.png        the What's new sheet over the window, with this repo's newest notes (at most 4)
 // and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
 // The window and the sheet are real windows, put off the screen and captured with screencapture, so they look as
@@ -168,9 +168,10 @@ import SwiftUI
             Shot.crop(full, NSRect(x: 226, y: 0, width: 390, height: 280),
                       to: "whats-new/sessions-at-once" + (look ? "-dark" : "") + ".png")
             w.setFrame(f, display: true)
-            // the What's new sheet, as the menu's What's new item opens it, over the window
+            // the What's new sheet, as the menu's What's new item opens it, over the window: the newest notes, at most 4
+            // as WhatsNew.forSheet gives them, so the sheet fits the window with its title and buttons
             model.page = .sessions
-            model.sheet = WhatsNew.all
+            model.sheet = Array(WhatsNew.all.prefix(4))
             w.orderFrontRegardless()
             RunLoop.main.run(until: Date().addingTimeInterval(1.5))
             Shot.capture(w, to: folder + "/whats-new.png", wait: 0.2)
