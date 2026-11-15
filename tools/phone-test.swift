@@ -377,12 +377,13 @@ import Foundation
 
         // the server's address: one setting, and STTARK_PHONE_URL for tests; a path is allowed
         unsetenv("STTARK_PHONE_URL")
-        check("the address: kit.sttark.com, its socket wss://kit.sttark.com/mac", PhoneLink.shown == "kit.sttark.com"
-              && PhoneLink.socketURL.absoluteString == "wss://kit.sttark.com/mac" && PhoneLink.url("api/mac/link").absoluteString == "https://kit.sttark.com/api/mac/link")
-        setenv("STTARK_PHONE_URL", "https://building.sttark.com/kit/", 1)
-        check("an address with a path: the API and the socket under it", PhoneLink.shown == "building.sttark.com/kit"
+        check("the address: building.sttark.com/kit, a path: the API and the socket under it", PhoneLink.shown == "building.sttark.com/kit"
               && PhoneLink.socketURL.absoluteString == "wss://building.sttark.com/kit/mac"
               && PhoneLink.url("api/mac/link").absoluteString == "https://building.sttark.com/kit/api/mac/link")
+        setenv("STTARK_PHONE_URL", "https://kit.sttark.com/", 1)
+        check("an address with no path: the API and the socket at its root", PhoneLink.shown == "kit.sttark.com"
+              && PhoneLink.socketURL.absoluteString == "wss://kit.sttark.com/mac" && PhoneLink.url("api/mac/link").absoluteString == "https://kit.sttark.com/api/mac/link")
+        setenv("STTARK_PHONE_URL", "https://building.sttark.com/kit/", 1)
         check("a link page on another host is never opened", PhoneLink.page(from: ["link": "https://evil.example/link/x", "poll": String(repeating: "a", count: 43), "code": "ABCD"]) == nil
               && PhoneLink.page(from: ["link": "https://building.sttark.com/kit/link/abc", "poll": String(repeating: "a", count: 43), "code": "ABCD", "expires_at": 1_800_000_000])?.code == "ABCD")
         setenv("STTARK_PHONE_URL", "http://127.0.0.1:9", 1)
@@ -425,7 +426,7 @@ import Foundation
               && event("not connected: another copy of the Kit on this Mac took over the connection; the Kit tries again in a minute")?.detail == ["The Kit tries again in a minute."])
         check("Events: removed and refused are warnings; connected and bye are routine",
               event("removed from your phone (4401): the Kit dropped this Mac's key")?.level == .warn && event("refused (4403): not on the roster")?.level == .warn
-              && event("connected to kit.sttark.com")?.routine == true && event("bye: sleep")?.text == "Told 127.0.0.1:9 that this Mac sleeps")
+              && event("connected to building.sttark.com/kit")?.routine == true && event("bye: sleep")?.text == "Told 127.0.0.1:9 that this Mac sleeps")
         check("Events: linked, and the link page with its code", event("linked to kip.valve@sttark.com")?.text == "This Mac is linked to your phone"
               && event("link page opened, code KXRT, until 11:40 AM")?.detail == ["This Mac's code: KXRT.", "It works until 11:40 AM."])
         let r = event("reminder to your phone: Order page login")

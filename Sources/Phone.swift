@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import SystemConfiguration
 
-/// Kit on your phone, the Mac side (phone/DESIGN.md, sections 3 and 13): what the Kit sends to kit.sttark.com, and
+/// Kit on your phone, the Mac side (phone/DESIGN.md, sections 3 and 13): what the Kit sends to the phone server (PhoneLink.address), and
 /// when. Each payload is what phone/schema says, field for field: the snapshot holds the rows of the four groups the
 /// phone shows (Needs you, Claude working, Waiting on someone else, Held at usage limit), the usage and the version of
 /// the archived list; the archived list itself goes up only when the server asks for it.

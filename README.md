@@ -164,7 +164,7 @@ The 5-hour and weekly usage show at the bottom of the sidebar, with when each re
 | **Model that picks the level** | Which Claude model picks the levels: the two newest Haiku and two newest Sonnet models, read from Anthropic's list once a day, so new ones appear without an update. Haiku is faster and cheaper; Sonnet is slower and smarter. The newest Sonnet is the default. |
 | **Use credits at the usage limit** | Off (the default): at the limit, sessions hold until it resets. On: they go on with usage credits. A session with its own setting keeps it either way. See [below](#wait-at-the-usage-limit). |
 | **Reach me by** | How a session tells you that something it waited on happened. Check the ways you want; **Set…** or **Change…** for the address, phone number or webhook a way needs; **Send a test**. See [below](#reach-me-by). |
-| **Kit on your phone** | Sends your sessions to kit.sttark.com, where you see them and act on them on your phone. On until you turn it off, but it sends nothing until you link this Mac: **Link this Mac…** opens the link page in your browser and shows this Mac's code. Linked, it shows the account and when it last sent, and says that Needs you notices go to your phone when you are away from this Mac (with what to do when no phone of yours gets them). See [below](#kit-on-your-phone). |
+| **Kit on your phone** | Sends your sessions to building.sttark.com/kit, where you see them and act on them on your phone. On until you turn it off, but it sends nothing until you link this Mac: **Link this Mac…** opens the link page in your browser and shows this Mac's code. Linked, it shows the account and when it last sent, and says that Needs you notices go to your phone when you are away from this Mac (with what to do when no phone of yours gets them). See [below](#kit-on-your-phone). |
 | **Start sessions from the Claude app** | Sets this Mac up so you can start Claude Code sessions from the Claude app. Shows the folder sessions start in. On by itself, unless you turn it off. See [below](#start-sessions-from-the-claude-app). |
 | **New sessions start on this Mac's server** | New Code sessions in the Claude desktop app start on this Mac's server. On by itself, unless you turn it off. See [below](#new-sessions-start-on-this-macs-server). |
 | **Bypass permissions for server sessions** | See [below](#bypass-permissions-for-server-sessions). On until you turn it off. |
@@ -568,7 +568,7 @@ Check as many as you like. A way that needs a setting asks for it when you check
 
 ## Kit on your phone
 
-The Kit sends what its window shows to kit.sttark.com, so you see your sessions on your phone, also when you are away from this Mac, and act on them there. A tap on the phone runs on this Mac, with the same code as the window's buttons. This section is the Mac's side; the server and its pages are in [`phone/`](phone/README.md), and how they fit is in [`phone/DESIGN.md`](phone/DESIGN.md).
+The Kit sends what its window shows to building.sttark.com/kit, so you see your sessions on your phone, also when you are away from this Mac, and act on them there. A tap on the phone runs on this Mac, with the same code as the window's buttons. This section is the Mac's side; the server and its pages are in [`phone/`](phone/README.md), and how they fit is in [`phone/DESIGN.md`](phone/DESIGN.md).
 
 ![The Phone box in Settings, in each of its states: not linked, with Link this Mac…; linking, with this Mac's code; linked, with the account, when the Kit last sent and that Needs you notices go to your phone when you are away; linked with no phone that gets notices, which says to turn them on in Menu on your phone; linked with the network down; removed on the phone; not on the roster; off](docs/settings-phone.png)
 
@@ -697,7 +697,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `DESIGN-DECISIONS.md` | Where the window departs from the Sttark Brand and App Guidelines, which are written for web apps, and why. |
 | `AGENTS.md`, `CLAUDE.md` | Notes for coding agents: when a change needs a What's new note, and how to write one. |
 | `Sources/Sync.swift` | Keeps the window and the menu up to date: watches the state for changes, and reads the Claude app's session list every 8 to 10 seconds while you look. |
-| `Sources/Phone.swift` | Kit on your phone, what goes up: builds what the Kit sends to kit.sttark.com (the rows of the four groups the phone shows, the usage, the archived list and its changes) and decides when to send it. See `phone/DESIGN.md`. |
+| `Sources/Phone.swift` | Kit on your phone, what goes up: builds what the Kit sends to building.sttark.com/kit (the rows of the four groups the phone shows, the usage, the archived list and its changes) and decides when to send it. See `phone/DESIGN.md`. |
 | `Sources/PhoneLink.swift` | Kit on your phone, the link: the switch, this Mac's key, linking it to the person's Sttark sign-in, the socket to the server, and each action from the phone, run through `KitActions`. |
 | `Sources/Login.swift` | The login check and sign-in. |
 | `Sources/DesktopDefault.swift`, `Resources/hooks/desktop-default.py`, `Helpers/kit-ldb` | New sessions in the Claude desktop app start on this Mac's server. |
