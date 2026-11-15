@@ -128,6 +128,9 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in KitDefaults.applyBypassSettings() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
+        // the Archived page's list: keep() writes it where the server runs; with no server, read it every 10 minutes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { Archived.refresh(olderThan: 540) }
+        Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Archived.refresh(olderThan: 540) }
         LocalSessions.scan()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in LocalSessions.scan() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }

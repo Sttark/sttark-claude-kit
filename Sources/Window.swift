@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// The Kit's window: Sessions (the session inbox and one session's settings), Settings (every one-time setting)
-/// and What's new. It opens only when the person picks Open Sttark Claude Kit or a session in the menu, and only
+/// The Kit's window: Sessions (the session inbox and one session's settings), Archived (the archived sessions this
+/// Mac can bring back), Settings (every one-time setting), What's new and Events. It opens only when the person picks Open Sttark Claude Kit or a session in the menu, and only
 /// then does the app come to the front: nothing here opens, activates or takes the keyboard by itself.
 /// Colors are the brand tokens for light and dark, so the window follows the system look as it changes.
 final class KitWindow: NSObject, NSWindowDelegate {
@@ -31,6 +31,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
         w.makeKeyAndOrderFront(nil)
         if page == .news { model.markNewsSeen() }
         if page == .events { model.readEvents() }
+        if page == .archived { Archived.refresh(olderThan: 30) }
         if sheet { model.openSheet() }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
@@ -136,7 +137,7 @@ final class KitNSWindow: NSWindow {
 
 /// What the window shows, read from the shared state. The settings run commands, so they're read off the main thread.
 final class KitModel: ObservableObject {
-    enum Page: String { case sessions, settings, news, events }
+    enum Page: String { case sessions, archived, settings, news, events }
     @Published var page: Page = .sessions
     @Published var snap = Inbox.Snapshot()
     @Published var selected: String?
@@ -166,6 +167,13 @@ final class KitModel: ObservableObject {
     /// The session being moved now (its row id), and the one whose "close it there?" question shows.
     @Published var moving: String? = nil
     @Published var confirmMove: String? = nil
+    /// The Archived page: the list, its search, the selected session, the one being brought back, and what the last
+    /// Bring it back said (over the list, with its session's name, so Show it can open it on the Sessions page).
+    @Published var archived = Archived.List()
+    @Published var archivedSearch = ""
+    @Published var archivedSelected: String?
+    @Published var bringing: String? = nil
+    @Published var backNote: (ok: Bool, words: String, at: Date, id: String, title: String)? = nil
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
     var fixedFacts: MenuFacts?
@@ -176,6 +184,44 @@ final class KitModel: ObservableObject {
         notes = WhatsNew.shown
         unseen = WhatsNew.unseen.count
         if selected == nil || !snap.rows.contains(where: { $0.id == selected }) { selected = snap.rows.first?.id }
+        archived = Archived.read()
+        let shown = archivedRows
+        if archivedSelected == nil || !shown.contains(where: { $0.id == archivedSelected }) { archivedSelected = shown.first?.id }
+    }
+
+    /// The archived sessions the search matches (name, folder or what it was doing), newest first.
+    var archivedRows: [Archived.Item] {
+        let words = archivedSearch.lowercased().split(separator: " ").map(String.init)
+        return archived.items.filter { x in
+            let hay = (x.title + " " + x.folderShort + " " + x.doing).lowercased()
+            return words.allSatisfy { hay.contains($0) }
+        }
+    }
+
+    /// The same, by the day each was last active: "Today", "Yesterday", "Thursday, Nov 12".
+    var archivedDays: [(day: String, items: [Archived.Item])] {
+        var out: [(day: String, items: [Archived.Item])] = []
+        let cal = Calendar.current, f = DateFormatter()
+        f.dateFormat = "EEEE, MMM d"
+        for x in archivedRows {
+            let day = cal.isDateInToday(x.at) ? "Today" : cal.isDateInYesterday(x.at) ? "Yesterday" : f.string(from: x.at)
+            if out.last?.day == day { out[out.count - 1].items.append(x) } else { out.append((day, [x])) }
+        }
+        return out
+    }
+
+    var archivedItem: Archived.Item? { archived.items.first { $0.id == archivedSelected } }
+
+    /// Bring it back: the session goes back to the Claude app's list, and the Sessions page, on the same link.
+    func bringBack(_ x: Archived.Item) {
+        bringing = x.id
+        backNote = nil
+        Archived.bringBack(x.id) { [weak self] code, words in
+            guard let self else { return }
+            self.bringing = nil
+            self.backNote = (code == 0 || code == 3, words, Date(), x.id, x.title)
+            self.changed()
+        }
     }
 
     /// The events, read off the main thread, and only when a log changed since the last read.
@@ -355,15 +401,22 @@ struct Hairline: View {
     var body: some View { Rectangle().fill(K.hair).frame(height: 1) }
 }
 
-/// The one main action: green fill, white semibold.
+/// The one main action: green fill, white semibold; at 55% while it can't be used, as the guide's disabled button.
 struct GreenButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(K.font(13, true))
-            .foregroundColor(.white)
-            .padding(.horizontal, 16)
-            .frame(height: 30)
-            .background(configuration.isPressed ? K.greenHover : K.green, in: RoundedRectangle(cornerRadius: 6))
+    func makeBody(configuration: Configuration) -> some View { Green(configuration: configuration) }
+
+    private struct Green: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) var enabled
+        var body: some View {
+            configuration.label
+                .font(K.font(13, true))
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .frame(height: 30)
+                .background(configuration.isPressed ? K.greenHover : K.green, in: RoundedRectangle(cornerRadius: 6))
+                .opacity(enabled ? 1 : 0.55)
+        }
     }
 }
 
@@ -380,6 +433,7 @@ struct KitRoot: View {
                 Rectangle().fill(K.hair).frame(height: 1)
                 switch model.page {
                 case .sessions: SessionsPage(model: model)
+                case .archived: ArchivedPage(model: model)
                 case .settings: SettingsPage(model: model)
                 case .news: NewsPage(model: model)
                 case .events: EventsPage(model: model)
@@ -405,6 +459,7 @@ struct Sidebar: View {
         VStack(alignment: .leading, spacing: 2) {
             Color.clear.frame(height: max(52, K.z(52)))   // the window's buttons
             nav(.sessions, "Sessions", "tray", badge: model.snap.count(.needs), strong: true)
+            nav(.archived, "Archived", "archivebox", text: model.archived.items.isEmpty ? "" : "\(model.archived.items.count)")
             nav(.settings, "Settings", "gearshape")
             nav(.news, "What's new", "sparkles", text: Updater.version == "?" ? "" : Updater.version)
             nav(.events, "Events", "list.bullet.rectangle")
@@ -424,6 +479,7 @@ struct Sidebar: View {
             if p == .settings { model.reloadFacts() }
             if p == .news { model.markNewsSeen() }
             if p == .events { model.readEvents() }
+            if p == .archived { Archived.refresh(olderThan: 30) }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 13 * K.zoom)).foregroundColor(on ? K.greenText : K.steel).frame(width: K.z(18))
@@ -434,7 +490,7 @@ struct Sidebar: View {
                         .padding(.horizontal, 7).frame(minWidth: 20, minHeight: 18).background(K.ink, in: Capsule())
                         .accessibilityLabel("\(badge) need you")
                 } else if !text.isEmpty {
-                    Text(text).font(K.font(12, model.unseen > 0)).foregroundColor(K.steel)
+                    Text(text).font(K.font(12, p == .news && model.unseen > 0)).foregroundColor(K.steel)
                 }
             }
             .padding(.horizontal, K.z(10))
@@ -493,11 +549,12 @@ struct Header: View {
                 Text(subtitle).font(K.font(12)).foregroundColor(K.steel)
             }
             Spacer()
-            if model.page == .sessions || model.page == .events {
-                let text = model.page == .events ? $model.eventSearch : $model.search
+            if model.page == .sessions || model.page == .events || model.page == .archived {
+                let text = model.page == .events ? $model.eventSearch : model.page == .archived ? $model.archivedSearch : $model.search
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").foregroundColor(K.steel)
-                    TextField(model.page == .events ? "Search events" : "Search sessions", text: text).textFieldStyle(.plain).font(K.font(13))
+                    TextField(model.page == .events ? "Search events" : model.page == .archived ? "Search archived sessions" : "Search sessions",
+                              text: text).textFieldStyle(.plain).font(K.font(13))
                     if !text.wrappedValue.isEmpty {
                         Button { text.wrappedValue = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(K.steel) }
                             .buttonStyle(.plain).accessibilityLabel("Clear search")
@@ -515,11 +572,19 @@ struct Header: View {
     }
 
     var title: String {
-        switch model.page { case .sessions: return "Sessions"; case .settings: return "Settings"; case .news: return "What's new"; case .events: return "Events" }
+        switch model.page {
+        case .sessions: return "Sessions"; case .archived: return "Archived"; case .settings: return "Settings"
+        case .news: return "What's new"; case .events: return "Events"
+        }
     }
     var subtitle: String {
         switch model.page {
         case .sessions: return model.snap.summary
+        case .archived:
+            let n = model.archived.items.count
+            guard let at = model.archived.at else { return "Reading the archived sessions…" }
+            let old = -at.timeIntervalSinceNow > 15 * 60
+            return (n == 1 ? "1 session" : "\(n) sessions") + " this Mac can bring back, newest first · read \(Limit.clock(at))" + (old ? ", may be old" : "")
         case .settings: return "Saved as you change them"
         case .news: return "What changed in the Kit in the last 7 days, newest first"
         case .events:
@@ -585,20 +650,31 @@ struct GroupHeader: View {
     let group: Inbox.Group
     let count: Int
     var body: some View {
+        ListHeader(icon: group.symbol, title: group.title, count: count, column: group.column,
+                   color: group == .needs ? K.warnMark : group == .working ? K.infoMark : K.steel)
+    }
+}
+
+/// A list's group heading: its icon, its name and count, and the time column's name on the right.
+struct ListHeader: View {
+    let icon: String
+    let title: String
+    let count: Int
+    let column: String
+    var color = K.steel
+    var body: some View {
         HStack(spacing: 6) {
             Image(systemName: icon).font(.system(size: 12 * K.zoom, weight: .medium)).foregroundColor(color)
-            Text(group.title).font(K.font(12, true))
+            Text(title).font(K.font(12, true))
             Text("\(count)").font(K.font(12))
             Spacer()
-            Text(group.column).font(K.font(12))
+            Text(column).font(K.font(12))
         }
         .foregroundColor(K.steel)
         .padding(.horizontal, 8)
         .padding(.top, 14)
         .padding(.bottom, 4)
     }
-    var icon: String { group.symbol }
-    var color: Color { group == .needs ? K.warnMark : group == .working ? K.infoMark : K.steel }
 }
 
 struct LevelChip: View {
@@ -687,22 +763,7 @@ struct DetailView: View {
 
     @ViewBuilder var facts: some View {
         let kv = pairs
-        if !kv.isEmpty {
-            Box {
-                ForEach(Array(kv.enumerated()), id: \.offset) { i, p in
-                    if i > 0 { Hairline() }
-                    HStack(alignment: .top, spacing: 10) {
-                        Text(p.0).foregroundColor(K.steel).frame(width: K.z(84), alignment: .leading)
-                        Text(p.1).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                        Spacer(minLength: 0)
-                    }
-                    .font(K.font(12.5))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                }
-            }
-            .padding(.top, 12)
-        }
+        if !kv.isEmpty { FactsBox(pairs: kv).padding(.top, 12) }
     }
 
     var pairs: [(String, String)] {
@@ -937,6 +998,26 @@ struct DetailView: View {
     }
 }
 
+/// A session's facts in a box: a name on the left, its value on the right, a hairline between rows.
+struct FactsBox: View {
+    let pairs: [(String, String)]
+    var body: some View {
+        Box {
+            ForEach(Array(pairs.enumerated()), id: \.offset) { i, p in
+                if i > 0 { Hairline() }
+                HStack(alignment: .top, spacing: 10) {
+                    Text(p.0).foregroundColor(K.steel).frame(width: K.z(84), alignment: .leading)
+                    Text(p.1).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    Spacer(minLength: 0)
+                }
+                .font(K.font(12.5))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+            }
+        }
+    }
+}
+
 struct TrailingIcon: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 5) { configuration.title; configuration.icon.font(.system(size: 11, weight: .semibold)) }
@@ -980,6 +1061,155 @@ struct Segments: View {
         }
         .padding(2)
         .background(K.track, in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+// MARK: archived
+
+/// The archived sessions this Mac can bring back, by the day each was last active; the selected one on the right,
+/// with Open and Bring it back, as on the Sessions page.
+struct ArchivedPage: View {
+    @ObservedObject var model: KitModel
+    var body: some View {
+        HStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let n = model.backNote, -n.at.timeIntervalSinceNow < 300 { note(n) }
+                    let days = model.archivedDays
+                    if days.isEmpty {
+                        Text(model.archived.at == nil ? "Reading the archived sessions…"
+                             : !model.archivedSearch.isEmpty ? "No archived session matches \"\(model.archivedSearch)\"."
+                             : "No archived sessions that this Mac can bring back.")
+                            .foregroundColor(K.steel).padding(.top, 24).padding(.leading, 8)
+                    }
+                    ForEach(days, id: \.day) { d in
+                        ListHeader(icon: "calendar", title: d.day, count: d.items.count, column: "Last active")
+                        ForEach(Array(d.items.enumerated()), id: \.element.id) { i, x in
+                            if i > 0 && x.id != model.archivedSelected && d.items[i - 1].id != model.archivedSelected {
+                                Hairline().padding(.horizontal, 10)
+                            } else if i > 0 { Color.clear.frame(height: 1) }
+                            ArchivedRow(item: x, selected: x.id == model.archivedSelected).onTapGesture { model.archivedSelected = x.id }
+                        }
+                    }
+                    if model.archived.at != nil {
+                        Text("A session from another computer or the cloud is not here: its conversation is not on this Mac. The Claude app's archive has it.")
+                            .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 20).padding(.horizontal, 8)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+            }
+            Rectangle().fill(K.hair).frame(width: 1)
+            Group {
+                if let x = model.archivedItem { ArchivedDetail(model: model, item: x).id(x.id) } else {
+                    Text("Pick a session to see it here.").foregroundColor(K.steel).frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(width: min(K.z(340), 420))
+            .background(K.panel)
+        }
+    }
+
+    /// What the last Bring it back said; Show it opens the session on the Sessions page.
+    func note(_ n: (ok: Bool, words: String, at: Date, id: String, title: String)) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: n.ok ? "checkmark.circle" : "exclamationmark.triangle").foregroundColor(n.ok ? K.infoMark : K.warnMark)
+            (Text(n.title).font(K.font(12.5, true)) + Text(": " + n.words).font(K.font(12.5))).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            if n.ok && model.snapHas(n.id) {
+                Button("Show it") { model.selected = n.id; model.page = .sessions }
+                    .controlSize(.small).help("Opens it on the Sessions page.")
+            }
+            Button { model.backNote = nil } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless).help("Hide this message.")
+        }
+        .padding(10)
+        .background(K.wash, in: RoundedRectangle(cornerRadius: 6))
+        .padding(.top, 10)
+    }
+}
+
+struct ArchivedRow: View {
+    let item: Archived.Item
+    let selected: Bool
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title).font(K.font(13.5, true)).lineLimit(1)
+                (Text(item.folderShort) + Text(item.doing.isEmpty ? "" : " · " + item.doing))
+                    .font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
+            }
+            Spacer(minLength: 8)
+            Text(ArchivedRow.time(item.at)).font(K.font(12)).foregroundColor(K.steel)
+        }
+        .padding(.horizontal, K.z(10))
+        .padding(.vertical, K.z(6))
+        .frame(minHeight: K.z(44))
+        .background(selected ? K.wash : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// The time of day: the day is the group's heading.
+    static func time(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        return f.string(from: d)
+    }
+}
+
+/// One archived session: Open, and Bring it back, which unarchives it on the same link with its whole conversation.
+struct ArchivedDetail: View {
+    @ObservedObject var model: KitModel
+    let item: Archived.Item
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item.title).font(K.font(19, true)).fixedSize(horizontal: false, vertical: true)
+                        StatusChip(text: "Archived")
+                    }
+                    Spacer()
+                    Button { Waiting.open(item.url, id: item.id) } label: { Label("Open", systemImage: "arrow.up.right").labelStyle(TrailingIcon()) }
+                        .controlSize(K.control)
+                        .help("Opens this session in the Claude app. It stays archived.")
+                }
+                FactsBox(pairs: pairs).padding(.top, 12)
+                actions
+            }
+            .padding(K.z(16))
+            .textSelection(.enabled)
+        }
+        .controlSize(K.control)
+    }
+
+    var pairs: [(String, String)] {
+        var p: [(String, String)] = [("Last active", Inbox.longDay(item.at))]
+        if !item.doing.isEmpty { p.append(("Was doing", item.doing)) }
+        p.append(("Folder", item.folderShort.isEmpty ? "Not known" : item.folderShort))
+        return p
+    }
+
+    @ViewBuilder var actions: some View {
+        let busy = model.bringing == item.id
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Button(busy ? "Bringing it back…" : "Bring it back") { model.bringBack(item) }
+                    .buttonStyle(GreenButtonStyle())
+                    .disabled(model.bringing != nil)
+                    .help("Unarchives this session and starts it again on the same link, with its whole conversation.")
+                if busy { ProgressView().controlSize(.small) }
+            }
+            Text("It goes back to your list in the Claude app and on the Sessions page, on the same link, with its whole conversation. Nothing is sent to it.")
+                .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+        }
+        .controlSize(K.control)
+        .padding(.top, 12)
     }
 }
 
