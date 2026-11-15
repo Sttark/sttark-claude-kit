@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { AstroCookies } from 'astro';
 import { db } from './db.ts';
 import { appOrigin } from './auth.ts';
+import { cookiePath } from './paths.ts';
 
 export const SESSION_COOKIE = 'sttark_kit_session';
 export const TTL_S = 30 * 24 * 60 * 60;
@@ -18,7 +19,7 @@ export type SessionData = { email: string; name: string };
 type Cookies = Pick<AstroCookies, 'get' | 'set' | 'delete'>;
 
 function setCookie(cookies: Cookies, id: string): void {
-  cookies.set(SESSION_COOKIE, id, { path: '/', httpOnly: true, sameSite: 'lax', secure: appOrigin().startsWith('https://'), maxAge: TTL_S });
+  cookies.set(SESSION_COOKIE, id, { path: cookiePath(), httpOnly: true, sameSite: 'lax', secure: appOrigin().startsWith('https://'), maxAge: TTL_S });
 }
 
 export function createSession(cookies: Cookies, data: SessionData, now = nowS()): string {
@@ -55,7 +56,7 @@ export function destroySession(cookies: Cookies): void {
       d.prepare('DELETE FROM web_sessions WHERE id = ?').run(id);
     })();
   }
-  cookies.delete(SESSION_COOKIE, { path: '/' });
+  cookies.delete(SESSION_COOKIE, { path: cookiePath() });
 }
 
 /** Sign out everywhere: every sign-in and push subscription of this person.

@@ -1,0 +1,18 @@
+---
+// One session: what it does now, Open in Claude, its waits with Stop, Bring
+// it back now and Stop waiting, effort and Auto, At the usage limit, and its
+// changes from the phone. A session of a Mac that is away shows its last
+// state, as of then, with no buttons. ?from= says where the way back goes
+// (usage, archived, mac:<id>; Sessions by default).
+import Base from '../../layouts/Base.astro';
+import { loadKit } from '../../lib/state.ts';
+import { draw, type View } from '../../view/render.ts';
+import { emptyUi } from '../../view/model.ts';
+const cse = Astro.params.cse ?? '';
+const from = Astro.url.searchParams.get('from') ?? 'sessions';
+const kit = loadKit(Astro.locals.user!, { session: cse });
+const view: View = { page: 'session', cse, from };
+const drawn = draw(view, kit, emptyUi());
+Astro.response.status = drawn.status;
+---
+<Base title={drawn.title} drawn={drawn} kit={kit} view={view} />

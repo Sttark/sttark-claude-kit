@@ -3,6 +3,7 @@
 // (lib/auth.ts says how the server checks it).
 import Base from '../layouts/Base.astro';
 import { oauthConfigured } from '../lib/auth.ts';
+import { href } from '../lib/paths.ts';
 const next = Astro.url.searchParams.get('next') ?? '/';
 const error = Astro.url.searchParams.get('error');
 const out = Astro.url.searchParams.get('out');
@@ -22,6 +23,6 @@ const message = error ? (ERRORS[error] ?? ERRORS.failed) : null;
     <p class="lede">Use your @sttark.com Google account.</p>
     {message && <p class="notice" role="alert">{message}</p>}
     {!message && out && <p class="status info" role="status">{out === 'all' ? 'You are signed out on every phone and browser.' : 'You are signed out.'}</p>}
-    <a class="btn" href={`/auth/login?next=${encodeURIComponent(next)}`}>{oauthConfigured() ? 'Sign in with Google' : 'Sign in (not set up)'}</a>
+    <a class="btn" href={href(`/auth/login?next=${encodeURIComponent(next)}`)}>{oauthConfigured() ? 'Sign in with Google' : 'Sign in (not set up)'}</a>
   </div>
 </Base>

@@ -1,0 +1,14 @@
+---
+// One Mac's sessions. For a Mac that is away: its last list, "As of" its
+// time, in gray, with no buttons; Open in Claude still works.
+import Base from '../../layouts/Base.astro';
+import { loadKit } from '../../lib/state.ts';
+import { draw, type View } from '../../view/render.ts';
+import { emptyUi } from '../../view/model.ts';
+const id = Astro.params.id ?? '';
+const kit = loadKit(Astro.locals.user!);
+const view: View = { page: 'mac', id };
+const drawn = draw(view, kit, emptyUi());
+Astro.response.status = drawn.status;
+---
+<Base title={drawn.title} drawn={drawn} kit={kit} view={view} />

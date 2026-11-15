@@ -1,0 +1,14 @@
+---
+// Archived: the archived sessions each linked Mac lists, newest first,
+// grouped by day, with a search on the phone (?q= names and folders).
+// Until a Mac is linked, how to link one.
+import Base from '../../layouts/Base.astro';
+import { loadKit } from '../../lib/state.ts';
+import { draw, type View } from '../../view/render.ts';
+import { emptyUi } from '../../view/model.ts';
+const kit = loadKit(Astro.locals.user!);
+const view: View = { page: 'archived' };
+const ui = { ...emptyUi(), q: Astro.url.searchParams.get('q') ?? '' };
+const drawn = draw(view, kit, ui);
+---
+<Base title={drawn.title} drawn={drawn} kit={kit} view={view} ui={{ q: ui.q }} />

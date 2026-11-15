@@ -1,12 +1,13 @@
 ---
-// Usage: the 5-hour and weekly limits, and the sessions held at them. Until
+// Usage: the 5-hour and weekly limits with their resets and the 60% and
+// 80% marks, the sessions held at them, and the Use credits setting. Until
 // a Mac is linked, how to link one.
 import Base from '../layouts/Base.astro';
-import NoMac from '../components/NoMac.astro';
-import { macsOf } from '../lib/macs.ts';
-const macs = macsOf(Astro.locals.user!.email);
+import { loadKit } from '../lib/state.ts';
+import { draw, type View } from '../view/render.ts';
+import { emptyUi } from '../view/model.ts';
+const kit = loadKit(Astro.locals.user!);
+const view: View = { page: 'usage' };
+const drawn = draw(view, kit, emptyUi());
 ---
-<Base title="Usage" tab="usage">
-  <h1 class="vh">Usage</h1>
-  {macs.length === 0 && <NoMac lead="Your 5-hour and weekly usage shows here, with the sessions that hold at the limit." />}
-</Base>
+<Base title={drawn.title} drawn={drawn} kit={kit} view={view} />

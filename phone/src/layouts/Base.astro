@@ -1,40 +1,59 @@
 ---
 // The frame of every page: the head (tab icon, the theme before the first
-// paint), the black top bar with the lockup and Menu, the Sessions,
-// Archived and Usage tabs, and the page. On a phone the tabs sit at the
-// foot of the screen, within reach of the thumb; on a desktop they are the
-// guide's tabs under the top bar (DESIGN-DECISIONS.md, Phone pages).
+// paint), the black top bar with the lockup, Search and Menu, the
+// Sessions, Archived and Usage tabs, and the page. On a phone the tabs sit
+// at the foot of the screen, within reach of the thumb; on a desktop they
+// are the guide's tabs under the top bar (DESIGN-DECISIONS.md, Phone
+// pages). Menu is its own page, on a phone and on a desktop
+// (DESIGN-DECISIONS.md, Phone pages, Menu).
+//
+// A page drawn from the Kit's data passes `drawn` (view/render.ts) with
+// the `kit` and `view` it came from: the layout puts them in the page as
+// JSON, and scripts/app.ts opens /live and draws the page again, in place,
+// with the same code, as new snapshots arrive.
 // Founders Grotesk comes with the shared style (styles/fonts/, README).
 import '../styles/app.css';
 import { ICONS } from '../lib/icons.ts';
+import { basePath, appPath, href } from '../lib/paths.ts';
+import { kitJson } from '../lib/state.ts';
+import { needsCount, type Kit, type Ui } from '../view/model.ts';
+import type { Drawn, View } from '../view/render.ts';
 
 interface Props {
   title: string;
   /** The tab this page is, if it is one of the three. */
-  tab?: 'sessions' | 'archived' | 'usage';
+  tab?: 'sessions' | 'archived' | 'usage' | null;
   /** Sign-in and error pages: the top bar with the lockup only. */
   bare?: boolean;
+  /** A page drawn from the Kit's data, and what it was drawn from. */
+  drawn?: Drawn;
+  kit?: Kit;
+  view?: View;
+  ui?: Partial<Ui>;
 }
-const { title, tab, bare = false } = Astro.props;
+const { title, bare = false, drawn, kit, view, ui } = Astro.props;
+const tab = drawn ? drawn.tab : Astro.props.tab;
 const user = Astro.locals.user;
 const shell = !!user && !bare;
-const path = Astro.url.pathname;
+const path = appPath(Astro.url.pathname) ?? Astro.url.pathname;
+const onMenu = path === '/menu';
+const needs = kit ? needsCount(kit) : 0;
 const TABS = [
-  { key: 'sessions', name: 'Sessions', href: '/', icon: ICONS.inbox },
-  { key: 'archived', name: 'Archived', href: '/archived', icon: ICONS.archive },
-  { key: 'usage', name: 'Usage', href: '/usage', icon: ICONS.gauge },
+  { key: 'sessions', name: 'Sessions', href: href('/'), icon: ICONS.inbox },
+  { key: 'archived', name: 'Archived', href: href('/archived'), icon: ICONS.archive },
+  { key: 'usage', name: 'Usage', href: href('/usage'), icon: ICONS.gauge },
 ] as const;
 // Raise when the icon changes, so browsers fetch the new one.
 const V = '?v=1';
 ---
 <!doctype html>
-<html lang="en">
+<html lang="en" data-base={basePath()}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="robots" content="noindex" />
     <meta name="theme-color" content="#000000" />
-    <link rel="icon" href={`/favicon.svg${V}`} type="image/svg+xml" />
+    <link rel="icon" href={href(`/favicon.svg${V}`)} type="image/svg+xml" />
     {/* "Page · App · Sttark", per the brand guide. */}
     <title>{title} · Claude Kit · Sttark</title>
     <script is:inline>
@@ -52,28 +71,20 @@ const V = '?v=1';
     <header class="topbar">
       {/* The lockup from the brand guide: the white wordmark, a thin divider,
           the app name. At phone width the S icon stands in for the wordmark. */}
-      <a class="brand" href="/" aria-label="Sttark Claude Kit home">
+      <a class="brand" href={href('/')} aria-label="Sttark Claude Kit home">
         <svg class="mark-word" xmlns="http://www.w3.org/2000/svg" viewBox="109 337 1685 361" aria-hidden="true"><path fill="currentColor" d="M208.1,410.1c0,11.2-0.5,21.6,0.1,31.9c1.2,22.7,14.8,35,40.4,35.3c42.6,0.6,85.2,0.1,127.8,0.4 c13.9,0.1,27.9,0.2,41.6,1.9c60.2,7.2,98.4,57.8,89.8,118.2c-8.1,57-47.2,96.3-104.7,98.4c-62.1,2.3-124.3,0.7-186.5-0.9 c-15.8-0.4-32-5.8-47-11.7c-46.7-18.5-62.9-60.9-59.4-106c30.2,0,60.4,0,91.2,0c0,3.2,0,6.4,0,9.5c0,23.4,11.4,35.7,34.9,36.2 c27.7,0.6,55.3,0.2,83,0.2c20.1,0,40.3,0.1,60.4,0c29.4-0.1,45.8-27.3,32.2-53.7c-6.9-13.3-19.5-16-32.9-16 c-41.9-0.1-83.9,0.4-125.8-0.2c-19.5-0.3-39.4-0.6-58.5-4.4c-44.5-8.9-78.1-52.9-78.1-97.5c0-32,0-71.1,0-114 c15.9,0,194.2-0.3,265.1,0.2c15.7,0.1,31.8,3.2,46.8,7.8c39.3,12,62.7,42.9,65.6,83.8c0.5,7.3,0.1,14.6,0.1,22.2 c-29.9,0-59.7,0-89.8,0c-0.1-1.3-0.3-2.6-0.3-3.9c-0.3-26.7-11.3-37.6-38.2-37.7c-33.2-0.1-66.4,0-99.6,0 C247.1,410.1,227.8,410.1,208.1,410.1z M914.3,641.5c0,17.7,0,34.9,0,54c-10.8,0-21.6,0.2-32.4,0c-20.7-0.4-41.7,1-62.1-1.8c-33.7-4.6-52.8-28.2-53.6-62.2 c-0.4-16-0.4-32-0.4-48c-0.1-15.8,0-31.7,0-47.9c-49.3,0-98.4,0-149.4,0c18.3,8.1,18.7,23.1,18.6,38.4c-0.1,12.4,0.1,24.9,0.2,37.3 c0.1,19.8,9.9,29.9,29.7,30.3c14.4,0.3,28.9,0,43.7,0c0,17.6,0,34.8,0,54c-10.7,0-21.5,0.2-32.3,0c-21.1-0.4-42.4,0.8-63.2-2 c-32.2-4.3-51.9-28.6-52.4-61.1c-0.5-30.6-0.6-61.3-0.8-91.9c0-1.8,0-3.7,0-5.9c-12.1,0-23.7,0-35.7,0c0-18.2,0-35.9,0-54.1 c11.7,0,23.4,0,35.5,0c0.8-18.5,1.7-36.5,2.5-54.8c24.4,0,48.1,0,72.2,0c0,17.7,0,35.5,0,53.7c44,0,87.4,0,131,0 c0.8-17.9,1.6-35.7,2.4-53.7c24.6,0,48.3,0,72.6,0c0,18.2,0,36.1,0,54.6c24.9,0,49.3,0,74,0c0,17.4,0,34.4,0,53.1 c-30.3,0-85.1,0-93.6,0c15.1,7.3,19.6,20.4,19.6,36.6c0.2,15.8,0.2,25.4,0.4,41.2c0.2,20,10.1,30.1,30.2,30.4 C885.1,641.7,899.4,641.5,914.3,641.5z M1648.6,337.7c0,15.6,0,30.9,0,46.4c-379.6,0-758.9,0-1138.8,0c-6.2-18-19.2-35.1-37-46.4 C863.9,337.7,1258.4,337.7,1648.6,337.7z M1200.6,695.7c-1.8,0-3.6,0-5.4,0c-65.2,0-130.4,0-195.6-0.1c-5.4,0-10.9-0.3-16.3-1.2c-28.5-4.8-43.7-21.7-44.9-50.7 c-0.5-11.9-0.4-23.8,0.4-35.7c1.4-23.8,16.9-39.3,42.2-42.9c6.4-0.9,12.9-1.2,19.3-1.3c27.7-0.1,55.5,0.1,83.2-0.1 c19-0.1,36.4,2.4,44.4,23.4c0.8-0.3,1.7-0.5,2.6-0.8c-1.3-13.9-1.8-28-4.4-41.6c-1.3-6.9-8.8-9.5-15.7-10.3 c-4.4-0.5-8.8-0.4-13.2-0.5c-43.7-0.5-87.5-1-131.2-1.6c-2.5,0-5-0.4-7.8-0.6c0-17.1,0-33.9,0-51.5c1.5,0,3.1,0,4.7,0 c54.5,0,108.9,0,163.4,0c14.6,0,28.9,1.9,42.2,8.4c21.9,10.8,31.7,29.7,32.1,53c0.8,50.7,0.4,101.4,0.4,152.1 C1201.1,694.3,1200.9,694.7,1200.6,695.7z M1129.4,644.9c0-7.2,0-14,0-20.7c0-15.5-5.3-21-20.8-21c-24.5,0-49,0-73.5,0 c-23.5,0-25.7,2.1-25.4,25.6c0.1,11.4,4.8,16.1,16.2,16.1c30.6,0.1,61.2,0,91.9,0C1121.4,644.9,1125.1,644.9,1129.4,644.9z M1738.6,695.5c-30.1,0-59,0-88.3,0c-24.6-29-49.3-58.2-73.9-87.2c-10.3,0-20.3,0-30.7,0c0,29.1,0,58,0,87.1 c-24.5,0-48.7,0-73.6,0c0-89.4,0-178.8,0-268.5c24.3,0,48.7,0,73.6,0c0,47.1,0,94,0,140c2.2,0.3,5.3,0.4,8.8,0.1 c0.6-0.1,6.7-0.6,13-3.3c10.2-4.3,17.4-12.3,19.9-15.2c12.2-14,17.7-21.5,27.8-33.8c9.3-11.4,18.7-22.8,28-34.1 c25.6,0,50.9,0,77.7,0c-28.6,32.7-56.4,64.4-84.2,96.1C1670.5,615.9,1704.2,655.3,1738.6,695.5z M1231.9,480.5c22.6,0,44.3,0,66.5,0c2,14.5,4.1,29,6.1,43.5c0.4,0,0.7,0.1,1.1,0.1c1.2-4.1,2.2-8.3,3.6-12.3 c6.5-19.4,20.2-30.6,40.4-31.1c33-0.8,66-0.2,99.4-0.2c0,17.7,0,35.3,0,53.9c-14.2,0.6-28.6,1.4-43,1.6 c-21.1,0.3-42.2,0.2-63.3,0.2c-25.8,0.1-36.7,10.5-36.9,36.6c-0.3,39-0.1,78-0.1,117c0,1.8,0,3.7,0,5.7c-24.6,0-48.8,0-73.9,0 C1231.9,623.8,1231.9,552.3,1231.9,480.5z M1746.7,553.2c0-24.5,0-48.3,0-72.5c15.5,0,30.8,0,46.5,0c0,39.4,0,78.9,0,118.9c-34,0-67.9,0-102.2,0 c-6.4-7.3-13.1-14.8-20.1-22.7c7-8,14-15.8,21-23.7C1710.1,553.2,1728.1,553.2,1746.7,553.2z"/><path fill="#00A54C" d="M1746.7,454.8c0-23.5,0-46.6,0-70.4c-23.7,0-47.3,0-71.1,0c0-15.9,0-31.1,0-46.7c39.1,0,78.1,0,117.5,0 c0,38.9,0,77.8,0,117.1C1777.9,454.8,1762.6,454.8,1746.7,454.8z"/><path fill="#008948" d="M1746.7,454.8c0-23.5,0-46.6,0-70.4c15.5-15.6,31-31.1,46.5-46.7c0,38.9,0,77.8,0,117.1 C1777.9,454.8,1762.6,454.8,1746.7,454.8z"/></svg>
         <svg class="mark-s" xmlns="http://www.w3.org/2000/svg" viewBox="12 12 400 360" aria-hidden="true"><path fill="currentColor" d="M110.3,84.4c0,11.2-0.5,21.6,0.1,31.9c1.2,22.7,14.8,35,40.4,35.3c42.6,0.6,85.2,0.1,127.8,0.4c13.9,0.1,27.9,0.2,41.6,1.9 c60.2,7.2,98.4,57.8,89.8,118.2c-8.1,57-47.2,96.3-104.7,98.4c-62.1,2.3-124.3,0.7-186.5-0.9c-15.8-0.4-32-5.8-47-11.7 C25.1,339.5,9,297,12.5,252h91.2v9.5c0,23.4,11.4,35.7,34.9,36.2c27.7,0.6,55.3,0.2,83,0.2c20.1,0,40.3,0.1,60.4,0 c29.4-0.1,45.8-27.3,32.2-53.7c-6.9-13.3-19.5-16-32.9-16c-41.9-0.1-83.9,0.4-125.8-0.2c-19.5-0.3-39.4-0.6-58.5-4.4 c-44.5-8.9-78.1-52.9-78.1-97.5v-114c15.9,0,194.2-0.3,265.1,0.2c15.7,0.1,31.8,3.2,46.8,7.8c39.3,12,62.7,42.9,65.6,83.8 c0.5,7.3,0.1,14.6,0.1,22.2h-89.8c-0.1-1.3-0.3-2.6-0.3-3.9c-0.3-26.7-11.3-37.6-38.2-37.7c-33.2-0.1-66.4,0-99.6,0 C149.2,84.4,130,84.4,110.3,84.4"/></svg>
         <span class="app">Claude Kit</span>
       </a>
       {shell && (
         <>
-          <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-controls="topbar-more" aria-label="Menu">
-            <Fragment set:html={ICONS.menu} />
-            <span class="menu-word">Menu</span>
-          </button>
-          {/* On a desktop these sit in the bar; on a phone Menu opens them. */}
-          <nav class="topbar-more" id="topbar-more" aria-label="Menu">
-            <a class="nav-link" href="/macs" aria-current={path === '/macs' ? 'page' : undefined}>Macs</a>
-            <div class="who">{user!.email}</div>
-            <div class="theme-toggle" id="theme-toggle" role="group" aria-label="Color theme">
-              <button type="button" data-mode="light" aria-pressed="false" title="Light theme">Light</button>
-              <button type="button" data-mode="system" aria-pressed="false" title="Follow the system theme">Auto</button>
-              <button type="button" data-mode="dark" aria-pressed="false" title="Dark theme">Dark</button>
-            </div>
-            <form method="post" action="/auth/logout" class="signout"><button type="submit" class="signout-btn">Sign out</button></form>
-          </nav>
+          {/* Search finds a session by its name, on Sessions. */}
+          <a class="btn bar-btn search" href={href('/?find=1')} data-act="search" aria-label="Search sessions"><Fragment set:html={ICONS.search} /></a>
+          {onMenu ? (
+            <a class="btn bar-btn pressed" href={href('/')} data-act="menu-close"><Fragment set:html={ICONS.x} /><span>Close</span></a>
+          ) : (
+            <a class="btn bar-btn" href={href('/menu')}><Fragment set:html={ICONS.menu} /><span>Menu</span></a>
+          )}
         </>
       )}
     </header>
@@ -83,64 +94,28 @@ const V = '?v=1';
             first tab starts where the page starts. */}
         <div class="tabbar-row">
           {TABS.map((t) => (
-            <a href={t.href} aria-current={tab === t.key ? 'page' : undefined}><Fragment set:html={t.icon} /><span class="t">{t.name}</span></a>
+            <a href={t.href} data-tab={t.key} aria-current={tab === t.key ? 'page' : undefined}>
+              <Fragment set:html={t.icon} /><span class="t">{t.name}</span>
+              {t.key === 'sessions' && <span class="badge" data-badge hidden={!needs} aria-label={`${needs} need you`}>{needs}</span>}
+            </a>
           ))}
         </div>
       </nav>
     )}
     <main id="main" class:list={{ 'with-tabbar': shell }}>
-      <slot />
+      {drawn ? (
+        <>
+          {/* Shown by the page's script when it has lost the server. */}
+          <div class="status conn" id="conn" role="status" hidden><span><b>Not connected.</b> This page may be out of date. It updates when the connection is back.</span></div>
+          <div id="view" set:html={drawn.html} />
+          <script type="application/json" id="kit-state" set:html={kitJson({ kit, view, ui })} />
+        </>
+      ) : (
+        <slot />
+      )}
     </main>
     <script>
-      // Phone menu, as on Building and docs.sttark.com: Menu opens Macs, who
-      // is signed in, the theme switch and Sign out under the one-row bar.
-      const bar = document.querySelector<HTMLElement>('.topbar')!;
-      const menuBtn = document.getElementById('menu-btn');
-      if (menuBtn) {
-        const setMenu = (open: boolean) => {
-          if (open) bar.dataset.menu = 'open';
-          else delete bar.dataset.menu;
-          menuBtn.setAttribute('aria-expanded', String(open));
-        };
-        menuBtn.addEventListener('click', (ev) => { ev.stopPropagation(); setMenu(bar.dataset.menu !== 'open'); });
-        document.addEventListener('click', (ev) => {
-          if (bar.dataset.menu === 'open' && !(ev.target as Element).closest('#topbar-more')) setMenu(false);
-        });
-        document.addEventListener('keydown', (ev) => {
-          if (ev.key !== 'Escape' || bar.dataset.menu !== 'open') return;
-          setMenu(false);
-          menuBtn.focus();
-        });
-        // A page brought back by Back never shows the menu left open.
-        addEventListener('pageshow', () => setMenu(false));
-      }
-    </script>
-    <script>
-      // A form with data-confirm asks first; the question says what happens.
-      document.addEventListener('submit', (ev) => {
-        const form = ev.target as HTMLFormElement;
-        const q = (ev as SubmitEvent).submitter?.getAttribute('data-confirm') ?? form.getAttribute('data-confirm');
-        if (q && !confirm(q)) ev.preventDefault();
-      });
-    </script>
-    <script>
-      // Light / auto / dark, remembered on this device; Auto follows the
-      // device's setting live.
-      const KEY = 'sttark-theme';
-      const toggle = document.getElementById('theme-toggle');
-      if (toggle) {
-        const buttons = [...toggle.querySelectorAll<HTMLButtonElement>('button')];
-        const systemDark = matchMedia('(prefers-color-scheme: dark)');
-        const mode = () => { let m: string | null = null; try { m = localStorage.getItem(KEY); } catch {} return m === 'light' || m === 'dark' ? m : 'system'; };
-        const apply = () => {
-          const m = mode();
-          document.documentElement.dataset.theme = m === 'dark' || (m === 'system' && systemDark.matches) ? 'dark' : 'light';
-          for (const b of buttons) b.setAttribute('aria-pressed', String(b.dataset.mode === m));
-        };
-        for (const b of buttons) b.addEventListener('click', () => { try { localStorage.setItem(KEY, b.dataset.mode!); } catch {} apply(); });
-        systemDark.addEventListener('change', () => { if (mode() === 'system') apply(); });
-        apply();
-      }
+      import '../scripts/app.ts';
     </script>
   </body>
 </html>

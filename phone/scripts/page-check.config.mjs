@@ -1,15 +1,19 @@
 // Claude Kit's part of the shared Sttark page check (Sttark/sttark-docs
-// page-check/, run through scripts/page-check.mjs): its pages, the server
-// the check starts and who it signs in. check-pages.mjs in that folder lists
-// every key a config can have.
+// page-check/, run through scripts/page-check.mjs): its pages, the servers
+// the check starts and who they sign in. check-pages.mjs in that folder
+// lists every key a config can have.
 //
 // The Kit has one kind of person: everyone on the Workrouter roster has the
-// same access, and each sees only their own Macs. So the check starts one
-// dev server, on its own empty database, signed in as one made-up person
-// with no Mac linked. --ignore-lock keeps Astro's dev server in the
-// foreground for the check, also when an AI agent runs it.
+// same access, and each sees only their own Macs. So the check signs in one
+// made-up person, twice: on an empty database with no Mac linked (a dev
+// server; --ignore-lock keeps it in the foreground, also when an AI agent
+// runs it), and with two linked Macs from the contract's fixtures, one live
+// and one asleep (test/sample.mjs), on the built app with the test-only
+// stand-in for /live (test/live-stand-in.mjs), so each page is measured as
+// it is once connected.
 import { fileURLToPath } from 'node:url';
 
+const PERSON = 'avery.stone@sttark.com';
 /** A dev server signed in as one made-up person, never a real one. */
 const devServer = (name, person) => ({
   name,
@@ -17,6 +21,33 @@ const devServer = (name, person) => ({
   env: { DEV_FAKE_USER: person, KIT_DB: `{dir}/${name}.db` },
   ready: '/healthz',
 });
+/** The same person with two Macs: the built app and the stand-in for /live.
+ *  It runs first, so its build never overlaps the dev server's start. */
+const sampleServer = (name, person) => ({
+  name,
+  before: 'npx astro build',
+  command: 'node test/live-stand-in.mjs --port {port}',
+  env: { DEV_FAKE_USER: person, BASE_PATH: '' },
+  ready: '/healthz',
+  timeout: 240,
+});
+/** The sample's pages: the three tabs, Menu, a search, a session of each
+ *  group, an archived session, the Mac that is away and one of its
+ *  sessions. */
+const SAMPLE_PAGES = [
+  '/menu',
+  '/',
+  '/?q=lam',
+  '/archived',
+  '/usage',
+  '/s/session_01SampleLaminator',
+  '/s/session_01SampleHvacUpdates',
+  '/s/session_01SampleSiteMap',
+  '/s/session_01SampleOrderLogin',
+  '/archived/session_01SampleDoorPi',
+  '/mac/mac_2Vd8Rt5Wn1',
+  '/s/session_01SampleBinLabels?from=mac%3Amac_2Vd8Rt5Wn1',
+];
 
 /** A page file as a path; sign-in, the error pages and routes are not walked. */
 function pagePath(file) {
@@ -26,13 +57,14 @@ function pagePath(file) {
 }
 
 export default {
-  serve: [devServer('person', 'avery.stone@sttark.com')],
+  serve: [sampleServer('two-macs', PERSON), devServer('no-mac', PERSON)],
   bases: ['http://localhost:4350'],
-  who: async ({ server }) => server ?? 'person',
-  // Every page a person can open: the three tabs, and Macs from Menu.
-  pages: async () => ['/', '/archived', '/usage', '/macs'],
-  // Sessions, Archived and Usage are one section's tabs, and Macs opens from
-  // Menu, so all four are one section.
+  who: async ({ server }) => server ?? 'no-mac',
+  // Every page a person can open. Menu comes first: the theme rule runs on
+  // a person's first page, and the light / auto / dark choice is on Menu.
+  pages: async ({ server }) => (server === 'two-macs' ? SAMPLE_PAGES : ['/menu', '/', '/archived', '/usage']),
+  // Sessions, Archived and Usage are one section's tabs, and every other
+  // page opens from them or from Menu, so all are one section.
   sectionOf: () => '/',
   sectionNames: ['Claude Kit'],
   // The tab row: under the top bar on a desktop, at the foot on a phone
@@ -44,15 +76,21 @@ export default {
     pagePath,
     // Files no page imports that reach every page: this config, and the
     // middleware (sign-in runs on every request).
-    always: ['scripts/page-check.config.mjs', 'src/middleware.ts'],
+    always: ['scripts/page-check.config.mjs', 'src/middleware.ts', 'test/sample.mjs', 'test/live-stand-in.mjs'],
     // What the middleware only starts once: the roster sync and the daily
     // job. A change to one reaches the pages that import it, not every page.
     services: ['src/lib/roster.ts', 'src/lib/expiry.ts'],
   },
-  // Menu on a phone: Macs, who is signed in, the theme switch and Sign out.
-  // Opening it presses nothing in it.
-  dialogs: [{ page: '/', name: 'Menu', open: '#menu-btn', dialog: '#topbar-more', widths: [390] }],
+  // Menu is a page, and Remove's confirm and the ⓘ notes say what they
+  // open (aria-expanded, aria-controls), so the check finds them itself.
+  dialogs: [],
   // Design decisions: { page, rule, reason }, each with its entry in
   // DESIGN-DECISIONS.md at the repo root.
-  allow: [],
+  allow: [
+    {
+      page: /^\/(?!menu(\?|$))/,
+      rule: 'theme',
+      reason: 'The light / auto / dark choice is on the Menu page, not in the top bar (DESIGN-DECISIONS.md: Phone pages, Menu); a full run checks it there',
+    },
+  ],
 };

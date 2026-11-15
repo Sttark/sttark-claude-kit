@@ -6,6 +6,7 @@
 // (lib/roster.ts).
 import * as oidc from 'openid-client';
 import { onRoster, rosterSize } from './roster.ts';
+import { basePath } from './paths.ts';
 
 const WORKSPACE_DOMAIN = 'sttark.com';
 
@@ -38,7 +39,7 @@ export async function beginLogin(): Promise<{ url: string; state: string; codeVe
   const state = oidc.randomState();
   const nonce = oidc.randomNonce();
   const url = oidc.buildAuthorizationUrl(c, {
-    redirect_uri: `${appOrigin()}/auth/callback`,
+    redirect_uri: `${appOrigin()}${basePath()}/auth/callback`,
     scope: 'openid email profile',
     hd: WORKSPACE_DOMAIN,
     state,
