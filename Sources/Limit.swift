@@ -123,15 +123,16 @@ enum Limit {
         return n.doubleValue
     }
 
-    /// Sets the session's setting from the menu, under its Remote Control id when it has one, and logs the change.
-    static func setMode(_ m: Mode, for t: Target) {
+    /// Sets the session's setting, under its Remote Control id when it has one, and logs the change with where it
+    /// came from: KitActions.setLimit, from the window or the phone.
+    static func setMode(_ m: Mode, for t: Target, by origin: KitActions.Origin) {
         var changed = false
         State.change { s in
             guard mode(t, in: s) != m else { return }
             changed = true
             var all = s["limit_modes"] as? [String: Any] ?? [:]
             for (k, v) in all where matches(k, v as? [String: Any] ?? [:], t) { all.removeValue(forKey: k) }
-            var e: [String: Any] = ["by": "menu", "set_at": Date().timeIntervalSince1970, "title": t.title]
+            var e: [String: Any] = ["by": origin.rawValue, "set_at": Date().timeIntervalSince1970, "title": t.title]
             if !t.sid.isEmpty { e["sid"] = t.sid }
             if !t.cse.isEmpty { e["cse"] = t.cse }
             switch m {
@@ -141,7 +142,7 @@ enum Limit {
             }
             s["limit_modes"] = all
         }
-        if changed { logLine("limit", "mode   \(t.short) \(m.words) (menu)") }
+        if changed { logLine("limit", "mode   \(t.short) \(m.words) (\(origin.rawValue))") }
     }
 
     // MARK: sessions holding now

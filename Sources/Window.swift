@@ -213,13 +213,14 @@ final class KitModel: ObservableObject {
     var archivedItem: Archived.Item? { archived.items.first { $0.id == archivedSelected } }
 
     /// Bring it back: the session goes back to the Claude app's list, and the Sessions page, on the same link.
+    /// One that is not archived any more is in the list already, so that note is not a problem either.
     func bringBack(_ x: Archived.Item) {
         bringing = x.id
         backNote = nil
-        Archived.bringBack(x.id) { [weak self] code, words in
+        KitActions.unarchive(cse: x.id, origin: .window) { [weak self] r in
             guard let self else { return }
             self.bringing = nil
-            self.backNote = (code == 0 || code == 3, words, Date(), x.id, x.title)
+            self.backNote = (r.reason == .ok || r.reason == .gone, r.words, Date(), x.id, x.title)
             self.changed()
         }
     }
@@ -837,7 +838,7 @@ struct DetailView: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(w.what + (w.from.isEmpty ? "" : ", from \(w.from)")).font(K.font(12.5, true)).fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 6)
-                            Button("Stop") { Waits.run(["--cancel", w.id]); model.changed() }
+                            Button("Stop") { KitActions.stopWaits([w.id], origin: .window) { _ in model.changed() } }
                                 .controlSize(.small).help("Drops this wait only. The session's other waits stay.")
                         }
                         if let by = w.by {
@@ -861,9 +862,9 @@ struct DetailView: View {
         if let w = row.wait {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Button("Bring it back now") { Waits.run(["--now", w.id]); model.changed() }
+                    Button("Bring it back now") { KitActions.bringBack(wait: w.id, origin: .window) { _ in model.changed() } }
                         .help("Brings the session back to your list now, and it tells you where it stands.")
-                    Button("Stop waiting") { for x in row.waits.isEmpty ? [w] : row.waits { Waits.run(["--cancel", x.id]) }; model.changed() }
+                    Button("Stop waiting") { KitActions.stopWaits((row.waits.isEmpty ? [w] : row.waits).map(\.id), origin: .window) { _ in model.changed() } }
                         .help(row.waits.count > 1 ? "Drops all its waits. The session stays where it is." : "Drops this wait. The session stays where it is.")
                 }
                 if w.kind == "pr", !w.url.isEmpty {
@@ -925,9 +926,10 @@ struct DetailView: View {
 
     func effort(_ s: Session) -> some View {
         let auto = Binding<Bool>(get: { !s.manual }, set: { on in
-            State.setManual(s.id, !on)
-            model.controller?.refreshIcon()
-            model.changed()
+            KitActions.setAuto(cse: s.id, on: on, origin: .window) { _ in
+                model.controller?.refreshIcon()
+                model.changed()
+            }
         })
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -940,7 +942,11 @@ struct DetailView: View {
             }
             Segments(options: K.levels.map { ($0, levelNames[$0]!) }, value: s.level) { level in
                 guard level != s.level || !s.manual else { return }
-                setLevel(s, level)
+                // as in the Claude app's effort picker: the session goes to Manual at the level picked
+                KitActions.setLevel(cse: s.id, level: level, origin: .window) { _ in
+                    model.changed()
+                    model.controller?.refreshIcon()
+                }
             }
             Text(s.manual ? "Manual: you set the effort. Pick a level, or turn Auto on to let Claude pick it."
                  : s.reason.isEmpty ? "Auto: Claude picks the level for each task. Pick one to set it yourself."
@@ -950,22 +956,13 @@ struct DetailView: View {
         .padding(.top, 20)
     }
 
-    /// As in the Claude app's effort picker: the session goes to Manual at the level picked.
-    func setLevel(_ s: Session, _ level: String) {
-        DispatchQueue.global().async {
-            Updater.run("/usr/bin/python3", [hooksDir.appendingPathComponent("effort-hook.py").path, "--set", s.id, level])
-            DispatchQueue.main.async { model.changed(); model.controller?.refreshIcon() }
-        }
-    }
-
     func usage(_ t: Limit.Target) -> some View {
         let mode = Limit.mode(t)
         var choices = Limit.holdChoices
         if case .hold(let n) = mode, !choices.contains(n) { choices = (choices + [n]).sorted() }
         let pick = Binding<String>(get: { tag(mode) }, set: { v in
             let m: Limit.Mode = v == "follow" ? .follow : v == "credits" ? .credits : .hold(Int(v.dropFirst(5)) ?? Limit.defaultHold)
-            Limit.setMode(m, for: t)
-            model.changed()
+            KitActions.setLimit(cse: t.cse, sid: t.sid, mode: m, origin: .window) { _ in model.changed() }
         })
         return VStack(alignment: .leading, spacing: 6) {
             Text("At the usage limit").font(K.font(12.5, true))

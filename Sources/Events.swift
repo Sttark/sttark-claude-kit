@@ -363,7 +363,8 @@ enum Events {
                 if let r = x.range(of: #" \((Bash|menu|typed|command|[A-Za-z]+)\)$"#, options: .regularExpression) {
                     let src = x[r].dropFirst(2).dropLast()
                     x = String(x[..<r.lowerBound])
-                    e.detail.append(["menu": "From the menu or the window.", "typed": "Typed in the session.", "command": "From the claude-limit-mode command."][String(src)]
+                    e.detail.append(["menu": "From the menu or the window.", "window": "From the Kit window.", "phone": "From the phone.",
+                                     "typed": "Typed in the session.", "command": "From the claude-limit-mode command."][String(src)]
                                     ?? "At its next step (\(src)).")
                 }
                 return x

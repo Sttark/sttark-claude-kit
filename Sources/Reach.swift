@@ -299,8 +299,4 @@ enum Waits {
             DispatchQueue.main.async { running = false }
         }
     }
-
-    static func run(_ args: [String]) {
-        DispatchQueue.global().async { Updater.run("/usr/bin/python3", [script] + args) }
-    }
 }

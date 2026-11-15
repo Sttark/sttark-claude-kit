@@ -3,7 +3,7 @@ import Foundation
 /// The window's Archived page: the person's archived sessions that this Mac can bring back, newest first.
 /// effort-hook.py writes the list to archived.json: keep() from the session list it reads every 15 seconds while the
 /// server runs, and `effort-hook.py --archived` on a Mac with no server (every 10 minutes, and when the page opens).
-/// The phone reads the same file, so both show the same list. Bring it back is `claude-wait --unarchive`.
+/// The phone reads the same file, so both show the same list. Bring it back is KitActions.unarchive.
 enum Archived {
     struct Item: Identifiable {
         /// The session's Remote Control id (cse_…).
@@ -56,18 +56,6 @@ enum Archived {
         DispatchQueue.global(qos: .utility).async {
             Updater.run("/usr/bin/python3", [hooksDir.appendingPathComponent("effort-hook.py").path, "--archived"])
             DispatchQueue.main.async { reading = false }
-        }
-    }
-
-    /// Bring it back: unarchives the session on the same link, with its whole conversation (claude-wait --unarchive,
-    /// which starts it the way a wait's session comes back). Calls back with the exit code (0 ok, 1 not now, 2 its
-    /// conversation is not on this Mac, 3 not archived now, 4 a bad id) and the line it printed. The one call the
-    /// window makes; the phone part runs the same command with --by phone.
-    static func bringBack(_ cse: String, done: @escaping (Int32, String) -> Void) {
-        DispatchQueue.global().async {
-            let (code, out) = Updater.run("/usr/bin/python3", [Waits.script, "--unarchive", cse, "--by", "window"])
-            let words = out.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n").last.map(String.init) ?? ""
-            DispatchQueue.main.async { done(code, words.isEmpty ? (code == 0 ? "It is back in your list." : "It did not come back.") : words) }
         }
     }
 }

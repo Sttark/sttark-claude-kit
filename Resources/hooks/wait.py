@@ -11,13 +11,16 @@ session goes on and tells the person through Reach me by (claude-notify).
     claude-wait check-prompt "<yes/no question>" --every <30m> --by <deadline> --why "<...>"   (a Haiku call)
     --what "<what you watch for, in the person's words>"  (any wait; e.g. "New Star's reply about the laminator")
     claude-wait --list                 open waits, every session
-    claude-wait --cancel <id>          drop a wait
-    claude-wait --now <id>             bring its session back now
+    claude-wait --cancel <id> [--by window|phone]
+                                       drop a wait
+    claude-wait --now <id> [--by window|phone]
+                                       bring its session back now
     claude-wait --check                the app's check, every minute
     claude-wait --unarchive <cse_id> [--by window|phone]
                                        bring an archived session back on its link, with no first message (the
-                                       window's Archived page, the phone). Exit codes, with the phone's result
-                                       names: 0 ok, 1 not_now, 2 not_here, 3 gone, 4 bad
+                                       window's Archived page, the phone)
+    --cancel, --now and --unarchive exit with the phone's result names: 0 ok, 1 not_now, 2 not_here, 3 gone,
+    4 bad. Their --by says who asked, the Kit window or the phone, for the log (KitActions in the app).
 
 A time or deadline: 2026-11-16 17:00 (or ISO), 17:00 (today, or tomorrow once past), +90m, +4h, +2d, or
 "3 weekdays" (the same clock time, Saturdays and Sundays skipped). The session picks the deadline; there is none
@@ -542,14 +545,18 @@ def notified_since(w, since):
     return any(l[:19] >= stamp and (' notify ' + name + ' ') in l for l in lines)
 
 
-def check(only=None):
-    """Every minute, from the app. No model calls: gh for pull requests and the clock."""
+def check(only=None, by=None):
+    """Every minute, from the app. No model calls: gh for pull requests and the clock.
+    With `only` (claude-wait --now <id>), that one wait ends now; `by` (window or phone) goes in its log line. Returns
+    what became of it: 'brought', 'sent' (the Kit sent the message itself), 'dry', 'busy' (its session is in a turn),
+    'back' (it already ended), 'locked' (the minute check runs now) or None (no such wait)."""
     lock = open(os.path.join(KIT, 'wait.lock'), 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        return
+        return 'locked'
     now = time.time()
+    result = None
     for wid, w in list((peek().get('waits') or {}).items()):
         if only and wid != only:
             continue
@@ -567,6 +574,7 @@ def check(only=None):
                     fallback(w, w.get('what', ''), w.get('late', False))
                     log('%s %s "%s" sent no message after coming back; the Kit sent one' % (wid, w.get('cse', '')[:12], w.get('title', '')))
                 change(lambda s: (s.get('waits') or {}).pop(wid, None))
+            result = 'back'
             continue
         if now - w.get('tried_at', 0) < RETRY and w.get('tried_at'):
             continue
@@ -603,15 +611,19 @@ def check(only=None):
             if upd or drop:
                 change(save)
             continue
-        log('%s %s "%s" %s%s' % (wid, w.get('cse', '')[:12], w.get('title', ''), what, ' (deadline)' if late else ''))
+        log('%s %s "%s" %s%s%s' % (wid, w.get('cse', '')[:12], w.get('title', ''), what, ' (deadline)' if late else '',
+                                   ' (%s)' % by if only and by else ''))
         if DRY:
             print('would bring back %s: %s' % (wid, what))
+            result = 'dry'
             continue
         try:
             ok = bring_back(w, prompt_for(w, what, late))
         except RuntimeError as e:
             if str(e) == 'busy':
-                log('%s its session is in a turn; trying again in a minute' % wid)
+                log('%s its session is in a turn; %s' % (wid, 'the wait stays open%s' % (' (%s)' % by if by else '')
+                                                          if only else 'trying again in a minute'))
+                result = 'busy'
                 continue
             ok = False
             log('%s could not bring it back: %s' % (wid, str(e)[:160]))
@@ -622,11 +634,14 @@ def check(only=None):
             log('%s brought "%s" back on its own link with what happened' % (wid, w.get('title', '')))
             upd.update(stage='back', back_at=time.time(), what=what, late=late)
             change(save)
+            result = 'brought'
         else:
             w['stage'] = 'out'
             fallback(w, what, late)
             log('%s sent the message from the Kit; the session did not come back' % wid)
             change(lambda s: (s.get('waits') or {}).pop(wid, None))
+            result = 'sent'
+    return result
 
 
 # --- the command -------------------------------------------------------------------------------------------
@@ -665,16 +680,33 @@ def main():
             return 4
         return unarchive('cse_' + cse.split('_', 1)[1], by)
     if args[0] in ('--cancel', '--now'):
+        by = opt(args, '--by')
+        if by is not None and by not in ('window', 'phone'):
+            print('Usage: claude-wait %s <id> [--by window|phone]' % args[0], file=sys.stderr)
+            return 4
         wid = args[1] if len(args) > 1 else ''
         if wid not in (peek().get('waits') or {}):
             print('No wait %s. claude-wait --list shows them.' % wid, file=sys.stderr)
-            return 1
+            return 3
         if args[0] == '--cancel':
             change(lambda s: s['waits'].pop(wid, None))
-            log('%s cancelled' % wid)
+            log('%s cancelled%s' % (wid, ' (%s)' % by if by else ''))
             print('Cancelled.')
-        else:
-            check(only=wid)
+            return 0
+        r = check(only=wid, by=by)
+        if r == 'locked':
+            print('The Kit is checking its waits now. Try again in a minute.')
+            return 1
+        if r == 'busy':
+            print('Its session is in a turn now. Try again when the turn ends.')
+            return 1
+        if r in ('back', None):
+            print('That wait already ended. Nothing was changed.')
+            return 3
+        if r == 'brought':
+            print('It is back in your list. It tells you where it stands.')
+        elif r == 'sent':
+            print('It could not come back by itself, so the Kit sent you the message.')
         return 0
     by, why, what = opt(args, '--by'), opt(args, '--why'), opt(args, '--what')
     sender, every = opt(args, '--from'), opt(args, '--every')

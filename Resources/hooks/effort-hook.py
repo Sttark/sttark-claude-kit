@@ -19,6 +19,8 @@ in a new process starts from its new level instead.
 
 Only sessions with a claude.ai session id (Remote Control) can be changed.
 Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
+STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log. STTARK_EFFORT_DRY=1 sends no effort change
+to any session: --set still writes Manual and the level, and logs.
 """
 import calendar, fcntl, glob, importlib.util, json, os, re, subprocess, sys, time, uuid
 from contextlib import contextmanager
@@ -34,6 +36,7 @@ LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 CHECKPOINTS = (10, 25, 50)  # tool calls into a turn when the level is checked again
 SETTLE = 30  # seconds after a send when a different reported level is just the change still arriving
 IDS = 20  # change ids kept per session, the kit's own and the ones it saw on the server
+DRY = bool(os.environ.get('STTARK_EFFORT_DRY'))  # tests: send nothing
 
 RULES = """You set the effort level for a Claude Code agent before it starts on \
 the user's latest message. Higher effort means more thinking and more careful \
@@ -406,6 +409,8 @@ def send(sid, level):
         x = s['sessions'].setdefault(sid, {})
         x['sent_id'] = rid
         x['ids'] = ((x.get('ids') or []) + [rid])[-IDS:]
+    if DRY:
+        return 200, 'dry: nothing sent', rid
     try:
         return (*sse().send(sid, level, rid), rid)
     except Exception as e:
@@ -1484,9 +1489,11 @@ def on_agent(data, sid):
     return None
 
 
-def set_level(sid, level):
-    """The Kit window's effort pick: the person sets this session's level, so it goes to Manual, and the level goes
-    out the way the hook sends its own (the change id is kept, so the check never reads it as a pick in the app)."""
+def set_level(sid, level, by='window'):
+    """An effort pick in the Kit window, or from the phone (`by`, for the log; KitActions in the app runs it): the
+    person sets this session's level, so it goes to Manual, and the level goes out the way the hook sends its own (the
+    change id is kept, so the check never reads it as a pick in the app). Exit codes: 0 ok, 1 the send failed, 2 not a
+    level."""
     if level not in LEVELS:
         print('Not a level: %s. One of %s.' % (level, ', '.join(LEVELS)), file=sys.stderr)
         return 2
@@ -1497,15 +1504,23 @@ def set_level(sid, level):
         with state() as s:
             x = s['sessions'].setdefault(sid, {})
             x.update(level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid, manual=True)
-        log(f'manual {sid} set to {level} in the Kit window; leaving this session alone')
+        log(f'manual {sid} set to {level} ({by}){" (dry: nothing sent)" if DRY else ""}; leaving this session alone')
         return 0
-    log(f'error  {sid} send {level} from the Kit window failed {status} {text[:120]}')
+    log(f'error  {sid} send {level} ({by}) failed {status} {text[:120]}')
     return 1
 
 
 def main():
-    if len(sys.argv) == 4 and sys.argv[1] == '--set':
-        sys.exit(set_level(sys.argv[2], sys.argv[3]))
+    if sys.argv[1:2] == ['--set']:  # effort-hook.py --set <cse_id> <level> [--by window|phone]
+        rest, by = sys.argv[2:], 'window'
+        if '--by' in rest:
+            i = rest.index('--by')
+            by = rest[i + 1] if i + 1 < len(rest) else ''
+            del rest[i:i + 2]
+        if len(rest) != 2 or by not in ('window', 'phone'):
+            print('Usage: effort-hook.py --set <cse_id> <level> [--by window|phone]', file=sys.stderr)
+            sys.exit(2)
+        sys.exit(set_level(rest[0], rest[1], by))
     if sys.argv[1:] == ['--models']:
         list_models()
         return

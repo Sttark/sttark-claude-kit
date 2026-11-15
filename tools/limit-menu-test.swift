@@ -33,23 +33,23 @@ import Foundation
         check("found by cse alone", Limit.mode(Limit.Target(sid: "", cse: "cse_X", title: "")) == .credits)
         check("other session untouched", Limit.mode(Limit.Target(sid: "22222222-bbbb", cse: "", title: "")) == .hold(90))
         check("unknown session follows the menu", Limit.mode(Limit.Target(sid: "nope", cse: "cse_nope", title: "")) == .follow)
-        Limit.setMode(.hold(50), for: t)
+        Limit.setMode(.hold(50), for: t, by: .window)
         var m = State.read()["limit_modes"] as! [String: [String: Any]]
-        check("set from the menu: one entry, under the cse", m.keys.sorted() == ["22222222-bbbb", "cse_X"] && m["cse_X"]?["at"] as? Int == 50
-              && m["cse_X"]?["by"] as? String == "menu" && m["cse_X"]?["sid"] as? String == "11111111-aaaa")
-        Limit.setMode(.hold(50), for: t)   // no change: no log line
-        Limit.setMode(.follow, for: t)
+        check("set from the window: one entry, under the cse", m.keys.sorted() == ["22222222-bbbb", "cse_X"] && m["cse_X"]?["at"] as? Int == 50
+              && m["cse_X"]?["by"] as? String == "window" && m["cse_X"]?["sid"] as? String == "11111111-aaaa")
+        Limit.setMode(.hold(50), for: t, by: .window)   // no change: no log line
+        Limit.setMode(.follow, for: t, by: .window)
         m = State.read()["limit_modes"] as! [String: [String: Any]]
         check("follow removes it", m.keys.sorted() == ["22222222-bbbb"])
-        Limit.setMode(.credits, for: Limit.Target(sid: "55555555-term", cse: "", title: "Terminal"))
+        Limit.setMode(.credits, for: Limit.Target(sid: "55555555-term", cse: "", title: "Terminal"), by: .phone)
         m = State.read()["limit_modes"] as! [String: [String: Any]]
         check("no cse: keyed by session id", m["55555555-term"]?["mode"] as? String == "credits")
         let log = (try? String(contentsOf: dir.appendingPathComponent("log"), encoding: .utf8)) ?? ""
         print(log, terminator: "")
         let lines = log.split(separator: "\n")
         check("three limit lines, hook format", lines.count == 3 && lines.allSatisfy { $0.dropFirst(20).hasPrefix("limit  mode   ") }
-              && lines[0].hasSuffix("limit  mode   11111111 never use credits; hold at 50% (menu)")
-              && lines[1].hasSuffix("mode   11111111 follow the menu (menu)") && lines[2].hasSuffix("mode   55555555 always use credits (menu)"))
+              && lines[0].hasSuffix("limit  mode   11111111 never use credits; hold at 50% (window)")
+              && lines[1].hasSuffix("mode   11111111 follow the menu (window)") && lines[2].hasSuffix("mode   55555555 always use credits (phone)"))
         let w = Limit.waiting
         check("one row per session, dead row dropped", w.count == 2 && w.map(\.sid).contains("11111111-aaaa") && w.map(\.sid).contains("44444444-old"))
         let one = w.first { $0.sid == "11111111-aaaa" }!
