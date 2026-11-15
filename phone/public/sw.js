@@ -22,13 +22,20 @@ const BADGE = `${BASE}/notice-badge.png?v=2`;
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
-/** A page of this app, or the app's home: never another site. */
-function pageOf(url) {
+/** Is this address a page of this app (under its scope)? On
+ *  building.sttark.com/kit, Building's own pages share the origin and are not. */
+function inScope(url) {
   try {
     const u = new URL(url, SCOPE);
-    if (u.origin === SCOPE.origin && (u.pathname + '/').startsWith(SCOPE.pathname)) return u.href;
-  } catch {}
-  return SCOPE.href;
+    return u.origin === SCOPE.origin && (u.pathname + '/').startsWith(SCOPE.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** A page of this app, or the app's home: never another site. */
+function pageOf(url) {
+  return url && inScope(url) ? new URL(url, SCOPE).href : SCOPE.href;
 }
 
 function setBadge(n) {
@@ -63,8 +70,10 @@ self.addEventListener('notificationclick', (event) => {
   const url = pageOf(event.notification.data && event.notification.data.url);
   event.waitUntil(
     (async () => {
+      // Only this app's own window: a Building page on the same origin is
+      // never focused or moved.
       const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      const win = open.find((c) => new URL(c.url).origin === SCOPE.origin);
+      const win = open.find((c) => inScope(c.url));
       if (!win) return self.clients.openWindow(url);
       // Focus while the tap still counts, then go to the session's page.
       await win.focus().catch(() => {});

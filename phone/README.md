@@ -1,10 +1,12 @@
 # Kit on your phone: the server
 
-The web app at **kit.sttark.com**: a person's Sttark Claude Kit sessions on
-their phone. It is an Astro server with a SQLite database, run on the
-sttark-building Linode behind nginx. The design is in `DESIGN.md` beside
-this file, and the messages between the server, the Kit on each Mac and the
-phone pages are in `asyncapi.yaml` and `schema/`.
+The web app at **building.sttark.com/kit**: a person's Sttark Claude Kit
+sessions on their phone. It is an Astro server with a SQLite database, run
+on the sttark-building Linode behind Building's nginx, which passes `/kit/`
+to it. The design is in `DESIGN.md` beside this file, and the messages
+between the server, the Kit on each Mac and the phone pages are in
+`asyncapi.yaml` and `schema/`. It can move to kit.sttark.com later by
+changing `APP_ORIGIN` and `BASE_PATH` only (Environment, below).
 
 What it serves (under `BASE_PATH`, Environment below):
 
@@ -136,9 +138,18 @@ so the roster sync, the daily job and the sockets start at once. nginx
 passes `/` and, with the Upgrade headers, `/mac` and `/live` to it (under
 `BASE_PATH`, as they came), with `Host`, `X-Forwarded-Proto` and
 `X-Real-IP` (or `X-Forwarded-For`): the link page compares the browser's
-address with the Mac's, and an address it cannot know shows the code. A
-restart (`SIGTERM`) closes every socket with 1012 first, so each Kit and
-page connects again at once.
+address with the Mac's, and an address it cannot know shows the code. On
+building.sttark.com it passes only the sign-in cookie, `sttark_kit_session`,
+never Building's (Sttark/building ansible, "Kit on this box"): a new cookie
+needs a change there too. A restart (`SIGTERM`) closes every socket with
+1012 first, so each Kit and page connects again at once.
+
+**Deploy.** `../.github/workflows/phone-deploy.yml`, on each change under
+`phone/` on main and by hand: the tests, `npm run fonts` with the fonts from
+Sttark/sttark-docs, `npm run build` with `BASE_PATH=/kit`, then the pack to
+the box's `kit-deploy`, which sets `APP_ORIGIN` (`https://building.sttark.com`),
+refuses a pack built for another path, restarts and checks `/kit/healthz`;
+the workflow then checks the public `/kit/healthz` for its commit.
 
 **Sockets.** `server.mjs` passes every upgrade request to the handler set
 with `onUpgrade()` (`src/lib/upgrade.ts`) and refuses it while none is set;
@@ -277,13 +288,13 @@ sender is `src/lib/push.ts`.
 
 | Variable | Needed | What |
 |---|---|---|
-| `APP_ORIGIN` | production | The site's origin: `https://kit.sttark.com`, or `https://building.sttark.com` with a `BASE_PATH` of `/kit`. Google returns to it (with `BASE_PATH`); the link page's address and QR code start with it; a form post and a `/live` socket must come from it; an `https` origin makes the sign-in cookie secure. Default `http://localhost:4350` |
+| `APP_ORIGIN` | production | The site's origin: `https://building.sttark.com` (with a `BASE_PATH` of `/kit`), which the box's `kit-deploy` sets; `https://kit.sttark.com` if it moves there. Google returns to it (with `BASE_PATH`); the link page's address and QR code start with it; a form post and a `/live` socket must come from it; an `https` origin makes the sign-in cookie secure. Default `http://localhost:4350` |
 | `VAULT_GOOGLE_CLIENT_ID`, `VAULT_GOOGLE_CLIENT_SECRET` | production | The shared Sttark Workspace sign-in client. Unset, Sign in with Google says it is not set up |
 | `VAULT_ORG_SYNC_TOKEN` | production | The Kit's own read-only Workrouter org-sync key (`sk_org_...`), for the hourly roster. Unset, the roster stays as stored |
 | `VAULT_VAPID_PUBLIC_KEY`, `VAULT_VAPID_PRIVATE_KEY` | production | The Web Push key pair (P-256, base64url, as `web-push` makes it). Unset (or not a P-256 pair), Menu says notices are not set up and nothing is sent. A local run makes its own and keeps it in the database. A new pair ends every phone's subscription, so it is made once and kept: `node -e "import('web-push').then(w=>{const k=w.generateVAPIDKeys();process.stdout.write(k.publicKey+' '+k.privateKey)})"` piped into `gh secret set`, never shown |
 | `KIT_DB` | production | The database file, default `data/kit.db` (made with its folder) |
 | `HOST`, `PORT` | optional | Where `server.mjs` listens, default `127.0.0.1` and `4350` |
-| `BASE_PATH` | build only | The path the site lives under: empty at `kit.sttark.com` (the default), `/kit` at `building.sttark.com/kit`. Set when building (and for `npm run dev`); the build writes it to `dist/kit-build.json`, and every link, file, cookie and socket path starts with it (`src/lib/paths.ts`). Google returns to `APP_ORIGIN` + `BASE_PATH` + `/auth/callback`, and nginx passes the path as it came |
+| `BASE_PATH` | build only | The path the site lives under: `/kit` at `building.sttark.com/kit` (the deploy builds with it), empty at its own origin such as `kit.sttark.com` (the default). Set when building (and for `npm run dev`); the build writes it to `dist/kit-build.json`, and every link, file, cookie and socket path starts with it (`src/lib/paths.ts`). Google returns to `APP_ORIGIN` + `BASE_PATH` + `/auth/callback`, and nginx passes the path as it came |
 | `WORKROUTER_URL` | optional | Workrouter's base URL, default `https://www.sttark.com` |
 | `DEV_FAKE_USER` | local only | Signs everyone in as this address. Ignored when `NODE_ENV` is `production` |
 | `STTARK_FONTS_DIR` | build only | A folder with the font files (Fonts, below) |
