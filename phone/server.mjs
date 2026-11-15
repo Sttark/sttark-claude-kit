@@ -8,6 +8,10 @@
 //      adapter in middleware mode);
 //   3. WebSocket upgrades, /mac for the Kit on each Mac and /live for the
 //      phone pages, through the hook below.
+//
+// Everything is under the base the app was built with (BASE_PATH, read
+// from dist/kit-build.json): "" for https://kit.sttark.com, "/kit" when
+// nginx passes https://building.sttark.com/kit/ here unchanged.
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
@@ -22,12 +26,12 @@ const { handler } = await import('./dist/server/entry.mjs');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 4350);
 const CLIENT = fileURLToPath(new URL('./dist/client/', import.meta.url));
-// The path the site lives under, as the build was made ("" or "/kit",
-// BASE_PATH at build time; astro.config.mjs writes it).
 let BASE = '';
 try {
   BASE = JSON.parse(readFileSync(new URL('./dist/kit-build.json', import.meta.url), 'utf8')).base ?? '';
-} catch {}
+} catch {
+  console.warn('[server] dist/kit-build.json is missing: serving at the root (BASE_PATH "")');
+}
 
 /** A file from dist/client, else next(). These are served before the
  *  sign-in check, so dist/client holds only public files: no page is
@@ -42,11 +46,11 @@ function builtFile(req, res, next) {
     res.writeHead(400).end('Bad request');
     return;
   }
-  if (path.endsWith('/')) return next();
   if (BASE) {
-    if (!path.startsWith(BASE + '/')) return next();
+    if (!path.startsWith(`${BASE}/`)) return next();
     path = path.slice(BASE.length);
   }
+  if (path.endsWith('/')) return next();
   const file = send(req, posix.normalize(path), { root: CLIENT, dotfiles: 'deny', index: false, redirect: false });
   let found = false;
   file.on('file', () => {
@@ -76,8 +80,17 @@ server.on('upgrade', (req, socket, head) => {
   socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
 });
 
+// A restart (a deploy): every socket closes with 1012, so each Kit and page
+// connects again at once, then the server stops.
+process.once('SIGTERM', () => {
+  const closeAll = globalThis[Symbol.for('sttark.kit.shutdown')];
+  if (typeof closeAll === 'function') closeAll();
+  server.close();
+  setTimeout(() => process.exit(0), 500).unref();
+});
+
 server.listen(PORT, HOST, async () => {
-  console.log(`[server] Claude Kit phone server on http://${HOST}:${PORT}`);
+  console.log(`[server] Claude Kit phone server on http://${HOST}:${PORT}${BASE || ''}`);
   // One request at boot loads the middleware, which starts the hourly
   // roster sync and the daily expiry job, as Building's start.mjs does.
   const self = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST.includes(':') ? `[${HOST}]` : HOST;

@@ -7,8 +7,7 @@
 import { randomBytes } from 'node:crypto';
 import type { AstroCookies } from 'astro';
 import { db } from './db.ts';
-import { appOrigin } from './auth.ts';
-import { cookiePath } from './paths.ts';
+import { appOrigin, cookiePath } from './paths.ts';
 
 export const SESSION_COOKIE = 'sttark_kit_session';
 export const TTL_S = 30 * 24 * 60 * 60;
@@ -29,15 +28,22 @@ export function createSession(cookies: Cookies, data: SessionData, now = nowS())
   return id;
 }
 
+/** A sign-in by its id, if it is still good: not expired, and its person
+ *  on the roster as last read. */
+function sessionRow(id: string, now: number): { email: string; name: string; expires_at: number } | null {
+  const row = db()
+    .prepare('SELECT s.email, s.name, s.expires_at FROM web_sessions s JOIN roster r ON r.email = s.email WHERE s.id = ?')
+    .get(id) as { email: string; name: string; expires_at: number } | undefined;
+  return row && row.expires_at > now ? row : null;
+}
+
 /** Who this browser is signed in as, or null. Only someone on the roster
  *  as last read: off it, every sign-in ends. */
 export function readSession(cookies: Cookies, now = nowS()): SessionData | null {
   const id = cookies.get(SESSION_COOKIE)?.value;
   if (!id) return null;
-  const row = db()
-    .prepare('SELECT s.email, s.name, s.expires_at FROM web_sessions s JOIN roster r ON r.email = s.email WHERE s.id = ?')
-    .get(id) as { email: string; name: string; expires_at: number } | undefined;
-  if (!row || row.expires_at <= now) return null;
+  const row = sessionRow(id, now);
+  if (!row) return null;
   if (row.expires_at - now < TTL_S - DAY_S) {
     db().prepare('UPDATE web_sessions SET expires_at = ? WHERE id = ?').run(now + TTL_S, id);
     setCookie(cookies, id);
@@ -91,4 +97,36 @@ export function touchPerson(email: string, name: string, now = nowS()): void {
        ON CONFLICT(email) DO UPDATE SET name = excluded.name, last_seen = excluded.last_seen`,
     )
     .run(email, name, now, now);
+}
+
+/** The sign-in a WebSocket upgrade carries in its Cookie header (/live),
+ *  with its id, or null. Read only: a socket never rolls the cookie. */
+export function sessionFromCookieHeader(header: string | undefined, now = nowS()): (SessionData & { id: string }) | null {
+  let id: string | undefined;
+  for (const part of (header ?? '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0 && part.slice(0, i).trim() === SESSION_COOKIE) {
+      try {
+        id = decodeURIComponent(part.slice(i + 1).trim());
+      } catch {
+        id = undefined;
+      }
+    }
+  }
+  if (!id) return null;
+  const row = sessionRow(id, now);
+  return row ? { id, email: row.email, name: row.name } : null;
+}
+
+/** Is this sign-in still good (not signed out, not expired, on the roster)? */
+export function sessionStillValid(id: string, now = nowS()): boolean {
+  return sessionRow(id, now) !== null;
+}
+
+/** The made-up person a local run signs in as (DEV_FAKE_USER), never in
+ *  production: anyone who reaches the server would be that person. */
+export function devUser(env: Record<string, string | undefined> = process.env): { email: string; name: string } | null {
+  const email = env.DEV_FAKE_USER?.trim().toLowerCase();
+  if (!email || env.NODE_ENV === 'production') return null;
+  return { email, name: email.split('@')[0] };
 }

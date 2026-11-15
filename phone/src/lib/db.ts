@@ -139,7 +139,11 @@ END;
 `;
 
 /** Columns added after a table first shipped: guarded, safe on every start. */
-const ADDED_COLUMNS: [table: string, column: string, decl: string][] = [];
+const ADDED_COLUMNS: [table: string, column: string, decl: string][] = [
+  // The Claude Code login the Kit sent as Google's account hint, if it is a
+  // @sttark.com address (lib/link.ts).
+  ['links', 'hint', 'TEXT'],
+];
 
 let handle: Database.Database | undefined;
 

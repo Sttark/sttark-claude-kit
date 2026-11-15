@@ -5,24 +5,8 @@
 // date.
 import { db } from './db.ts';
 import { basePath } from './paths.ts';
-import type { ArchivedItem, ChangeRecord, Kit, MacInfo, MacState, Snapshot } from '../view/model.ts';
-
-type MacRow = { id: string; name: string; kit_version: string | null; last_seen: number | null; bye: string | null; bye_at: number | null };
-
-/** A Mac's state from what the database holds, as the socket server says
- *  it (phone/DESIGN.md, section 6): live when heard from in the last 60
- *  seconds; updating for 2 minutes after bye update; asleep or quit after
- *  that bye; else not heard from. /live then sends the server's own word. */
-export function macState(m: Pick<MacRow, 'last_seen' | 'bye' | 'bye_at'>, now: number): MacState {
-  const byeAfter = m.bye && m.bye_at != null && (m.last_seen == null || m.bye_at >= m.last_seen);
-  if (byeAfter) {
-    if (m.bye === 'update') return now - m.bye_at! <= 120 ? 'updating' : 'not_heard';
-    if (m.bye === 'sleep') return 'asleep';
-    if (m.bye === 'quit') return 'quit';
-  }
-  if (m.last_seen != null && now - m.last_seen <= 60) return 'live';
-  return 'not_heard';
-}
+import { macsOf } from './macs.ts';
+import type { ArchivedItem, ChangeRecord, Kit, MacInfo, Snapshot } from '../view/model.ts';
 
 function parse<T>(text: string): T | null {
   try {
@@ -37,9 +21,9 @@ function parse<T>(text: string): T | null {
 export function loadKit(user: { email: string }, opts: { session?: string; now?: number } = {}): Kit {
   const now = opts.now ?? Math.floor(Date.now() / 1000);
   const d = db();
-  const rows = d
-    .prepare('SELECT id, name, kit_version, last_seen, bye, bye_at FROM macs WHERE email = ? AND removed_at IS NULL ORDER BY linked_at, name')
-    .all(user.email) as MacRow[];
+  // Each Mac's state as /live says it (lib/macs.ts): from when it was last
+  // heard from, in memory on this server, and its last bye.
+  const rows = macsOf(user.email, now);
   const snaps: Record<string, Snapshot> = {};
   const archived: Record<string, ArchivedItem[]> = {};
   const macs: MacInfo[] = [];
@@ -50,7 +34,7 @@ export function loadKit(user: { email: string }, opts: { session?: string; now?:
     const a = d.prepare('SELECT data FROM archived WHERE mac_id = ?').get(r.id) as { data: string } | undefined;
     const list = a ? parse<{ items?: ArchivedItem[] } | ArchivedItem[]>(a.data) : null;
     if (list) archived[r.id] = Array.isArray(list) ? list : (list.items ?? []);
-    macs.push({ id: r.id, name: snap?.mac.name ?? r.name, state: macState(r, now), last_seen: r.last_seen, kit: snap?.mac.kit ?? r.kit_version ?? '' });
+    macs.push({ id: r.id, name: snap?.mac.name ?? r.name, state: r.state, last_seen: r.lastSeen, kit: snap?.mac.kit ?? r.kit ?? '' });
   }
   let records: ChangeRecord[] = [];
   if (opts.session && macs.length) {

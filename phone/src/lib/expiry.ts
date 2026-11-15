@@ -2,23 +2,26 @@
 // (README, Storage). It runs at start and then every 24 hours. Records go
 // after a year, the only way a record ever goes; the database refuses any
 // other delete (lib/db.ts). The cut-off for records is worked out by SQLite
-// in the same statement the trigger checks, so the two always agree.
+// in the same statement the trigger checks, so the two always agree. A Mac
+// not heard from in 90 days is removed (its row stays, with a record).
 import { db } from './db.ts';
+import { removeQuietMacs } from './macs.ts';
 
 const DAY_S = 24 * 60 * 60;
 const nowS = () => Math.floor(Date.now() / 1000);
 
-export type Expired = { webSessions: number; oauthStates: number; links: number; pushesSent: number; records: number };
+export type Expired = { webSessions: number; oauthStates: number; links: number; pushesSent: number; records: number; quietMacs: number };
 
 export function expireOld(now = nowS()): Expired {
   const d = db();
-  return d.transaction(() => ({
+  const gone = d.transaction(() => ({
     webSessions: d.prepare('DELETE FROM web_sessions WHERE expires_at <= ?').run(now).changes,
     oauthStates: d.prepare('DELETE FROM oauth_states WHERE expires_at < ?').run(now).changes,
     links: d.prepare('DELETE FROM links WHERE created_at < ?').run(now - DAY_S).changes,
     pushesSent: d.prepare('DELETE FROM pushes_sent WHERE sent_at < ?').run(now - 2 * DAY_S).changes,
     records: d.prepare("DELETE FROM records WHERE at <= CAST(strftime('%s', 'now', '-1 year') AS INTEGER)").run().changes,
   }))();
+  return { ...gone, quietMacs: removeQuietMacs(now) };
 }
 
 function runOnce(): void {

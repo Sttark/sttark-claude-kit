@@ -8,8 +8,8 @@ import { draw, resultHtml, type View } from '../src/view/render.ts';
 import { emptyUi, type Kit, type MacInfo, type Snapshot } from '../src/view/model.ts';
 import { span, until, when } from '../src/view/time.ts';
 import { db, resetDbForTests } from '../src/lib/db.ts';
-import { loadKit, macState, kitJson } from '../src/lib/state.ts';
-import { removeMac } from '../src/lib/macs.ts';
+import { loadKit, kitJson } from '../src/lib/state.ts';
+import { macState, removeOwnMac } from '../src/lib/macs.ts';
 import { seed, sample } from './sample.mjs';
 
 const fixture = (f: string) => JSON.parse(readFileSync(new URL(`../fixtures/${f}`, import.meta.url), 'utf8'));
@@ -213,12 +213,12 @@ describe('the data from the database', () => {
 
   it('says a Mac’s state as the socket server does', () => {
     const now = 2_000_000_000;
-    expect(macState({ last_seen: now - 10, bye: null, bye_at: null }, now)).toBe('live');
-    expect(macState({ last_seen: now - 61, bye: null, bye_at: null }, now)).toBe('not_heard');
-    expect(macState({ last_seen: now - 100, bye: 'sleep', bye_at: now - 100 }, now)).toBe('asleep');
-    expect(macState({ last_seen: now - 100, bye: 'quit', bye_at: now - 100 }, now)).toBe('quit');
-    expect(macState({ last_seen: now - 30, bye: 'update', bye_at: now - 30 }, now)).toBe('updating');
-    expect(macState({ last_seen: now - 300, bye: 'update', bye_at: now - 300 }, now)).toBe('not_heard');
+    expect(macState({ lastSeen: now - 10, bye: null, byeAt: null }, now)).toBe('live');
+    expect(macState({ lastSeen: now - 61, bye: null, byeAt: null }, now)).toBe('not_heard');
+    expect(macState({ lastSeen: now - 100, bye: 'sleep', byeAt: now - 100 }, now)).toBe('asleep');
+    expect(macState({ lastSeen: now - 100, bye: 'quit', byeAt: now - 100 }, now)).toBe('quit');
+    expect(macState({ lastSeen: now - 30, bye: 'update', byeAt: now - 30 }, now)).toBe('updating');
+    expect(macState({ lastSeen: now - 300, bye: 'update', byeAt: now - 300 }, now)).toBe('not_heard');
   });
 
   it('reads the person’s Macs, snapshots, archived list and the session’s changes', async () => {
@@ -238,8 +238,8 @@ describe('the data from the database', () => {
 
   it('removes only the person’s own Mac, and records it', async () => {
     await seed(':memory:', 'avery.stone@sttark.com');
-    expect(removeMac({ email: 'ada.anvil@sttark.com', name: 'Ada Anvil' }, MINI)).toBe(false);
-    expect(removeMac({ email: 'avery.stone@sttark.com', name: 'Avery Stone' }, MINI)).toBe(true);
+    expect(removeOwnMac({ email: 'ada.anvil@sttark.com', name: 'Ada Anvil' }, MINI)).toBe(false);
+    expect(removeOwnMac({ email: 'avery.stone@sttark.com', name: 'Avery Stone' }, MINI)).toBe(true);
     expect(loadKit({ email: 'avery.stone@sttark.com' }).macs.map((m) => m.id)).toEqual([PRO]);
     expect(db().prepare("SELECT who, action, mac_name FROM records WHERE action = 'remove_mac'").get()).toEqual({ who: 'avery.stone@sttark.com', action: 'remove_mac', mac_name: 'Mac mini' });
     expect(db().prepare('SELECT COUNT(*) AS n FROM snapshots WHERE mac_id = ?').get(MINI)).toEqual({ n: 0 });

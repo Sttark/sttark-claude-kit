@@ -16,7 +16,8 @@
 // and push subscriptions end, and their Macs are removed, each with a
 // record (who: roster sync).
 import { db } from './db.ts';
-import { addRecord } from './records.ts';
+import { events } from './events.ts';
+import { markRemoved } from './macs.ts';
 
 export type RosterPerson = { email: string; name: string };
 export type RosterStatus = { people: number; syncedAt: number | null; error: string | null; errorAt: number | null };
@@ -53,26 +54,24 @@ const dropMeta = (...keys: string[]) => db().prepare(`DELETE FROM meta WHERE key
  *  everyone no longer on it. Returns what ended. */
 export function storeRoster(people: RosterPerson[], now = nowS()): { macs: number; sessions: number; pushSubs: number } {
   const d = db();
-  return d.transaction(() => {
+  const off: { id: string; email: string; name: string }[] = [];
+  const ended = d.transaction(() => {
     d.prepare('DELETE FROM roster').run();
     const add = d.prepare('INSERT INTO roster (email, name, synced_at) VALUES (?, ?, ?)');
     for (const p of people) add.run(p.email, p.name, now);
-    const off = d.prepare('SELECT id, name FROM macs WHERE removed_at IS NULL AND email NOT IN (SELECT email FROM roster)').all() as { id: string; name: string }[];
+    off.push(...(d.prepare('SELECT id, email, name FROM macs WHERE removed_at IS NULL AND email NOT IN (SELECT email FROM roster)').all() as typeof off));
     for (const m of off) {
-      d.prepare("UPDATE macs SET removed_at = ?, removed_why = 'roster', removed_by = 'roster sync' WHERE id = ?").run(now, m.id);
-      d.prepare('DELETE FROM snapshots WHERE mac_id = ?').run(m.id);
-      d.prepare('DELETE FROM archived WHERE mac_id = ?').run(m.id);
-      addRecord({
-        at: now, who: 'roster sync', whoName: 'Roster sync', macId: m.id, macName: m.name, action: 'remove_mac',
-        before: { linked: true }, after: { linked: false, why: 'roster' }, result: 'ok',
-        words: `Removed ${m.name}: its person is no longer on the Sttark roster.`,
-      });
+      markRemoved(m, { why: 'roster', by: 'roster sync', byName: 'Roster sync', words: `Removed ${m.name}: its person is no longer on the Sttark roster.` }, now);
     }
     const sessions = d.prepare('DELETE FROM web_sessions WHERE email NOT IN (SELECT email FROM roster)').run().changes;
     const pushSubs = d.prepare('DELETE FROM push_subs WHERE email NOT IN (SELECT email FROM roster)').run().changes;
     setMeta('roster_synced_at', String(now));
     return { macs: off.length, sessions, pushSubs };
   })();
+  // After the transaction: the sockets of whoever left the roster close.
+  for (const m of off) events.emit('mac-removed', { macId: m.id, email: m.email, why: 'roster' });
+  events.emit('roster-synced');
+  return ended;
 }
 
 /** Is this address on the stored roster? */

@@ -1322,3 +1322,52 @@ main > div > h1.page-title,
     padding: 8px 24px;
   }
 }
+
+/* ---------- link a Mac ---------- */
+
+.link-page {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+  max-width: 560px;
+}
+.link-page .page-title {
+  margin: 0;
+}
+/* The code check: attention, in the warn wash, with the code big enough to
+   compare with the Kit's from a step away. */
+.code-check {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+.code-check .code {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.3em;
+}
+/* The QR code stays dark on light in both themes: a phone's camera reads
+   that best. So in dark mode its box takes the light ink and the dark paper
+   the other way round. */
+.qr {
+  width: 200px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+}
+:root[data-theme='dark'] .qr {
+  background: var(--ink);
+  color: var(--paper);
+}
+.qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}

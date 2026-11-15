@@ -1,0 +1,103 @@
+---
+// The link page a Mac's Kit opens (phone/DESIGN.md section 2): sign-in
+// first (Google, with the account hint the Kit sent), then "Link <Mac> to
+// your account?" with one green Link button. When this browser is not on
+// the public address the Mac asked from, the page also shows the Kit's code
+// and asks the person to check it. Link saves the Mac's key to the person,
+// with a record (lib/link.ts); then the page says where to open the app on
+// the phone, with a QR code. The page works once, for 10 minutes.
+import Base from '../../layouts/Base.astro';
+import { approveLink, linkHint, linkPage, type LinkPage } from '../../lib/link.ts';
+import { clientAddress } from '../../lib/net.ts';
+import { appUrl, href, siteName } from '../../lib/paths.ts';
+import { qrSvg } from '../../lib/qr.ts';
+import { until } from '../../view/time.ts';
+
+const token = Astro.params.token ?? '';
+const here = `/link/${token}`;
+const user = Astro.locals.user;
+if (!user) {
+  const hint = linkHint(token);
+  return Astro.redirect(href(`/auth/login?next=${encodeURIComponent(here)}${hint ? `&hint=${encodeURIComponent(hint)}` : ''}`));
+}
+
+let page: LinkPage;
+if (Astro.request.method === 'POST') {
+  approveLink(token, user);
+  return Astro.redirect(href(here), 303);
+} else {
+  let socket: string | null = null;
+  try {
+    socket = Astro.clientAddress;
+  } catch {
+    socket = null;
+  }
+  page = linkPage(token, user.email, clientAddress(Astro.request.headers, socket));
+}
+if (page.kind === 'unknown') Astro.response.status = 404;
+if (page.kind === 'expired') Astro.response.status = 410;
+
+const AGAIN = "On your Mac, open the Kit's Settings and click Link this Mac in the Phone box. It opens a new link page.";
+const home = appUrl('/');
+const site = siteName();
+---
+<Base title={page.kind === 'linked' && page.mine ? 'Linked' : 'Link a Mac'}>
+  <div class="link-page">
+    {page.kind === 'ask' && (
+      <>
+        <h1 class="page-title">Link {page.macName} to your account?</h1>
+        <p class="lede">Its Claude sessions will show on your phone at {site}, signed in as {user.email}.</p>
+        {page.showCode && (
+          <div class="code-check">
+            <p><b>Check the code first.</b> The Kit on {page.macName} shows a code while it waits. Link only if it shows this code:</p>
+            <p class="code" aria-label={`Code ${page.code.split('').join(' ')}`}>{page.code}</p>
+          </div>
+        )}
+        <form method="post" action={href(here)}>
+          <button type="submit" class="btn">Link</button>
+        </form>
+        <p class="hint">This page stops working {until(page.expiresAt, Math.floor(Date.now() / 1000))}. If you did not ask to link this Mac, close this page.</p>
+      </>
+    )}
+    {page.kind === 'linked' && page.mine && (
+      <>
+        <h1 class="page-title">Linked</h1>
+        <p class="lede">On your phone, open <b>{site}</b>.</p>
+        <div class="qr"><Fragment set:html={qrSvg(home, `QR code for ${site}`)} /></div>
+        <p class="hint">Point your phone's camera at the code to open it, then add it to your Home Screen. {page.macName} sends its sessions there now.</p>
+        <a class="btn ghost" href={href('/')}>Go to Sessions</a>
+      </>
+    )}
+    {page.kind === 'linked' && !page.mine && (
+      <>
+        <h1 class="page-title">This link page was used</h1>
+        <p class="lede">{page.macName} was linked from this page already. {AGAIN}</p>
+      </>
+    )}
+    {page.kind === 'taken' && (
+      <>
+        <h1 class="page-title">This link page does not work</h1>
+        <p class="lede">{page.macName} was linked before. {AGAIN}</p>
+      </>
+    )}
+    {page.kind === 'full' && (
+      <>
+        <h1 class="page-title">You have 20 Macs linked</h1>
+        <p class="lede">Remove a Mac you no longer use on the Macs page, then reload this page.</p>
+        <a class="btn ghost" href={href('/macs')}>Go to Macs</a>
+      </>
+    )}
+    {page.kind === 'expired' && (
+      <>
+        <h1 class="page-title">This link page has expired</h1>
+        <p class="lede">A link page works for 10 minutes. {AGAIN}</p>
+      </>
+    )}
+    {page.kind === 'unknown' && (
+      <>
+        <h1 class="page-title">This link page does not work</h1>
+        <p class="lede">Its address is not one the Kit made, or it is over a day old. {AGAIN}</p>
+      </>
+    )}
+  </div>
+</Base>
