@@ -7,6 +7,7 @@
 import { randomBytes } from 'node:crypto';
 import type { AstroCookies } from 'astro';
 import { db } from './db.ts';
+import { events } from './events.ts';
 import { appOrigin, cookiePath } from './paths.ts';
 
 export const SESSION_COOKIE = 'sttark_kit_session';
@@ -52,15 +53,19 @@ export function readSession(cookies: Cookies, now = nowS()): SessionData | null 
   return { email: row.email, name: row.name };
 }
 
-/** Sign out: this sign-in, and the push subscription made under it. */
+/** Sign out: this sign-in, and the push subscription made under it (its
+ *  person's Macs hear how many phones can still get a push). */
 export function destroySession(cookies: Cookies): void {
   const id = cookies.get(SESSION_COOKIE)?.value;
   if (id) {
     const d = db();
-    d.transaction(() => {
+    const gone = d.transaction(() => {
+      const owners = d.prepare('SELECT DISTINCT email FROM push_subs WHERE web_session = ?').all(id) as { email: string }[];
       d.prepare('DELETE FROM push_subs WHERE web_session = ?').run(id);
       d.prepare('DELETE FROM web_sessions WHERE id = ?').run(id);
+      return owners;
     })();
+    for (const { email } of gone) events.emit('push-subs-changed', { email });
   }
   cookies.delete(SESSION_COOKIE, { path: cookiePath() });
 }
@@ -69,10 +74,12 @@ export function destroySession(cookies: Cookies): void {
  *  Their Macs stay linked. */
 export function destroyAllSessions(email: string): { sessions: number; pushSubs: number } {
   const d = db();
-  return d.transaction(() => ({
+  const out = d.transaction(() => ({
     pushSubs: d.prepare('DELETE FROM push_subs WHERE email = ?').run(email).changes,
     sessions: d.prepare('DELETE FROM web_sessions WHERE email = ?').run(email).changes,
   }))();
+  if (out.pushSubs) events.emit('push-subs-changed', { email });
+  return out;
 }
 
 export type OauthState = { codeVerifier: string; nonce: string; returnTo: string };
@@ -116,6 +123,14 @@ export function sessionFromCookieHeader(header: string | undefined, now = nowS()
   if (!id) return null;
   const row = sessionRow(id, now);
   return row ? { id, email: row.email, name: row.name } : null;
+}
+
+/** The id of this browser's sign-in when it is still good, else null (a
+ *  local run's made-up person has none). A push subscription keeps it, so
+ *  Sign out on this phone ends the phone's notices. */
+export function signInId(cookies: Pick<AstroCookies, 'get'>, now = nowS()): string | null {
+  const id = cookies.get(SESSION_COOKIE)?.value;
+  return id && sessionRow(id, now) ? id : null;
 }
 
 /** Is this sign-in still good (not signed out, not expired, on the roster)? */

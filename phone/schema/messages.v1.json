@@ -81,6 +81,7 @@
         { "$ref": "#/$defs/server_to_mac.challenge" },
         { "$ref": "#/$defs/server_to_mac.welcome" },
         { "$ref": "#/$defs/server_to_mac.watching" },
+        { "$ref": "#/$defs/server_to_mac.phones" },
         { "$ref": "#/$defs/server_to_mac.want_archived" },
         { "$ref": "#/$defs/server_to_mac.action" },
         { "$ref": "#/$defs/server_to_mac.error" }
@@ -102,7 +103,7 @@
         "payload": {
           "type": "object", "additionalProperties": false, "required": ["phones", "watching"],
           "properties": {
-            "phones": { "type": "integer", "minimum": 0, "maximum": 50, "description": "How many of the person's phones can get a push." },
+            "phones": { "type": "integer", "minimum": 0, "maximum": 50, "description": "How many of the person's phones can get a push now. A change after this comes as phones." },
             "watching": { "type": "boolean", "description": "A phone page of the person is visible now." }
           }
         }
@@ -114,6 +115,14 @@
       "properties": {
         "event": { "const": "watching" }, "success": { "const": true },
         "payload": { "type": "object", "additionalProperties": false, "required": ["on"], "properties": { "on": { "type": "boolean" } } }
+      }
+    },
+    "server_to_mac.phones": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "How many of the person's phones can get a push changed since welcome: a phone turned Needs you notices on or off, signed out, or its push service said it is gone. The Mac sends remind only while this is more than 0; with 0 its reminders are Mac notices.",
+      "properties": {
+        "event": { "const": "phones" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["phones"], "properties": { "phones": { "type": "integer", "minimum": 0, "maximum": 50 } } }
       }
     },
     "server_to_mac.want_archived": {

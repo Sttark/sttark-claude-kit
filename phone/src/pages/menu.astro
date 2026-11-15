@@ -1,12 +1,14 @@
 ---
 // Menu: the person's Macs (state, last seen, Remove) and Sign out
-// everywhere; Needs you notices (they come with Web Push); the light, auto
-// and dark choice; and Sign out on this phone.
+// everywhere; Needs you notices on this phone (lib/push.ts; the page checks
+// its browser and turns them on or off, scripts/app.ts); the light, auto and
+// dark choice; and Sign out on this phone.
 import Base from '../layouts/Base.astro';
 import { loadKit } from '../lib/state.ts';
+import { signInId } from '../lib/session.ts';
 import { draw, type View } from '../view/render.ts';
 import { emptyUi } from '../view/model.ts';
-const kit = loadKit(Astro.locals.user!);
+const kit = loadKit(Astro.locals.user!, { notices: { signIn: signInId(Astro.cookies) } });
 const view: View = { page: 'menu' };
 const drawn = draw(view, kit, emptyUi());
 ---

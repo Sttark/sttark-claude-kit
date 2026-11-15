@@ -6,6 +6,7 @@
 import { db } from './db.ts';
 import { basePath } from './paths.ts';
 import { macsOf } from './macs.ts';
+import { noticesOfSignIn, pushKey } from './push.ts';
 import type { ArchivedItem, ChangeRecord, Kit, MacInfo, Snapshot } from '../view/model.ts';
 
 function parse<T>(text: string): T | null {
@@ -17,8 +18,9 @@ function parse<T>(text: string): T | null {
 }
 
 /** Everything the person's pages show. `session` adds that session's
- *  change records from the phone. */
-export function loadKit(user: { email: string }, opts: { session?: string; now?: number } = {}): Kit {
+ *  change records from the phone; `notices` (Menu) adds the key a phone
+ *  subscribes with and the notices of this sign-in (its id, or null). */
+export function loadKit(user: { email: string }, opts: { session?: string; now?: number; notices?: { signIn: string | null } } = {}): Kit {
   const now = opts.now ?? Math.floor(Date.now() / 1000);
   const d = db();
   // Each Mac's state as /live says it (lib/macs.ts): from when it was last
@@ -48,7 +50,9 @@ export function loadKit(user: { email: string }, opts: { session?: string; now?:
         .all(opts.session, ...ids) as ChangeRecord[]
     );
   }
-  return { base: basePath(), now, email: user.email, macs, snaps, archived, records };
+  const kit: Kit = { base: basePath(), now, email: user.email, macs, snaps, archived, records };
+  if (opts.notices) kit.notices = { key: pushKey(), mine: noticesOfSignIn(opts.notices.signIn) };
+  return kit;
 }
 
 /** JSON safe inside a <script> element. */

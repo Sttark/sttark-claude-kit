@@ -21,12 +21,14 @@ import {
   liveRows,
   macById,
   multi,
+  noticesOf,
   rowsOf,
   tzOf,
   usageBlocks,
   waitsInWords,
   type Kit,
   type MacInfo,
+  type Notices,
   type Placed,
   type Result,
   type Row,
@@ -599,6 +601,54 @@ function pageMac(k: Kit, id: string, ui: Ui): Drawn {
 
 // ---------- Menu ----------
 
+const WHEN_AWAY = 'one notice when a session waits 10 min for you and you are away from your Mac';
+
+/** The line under Needs you notices: what this phone gets now, or what keeps
+ *  it from getting them and what to do. */
+function noticesLine(k: Kit, n: Notices): string {
+  switch (n.state) {
+    case 'on':
+      return esc(`On for this phone${n.since ? ` since ${whenFull(n.since, k.now, tzOf(k))}` : ''}: ${WHEN_AWAY}.`);
+    case 'turning_on':
+      return 'Turning on...';
+    case 'turning_off':
+      return 'Turning off...';
+    case 'install':
+      return (
+        `To get notices on this ${esc(n.device === 'phone' ? 'iPhone' : n.device)}, add Claude Kit to your Home Screen: in Safari, tap Share ` +
+        `<span class="inline-i" role="img" aria-label="(the Share button)">${ic('share')}</span>, then Add to Home Screen. Open Claude Kit from your Home Screen and turn on notices here.`
+      );
+    case 'unsupported':
+      return 'This browser cannot get notices. On an iPhone, open Claude Kit from your Home Screen (iOS 16.4 or later). On Android, use Chrome.';
+    case 'blocked':
+      return "Notices for Claude Kit are blocked on this phone. Allow them in the phone's settings, then turn them on here.";
+    case 'not_set_up':
+      return 'Notices are not set up on this server yet.';
+    default:
+      return esc(`Off for this phone. Turn on to get ${WHEN_AWAY}.`);
+  }
+}
+
+/** Menu > Notices: one switch for this phone. It turns on only from a tap
+ *  (the phone asks for permission then), and only where the phone can get
+ *  notices: on an iPhone, Claude Kit on the Home Screen. */
+function noticesHtml(k: Kit, ui: Ui): string {
+  const n = noticesOf(k, ui);
+  const on = n.state === 'on' || n.state === 'turning_off';
+  const can = n.state === 'on' || n.state === 'off';
+  const busy = n.state === 'turning_on' || n.state === 'turning_off';
+  const problem = n.problem
+    ? `<div class="note result fail" role="status">${ic('circle-alert')}<div><b>Notices did not change.</b> ${esc(n.problem)}</div>` +
+      `<button type="button" class="x" data-act="notices-clear" aria-label="Close">${ic('x')}</button></div>`
+    : '';
+  return (
+    `<section class="m-sec" aria-labelledby="notices-h"><h2 class="sec" id="notices-h">Notices</h2>` +
+    `<div class="card set-row" id="notices" data-state="${esc(n.state)}"><span class="s-l">Needs you notices<small id="notices-line">${noticesLine(k, n)}</small></span>` +
+    `<button type="button" class="switch" role="switch" aria-checked="${on}" aria-label="Needs you notices" aria-describedby="notices-line" data-act="notices" data-k="notices"` +
+    `${can ? '' : ' aria-disabled="true"'}${busy ? ' aria-busy="true"' : ''}><span class="track"></span></button></div>${problem}</section>`
+  );
+}
+
 function pageMenu(k: Kit, ui: Ui): Drawn {
   const macRows = k.macs.length
     ? k.macs
@@ -622,8 +672,7 @@ function pageMenu(k: Kit, ui: Ui): Drawn {
     `<section class="m-sec" aria-labelledby="macs-h"><h2 class="sec" id="macs-h">Macs</h2><div class="card">${macRows}</div>` +
     `<form method="post" action="${esc(L(k, '/auth/logout-everywhere'))}" data-confirm="Sign out on every phone and browser? Your Macs stay linked." class="btn-row"><button type="submit" class="btn ghost">Sign out everywhere</button></form>` +
     `<p class="why">Sign out everywhere ends each sign-in and notice of yours. Your Macs stay linked.</p></section>` +
-    `<section class="m-sec" aria-labelledby="notices-h"><h2 class="sec" id="notices-h">Notices</h2><div class="card set-row"><span class="s-l">Needs you notices<small>When a session waits 10 min for you and you are away from your Mac. Not ready yet: notices come in a later update.</small></span>` +
-    `<button type="button" class="switch" role="switch" aria-checked="false" aria-disabled="true" aria-label="Needs you notices" data-act="noop"><span class="track"></span></button></div></section>` +
+    noticesHtml(k, ui) +
     `<section class="m-sec" aria-labelledby="look-h"><h2 class="sec" id="look-h">Look</h2><div class="segments theme-choice" id="theme-toggle" role="group" aria-label="Look">` +
     `<button type="button" data-mode="light" aria-pressed="false">Light</button><button type="button" data-mode="system" aria-pressed="false">Auto</button><button type="button" data-mode="dark" aria-pressed="false">Dark</button></div></section>` +
     `<section class="m-sec" aria-labelledby="phone-h"><h2 class="sec" id="phone-h">This phone</h2><p class="why first">Signed in as ${esc(k.email)}.</p>` +

@@ -41,6 +41,7 @@ channels:
       challenge: { $ref: '#/components/messages/server_to_mac.challenge' }
       welcome: { $ref: '#/components/messages/server_to_mac.welcome' }
       watching: { $ref: '#/components/messages/server_to_mac.watching' }
+      phones: { $ref: '#/components/messages/server_to_mac.phones' }
       want_archived: { $ref: '#/components/messages/server_to_mac.want_archived' }
       action: { $ref: '#/components/messages/server_to_mac.action' }
       error: { $ref: '#/components/messages/server_to_mac.error' }
@@ -82,6 +83,7 @@ operations:
       - $ref: '#/channels/mac/messages/challenge'
       - $ref: '#/channels/mac/messages/welcome'
       - $ref: '#/channels/mac/messages/watching'
+      - $ref: '#/channels/mac/messages/phones'
       - $ref: '#/channels/mac/messages/want_archived'
       - $ref: '#/channels/mac/messages/action'
       - $ref: '#/channels/mac/messages/error'
@@ -127,12 +129,16 @@ components:
       payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.challenge' }
     server_to_mac.welcome:
       name: welcome
-      summary: The signature is good. How many phones can get a push, and whether a phone page is visible.
+      summary: The signature is good. How many phones can get a push (then phones on each change), and whether a phone page is visible.
       payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.welcome' }
     server_to_mac.watching:
       name: watching
       summary: A phone page became visible, or none is. While on, the Kit reads the Claude app's list every 10 seconds.
       payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.watching' }
+    server_to_mac.phones:
+      name: phones
+      summary: How many of the person's phones can get a push changed. The Mac sends remind only while it is more than 0.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.phones' }
     server_to_mac.want_archived:
       name: want_archived
       summary: A phone opened Archived and the server's copy is old. The Mac sends archived, or archived_delta from have.
@@ -167,7 +173,7 @@ components:
       payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.result' }
     mac_to_server.remind:
       name: remind
-      summary: A session needed the person for 10 minutes while they are away from the Mac. The server sends one Web Push.
+      summary: A session needed the person for 10 minutes while they are away from the Mac. The server sends one Web Push to each phone with notices on, unless a page of theirs is visible or it sent this one already.
       payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.remind' }
     mac_to_server.bye:
       name: bye

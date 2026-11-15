@@ -184,6 +184,45 @@ describe('Archived, Usage, a Mac, Menu', () => {
   });
 });
 
+describe('Menu > Notices', () => {
+  const menu = (k: Kit, notices: Partial<NonNullable<ReturnType<typeof emptyUi>['notices']>> | null = null) =>
+    html({ page: 'menu' }, k, { ...emptyUi(), notices: notices ? { state: 'off', since: null, problem: null, device: 'phone', ...notices } : null });
+  const sw = (h: string) => h.match(/<button type="button" class="switch"[^>]*data-act="notices"[^>]*>/)?.[0] ?? '';
+  it('draws what the server knows first: this sign-in\'s notices, on since a time, or off', () => {
+    const on = menu(kit({ notices: { key: 'k', mine: { on: true, since: AT - 3600 } } }));
+    expect(on).toMatch(/On for this phone since \d+:\d\d [AP]M: one notice when a session waits 10 min for you and you are away from your Mac\./);
+    expect(sw(on)).toContain('aria-checked="true"');
+    expect(sw(on)).not.toContain('aria-disabled');
+    const off = menu(kit({ notices: { key: 'k', mine: null } }));
+    expect(off).toContain('Off for this phone. Turn on to get one notice when a session waits 10 min');
+    expect(sw(off)).toContain('aria-checked="false"');
+  });
+  it('says when the server has no keys, and the switch waits', () => {
+    const h = menu(kit({ notices: { key: null, mine: null } }));
+    expect(h).toContain('Notices are not set up on this server yet.');
+    expect(sw(h)).toContain('aria-disabled="true"');
+  });
+  it('on an iPhone in the browser: how to add it to the Home Screen, with the Share icon', () => {
+    const h = menu(kit({ notices: { key: 'k', mine: null } }), { state: 'install', device: 'iPhone' });
+    expect(h).toContain('To get notices on this iPhone, add Claude Kit to your Home Screen: in Safari, tap Share');
+    expect(h).toContain('aria-label="(the Share button)"');
+    expect(h).toContain('then Add to Home Screen. Open Claude Kit from your Home Screen and turn on notices here.');
+    expect(sw(h)).toContain('aria-disabled="true"');
+    expect(menu(kit({ notices: { key: 'k', mine: null } }), { state: 'install', device: 'iPad' })).toContain('on this iPad');
+  });
+  it('blocked, no Web Push, a change under way, and a tap that did not work', () => {
+    const k = kit({ notices: { key: 'k', mine: null } });
+    expect(menu(k, { state: 'blocked' })).toContain("Allow them in the phone's settings, then turn them on here.");
+    expect(menu(k, { state: 'unsupported' })).toContain('This browser cannot get notices.');
+    const busy = menu(k, { state: 'turning_on' });
+    expect(busy).toContain('Turning on...');
+    expect(sw(busy)).toContain('aria-busy="true"');
+    const failed = menu(k, { state: 'off', problem: "The phone's push service did not answer. Try again." });
+    expect(failed).toContain('<div class="note result fail" role="status">');
+    expect(failed).toContain("<b>Notices did not change.</b> The phone&#39;s push service did not answer. Try again.");
+  });
+});
+
 describe('BASE_PATH', () => {
   it('puts every link and form under the base', () => {
     const k = kit({ base: '/kit' });

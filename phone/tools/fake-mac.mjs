@@ -264,6 +264,17 @@ export class FakeMac {
     this.conn?.send({ event: 'snapshot', success: true, payload: this.snapshot() });
   }
 
+  /** Sends remind for its first session that needs the person, as a Kit
+   *  does when one has waited 10 minutes and the person is away from the Mac
+   *  (phone/DESIGN.md section 5). What it sent, or null. */
+  remind() {
+    const row = this.snap.rows.find((r) => r.group === 'needs_you');
+    if (!row || !this.conn) return null;
+    const payload = { cse: row.cse, waiting_since: row.session?.waiting_since ?? row.time_at, title: row.title, why: row.session?.why ?? null };
+    this.conn.send({ event: 'remind', success: true, payload });
+    return payload;
+  }
+
   /** Changes the archived list, and sends the change if the server holds
    *  the list it starts from. */
   setArchived(items) {

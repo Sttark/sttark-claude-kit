@@ -67,6 +67,26 @@ export type MacInfo = { id: string; name: string; state: MacState; last_seen: nu
 export type ArchivedItem = { cse: string; title: string; folder: string; archived_at: number | null; url: string };
 export type ChangeRecord = { at: number; mac: string; cse: string; act: string; reason: string; words: string };
 
+/** Needs you notices on this phone, as Menu draws them (lib/push.ts, and the
+ *  page's own check of its browser in scripts/app.ts):
+ *    off, on            this phone gets no notices, or gets them;
+ *    turning_on, turning_off   a tap's change is under way;
+ *    install            an iPhone or iPad in the browser: notices need Claude
+ *                       Kit on the Home Screen;
+ *    unsupported        this browser has no Web Push;
+ *    blocked            the phone's settings block Claude Kit's notices;
+ *    not_set_up         the server has no Web Push keys. */
+export type NoticeState = 'off' | 'on' | 'turning_on' | 'turning_off' | 'install' | 'unsupported' | 'blocked' | 'not_set_up';
+export type Notices = {
+  state: NoticeState;
+  /** When they were last turned on or off on this phone. */
+  since: number | null;
+  /** Why the last tap did not work, in words. */
+  problem: string | null;
+  /** iPhone, iPad, or any other phone. */
+  device: 'iPhone' | 'iPad' | 'phone';
+};
+
 /** Everything a page is drawn from. */
 export type Kit = {
   /** "" or "/kit" (lib/paths.ts). */
@@ -79,6 +99,9 @@ export type Kit = {
   archived: Record<string, ArchivedItem[]>;
   /** The open session's changes from the phone, newest first. */
   records: ChangeRecord[];
+  /** Menu only: the key a phone subscribes to notices with (null: notices
+   *  are not set up on this server), and this sign-in's notices. */
+  notices?: { key: string | null; mine: { on: boolean; since: number } | null };
 };
 
 /** What the person did on this page that the data does not hold. */
@@ -95,12 +118,24 @@ export type Ui = {
   q: string;
   /** Sessions: the search field shows. */
   find: boolean;
+  /** Menu: Needs you notices on this phone, once the page checked its
+   *  browser; until then Menu draws what the server knows (Kit.notices). */
+  notices: Notices | null;
 };
 
 export type Reason = 'ok' | 'gone' | 'not_now' | 'not_here' | 'bad' | 'offline' | 'timeout' | 'denied';
 export type Result = { scope: string; sec: 'top' | 'waits' | 'effort' | 'limit'; reason: Reason; words: string };
 
-export const emptyUi = (): Ui => ({ notes: [], sending: null, result: null, confirm: null, q: '', find: false });
+export const emptyUi = (): Ui => ({ notes: [], sending: null, result: null, confirm: null, q: '', find: false, notices: null });
+
+/** Menu's notices before the page checked its browser: what the server knows
+ *  of this sign-in. */
+export function noticesOf(k: Kit, ui: Ui): Notices {
+  if (ui.notices) return ui.notices;
+  const n = k.notices;
+  if (n && !n.key) return { state: 'not_set_up', since: null, problem: null, device: 'phone' };
+  return { state: n?.mine?.on ? 'on' : 'off', since: n?.mine?.since ?? null, problem: null, device: 'phone' };
+}
 
 export const GROUPS: { key: Group; label: string; icon: 'bell' | 'activity' | 'hourglass' | 'circle-pause'; col: string }[] = [
   { key: 'needs_you', label: 'Needs you', icon: 'bell', col: 'Waiting for' },

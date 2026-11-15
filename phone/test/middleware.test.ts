@@ -33,8 +33,8 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe('middleware', () => {
   it('serves sign-in, the health check, the public files and the Kit\'s link calls to nobody', () => {
-    for (const p of ['/signin', '/healthz', '/favicon.svg', '/robots.txt', '/auth/login', '/auth/callback', '/auth/logout', '/_astro/app.css', '/api/mac/link', '/api/mac/link/abc', '/link/abc']) expect(isPublic(p), p).toBe(true);
-    for (const p of ['/', '/archived', '/usage', '/macs', '/api/anything', '/api/macs', '/favicon.svg/x', '/signin/x', '/linked']) expect(isPublic(p), p).toBe(false);
+    for (const p of ['/signin', '/healthz', '/favicon.svg', '/favicon.ico', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png', '/notice-badge.png', '/site.webmanifest', '/sw.js', '/robots.txt', '/auth/login', '/auth/callback', '/auth/logout', '/_astro/app.css', '/api/mac/link', '/api/mac/link/abc', '/link/abc']) expect(isPublic(p), p).toBe(true);
+    for (const p of ['/', '/archived', '/usage', '/macs', '/api/anything', '/api/macs', '/api/push/subscribe', '/api/push/key', '/favicon.svg/x', '/signin/x', '/linked']) expect(isPublic(p), p).toBe(false);
   });
 
   it('sends a signed-out visitor to sign in, back to where they were going', async () => {

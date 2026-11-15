@@ -143,6 +143,10 @@ const ADDED_COLUMNS: [table: string, column: string, decl: string][] = [
   // The Claude Code login the Kit sent as Google's account hint, if it is a
   // @sttark.com address (lib/link.ts).
   ['links', 'hint', 'TEXT'],
+  // When this phone's notices were last turned on or off, and the kind of
+  // device it is ("iPhone"), for Menu and the records (lib/push.ts).
+  ['push_subs', 'changed_at', 'INTEGER'],
+  ['push_subs', 'device', 'TEXT'],
 ];
 
 let handle: Database.Database | undefined;
