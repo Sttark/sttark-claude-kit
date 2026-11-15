@@ -1,0 +1,12 @@
+---
+// Usage: the 5-hour and weekly limits, and the sessions held at them. Until
+// a Mac is linked, how to link one.
+import Base from '../layouts/Base.astro';
+import NoMac from '../components/NoMac.astro';
+import { macsOf } from '../lib/macs.ts';
+const macs = macsOf(Astro.locals.user!.email);
+---
+<Base title="Usage" tab="usage">
+  <h1 class="vh">Usage</h1>
+  {macs.length === 0 && <NoMac lead="Your 5-hour and weekly usage shows here, with the sessions that hold at the limit." />}
+</Base>

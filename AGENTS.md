@@ -17,3 +17,20 @@ Every pull request that changes what a person sees, or how they work with Claude
 - **The picture:** only the part that matters, never a whole window made smaller: at most 880 by 560 pixels, drawn at 2x, so the page shows it at its own size and its words stay readable. One simple diagram, a crop of the window, or a short GIF for anything that moves, and the same picture for dark mode as `<slug>-dark.gif` (or `.png`, `.svg`) beside it. `tools/whats-new-pictures.swift` draws the GIFs in the brand's colors, light and dark; `tools/screenshot.swift` makes the window crops; add one the same way. A GIF moves at 25 frames a second, holds each state long enough to read its words, holds its last state at least 2 seconds, and shows what really occurs (a limit that resets drops to 0 at once). Check it with `tools/whats-new-motion.swift`, which plays the real page and the bigger picture in light and dark and writes a sheet of what shows every 0.25 seconds.
 - **Before the pull request:** `python3 tools/whats-new.py check` (the facts; the same check fails a pull request), `python3 tools/whats-new.py ste whats-new/<slug>.md` (the Kit's STE check, with Haiku), and draw the popup with `tools/screenshot.swift` (`STTARK_SHOT_DARK=<folder>` for dark mode too) and look at `docs/whats-new.png` and `docs/window-news.png` in light and dark.
 - **On the pull request:** `.github/workflows/whats-new.yml` asks, with a comment and a neutral check, when a change looks like something people notice and adds no note. Answer with a note, or with a line `What's new: none, <why>` in the description.
+
+<!-- sttark-app-guide -->
+## The Sttark Brand and App Guidelines
+
+The server in `phone/` (Kit on your phone, kit.sttark.com) is a Sttark web
+app; its own notes are in `phone/README.md`. Before any work on its pages,
+read all five Apps chapters of the Sttark Brand and App Guidelines in full: [building-web-apps](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/building-web-apps), [look](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/look), [pages-and-behavior](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/pages-and-behavior), [sign-in-and-access](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/sign-in-and-access), [checks](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/checks)
+(with the Sttark Workrouter connector, `docs_read` on
+`/company/sttark-brand-and-app-guidelines/guide/<chapter>`). Start from what
+each page is for, as its "How to decide" says. Read `DESIGN-DECISIONS.md`
+with the guide, and never re-raise a decision listed there.
+
+Before opening a pull request, run `npm run check:pages:changed` in `phone`: it
+starts the app on made-up data, checks the pages the change reaches at
+phone and desktop width, light and dark, as each kind of person, and stops
+it. Fix what fails, and answer its Questions in the pull request. The check
+lives in Sttark/sttark-docs `page-check/`; change it there, never here.

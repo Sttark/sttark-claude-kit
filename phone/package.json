@@ -1,0 +1,40 @@
+{
+  "name": "sttark-claude-kit-phone",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "predev": "node scripts/fonts.mjs --soft",
+    "dev": "astro dev",
+    "prebuild": "node scripts/fonts.mjs --soft",
+    "build": "astro build",
+    "start": "node server.mjs",
+    "test": "vitest run",
+    "check": "astro check",
+    "check:style": "node scripts/check-style.mjs",
+    "check:pages": "node scripts/page-check.mjs",
+    "check:pages:changed": "node scripts/page-check.mjs --changed",
+    "fonts": "node scripts/fonts.mjs"
+  },
+  "dependencies": {
+    "@astrojs/node": "^11.1.13",
+    "astro": "^7.4.12",
+    "better-sqlite3": "^13.2.0",
+    "openid-client": "^6.9.0",
+    "send": "^1.2.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "@playwright/test": "^1.65.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.19.2",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
+  },
+  "allowScripts": {
+    "better-sqlite3": false,
+    "fsevents": false
+  }
+}

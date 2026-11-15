@@ -1,0 +1,11 @@
+---
+// A server error: says so, and offers the way back.
+import Base from '../layouts/Base.astro';
+---
+<Base title="Error" bare>
+  <div class="error-page">
+    <h1 class="page-title">Something went wrong</h1>
+    <p class="lede">The server could not show this page. Try again in a moment.</p>
+    <a class="btn ghost" href={Astro.url.pathname}>Try again</a>
+  </div>
+</Base>

@@ -1,0 +1,12 @@
+---
+// Archived: the archived sessions each linked Mac lists, newest first.
+// Until a Mac is linked, how to link one.
+import Base from '../layouts/Base.astro';
+import NoMac from '../components/NoMac.astro';
+import { macsOf } from '../lib/macs.ts';
+const macs = macsOf(Astro.locals.user!.email);
+---
+<Base title="Archived" tab="archived">
+  <h1 class="vh">Archived</h1>
+  {macs.length === 0 && <NoMac lead="Your archived sessions show here, so you can find an old session and bring it back." />}
+</Base>
