@@ -632,7 +632,12 @@ def background(tp, running):
 
 def open_chats(pages=3):
     """The account's Claude Code chats that are not archived, newest first: the same short list the Claude app reads
-    (statuses active and paused). One small request in most cases, so the Kit can read it every few seconds."""
+    (statuses active and paused). One small request in most cases, so the Kit can read it every few seconds.
+    STTARK_ARCHIVED_TEST: a JSON file {"sessions": [...]} in place of Claude's list, as for --archived."""
+    test = os.environ.get('STTARK_ARCHIVED_TEST')
+    if test:
+        with open(test) as f:
+            return [c for c in json.load(f).get('sessions') or [] if c.get('status') in ('active', 'paused')]
     out, cursor = [], ''
     for _ in range(pages):
         d = api('GET', 'https://api.anthropic.com/v1/code/sessions?statuses=active&statuses=paused&limit=100'

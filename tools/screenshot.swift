@@ -4,9 +4,10 @@
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
 //   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
 //   docs/window-settings.png  the window's Settings page
+//   docs/settings-phone.png   the Settings page's Phone box in each of its states (Kit on your phone)
 //   docs/window-news.png      the window's What's new page
 //   docs/window-events.png    the window's Events page, newest first, from sample log lines
-//   docs/whats-new.png        the What's new sheet over the window, with this repo's notes
+//   docs/whats-new.png        the What's new sheet over the window, with this repo's newest notes (at most 4)
 // and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
 // The window and the sheet are real windows, put off the screen and captured with screencapture, so they look as
@@ -84,6 +85,10 @@ import SwiftUI
         model.fixedFacts = facts
         model.reload()
         model.reloadFacts()
+        model.phone = Sample.phone[2].1   // Settings shows Kit on your phone linked
+        for look in [false, true] where !look || dark != nil {
+            Shot.phoneStates(dark: look, to: (look ? dark! : "docs") + "/settings-phone.png")
+        }
         model.selected = model.snap.rows.first { $0.wait?.kind == "email-reply" }?.id
         let w = Shot.window(model)
         for look in [false, true] where !look || dark != nil {
@@ -102,9 +107,13 @@ import SwiftUI
             // the archived note's picture: the selected session with Open and Bring it back
             Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
                       to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
+            ShotWindow.key = true   // Settings as the person sees it while using it: an on switch in its accent color
             model.page = .settings
+            Shot.redraw(w)
             Shot.capture(w, to: folder + "/window-settings.png")
+            ShotWindow.key = false
             model.page = .news
+            Shot.redraw(w)
             Shot.capture(w, to: folder + "/window-news.png")
             model.page = .events
             model.readEvents()
@@ -159,9 +168,10 @@ import SwiftUI
             Shot.crop(full, NSRect(x: 226, y: 0, width: 390, height: 280),
                       to: "whats-new/sessions-at-once" + (look ? "-dark" : "") + ".png")
             w.setFrame(f, display: true)
-            // the What's new sheet, as the menu's What's new item opens it, over the window
+            // the What's new sheet, as the menu's What's new item opens it, over the window: the newest notes, at most 4
+            // as WhatsNew.forSheet gives them, so the sheet fits the window with its title and buttons
             model.page = .sessions
-            model.sheet = WhatsNew.all
+            model.sheet = Array(WhatsNew.all.prefix(4))
             w.orderFrontRegardless()
             RunLoop.main.run(until: Date().addingTimeInterval(1.5))
             Shot.capture(w, to: folder + "/whats-new.png", wait: 0.2)
@@ -185,9 +195,42 @@ import SwiftUI
         w.close()
     }
 
+    /// The Phone box in Settings in each of its states, one under the other with a caption each, at the width of the
+    /// Settings page's column: docs/settings-phone.png.
+    static func phoneStates(dark: Bool, to path: String) {
+        let view = VStack(alignment: .leading, spacing: 16) {
+            ForEach(Sample.phone, id: \.0) { caption, s in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(caption).font(K.font(12, true)).foregroundColor(K.steel).padding(.leading, 2)
+                    Box { PhoneRow(status: s, link: {}, toggle: {}) }
+                }
+            }
+        }
+        .padding(20).frame(width: 480).background(K.card).font(K.font(13)).foregroundColor(K.ink)
+        let host = NSHostingView(rootView: view)
+        let size = host.fittingSize
+        let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        w.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        w.isReleasedWhenClosed = false
+        w.contentView = host
+        w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+        ShotWindow.key = true   // each switch on or off as it really is: on in its accent color, as in the key window
+        redraw(w)
+        capture(w, to: path)
+        ShotWindow.key = false
+        w.close()
+    }
+
+    /// Every view of the window draws again, so a change of ShotWindow.key shows in the next capture.
+    static func redraw(_ w: NSWindow) {
+        func all(_ v: NSView) { v.needsDisplay = true; v.subviews.forEach(all) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        if let v = w.contentView { all(v) }
+    }
+
     /// The window as the app makes it, off the screen.
     static func window(_ model: KitModel) -> NSWindow {
-        let w = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 760),
+        let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 760),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
@@ -247,6 +290,19 @@ enum Sample {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.string(from: d)
+    }
+
+    /// Kit on your phone in each state Settings shows, with the words for the picture's captions.
+    static var phone: [(String, PhoneLink.Status)] {
+        [("Not linked", PhoneLink.Status(stage: .notLinked)),
+         ("Linking: the link page is open in the browser", PhoneLink.Status(stage: .linking, code: "KXRT")),
+         ("Linked", PhoneLink.Status(stage: .linked, email: "name@sttark.com", connected: true, lastSent: at(11, 30), phones: 1)),
+         ("Linked, no phone gets notices yet", PhoneLink.Status(stage: .linked, email: "name@sttark.com", connected: true, lastSent: at(11, 30), phones: 0)),
+         ("Linked, the network down", PhoneLink.Status(stage: .linked, email: "name@sttark.com", lastSent: at(11, 2), problem: "no network")),
+         ("Removed on the phone", PhoneLink.Status(stage: .removed)),
+         ("Not on the roster", PhoneLink.Status(stage: .refused, email: "name@sttark.com",
+                                                problem: PhoneLink.notOnRoster)),
+         ("Off", PhoneLink.Status(stage: .off))]
     }
 
     static var facts: MenuFacts {
@@ -553,4 +609,13 @@ enum Draw {
         try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
         print("wrote \(path) (\(Int(w))×\(Int(h)) pt)")
     }
+}
+
+/// The tool's windows. AppKit draws a control in its accent color (an on switch, a checked box) only in the key window
+/// of the active app, and gray in any other window, where an on switch reads as off. The tool never activates the app,
+/// since nothing may come to the front, so while `key` is set its window says it has the key window's look (AppKit's own
+/// `hasKeyAppearance`, which the controls ask when they draw) and they draw as the person sees them in use.
+final class ShotWindow: NSWindow {
+    static var key = false
+    @objc(hasKeyAppearance) func keyLook() -> Bool { ShotWindow.key }
 }
