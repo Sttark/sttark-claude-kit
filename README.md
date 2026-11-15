@@ -641,7 +641,7 @@ The app is a small Swift menu bar app. Most of the work is done by Python and sh
 
 ### Releases
 
-Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `Info.plist`, `build.sh`, `whats-new`) makes GitHub build, sign and publish a new release by itself (`.github/workflows/release.yml`). The version is 1 followed by the number of commits, so each one is higher than the last. The app installs a new release only if it's signed with the same certificate as the running copy, named "Sttark Effort Signing", and has the same app ID. The certificate is in the repo's secrets (`SIGN_P12`, `SIGN_P12_PASSWORD`). A change to anything else (this README, `tools`, the workflows) makes no release. It's self-made, not from Apple: it keeps the Chrome approver's Accessibility permission on through updates, but can't skip the Open Anyway step on a first install.
+Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `Info.plist`, `build.sh`, `whats-new`) makes GitHub build, sign and publish a new release by itself (`.github/workflows/release.yml`). The version is 1 followed by the number of commits, so each one is higher than the last. The app installs a new release only if it's signed with the same certificate as the running copy, named "Sttark Effort Signing", and has the same app ID. The certificate is in the repo's secrets (`SIGN_P12`, `SIGN_P12_PASSWORD`). A change to anything else (this README, `tools`, the workflows, the phone server in `phone/`) makes no release. It's self-made, not from Apple: it keeps the Chrome approver's Accessibility permission on through updates, but can't skip the Open Anyway step on a first install.
 
 ### Files
 
@@ -714,6 +714,7 @@ Every change to the app's code on `main` (`Sources`, `Resources`, `Helpers`, `In
 | `.github/workflows/release.yml` | Builds, signs and publishes a release. |
 | `.github/workflows/notify.yml` | Sends Reach me by's email. |
 | `pages/open.html`, `.github/workflows/pages.yml` | The Open in Claude page, published to GitHub Pages from `pages/` on each change on main. |
+| `.github/workflows/phone-deploy.yml` | Deploys Kit on your phone (`phone/`) to building.sttark.com/kit on each change to the server on main, and by hand. It tests the server, copies in the fonts from Sttark/sttark-docs, builds it with `BASE_PATH=/kit` and packs it, then sends the pack and the `VAULT_*` secrets from the `production` environment over SSH to `kit-deploy` on the sttark-building Linode, which sets `APP_ORIGIN`, restarts it and goes back to the last release if `/kit/healthz` does not answer; then it checks the public `/kit/healthz` for its commit. kit.sttark.com can come later by changing `APP_ORIGIN` and `BASE_PATH` only. Until the repository variable `KIT_DEPLOY_READY` is `true`, it skips with a notice. The box side is Sttark/building's ansible, "Kit on this box". |
 | `.github/workflows/whats-new.yml` | On pull requests: fails a note that breaks the format; asks, never fails, when a change people notice has no note. |
 | `.github/workflows/app-review.yml`, `.github/workflows/page-check.yml` | The shared AI review and page check for Sttark web apps (below). |
 

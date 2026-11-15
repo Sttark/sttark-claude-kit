@@ -23,9 +23,9 @@
 
   <g transform="translate(460,130)">
     <rect width="300" height="320" rx="16" fill="#fff4dc" stroke="#a87b1d" stroke-width="2"/>
-    <text x="20" y="40" font-size="24" font-weight="700" fill="#1d1d1b">kit.sttark.com</text>
+    <text x="20" y="40" font-size="21" font-weight="700" fill="#1d1d1b">building.sttark.com/kit</text>
     <text x="20" y="74" font-size="15" fill="#1d1d1b">On the sttark-building Linode</text>
-    <text x="20" y="98" font-size="15" fill="#1d1d1b">nginx and TLS, then claude-kit</text>
+    <text x="20" y="98" font-size="15" fill="#1d1d1b">Building's nginx: /kit/ to claude-kit</text>
     <text x="20" y="122" font-size="15" fill="#1d1d1b">(Node 24, Astro, ws, web-push)</text>
     <text x="20" y="162" font-size="15" font-weight="600" fill="#1d1d1b">kit.db (one SQLite file)</text>
     <text x="20" y="186" font-size="15" fill="#1d1d1b">Macs and their public keys,</text>

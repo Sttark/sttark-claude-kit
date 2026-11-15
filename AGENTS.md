@@ -21,7 +21,7 @@ Every pull request that changes what a person sees, or how they work with Claude
 <!-- sttark-app-guide -->
 ## The Sttark Brand and App Guidelines
 
-The server in `phone/` (Kit on your phone, kit.sttark.com) is a Sttark web
+The server in `phone/` (Kit on your phone, building.sttark.com/kit) is a Sttark web
 app; its own notes are in `phone/README.md`. Before any work on its pages,
 read all five Apps chapters of the Sttark Brand and App Guidelines in full: [building-web-apps](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/building-web-apps), [look](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/look), [pages-and-behavior](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/pages-and-behavior), [sign-in-and-access](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/sign-in-and-access), [checks](https://docs.sttark.com/company/sttark-brand-and-app-guidelines/guide/checks)
 (with the Sttark Workrouter connector, `docs_read` on
