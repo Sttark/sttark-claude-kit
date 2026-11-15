@@ -1,7 +1,7 @@
 /* Claude Kit phone styles. The Sttark Brand and App Guidelines (the five
-   Apps chapters on docs.sttark.com) are the rule, and kit-mobile.html, the
-   mockup the owner chose, is the picture. The shared Sttark look (fonts,
-   tokens, page base, top bar, buttons, crumbs, page title, section
+   Apps chapters on docs.sttark.com) are the rule, and the clickable
+   prototype the owner approved is the picture. The shared Sttark look
+   (fonts, tokens, page base, top bar, buttons, crumbs, page title, section
    headings) comes from sttark-shared.css, a byte-for-byte copy of the
    canonical file in sttark-docs (npm run check:style confirms it).
    Everything below is this app's own and uses the tokens only, never raw
@@ -11,6 +11,14 @@
    is a soft wash with colored text, a border, a dot and a word. */
 @import './sttark-shared.css';
 
+:root {
+  /* The page's column: one phone-shaped column on a desktop too. */
+  --col: 760px;
+  /* The tab bar at the foot of a phone's screen, and the usage strip over it. */
+  --tabh: calc(65px + env(safe-area-inset-bottom));
+  --striph: 73px;
+}
+
 *,
 *::before,
 *::after {
@@ -18,9 +26,11 @@
 }
 html {
   background: var(--paper);
+  -webkit-text-size-adjust: 100%;
 }
 body {
   margin: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 [hidden] {
   display: none !important;
@@ -35,6 +45,16 @@ ol {
 }
 a {
   color: inherit;
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+svg.i {
+  display: block;
+  flex: none;
+  width: 20px;
+  height: 20px;
 }
 
 .skip {
@@ -60,32 +80,50 @@ a {
   white-space: nowrap;
 }
 
-/* ---------- top bar: this app's parts ---------- */
+/* ---------- top bar: Search and Menu ---------- */
 
-/* Sign out, in the bar on a desktop and under Menu on a phone: an outline
-   on the black bar, like the bar's other controls. */
-.topbar .signout {
-  display: flex;
-  margin: 0;
-}
-.signout-btn {
-  appearance: none;
+/* Outlines on the black bar, like the shared bar's controls. */
+.topbar .bar-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 40px;
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid color-mix(in srgb, var(--on-chrome) 45%, transparent);
   border-radius: var(--radius);
   background: transparent;
-  color: var(--on-chrome);
+  color: var(--card);
   font: 400 14px var(--font);
   white-space: nowrap;
-  cursor: pointer;
 }
-.signout-btn:hover {
+:root[data-theme='dark'] .topbar .bar-btn {
+  color: var(--ink);
+}
+.topbar .bar-btn:hover {
   border-color: var(--on-chrome);
+  background: transparent;
 }
-
+.topbar .bar-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.topbar .bar-btn.search {
+  margin-left: auto;
+  padding: 0;
+}
+/* Menu while its page is open: Close, filled. */
+.topbar .bar-btn.pressed {
+  border-color: var(--card);
+  background: var(--card);
+  color: var(--chrome);
+}
+:root[data-theme='dark'] .topbar .bar-btn.pressed {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--chrome);
+}
 @media (max-width: 760px) {
   .brand {
     min-width: 0;
@@ -95,29 +133,22 @@ a {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* No search on this bar yet: Menu sits at the right, with its word, as
-     the bar has room for it (the mockup). */
-  .menu-btn {
-    margin-left: auto;
-  }
-  .menu-btn .menu-word {
-    display: inline;
-  }
-  .topbar[data-menu='open'] .signout {
-    margin-top: 12px;
-  }
-  .topbar[data-menu='open'] .signout-btn {
+  .topbar .bar-btn {
+    min-width: 44px;
     min-height: 44px;
-    padding: 0 16px;
   }
 }
 
 /* ---------- the page ---------- */
 
 main {
-  max-width: var(--content-width);
+  max-width: var(--col);
   margin: 0 auto;
-  padding: 24px;
+  padding: 16px 24px 48px;
+}
+/* Room under the strip on Sessions. */
+main:has(.strip) {
+  padding-bottom: calc(var(--striph) + 24px);
 }
 .lede {
   color: var(--steel);
@@ -126,7 +157,6 @@ main {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 24px;
 }
 
 /* ---------- tabs: Sessions, Archived, Usage ----------
@@ -141,7 +171,7 @@ main {
 .tabbar-row {
   display: flex;
   gap: 24px;
-  max-width: var(--content-width);
+  max-width: var(--col);
   margin: 0 auto;
   padding: 0 24px;
 }
@@ -158,7 +188,6 @@ main {
   white-space: nowrap;
 }
 .tabbar a svg {
-  display: none;
   width: 20px;
   height: 20px;
 }
@@ -172,14 +201,33 @@ main {
   text-decoration-thickness: 2px;
   text-underline-offset: 8px;
 }
+/* The Needs you count on Sessions. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
 
 @media (max-width: 760px) {
   main {
-    padding: 16px;
+    padding: 8px 16px 24px;
   }
-  /* Room under the page for the tab bar, so nothing hides behind it. */
+  /* Room under the page for the tab bar (and the strip), so nothing hides
+     behind them. */
   main.with-tabbar {
-    padding-bottom: calc(56px + 24px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--tabh) + 24px);
+  }
+  main.with-tabbar:has(.strip) {
+    padding-bottom: calc(var(--tabh) + var(--striph) + 24px);
   }
   .tabbar {
     position: fixed;
@@ -194,14 +242,1010 @@ main {
   }
   .tabbar-row {
     gap: 8px;
+    height: 64px;
     padding: 4px 8px;
   }
   .tabbar a {
     flex: 1;
   }
-  .tabbar a svg {
-    display: block;
-  }
+}
+
+/* ---------- status chips and results ---------- */
+
+/* A soft wash, colored words, a 1 px border and a dot. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--steel);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.chip::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.chip.warn {
+  border-color: var(--warn-border);
+  background: var(--warn-soft);
+  color: var(--warn-text);
+}
+.chip.warn::before {
+  background: var(--warn-mark);
+}
+.chip.good {
+  border-color: var(--good-border);
+  background: var(--good-soft);
+  color: var(--good-text);
+}
+.chip.info {
+  border-color: var(--info-border);
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+.chip.info::before {
+  background: var(--info-mark);
+}
+
+/* An explanation from an ⓘ, or the answer to an action: in place, under
+   what it explains, pushing what is below it down. */
+.note {
+  position: relative;
+  margin: 8px 0;
+  padding: 12px 48px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.note .x {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--steel);
+  cursor: pointer;
+}
+.result {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.result svg.i {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+.result b {
+  display: block;
+}
+.result.ok {
+  border-color: var(--good-border);
+  background: var(--good-soft);
+}
+.result.ok svg.i {
+  color: var(--good-text);
+}
+.result.nochange {
+  border-color: var(--info-border);
+  background: var(--info-soft);
+}
+.result.nochange svg.i {
+  color: var(--info-mark);
+}
+.result.fail {
+  border-color: var(--warn-border);
+  background: var(--warn-soft);
+}
+.result.fail svg.i {
+  color: var(--warn-text);
+}
+
+/* Not connected to the server: a status line over the page. */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  color: var(--warn-text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.status::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn-mark);
+}
+.status.info {
+  border-color: var(--info-border);
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+.status.info::before {
+  background: var(--info-mark);
+}
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--bad-border);
+  border-radius: var(--radius);
+  background: var(--bad-soft);
+  color: var(--bad-text);
+}
+.notice::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bad-mark);
+}
+
+/* ---------- buttons this app adds ---------- */
+
+.btn.full {
+  width: 100%;
+  min-height: 48px;
+}
+.btn.sending {
+  opacity: 0.7;
+  cursor: progress;
+}
+.btn.danger-line {
+  border-color: var(--bad-text);
+  background: transparent;
+  color: var(--bad-text);
+}
+.btn.danger-line:hover {
+  background: var(--bad-soft);
+  border-color: var(--bad-text);
+}
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.btn-row > .btn,
+.btn-row > form {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.btn-row > form .btn {
+  width: 100%;
+}
+.open-second {
+  margin-top: 12px;
+}
+
+/* ---------- grouped lists ----------
+   A heading with its icon, count and what the time column says; the rows
+   indented behind a thin line. A row opens the session's page; the ↗ at
+   its right edge opens it in Claude (DESIGN-DECISIONS.md, session rows). */
+.grp + .grp {
+  margin-top: 12px;
+}
+.grp-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.grp-h svg.i {
+  width: 16px;
+  height: 16px;
+  color: var(--steel);
+}
+.grp-h.needs_you svg.i {
+  color: var(--warn-mark);
+}
+.grp-h.working svg.i {
+  color: var(--info-mark);
+}
+.grp-h .n {
+  color: var(--steel);
+  font-size: 14px;
+}
+.grp-h .col {
+  margin-left: auto;
+  color: var(--steel);
+  font-size: 13px;
+  font-weight: 400;
+}
+.grp-h.has-info {
+  min-height: 44px;
+}
+.grp-h.has-info .info-btn {
+  margin: 0 0 0 -8px;
+}
+.grp-h.has-info ~ .rows {
+  margin-top: 8px;
+}
+.rows {
+  list-style: none;
+  margin: 4px 0 0 8px;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--line);
+}
+.rows li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rows li + li {
+  border-top: 1px solid var(--line);
+}
+.row {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 8px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+.row-main {
+  min-width: 0;
+}
+.row .chev {
+  color: var(--steel);
+}
+.name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.name {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The effort on a working row: a chip; dashed when the person set it. */
+.lvl {
+  flex: none;
+  padding: 0 8px;
+  border: 1px solid var(--gray);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.lvl.manual {
+  border-style: dashed;
+}
+.sub {
+  overflow: hidden;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sub .warn {
+  color: var(--warn-text);
+  font-weight: 600;
+}
+.sub .mac {
+  color: var(--ink);
+}
+.folder {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+.time {
+  color: var(--steel);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.time.late {
+  color: var(--warn-text);
+  font-weight: 600;
+}
+.open-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  color: var(--ink);
+}
+.open-btn:hover {
+  background: var(--hover-wash);
+}
+/* A Mac that is away: its last list, in gray. */
+.stale .row,
+.stale .name,
+.stale .sub,
+.stale .sub .mac,
+.stale .time,
+.stale .lvl,
+.stale .grp-h,
+.stale .grp-h svg.i {
+  color: var(--steel);
+}
+
+/* Search on a list: a field like every field (the input itself is the
+   field, with the search icon in it), and on Sessions a Close beside it. */
+.search-row {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.search-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.search-field > svg.i {
+  position: absolute;
+  top: 14px;
+  left: 12px;
+  color: var(--steel);
+  pointer-events: none;
+}
+.search-field input {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 8px 0 44px;
+  border: 1px solid var(--gray);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  font: 400 16px var(--font);
+}
+.search-field input::placeholder {
+  color: var(--steel);
+  opacity: 1;
+}
+.close-search {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* Empty lists, and quiet lines. */
+.empty-list {
+  margin-top: 24px;
+  padding: 24px 16px;
+  text-align: center;
+}
+.empty-list svg.i {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 12px;
+  color: var(--gray);
+}
+.empty-list h2 {
+  font-size: 17px;
+  line-height: 1.3;
+}
+.empty-list p {
+  margin-top: 4px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.quiet {
+  margin: 0 0 8px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+
+/* The 5-hour and weekly strip over the tab bar on Sessions; a tap opens
+   Usage. */
+.strip {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--tabh);
+  z-index: 35;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+.strip a {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  max-width: var(--col);
+  min-height: 72px;
+  margin: 0 auto;
+  padding: 8px 16px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.u-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  line-height: 18px;
+}
+.u-top b.warn {
+  color: var(--warn-text);
+}
+.u-bar {
+  position: relative;
+  height: 6px;
+  margin: 6px 0;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--line);
+}
+.u-bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 3px;
+  background: var(--steel);
+}
+.u-bar.full i {
+  background: var(--warn-mark);
+}
+.u-reset {
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+
+/* ---------- one session ---------- */
+
+.crumbs {
+  display: flex;
+  margin: 0 0 0 -12px;
+}
+.crumbs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px 0 8px;
+}
+.crumbs svg.i {
+  width: 16px;
+  height: 16px;
+}
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.title-row .chip {
+  flex: none;
+}
+h1.page-title {
+  min-width: 0;
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+main > div > h1.page-title,
+#view > h1.page-title {
+  margin: 8px 0 12px;
+}
+.page-sub {
+  margin: -4px 0 12px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.sub-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.sub-h h2.l {
+  font-size: 17px;
+  line-height: 1.3;
+}
+.sec {
+  margin-top: 16px;
+}
+.sec > .sub-h {
+  margin-bottom: 8px;
+}
+.info-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 -12px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--steel);
+  cursor: pointer;
+}
+.info-btn[aria-expanded='true'] {
+  color: var(--ink);
+}
+.facts {
+  padding: 4px 12px;
+}
+.facts .f {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 15px;
+  line-height: 20px;
+}
+.facts .f + .f {
+  border-top: 1px solid var(--line);
+}
+.facts .f > span:first-child {
+  color: var(--steel);
+}
+.wait {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+}
+.wait + .wait {
+  margin-top: 8px;
+}
+.w-what {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.w-by {
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 18px;
+}
+.w-how {
+  margin-top: 2px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.w-fail {
+  margin-top: 2px;
+  color: var(--warn-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.eff-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+/* A switch: ink when on (a chosen option is ink, not green). */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 0 0 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.track {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--gray);
+}
+.track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--card);
+  transition: left 0.15s;
+}
+.switch[aria-checked='true'] .track {
+  background: var(--ink);
+}
+.switch[aria-checked='true'] .track::after {
+  left: 23px;
+}
+.switch[aria-disabled='true'] {
+  cursor: default;
+}
+/* Effort levels and the theme choice: one bordered row; the chosen one ink. */
+.segments {
+  display: flex;
+  margin-top: 8px;
+}
+.segments button {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 1px solid var(--gray);
+  border-left: 0;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.segments button:first-child {
+  border-left: 1px solid var(--gray);
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.segments button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.segments button[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--card);
+}
+.segments button.sending {
+  font-size: 13px;
+}
+.segments button[aria-disabled='true'] {
+  cursor: default;
+}
+.off {
+  opacity: 0.55;
+}
+.why {
+  margin-top: 8px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.why.first {
+  margin: 0 0 8px;
+}
+.select-wrap {
+  position: relative;
+  margin-top: 4px;
+}
+.select-wrap select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 44px 0 12px;
+  border: 1px solid var(--gray);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  font: 400 16px var(--font);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.select-wrap svg.i {
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  color: var(--steel);
+  pointer-events: none;
+}
+.select-wrap.sending select {
+  color: var(--steel);
+}
+.readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  margin-top: 4px;
+  padding: 0 12px;
+  font-size: 16px;
+}
+.log {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0 12px;
+}
+.log li {
+  padding: 8px 0;
+  font-size: 14px;
+  line-height: 18px;
+}
+.log li + li {
+  border-top: 1px solid var(--line);
+}
+.away-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  color: var(--steel);
+  font-size: 15px;
+  line-height: 20px;
+}
+.away-head svg.i {
+  width: 16px;
+  height: 16px;
+}
+.away-head b {
+  color: var(--ink);
+}
+
+/* ---------- usage ---------- */
+
+.lead {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 8px;
+}
+.lead p {
+  font-size: 16px;
+  line-height: 1.4;
+}
+.block-h {
+  margin-top: 24px;
+}
+.meters {
+  margin-top: 16px;
+}
+.meter {
+  padding: 8px 16px;
+}
+.meter + .meter {
+  border-top: 1px solid var(--line);
+}
+.m-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.m-label {
+  font-size: 17px;
+  font-weight: 600;
+}
+.m-pct {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.m-pct.warn {
+  color: var(--warn-text);
+}
+.m-bar {
+  position: relative;
+  height: 12px;
+  margin-top: 8px;
+  border-radius: 6px;
+  background: var(--line);
+}
+.m-bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 6px;
+  background: var(--steel);
+}
+.m-bar.full i {
+  background: var(--warn-mark);
+}
+/* The 60% and 80% marks: where a session holds. */
+.m-bar s {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ink);
+}
+.m-ticks {
+  position: relative;
+  height: 18px;
+  margin-top: 4px;
+  color: var(--steel);
+  font-size: 12px;
+  line-height: 18px;
+}
+.m-ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.m-reset {
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.m-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.meter + .m-foot {
+  border-top: 1px solid var(--line);
+}
+.m-foot:first-child {
+  border-top: 0;
+}
+.m-foot .key {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.m-foot .key s {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: var(--ink);
+}
+.fact {
+  margin-top: 16px;
+  padding: 12px 16px;
+}
+.fact .f-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 16px;
+  line-height: 20px;
+}
+.fact .f-mac {
+  margin-top: 8px;
+  color: var(--steel);
+}
+.fact p {
+  margin-top: 4px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+
+/* ---------- menu ---------- */
+
+.m-sec h2.sec {
+  margin: 24px 0 8px;
+}
+.mac-row {
+  padding: 12px;
+}
+.mac-row + .mac-row {
+  border-top: 1px solid var(--line);
+}
+.mac-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mac-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.mac-name svg.i {
+  width: 16px;
+  height: 16px;
+  color: var(--steel);
+}
+.mac-seen {
+  margin-top: 4px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.mac-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.confirm {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--bad-border);
+  border-radius: var(--radius);
+  background: var(--bad-soft);
+  font-size: 14px;
+  line-height: 18px;
+}
+.confirm .btn-row {
+  margin-top: 8px;
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+}
+.set-row .s-l {
+  font-size: 16px;
+  line-height: 20px;
+}
+.set-row .s-l small {
+  display: block;
+  margin-top: 2px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.set-row .switch[aria-disabled='true'] {
+  opacity: 0.55;
 }
 
 /* ---------- no Mac linked yet ---------- */
@@ -210,10 +1254,11 @@ main {
   display: grid;
   gap: 12px;
   max-width: 640px;
+  margin-top: 8px;
   padding: 16px;
-  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  background: var(--card);
 }
 .empty h2 {
   display: flex;
@@ -223,7 +1268,6 @@ main {
   line-height: 1.3;
 }
 .empty h2 svg {
-  flex: none;
   width: 20px;
   height: 20px;
   color: var(--steel);
@@ -238,30 +1282,6 @@ main {
   padding-left: 24px;
 }
 
-/* ---------- Macs ---------- */
-
-.mac-list {
-  list-style: none;
-  max-width: 640px;
-  margin-bottom: 16px;
-  padding: 0;
-}
-.mac-list li {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-  font-weight: 600;
-}
-.everywhere {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
-  margin-top: 32px;
-}
-.hint {
-  font-size: 14px;
-  color: var(--steel);
-}
-
 /* ---------- sign-in and error pages ---------- */
 
 .signin {
@@ -269,6 +1289,7 @@ main {
   gap: 16px;
   max-width: 420px;
   margin: 48px auto;
+  padding: 24px;
 }
 .signin .page-title,
 .error-page .page-title {
@@ -281,6 +1302,7 @@ main {
   display: grid;
   justify-items: start;
   gap: 16px;
+  margin-top: 16px;
 }
 @media (max-width: 760px) {
   .signin {
@@ -289,32 +1311,14 @@ main {
   }
 }
 
-/* Status: a soft wash with colored words, a 1 px border and a dot. */
-.notice,
-.status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--bad-border);
-  border-radius: var(--radius);
-  background: var(--bad-soft);
-  color: var(--bad-text);
-}
-.notice::before,
-.status::before {
-  content: '';
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--bad-mark);
-}
-.status.info {
-  border-color: var(--info-border);
-  background: var(--info-soft);
-  color: var(--info-text);
-}
-.status.info::before {
-  background: var(--info-mark);
+/* ---------- desktop ---------- */
+
+@media (min-width: 761px) {
+  /* The strip sits at the foot of the window, in the page's column. */
+  .strip {
+    bottom: 0;
+  }
+  .strip a {
+    padding: 8px 24px;
+  }
 }

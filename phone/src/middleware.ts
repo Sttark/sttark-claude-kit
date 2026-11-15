@@ -6,6 +6,7 @@ import { defineMiddleware } from 'astro:middleware';
 import { readSession } from './lib/session.ts';
 import { startRosterSync } from './lib/roster.ts';
 import { startExpiry } from './lib/expiry.ts';
+import { appPath, href } from './lib/paths.ts';
 
 // Phones fetch the tab icon without the sign-in cookie.
 export const PUBLIC = new Set(['/signin', '/healthz', '/favicon.svg', '/robots.txt']);
@@ -31,13 +32,14 @@ if (!process.env.VITEST) {
 }
 
 export const onRequest = defineMiddleware(async (ctx, next) => {
-  const { pathname } = ctx.url;
+  // The app's own path, without BASE_PATH (lib/paths.ts).
+  const pathname = appPath(ctx.url.pathname) ?? ctx.url.pathname;
   ctx.locals.user = readSession(ctx.cookies) ?? devUser();
   if (!ctx.locals.user && !isPublic(pathname)) {
     if (pathname.startsWith('/api/')) {
       return new Response(JSON.stringify({ error: 'sign in first' }), { status: 401, headers: { 'content-type': 'application/json' } });
     }
-    return ctx.redirect(`/signin?next=${encodeURIComponent(pathname + ctx.url.search)}`);
+    return ctx.redirect(href(`/signin?next=${encodeURIComponent(pathname + ctx.url.search)}`));
   }
   return next();
 });

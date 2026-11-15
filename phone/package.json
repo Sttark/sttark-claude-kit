@@ -16,6 +16,8 @@
     "check:style": "node scripts/check-style.mjs",
     "check:pages": "node scripts/page-check.mjs",
     "check:pages:changed": "node scripts/page-check.mjs --changed",
+    "stand-in": "node test/live-stand-in.mjs",
+    "walk": "node test/walk.mjs",
     "fonts": "node scripts/fonts.mjs"
   },
   "dependencies": {

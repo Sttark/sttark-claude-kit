@@ -9,6 +9,7 @@
 //   3. WebSocket upgrades, /mac for the Kit on each Mac and /live for the
 //      phone pages, through the hook below.
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import send from 'send';
@@ -21,6 +22,12 @@ const { handler } = await import('./dist/server/entry.mjs');
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 4350);
 const CLIENT = fileURLToPath(new URL('./dist/client/', import.meta.url));
+// The path the site lives under, as the build was made ("" or "/kit",
+// BASE_PATH at build time; astro.config.mjs writes it).
+let BASE = '';
+try {
+  BASE = JSON.parse(readFileSync(new URL('./dist/kit-build.json', import.meta.url), 'utf8')).base ?? '';
+} catch {}
 
 /** A file from dist/client, else next(). These are served before the
  *  sign-in check, so dist/client holds only public files: no page is
@@ -36,6 +43,10 @@ function builtFile(req, res, next) {
     return;
   }
   if (path.endsWith('/')) return next();
+  if (BASE) {
+    if (!path.startsWith(BASE + '/')) return next();
+    path = path.slice(BASE.length);
+  }
   const file = send(req, posix.normalize(path), { root: CLIENT, dotfiles: 'deny', index: false, redirect: false });
   let found = false;
   file.on('file', () => {
@@ -56,7 +67,8 @@ const server = createServer((req, res) => builtFile(req, res, () => handler(req,
 // The WebSocket hook. Every upgrade request goes to the function the app's
 // server code sets at globalThis[Symbol.for('sttark.kit.upgrade')]
 // (onUpgrade in src/lib/upgrade.ts). Until one is set, every upgrade is
-// refused. nginx passes /mac and /live here with the Upgrade headers.
+// refused. nginx passes /mac and /live here with the Upgrade headers, the
+// path as it came (under BASE_PATH when the site has one).
 const UPGRADE = Symbol.for('sttark.kit.upgrade');
 server.on('upgrade', (req, socket, head) => {
   const handle = globalThis[UPGRADE];
@@ -70,7 +82,7 @@ server.listen(PORT, HOST, async () => {
   // roster sync and the daily expiry job, as Building's start.mjs does.
   const self = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST.includes(':') ? `[${HOST}]` : HOST;
   try {
-    await fetch(`http://${self}:${PORT}/healthz`);
+    await fetch(`http://${self}:${PORT}${BASE}/healthz`);
   } catch (e) {
     console.error(`[server] the first request failed: ${e.message}`);
   }
