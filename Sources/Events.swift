@@ -438,6 +438,21 @@ enum Events {
                 if let by = what.range(of: ", by ", options: .backwards) {
                     e.text = "Waits for " + lower(what[..<by.lowerBound]); e.detail.append("Deadline: " + what[by.upperBound...] + ".")
                 } else { e.text = "Waits for " + lower(what) }
+            } else if main.contains(" from the archive") {   // claude-wait --unarchive: the window's Archived page, or the phone
+                e.kind = .restart
+                let from = main.contains("(phone)") ? "the phone" : "the Kit window"
+                if main.contains(" brought back from the archive") && !main.contains("not brought back") {
+                    e.text = "Brought back from the archive, on the same link"
+                    e.detail = ["Asked from \(from). It came back with its whole conversation."]
+                } else {
+                    e.kind = .problem; e.level = .warn
+                    e.text = main.contains("not archived now") ? "Not brought back: it is not archived now"
+                        : main.contains("not on this Mac") ? "Not brought back: its conversation is not on this Mac"
+                        : main.contains("was not back after") ? "Started from the archive, but the Claude app did not show it back"
+                        : "Did not come back from the archive"
+                    e.detail = ["Asked from \(from)."]
+                    if main.contains("not archived now") { e.level = .info; e.kind = .restart }
+                }
             } else if main.contains(" brought ") { e.text = "Brought back: the wait ended" }
             else if main.contains(" cancelled") { e.text = "Wait cancelled" }
             else if main.contains("checked:") {

@@ -20,7 +20,7 @@ in a new process starts from its new level instead.
 Only sessions with a claude.ai session id (Remote Control) can be changed.
 Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 """
-import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time, uuid
+import calendar, fcntl, glob, importlib.util, json, os, re, subprocess, sys, time, uuid
 from contextlib import contextmanager
 
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
@@ -939,6 +939,196 @@ def move(c, seq):
     return {'id': new, 'transcript': transcript, 'title': title}
 
 
+ARCHIVED = os.path.join(os.path.dirname(STATE), 'archived.json')  # the window's Archived page, and the phone's
+ARCHIVED_LINKS = os.path.join(os.path.dirname(STATE), 'archived-links.json')  # each conversation's links and folder, by file time and size
+CLAUDE_DIR = os.environ.get('STTARK_CLAUDE_DIR') or os.path.expanduser('~/.claude')
+LINKS_EVERY = 600  # seconds between scans of ~/.claude/projects for a conversation the Kit has no record of
+LINK_RE = re.compile(rb'"bridgeSessionId": ?"((?:cse|session)_[A-Za-z0-9]+)"')
+CWD_RE = re.compile(rb'"cwd": ?"((?:[^"\\]|\\.)*)"')
+
+
+def scheduled_run(c):
+    """A run of a scheduled task: the Claude app shows those under Scheduled, not in its list."""
+    return bool(c.get('trigger_id')) or any(t.startswith('routine') for t in c.get('tags') or [])
+
+
+def iso_time(text):
+    """A server time (UTC, ISO) as a Unix time; 0 when there is none."""
+    try:
+        return calendar.timegm(time.strptime((text or '')[:19], '%Y-%m-%dT%H:%M:%S'))
+    except ValueError:
+        return 0
+
+
+def file_facts(path, cache, links=True):
+    """[mtime, size, links (oldest first), folder] of one saved conversation, read once per change of the file."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    c = cache.get(path)
+    if not c or c[0] != st.st_mtime or c[1] != st.st_size:
+        c = cache[path] = [st.st_mtime, st.st_size, None, None]
+    if links and c[2] is None:
+        r = subprocess.run(['/usr/bin/grep', '-o', '-E', '"bridgeSessionId": ?"(cse|session)_[A-Za-z0-9]+"', path], capture_output=True)
+        c[2] = [m.decode() for m in LINK_RE.findall(r.stdout)]
+    if c[3] is None:  # the folder it last ran in: its last cwd, from the end of the file, else its start
+        c[3] = ''
+        try:
+            with open(path, 'rb') as f:
+                f.seek(max(0, st.st_size - 262144))
+                found = CWD_RE.findall(f.read())
+                if not found:
+                    f.seek(0)
+                    found = CWD_RE.findall(f.read(262144))
+            if found:
+                c[3] = json.loads(b'"' + found[-1] + b'"')
+        except (OSError, ValueError):
+            pass
+    return c
+
+
+def scan_links(cache, since):
+    """Fills in the links of every conversation changed since `since` (grep, 200 files a call); the rest are kept."""
+    todo, every = [], glob.glob(os.path.join(CLAUDE_DIR, 'projects', '*', '*.jsonl'))
+    for p in set(cache) - set(every):  # deleted conversations
+        cache.pop(p)
+    for p in every:
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        c = cache.get(p)
+        if st.st_mtime >= since and not (c and c[0] == st.st_mtime and c[1] == st.st_size and c[2] is not None):
+            cache[p] = [st.st_mtime, st.st_size, [], c[3] if c and c[0] == st.st_mtime and c[1] == st.st_size else None]
+            todo.append(p)
+    for i in range(0, len(todo), 200):
+        r = subprocess.run(['/usr/bin/grep', '-H', '-o', '-E', '"bridgeSessionId": ?"(cse|session)_[A-Za-z0-9]+"'] + todo[i:i + 200],
+                           capture_output=True)
+        for line in r.stdout.split(b'\n'):
+            path, _, m = line.rpartition(b':"bridgeSessionId')
+            found = re.search(rb'(?:cse|session)_[A-Za-z0-9]+', m)
+            p = path.decode('utf-8', 'replace')
+            if found and p in cache:
+                cache[p][2].append(found.group(0).decode())
+
+
+def archived(chats):
+    """The archived sessions this Mac can bring back, newest first, for the Kit window's Archived page and the phone:
+    archived.json {at, rev, items: [{cse, title, folder, transcript, archived_at, url, doing}]}; folder and transcript
+    are full paths and stay on the Mac (the phone gets the folder's own name only), and rev is a hash of the items as
+    the phone sees them (phone/DESIGN.md, section 13). `doing` is for the window only. From the account's list of
+    sessions (`chats`: keep() passes the one all_chats() just read; --archived reads the archived ones). Listed only when: archived, not a scheduled run, no open Kit wait (those show under Waiting on someone
+    else), and its conversation is on this Mac: the transcript the Kit recorded for it (its hooks, a wait, a session
+    it runs on its own), else a conversation whose bridge-session line names its link. A conversation that moved to
+    a newer link shows once, under that link. archived_at is last_event_at: the server gives no archive time.
+    Written when the items change, and once a minute so the page can say how fresh it is."""
+    now, s = time.time(), peek()
+    by_id = {c.get('id'): c for c in chats}
+    by_id.update({x.get('id'): x for x in (s.get('app_list') or {}).get('sessions') or [] if x.get('id') not in by_id})
+    waits = {w.get('cse') for w in (s.get('waits') or {}).values() if w.get('stage') != 'back'}
+    arch = [c for c in chats if c.get('id') and c.get('status') == 'archived' and not scheduled_run(c) and c['id'] not in waits]
+    known = {}
+    for w in (s.get('waits') or {}).values():
+        if w.get('cse') and w.get('transcript'):
+            known[w['cse']] = w['transcript']
+    for cse, a in ((s.get('keep') or {}).get('alone') or {}).items():
+        if a.get('transcript'):
+            known[cse] = a['transcript']
+    for cse, x in (s.get('sessions') or {}).items():
+        if x.get('transcript'):
+            known[cse] = x['transcript']
+    try:
+        with open(ARCHIVED_LINKS) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    cache = saved.get('files') or {}
+    before = json.dumps(cache, sort_keys=True)
+    found = {c['id']: known[c['id']] for c in arch if c['id'] in known and os.path.exists(known[c['id']])}
+    scanned = any(c['id'] not in found for c in arch) and now - saved.get('scanned', 0) > LINKS_EVERY
+    if scanned:
+        scan_links(cache, min((iso_time(c.get('created_at')) for c in arch), default=now) - 86400)
+        saved['scanned'] = now
+    newest = {}
+    for p, c in cache.items():
+        for link in set(c[2] or []):
+            if link not in found and (link not in newest or c[0] > cache[newest[link]][0]) and os.path.exists(p):
+                newest[link] = p
+    items = []
+    for c in arch:
+        tp = found.get(c['id']) or newest.get(c['id'])
+        f = tp and file_facts(tp, cache)
+        if not f:
+            continue  # its conversation isn't on this Mac: this Mac can't bring it back
+        if f[2] and f[2][-1] != c['id'] and f[2][-1] in by_id:
+            continue  # the conversation runs on a newer link now, which shows in its own place
+        meta = c.get('external_metadata') or {}
+        summary = meta.get('post_turn_summary') or {}
+        cid = c['id'].split('_', 1)[1]
+        items.append({'cse': c['id'], 'title': (c.get('title') or '').strip() or 'Session ' + cid[-6:], 'folder': f[3] or '',
+                      'transcript': tp, 'archived_at': iso_time(c.get('last_event_at')), 'url': 'https://claude.ai/code/session_' + cid,
+                      'doing': re.sub(r'\s+', ' ', summary.get('recent_action') or summary.get('status_detail') or '').strip()[:300]})
+    items.sort(key=lambda x: x['archived_at'], reverse=True)
+    if scanned or json.dumps(cache, sort_keys=True) != before:
+        saved['files'] = cache
+        write_json(ARCHIVED_LINKS, saved)
+    write_archived(items, now)
+
+
+def write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, path)  # a new file and a rename: the app's folder watch sees it at once
+
+
+def archived_rev(items):
+    """A hash of the items as the phone sees them: no paths, the folder's own name, the name cut to 160."""
+    import hashlib
+    seen = [{'cse': x['cse'], 'title': x['title'][:160], 'folder': os.path.basename(x.get('folder') or '')[:80],
+             'archived_at': x.get('archived_at'), 'url': x['url']} for x in items]
+    return hashlib.sha1(json.dumps(seen, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def write_archived(items, now=None, force=False):
+    """archived.json, when its items changed or it is a minute old (or `force`)."""
+    now = now or time.time()
+    try:
+        with open(ARCHIVED) as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        old = {}
+    if not force and old.get('items') == items and now - old.get('at', 0) < 60:
+        return
+    write_json(ARCHIVED, {'at': now, 'rev': archived_rev(items), 'items': items})
+
+
+def archived_now():
+    """effort-hook.py --archived: on a Mac with no server (keep() writes the list where one runs), every 10 minutes
+    and when the Archived page opens. It asks only for the archived sessions (statuses=archived, up to 5 pages of 100).
+    STTARK_ARCHIVED_TEST: a JSON file {"sessions": [...]} in place of Claude's list."""
+    test = os.environ.get('STTARK_ARCHIVED_TEST')
+    try:
+        if test:
+            with open(test) as f:
+                chats = json.load(f).get('sessions') or []
+        else:
+            chats, cursor = [], ''
+            for _ in range(5):
+                d = api('GET', 'https://api.anthropic.com/v1/code/sessions?statuses=archived&limit=100' + (f'&cursor={cursor}' if cursor else ''))
+                chats += d.get('data') or []
+                cursor = d.get('next_cursor')
+                if not cursor:
+                    break
+    except Exception as e:
+        log(f'error  archived sessions: can\'t list sessions: {e!r}'[:200])
+        return 1
+    archived(chats)
+    return 0
+
+
 def keep(dry=False):
     """Every minute, from the app: keep every chat on this Mac running unless it's archived, in one copy.
     A Mac restart ends every chat, and the server only starts a chat again when something reaches it. Each stopped
@@ -1074,6 +1264,11 @@ def keep(dry=False):
     if not dry:
         with state() as s:
             s['keep'] = {'envs': sorted(envs), 'woke': woke, 'alone': alone}
+        lock.close()  # the Archived page's list, from the same read, after keep.lock is free: its first scan can take a while
+        try:
+            archived(chats)
+        except Exception as e:
+            log(f'error  archived sessions: {e!r}'[:200])
 
 
 def title_later(sid, x):
@@ -1320,6 +1515,8 @@ def main():
     if sys.argv[1:] == ['--list']:  # the short list only, every 10 seconds while the Kit window or menu is open
         app_list()
         return
+    if sys.argv[1:] == ['--archived']:  # the Archived page's list, on a Mac with no server
+        sys.exit(archived_now())
     if sys.argv[1:2] == ['--keep']:
         keep(dry='--dry' in sys.argv)
         return

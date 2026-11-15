@@ -2,6 +2,7 @@
 // this Mac's own state:
 //   docs/menu.png             the menu: what needs you, one row for each other group, one group's submenu open
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
+//   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
 //   docs/window-settings.png  the window's Settings page
 //   docs/window-news.png      the window's What's new page
 //   docs/window-events.png    the window's Events page, newest first, from sample log lines
@@ -90,6 +91,17 @@ import SwiftUI
             w.appearance = NSAppearance(named: look ? .darkAqua : .aqua)
             model.page = .sessions
             Shot.capture(w, to: folder + "/window-sessions.png")
+            model.page = .archived
+            model.reload()
+            model.archivedSelected = model.archived.items.first?.id
+            let arch = "/tmp/kit-shot-\(getpid())-archived.png"
+            Shot.capture(w, to: arch)
+            try? FileManager.default.removeItem(atPath: folder + "/window-archived.png")
+            try? FileManager.default.copyItem(atPath: arch, toPath: folder + "/window-archived.png")
+            print("wrote \(folder)/window-archived.png")
+            // the archived note's picture: the selected session with Open and Bring it back
+            Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
+                      to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
             model.page = .settings
             Shot.capture(w, to: folder + "/window-settings.png")
             model.page = .news
@@ -361,6 +373,22 @@ enum Sample {
              "last": now - 3 * 3600, "transcript": "/sample/9a3d4b8c.jsonl", "model": "claude-opus-5-5", "pid": pid, "busy": false, "pending": false],
         ]]
         try! JSONSerialization.data(withJSONObject: local).write(to: dir.appendingPathComponent("local-sessions.json"))
+        // archived sessions this Mac can bring back, as effort-hook.py archived() writes them; the Laminator quote
+        // has a Kit wait, so the page leaves it out (it shows under Waiting on someone else)
+        func archived(_ n: Int, _ title: String, _ folder: String, _ when: Date, _ doing: String) -> [String: Any] {
+            ["cse": "cse_01Sample\(n)", "title": title, "folder": NSHomeDirectory() + folder, "transcript": "/sample/arch-\(n).jsonl",
+             "archived_at": when.timeIntervalSince1970, "url": "https://claude.ai/code/session_01Sample\(n)", "doing": doing]
+        }
+        let arch: [String: Any] = ["at": now - 40, "rev": "sample", "items": [
+            archived(20, "Bin label printer", "/src/labels", at(10, 5), "Sent the new label size to the printer; the test print fits the bin."),
+            archived(10, "Laminator quote", "/src/purchasing", at(9, 50), "Waits for the supplier's reply."),
+            archived(21, "Supplier deposit", "/src/purchasing", at(9, 20), "Drafted the reply with the new ship date; it waits in Gmail."),
+            archived(22, "Door relay fix", "/src/building", at(16, 40, daysAhead: -1), "Merged the relay timing fix; the door unlocks in 2 seconds."),
+            archived(23, "Press color notes", "/src/docs", at(14, 10, daysAhead: -1), "Added the new profile names to the color chapter."),
+            archived(24, "Fan blade test", "/src/tile-fan", at(15, 30, daysAhead: -3), "Printed the test blade; the cap fits the motor."),
+            archived(25, "Weekly plan", "/Documents/plans", at(8, 45, daysAhead: -3), ""),
+        ]]
+        try! JSONSerialization.data(withJSONObject: arch).write(to: dir.appendingPathComponent("archived.json"))
     }
 }
 

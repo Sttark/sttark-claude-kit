@@ -304,12 +304,13 @@ enum Inbox {
         return f.string(from: d) + " · " + relative(d)
     }
 
-    /// "in 3 days", "in 2 hr", "in 12 min", "5 min ago".
+    /// "in 3 days", "in 2 hr", "in 12 min", "5 min ago", with no-break spaces so a line never ends inside one.
     static func relative(_ d: Date) -> String {
         let s = d.timeIntervalSinceNow
         let a = abs(s)
-        let t = a < 3600 ? "\(max(1, Int(a / 60))) min" : a < 86400 ? "\(Int(a / 3600)) hr" : "\(Int((a / 86400).rounded())) day\(Int((a / 86400).rounded()) == 1 ? "" : "s")"
-        return s >= 0 ? "in " + t : t + " ago"
+        let t = a < 3600 ? "\(max(1, Int(a / 60)))\u{00a0}min" : a < 86400 ? "\(Int(a / 3600))\u{00a0}hr"
+            : "\(Int((a / 86400).rounded()))\u{00a0}day\(Int((a / 86400).rounded()) == 1 ? "" : "s")"
+        return s >= 0 ? "in\u{00a0}" + t : t + "\u{00a0}ago"
     }
 
     /// "10 min", "2 hr".

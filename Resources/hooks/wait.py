@@ -14,6 +14,10 @@ session goes on and tells the person through Reach me by (claude-notify).
     claude-wait --cancel <id>          drop a wait
     claude-wait --now <id>             bring its session back now
     claude-wait --check                the app's check, every minute
+    claude-wait --unarchive <cse_id> [--by window|phone]
+                                       bring an archived session back on its link, with no first message (the
+                                       window's Archived page, the phone). Exit codes, with the phone's result
+                                       names: 0 ok, 1 not_now, 2 not_here, 3 gone, 4 bad
 
 A time or deadline: 2026-11-16 17:00 (or ISO), 17:00 (today, or tomorrow once past), +90m, +4h, +2d, or
 "3 weekdays" (the same clock time, Saturdays and Sundays skipped). The session picks the deadline; there is none
@@ -379,8 +383,10 @@ def describe(w):
     return 'the time %s' % clock(w['at'])
 
 
-def bring_back(w, prompt):
-    """Unarchive the session on its own link with `prompt` as its first message. True when it started."""
+def bring_back(w, prompt=None):
+    """Unarchive the session on its own link, with its whole conversation and `prompt` as its first message; with no
+    prompt it waits for the person. True when it started. The window's Archived page brings a session back with this
+    too (archived.py --back), so there is one way to do it."""
     e = load('effort-hook')
     cse, tp = w.get('cse'), w.get('transcript')
     if not cse or not tp or not os.path.exists(tp):
@@ -407,15 +413,18 @@ def bring_back(w, prompt):
         env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
                'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
                'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
-        pf = os.path.join(KIT, 'wait-prompts')
-        os.makedirs(pf, exist_ok=True)
-        pfile = os.path.join(pf, w['id'] + '.txt')
-        with open(pfile, 'w') as f:
-            f.write(prompt)
+        first = ''
+        if prompt:
+            pf = os.path.join(KIT, 'wait-prompts')
+            os.makedirs(pf, exist_ok=True)
+            pfile = os.path.join(pf, w['id'] + '.txt')
+            with open(pfile, 'w') as f:
+                f.write(prompt)
+            first = f" \"$(cat '{pfile}')\""
         cwd = w.get('cwd') or home
         subprocess.run(['/usr/bin/screen', '-dmS', 'kit-' + cid[:8], '/bin/zsh', '-lc',
                         f"cd '{cwd}' && exec '{claude}' --resume {cid} --remote-control --permission-mode "
-                        f"bypassPermissions \"$(cat '{pfile}')\""], env=env)
+                        f"bypassPermissions{first}"], env=env)
         now = time.time()
 
         def alone(s):
@@ -423,6 +432,85 @@ def bring_back(w, prompt):
             k.setdefault('alone', {})[cse] = {'transcript': tp, 'title': w.get('title', ''), 'at': now}
         change(alone)
     return True
+
+
+BACK_WAIT = 45  # seconds to wait for the Claude app to show an unarchived session back
+
+
+def unarchive(cse, by='window'):
+    """An archived session back in the person's list, on its own link with its whole conversation and no first
+    message: the Kit window's Archived page (or the phone) asks for it. The facts come from archived.json, which
+    effort-hook.py archived() writes; the start is bring_back(), as for a wait. Prints one line; returns the exit code:
+    0 ok, 1 not_now (Claude did not answer, the start failed, or the Claude app does not show it back yet), 2 not_here,
+    3 gone (phone/DESIGN.md, section 13).
+    STTARK_ARCHIVED_TEST (a JSON file {"sessions": [...]}) stands in for the session's status; STTARK_WAIT_DRY starts
+    nothing."""
+    e = load('effort-hook')
+    try:
+        listing = json.load(open(e.ARCHIVED))
+    except (OSError, ValueError):
+        listing = {}
+    items = listing.get('items') or []
+    item = next((x for x in items if x.get('cse') == cse), None)
+    test = os.environ.get('STTARK_ARCHIVED_TEST')
+
+    def status():
+        try:
+            if test:
+                return next((c for c in json.load(open(test)).get('sessions') or [] if c.get('id') == cse), {})
+            return e.sse().session(cse)
+        except Exception:
+            return {}
+
+    def drop():
+        e.write_archived([x for x in items if x.get('cse') != cse], force=True)
+    d = status()
+    title = (item or {}).get('title') or (d.get('title') or '').strip() or 'Session ' + cse[-6:]
+    if not d:  # unknown: never start one that may be running (bring_back archives an active session first)
+        print('Claude did not answer, so the Kit did not bring it back. Try again in a minute.')
+        log('%s "%s" not brought back from the archive (%s): its status could not be read' % (cse, title, by))
+        return 1
+    if d.get('status') != 'archived':
+        print('It is not archived now. It is in your list.')
+        log('%s "%s" not brought back from the archive (%s): it is not archived now' % (cse, title, by))
+        drop()
+        return 3
+    if not item or not os.path.exists(item.get('transcript') or ''):
+        print('Its conversation is not on this Mac, so this Mac cannot bring it back.')
+        log('%s "%s" not brought back from the archive (%s): its conversation is not on this Mac' % (cse, title, by))
+        drop()
+        return 2
+    w = {'id': cse[-6:], 'cse': cse, 'transcript': item['transcript'], 'cwd': item.get('folder') or '', 'title': title}
+    if DRY:
+        print('would bring %s back from %s' % (cse, item['transcript']))
+        return 0
+    try:
+        started = bring_back(w, None)
+    except Exception as x:
+        why = str(x)[:160] or type(x).__name__
+        print('It did not come back: %s.' % why)
+        log('%s "%s" could not come back from the archive (%s): %s' % (cse, title, by, why))
+        return 1
+    if not started:
+        print('Its conversation is not on this Mac, so this Mac cannot bring it back.')
+        drop()
+        return 2
+    for _ in range(BACK_WAIT // 3):  # Claude Code unarchives the link when it reattaches it
+        time.sleep(3)
+        if status().get('status') == 'active':
+            break
+    else:
+        print('The Kit started it again, but the Claude app does not show it back yet. Look again in a minute.')
+        log('%s "%s" started from the archive (%s), but it was not back after %d s' % (cse, title, by, BACK_WAIT))
+        return 1
+    log('%s "%s" brought back from the archive (%s)' % (cse, title, by))
+    drop()
+    try:
+        e.app_list()  # the Sessions page lists it at once
+    except Exception:
+        pass
+    print('It is back in your list, on the same link, with its whole conversation.')
+    return 0
 
 
 def fallback(w, what, late):
@@ -569,6 +657,13 @@ def main():
                                                 if w.get('failing') else ''))
         print('' if ws else 'No open waits.', end='')
         return 0
+    if args[0] == '--unarchive':
+        by = opt(args, '--by') or 'window'
+        cse = args[1] if len(args) > 1 else ''
+        if not re.fullmatch(r'(cse|session)_[A-Za-z0-9]+', cse) or by not in ('window', 'phone'):
+            print('Usage: claude-wait --unarchive <cse_id> [--by window|phone]', file=sys.stderr)
+            return 4
+        return unarchive('cse_' + cse.split('_', 1)[1], by)
     if args[0] in ('--cancel', '--now'):
         wid = args[1] if len(args) > 1 else ''
         if wid not in (peek().get('waits') or {}):
