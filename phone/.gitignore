@@ -1,0 +1,9 @@
+node_modules
+dist
+.astro
+.env
+data/
+*.log
+# Founders Grotesk is licensed to Sttark and this repo is public: the files
+# are fetched, never committed (npm run fonts, README "Fonts").
+src/styles/fonts/

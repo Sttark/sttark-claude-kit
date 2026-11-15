@@ -1,0 +1,23 @@
+---
+// Macs (from Menu): the person's linked Macs, and Sign out everywhere.
+import Base from '../layouts/Base.astro';
+import NoMac from '../components/NoMac.astro';
+import { macsOf } from '../lib/macs.ts';
+const macs = macsOf(Astro.locals.user!.email);
+---
+<Base title="Macs">
+  <h1 class="page-title">Macs</h1>
+  {macs.length === 0 ? (
+    <NoMac lead="Each Mac you link sends its sessions here." />
+  ) : (
+    <ul class="mac-list">
+      {macs.map((m) => <li>{m.name}</li>)}
+    </ul>
+  )}
+  <section class="everywhere" aria-label="Sign out everywhere">
+    <form method="post" action="/auth/logout-everywhere" data-confirm="Sign out on every phone and browser? Your Macs stay linked.">
+      <button type="submit" class="btn ghost">Sign out everywhere</button>
+    </form>
+    <p class="hint">Signs you out on every phone and browser. Your Macs stay linked.</p>
+  </section>
+</Base>

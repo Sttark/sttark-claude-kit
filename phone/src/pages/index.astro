@@ -1,0 +1,12 @@
+---
+// Sessions: the person's sessions from every linked Mac, in groups. Until a
+// Mac is linked, how to link one.
+import Base from '../layouts/Base.astro';
+import NoMac from '../components/NoMac.astro';
+import { macsOf } from '../lib/macs.ts';
+const macs = macsOf(Astro.locals.user!.email);
+---
+<Base title="Sessions" tab="sessions">
+  <h1 class="vh">Sessions</h1>
+  {macs.length === 0 && <NoMac lead="Your Claude sessions show here: the ones that need you, the ones Claude works on, and the ones that wait." />}
+</Base>

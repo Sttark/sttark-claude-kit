@@ -1,0 +1,320 @@
+/* Claude Kit phone styles. The Sttark Brand and App Guidelines (the five
+   Apps chapters on docs.sttark.com) are the rule, and kit-mobile.html, the
+   mockup the owner chose, is the picture. The shared Sttark look (fonts,
+   tokens, page base, top bar, buttons, crumbs, page title, section
+   headings) comes from sttark-shared.css, a byte-for-byte copy of the
+   canonical file in sttark-docs (npm run check:style confirms it).
+   Everything below is this app's own and uses the tokens only, never raw
+   colors.
+
+   Green means "do this" and "you are here". A chosen option is ink. Status
+   is a soft wash with colored text, a border, a dot and a word. */
+@import './sttark-shared.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  background: var(--paper);
+}
+body {
+  margin: 0;
+}
+[hidden] {
+  display: none !important;
+}
+h1,
+h2,
+h3,
+p,
+ul,
+ol {
+  margin: 0;
+}
+a {
+  color: inherit;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+.skip:focus {
+  left: 16px;
+  top: 8px;
+  z-index: 60;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+}
+/* Words for screen readers only. */
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- top bar: this app's parts ---------- */
+
+/* Sign out, in the bar on a desktop and under Menu on a phone: an outline
+   on the black bar, like the bar's other controls. */
+.topbar .signout {
+  display: flex;
+  margin: 0;
+}
+.signout-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--on-chrome) 45%, transparent);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--on-chrome);
+  font: 400 14px var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.signout-btn:hover {
+  border-color: var(--on-chrome);
+}
+
+@media (max-width: 760px) {
+  .brand {
+    min-width: 0;
+  }
+  .brand .app {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* No search on this bar yet: Menu sits at the right, with its word, as
+     the bar has room for it (the mockup). */
+  .menu-btn {
+    margin-left: auto;
+  }
+  .menu-btn .menu-word {
+    display: inline;
+  }
+  .topbar[data-menu='open'] .signout {
+    margin-top: 12px;
+  }
+  .topbar[data-menu='open'] .signout-btn {
+    min-height: 44px;
+    padding: 0 16px;
+  }
+}
+
+/* ---------- the page ---------- */
+
+main {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 24px;
+}
+.lede {
+  color: var(--steel);
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+/* ---------- tabs: Sessions, Archived, Usage ----------
+   On a desktop, the guide's tabs under the top bar: 15 px Semibold in
+   steel, the current one ink with the green underline, the first starting
+   where the page starts. On a phone, a bar at the foot of the screen with
+   an icon beside each word, within reach of the thumb (DESIGN-DECISIONS.md,
+   Phone pages). */
+.tabbar {
+  border-bottom: 1px solid var(--line);
+}
+.tabbar-row {
+  display: flex;
+  gap: 24px;
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.tabbar a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  color: var(--steel);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.tabbar a svg {
+  display: none;
+  width: 20px;
+  height: 20px;
+}
+.tabbar a:hover,
+.tabbar a[aria-current='page'] {
+  color: var(--ink);
+}
+.tabbar a[aria-current='page'] .t {
+  text-decoration: underline;
+  text-decoration-color: var(--green);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 8px;
+}
+
+@media (max-width: 760px) {
+  main {
+    padding: 16px;
+  }
+  /* Room under the page for the tab bar, so nothing hides behind it. */
+  main.with-tabbar {
+    padding-bottom: calc(56px + 24px + env(safe-area-inset-bottom));
+  }
+  .tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    border-top: 1px solid var(--line);
+    border-bottom: 0;
+    background: var(--card);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tabbar-row {
+    gap: 8px;
+    padding: 4px 8px;
+  }
+  .tabbar a {
+    flex: 1;
+  }
+  .tabbar a svg {
+    display: block;
+  }
+}
+
+/* ---------- no Mac linked yet ---------- */
+
+.empty {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.empty h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  line-height: 1.3;
+}
+.empty h2 svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--steel);
+}
+.empty .steps-h {
+  font-weight: 600;
+}
+.steps {
+  display: grid;
+  gap: 8px;
+  margin-top: -4px;
+  padding-left: 24px;
+}
+
+/* ---------- Macs ---------- */
+
+.mac-list {
+  list-style: none;
+  max-width: 640px;
+  margin-bottom: 16px;
+  padding: 0;
+}
+.mac-list li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+.everywhere {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 32px;
+}
+.hint {
+  font-size: 14px;
+  color: var(--steel);
+}
+
+/* ---------- sign-in and error pages ---------- */
+
+.signin {
+  display: grid;
+  gap: 16px;
+  max-width: 420px;
+  margin: 48px auto;
+}
+.signin .page-title,
+.error-page .page-title {
+  margin: 0;
+}
+.signin .btn {
+  width: 100%;
+}
+.error-page {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+}
+@media (max-width: 760px) {
+  .signin {
+    margin: 24px auto;
+    padding: 16px;
+  }
+}
+
+/* Status: a soft wash with colored words, a 1 px border and a dot. */
+.notice,
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--bad-border);
+  border-radius: var(--radius);
+  background: var(--bad-soft);
+  color: var(--bad-text);
+}
+.notice::before,
+.status::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bad-mark);
+}
+.status.info {
+  border-color: var(--info-border);
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+.status.info::before {
+  background: var(--info-mark);
+}

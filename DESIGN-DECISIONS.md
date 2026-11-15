@@ -1,6 +1,6 @@
 # Design decisions
 
-Where Sttark Claude Kit, a native Mac app, departs from the Sttark Brand and App Guidelines' Apps chapters, which are written for web apps. Each entry: the part, the rule, the decision and why.
+Where Sttark Claude Kit departs from the Sttark Brand and App Guidelines' Apps chapters: the native Mac app (the guide is written for web apps), and its phone pages, the web app in `phone/` at kit.sttark.com. Each entry: the part, the rule, the decision and why.
 
 | Part | Rule (chapter, section) | Decision | Why |
 |---|---|---|---|
@@ -13,3 +13,5 @@ Where Sttark Claude Kit, a native Mac app, departs from the Sttark Brand and App
 | Sessions page | Pages and Behavior, One list per page; a row opens its item on its own page | The selected session shows in a side panel beside the list | The guide allows a side panel on desktop; the person keeps the inbox in view while acting on one session. |
 | What's new page | Look, Color rules (status is a soft wash with a dot); Pages and Behavior, a page for reading | Each note's New or Better tag is a small blue wash chip with no dot; no cards and no tinted boxes, only a heading line per update; a picture opens bigger over the page | The tag is a label, not a status, and a dot on every note would be noise. The page is for reading, so it has no main action; a picture shown bigger floats, like a dialog, and closes with a click or Escape. |
 | Archived page | Pages and Behavior, One list per page (a row opens its item on its own page) and A long list is grouped by level, with indentation | As on the Sessions page, the selected session shows in a side panel beside the list, and the list is grouped by day under plain headings with their counts, not indented | The person scans for one session and acts on it with the list still in view. A day has one level, so the heading and the row's time column are enough; it matches the Sessions page beside it. |
+| Phone pages (`phone/`) | Pages and Behavior, Pages and navigation (a section's pages are a row of tabs under the top bar) | On a phone, Sessions, Archived and Usage are tabs in a bar at the foot of the screen, each with its icon; on a desktop they are the guide's tabs under the top bar | The phone is used with one hand, often while walking, and the thumb reaches the foot of the screen, not the top. |
+| Phone pages, session rows | Pages and Behavior, Pages and navigation (one list per page; a row opens its item on its own page) | Each session row also has a ↗ button at its right edge, named Open in Claude, that opens the session in the Claude app; a tap on the rest of the row opens the session's own page | Opening a session in Claude is the most common job on the phone: one tap instead of two. |

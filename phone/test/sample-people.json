@@ -1,0 +1,22 @@
+{
+ "about": "Made-up people and placeholder addresses for tests, examples, fixtures and local runs. Every @sttark.com address in phone/ must be one of these (test/people.test.ts). Add only obviously made-up names; never a real person.",
+ "addresses": [
+  "ada.anvil@sttark.com",
+  "avery.stone@sttark.com",
+  "bix.dowel@sttark.com",
+  "cal.easel@sttark.com",
+  "dot.gasket@sttark.com",
+  "eve.inkwell@sttark.com",
+  "faro.tap@sttark.com",
+  "gus.nozzle@sttark.com",
+  "hal.oarlock@sttark.com",
+  "ivy.rivet@sttark.com",
+  "jules.park@sttark.com",
+  "kip.valve@sttark.com",
+  "lux.yoke@sttark.com",
+  "name@sttark.com",
+  "nell.gimlet@sttark.com",
+  "old.timer@sttark.com",
+  "person@sttark.com"
+ ]
+}

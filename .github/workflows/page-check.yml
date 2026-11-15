@@ -34,6 +34,9 @@
 #       # with:
 #       #   directory: web          # the app's folder, when it is not the repo root
 #       #   prepare: npm run build  # anything the servers need first
+#       # An app that cannot carry the licensed Founders Grotesk files (its
+#       # repo is public) copies them in prepare from STTARK_FONTS_DIR, which
+#       # this workflow fetches from sttark-docs (phone/ here: npm run fonts).
 #       secrets:
 #         # The read-only deploy key for Sttark/sttark-docs, where the check is.
 #         STTARK_DOCS_DEPLOY_KEY: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
@@ -121,8 +124,9 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/sttark-docs
           export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sttark-docs -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
           git clone -q --filter=blob:none --sparse --branch main git@github.com:Sttark/sttark-docs.git "$DOCS"
-          git -C "$DOCS" sparse-checkout set --no-cone app/src/styles/sttark-shared.css '/page-check/'
+          git -C "$DOCS" sparse-checkout set --no-cone app/src/styles/sttark-shared.css 'app/src/styles/fonts/' '/page-check/'
           rm -f ~/.ssh/sttark-docs
+          echo "STTARK_FONTS_DIR=$DOCS/app/src/styles/fonts" >> "$GITHUB_ENV"
       # On a pull request or a push to main: what to check. full = every
       # page (a workflow or dependency change reaches every page though no
       # page imports it); otherwise the check runs --changed, on a push
