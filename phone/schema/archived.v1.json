@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kit.sttark.com/schema/archived.v1.json",
+  "title": "Kit archived list, version 1",
+  "description": "One Mac's archived sessions, as the Kit sends them on /mac: the full list (archived) when the server asks with want_archived, then the changes (archived_delta). A session is listed only when it is archived, is not a run of a scheduled task, its conversation is on that Mac, and it has no open Kit wait. Only the folder's own name goes up, never a path. See phone/DESIGN.md, section 13.",
+  "oneOf": [{ "$ref": "#/$defs/list" }, { "$ref": "#/$defs/delta" }],
+  "$defs": {
+    "rev": { "type": "string", "maxLength": 64, "pattern": "^[0-9a-f]{8,64}$", "description": "A hash of the items as the phone sees them." },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cse", "title", "folder", "archived_at", "url"],
+      "properties": {
+        "cse": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[A-Za-z0-9_.:-]+$", "description": "The Remote Control session id." },
+        "title": { "type": "string", "maxLength": 160 },
+        "folder": { "type": "string", "maxLength": 80, "pattern": "^[^/\\\\~]*$", "description": "The working folder's own name only (for example src). A slash, a backslash or a tilde means a path, which never leaves the Mac." },
+        "archived_at": { "type": ["number", "null"], "minimum": 1700000000, "maximum": 4102444800, "description": "Unix seconds: the API's archive time, else the session's last event." },
+        "url": { "type": "string", "maxLength": 300, "pattern": "^https://claude\\.ai/[A-Za-z0-9_./?=&%-]*$" }
+      }
+    },
+    "list": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "rev", "items"],
+      "properties": {
+        "v": { "const": 1 },
+        "rev": { "$ref": "#/$defs/rev" },
+        "items": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/item" }, "description": "Newest first." }
+      }
+    },
+    "delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "base", "rev", "add", "remove"],
+      "description": "The changes from the list with rev base to the list with rev rev. When the server does not have base, it asks for the full list again with want_archived.",
+      "properties": {
+        "v": { "const": 1 },
+        "base": { "$ref": "#/$defs/rev" },
+        "rev": { "$ref": "#/$defs/rev" },
+        "add": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/item" }, "description": "New or changed items. A changed item replaces the one with the same cse." },
+        "remove": { "type": "array", "maxItems": 200, "items": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[A-Za-z0-9_.:-]+$" }, "description": "The cse of each item that left the list." }
+      }
+    }
+  }
+}

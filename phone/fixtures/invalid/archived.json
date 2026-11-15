@@ -1,0 +1,125 @@
+[
+  {
+    "why": "a folder path, which never leaves the Mac",
+    "value": {
+      "v": 1,
+      "rev": "a1b2c3d4e5f60718",
+      "items": [
+        {
+          "cse": "session_01SampleWeeklyPlan",
+          "title": "Weekly plan",
+          "folder": "/Users/sample/src",
+          "archived_at": 1794580200,
+          "url": "https://claude.ai/code/session_01SampleWeeklyPlan"
+        },
+        {
+          "cse": "session_01SampleDoorPi",
+          "title": "Door Pi cutover",
+          "folder": "building",
+          "archived_at": 1794493800,
+          "url": "https://claude.ai/code/session_01SampleDoorPi"
+        },
+        {
+          "cse": "session_01SampleLaminatorRfq",
+          "title": "Laminator RFQ",
+          "folder": "quotes",
+          "archived_at": 1794407400,
+          "url": "https://claude.ai/code/session_01SampleLaminatorRfq"
+        },
+        {
+          "cse": "session_01SampleTileFan",
+          "title": "Tile fan print",
+          "folder": "tile-fan-onshape",
+          "archived_at": 1794328200,
+          "url": "https://claude.ai/code/session_01SampleTileFan"
+        },
+        {
+          "cse": "session_01SampleBlindsWatchdog",
+          "title": "Blinds Wi-Fi watchdog",
+          "folder": "blind_control",
+          "archived_at": 1794155400,
+          "url": "https://claude.ai/code/session_01SampleBlindsWatchdog"
+        },
+        {
+          "cse": "session_01SamplePressManual",
+          "title": "Press color manual",
+          "folder": "sttark-docs",
+          "archived_at": 1793809800,
+          "url": "https://claude.ai/code/session_01SamplePressManual"
+        },
+        {
+          "cse": "session_01SampleSouthE",
+          "title": "South E building model",
+          "folder": "south-e-onshape",
+          "archived_at": 1792859400,
+          "url": "https://claude.ai/code/session_01SampleSouthE"
+        }
+      ]
+    }
+  },
+  {
+    "why": "a folder under the home folder",
+    "value": {
+      "v": 1,
+      "rev": "a1b2c3d4e5f60718",
+      "items": [
+        {
+          "cse": "session_01SampleWeeklyPlan",
+          "title": "Weekly plan",
+          "folder": "~/src",
+          "archived_at": 1794580200,
+          "url": "https://claude.ai/code/session_01SampleWeeklyPlan"
+        },
+        {
+          "cse": "session_01SampleDoorPi",
+          "title": "Door Pi cutover",
+          "folder": "building",
+          "archived_at": 1794493800,
+          "url": "https://claude.ai/code/session_01SampleDoorPi"
+        },
+        {
+          "cse": "session_01SampleLaminatorRfq",
+          "title": "Laminator RFQ",
+          "folder": "quotes",
+          "archived_at": 1794407400,
+          "url": "https://claude.ai/code/session_01SampleLaminatorRfq"
+        },
+        {
+          "cse": "session_01SampleTileFan",
+          "title": "Tile fan print",
+          "folder": "tile-fan-onshape",
+          "archived_at": 1794328200,
+          "url": "https://claude.ai/code/session_01SampleTileFan"
+        },
+        {
+          "cse": "session_01SampleBlindsWatchdog",
+          "title": "Blinds Wi-Fi watchdog",
+          "folder": "blind_control",
+          "archived_at": 1794155400,
+          "url": "https://claude.ai/code/session_01SampleBlindsWatchdog"
+        },
+        {
+          "cse": "session_01SamplePressManual",
+          "title": "Press color manual",
+          "folder": "sttark-docs",
+          "archived_at": 1793809800,
+          "url": "https://claude.ai/code/session_01SamplePressManual"
+        },
+        {
+          "cse": "session_01SampleSouthE",
+          "title": "South E building model",
+          "folder": "south-e-onshape",
+          "archived_at": 1792859400,
+          "url": "https://claude.ai/code/session_01SampleSouthE"
+        }
+      ]
+    }
+  },
+  {
+    "why": "a list with neither items nor base",
+    "value": {
+      "v": 1,
+      "rev": "a1b2c3d4e5f60718"
+    }
+  }
+]

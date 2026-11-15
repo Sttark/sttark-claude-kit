@@ -1,0 +1,25 @@
+# The phone server's contract (phone/DESIGN.md): the message schemas, their fixtures and asyncapi.yaml.
+# It checks that every fixture matches, that no object of any message takes a field the schema does not know,
+# that every invalid case fails, and that asyncapi.yaml is valid and names the same messages as the schemas.
+# A change here makes no Mac release: release.yml builds only from Sources, Resources, Helpers and the files it lists.
+name: phone-contract
+on:
+  pull_request:
+    paths: [phone/schema/**, phone/fixtures/**, phone/asyncapi.yaml, .github/workflows/phone-contract.yml]
+  push:
+    branches: [main]
+    paths: [phone/schema/**, phone/fixtures/**, phone/asyncapi.yaml, .github/workflows/phone-contract.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Fixtures match the schemas; planted fields and invalid cases fail
+        run: node phone/schema/check.mjs
+      - name: asyncapi.yaml is valid AsyncAPI
+        run: npx -y @asyncapi/cli@6.3.0 validate phone/asyncapi.yaml

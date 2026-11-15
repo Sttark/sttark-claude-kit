@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kit.sttark.com/schema/snapshot.v1.json",
+  "title": "Kit snapshot, version 1",
+  "description": "What one Mac's Kit sends up on /mac as the payload of a snapshot message: the rows of the four groups the phone shows, the usage, and the version of the archived list. Times are Unix seconds. Labels are cut to 160 characters on the Mac. No field holds a prompt, a reply, a transcript line, a file's contents or a path. See phone/DESIGN.md, section 3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "at", "mac", "flags", "reach", "usage", "rows", "archived_rev", "archived_count"],
+  "properties": {
+    "v": { "const": 1, "description": "Format version. A new required field or a changed meaning makes a new version." },
+    "at": { "$ref": "#/$defs/time", "description": "When the Mac built this snapshot." },
+    "mac": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kit", "tz", "account"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80, "description": "The Mac's name, as in System Settings > General > Sharing." },
+        "kit": { "type": "string", "maxLength": 20, "pattern": "^[0-9]+(\\.[0-9]+)*$", "description": "The Kit version." },
+        "tz": { "type": "string", "maxLength": 64, "pattern": "^[A-Za-z_]+(/[A-Za-z0-9_+-]+)*$", "description": "IANA time zone of the Mac." },
+        "account": { "type": "string", "maxLength": 32, "pattern": "^[0-9a-f]{16,32}$", "description": "A short hash of the Claude Code login, to merge usage across Macs. Never the address." }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paused", "credits_all"],
+      "properties": {
+        "paused": { "type": "boolean", "description": "Auto effort is off for every session." },
+        "credits_all": { "type": "boolean", "description": "Use credits at the usage limit, from the Kit's Settings." }
+      }
+    },
+    "reach": {
+      "type": "array",
+      "maxItems": 5,
+      "description": "The names of the Reach me by ways only. Never an address, number or webhook.",
+      "items": { "enum": ["email", "push", "chat", "text", "mac"] }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "bars", "reached"],
+      "properties": {
+        "at": { "$ref": "#/$defs/time_or_null", "description": "When the Kit read the usage. Null when it never read it." },
+        "bars": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name", "percent", "resets"],
+            "properties": {
+              "kind": { "type": "string", "maxLength": 40, "pattern": "^[a-z0-9_]+$", "description": "The usage API's kind: session (the 5-hour limit), weekly_all, or a weekly limit of one model." },
+              "name": { "type": "string", "maxLength": 60, "description": "As the window shows it: 5-hour limit, Weekly, Weekly, Opus." },
+              "percent": { "type": "integer", "minimum": 0, "maximum": 1000 },
+              "resets": { "$ref": "#/$defs/time_or_null" }
+            }
+          }
+        },
+        "reached": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["name", "until"],
+          "description": "Set while a limit is reached: sessions hold until it resets.",
+          "properties": {
+            "name": { "type": "string", "maxLength": 60 },
+            "until": { "$ref": "#/$defs/time_or_null" }
+          }
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/row" }
+    },
+    "archived_rev": {
+      "type": ["string", "null"],
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{8,64}$",
+      "description": "The version of this Mac's archived list (a hash of its items as the phone sees them). The list itself goes up only when the server asks with want_archived. Null when the Mac has no list yet."
+    },
+    "archived_count": { "type": "integer", "minimum": 0, "maximum": 200 }
+  },
+  "$defs": {
+    "time": { "type": "number", "minimum": 1700000000, "maximum": 4102444800, "description": "Unix seconds." },
+    "time_or_null": { "type": ["number", "null"], "minimum": 1700000000, "maximum": 4102444800 },
+    "label": { "type": "string", "maxLength": 160 },
+    "label_or_null": { "type": ["string", "null"], "maxLength": 160 },
+    "id": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[A-Za-z0-9_.:-]+$" },
+    "level": { "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Effort. The phone shows xhigh as Extra." },
+    "url": { "type": "string", "maxLength": 300, "pattern": "^https://claude\\.ai/[A-Za-z0-9_./?=&%-]*$", "description": "The claude.ai link that Open in Claude uses." },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "cse", "sid", "group", "title", "sub", "sub_strong", "sub_warn", "late", "time_at", "url", "session", "background", "waits", "hold", "limit_mode"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$", "description": "The row id the window uses." },
+        "cse": { "$ref": "#/$defs/id", "description": "The Remote Control session id." },
+        "sid": { "type": ["string", "null"], "maxLength": 64, "pattern": "^[A-Za-z0-9-]+$", "description": "The Claude Code session id, when the Mac knows it." },
+        "group": { "enum": ["needs_you", "working", "waiting", "held"], "description": "Needs you, Claude working, Waiting on someone else, Held at usage limit." },
+        "title": { "$ref": "#/$defs/label" },
+        "sub": { "$ref": "#/$defs/label", "description": "The row's second line, as the window draws it." },
+        "sub_strong": { "$ref": "#/$defs/label_or_null", "description": "A part of the second line drawn in bold, such as an effort level." },
+        "sub_warn": { "$ref": "#/$defs/label_or_null", "description": "A part of the second line drawn as a warning, such as 1 check failing." },
+        "late": { "type": "boolean", "description": "The time column is drawn as a warning (it waited on the person 10 minutes or more)." },
+        "time_at": { "$ref": "#/$defs/time_or_null", "description": "What the time column counts from (needs you, working) or to (a wait's deadline, a hold's end)." },
+        "url": { "$ref": "#/$defs/url" },
+        "session": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["level", "manual", "reason", "needs_you", "why", "waiting_since", "turn_at"],
+          "properties": {
+            "level": { "oneOf": [{ "$ref": "#/$defs/level" }, { "type": "null" }] },
+            "manual": { "type": "boolean", "description": "The person set the effort (Auto is off for this session)." },
+            "reason": { "$ref": "#/$defs/label_or_null", "description": "Why the Kit chose the level." },
+            "needs_you": { "type": "boolean" },
+            "why": { "$ref": "#/$defs/label_or_null", "description": "Why it needs the person, in one short line." },
+            "waiting_since": { "$ref": "#/$defs/time_or_null" },
+            "turn_at": { "$ref": "#/$defs/time_or_null", "description": "When the turn now running started." }
+          }
+        },
+        "background": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["agents", "bash", "what", "since"],
+          "description": "What still runs after the turn.",
+          "properties": {
+            "agents": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "bash": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "what": { "$ref": "#/$defs/label" },
+            "since": { "$ref": "#/$defs/time_or_null" }
+          }
+        },
+        "waits": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/wait" }
+        },
+        "hold": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["hold", "at", "percent", "limit", "since", "until", "agents"],
+          "description": "Held at the usage limit, or at the session's own percentage.",
+          "properties": {
+            "hold": { "type": "boolean", "description": "True for a session set to Never use credits (it holds at its own percentage); false for a wait at the usage limit." },
+            "at": { "type": ["integer", "null"], "minimum": 1, "maximum": 100, "description": "The percentage it holds at." },
+            "percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 1000, "description": "The limit's percentage when it held." },
+            "limit": { "type": "string", "maxLength": 60, "description": "The name of the limit it holds for: 5-hour limit, Weekly." },
+            "since": { "$ref": "#/$defs/time_or_null" },
+            "until": { "$ref": "#/$defs/time_or_null", "description": "When it goes on: the limit's reset." },
+            "agents": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Its agents that hold too." }
+          }
+        },
+        "limit_mode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "at"],
+          "description": "The session's At the usage limit setting.",
+          "properties": {
+            "mode": { "enum": ["follow", "credits", "hold"], "description": "follow: same as Settings. credits: always use credits. hold: never use credits; hold at the percentage." },
+            "at": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 }
+          }
+        }
+      }
+    },
+    "wait": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "what", "from", "why", "by", "checks", "failing", "failing_since"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["pr", "email-reply", "at", "check-script", "check-prompt"] },
+        "what": { "$ref": "#/$defs/label", "description": "What it waits for. For a check-prompt with no --what: A yes/no check. Never the wait's target (thread id, pull request), script or question." },
+        "from": { "$ref": "#/$defs/label_or_null", "description": "For an email reply: the sender's domain or name the session gave." },
+        "why": { "$ref": "#/$defs/label_or_null", "description": "The deadline's reason, as the session gave it." },
+        "by": { "$ref": "#/$defs/time_or_null", "description": "The deadline." },
+        "checks": { "$ref": "#/$defs/label_or_null", "description": "How the Kit checks it, in words: Your email, every 30 min, 7 AM to 9 PM." },
+        "failing": { "type": "boolean" },
+        "failing_since": { "$ref": "#/$defs/time_or_null" }
+      }
+    }
+  }
+}

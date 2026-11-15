@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kit.sttark.com/schema/messages.v1.json",
+  "title": "Kit phone socket messages, version 1",
+  "description": "Every message on the two WebSockets, /mac (a Mac's Kit and the server) and /live (a phone page and the server). Each message is {event, success, payload}. success is true, except on an error message and on a result whose reason is not ok. The four direction groups (server_to_mac, mac_to_server, phone_to_server, server_to_phone) list the messages each side may send; asyncapi.yaml names the same messages. See phone/DESIGN.md, sections 4 and 13, and its appendix.",
+  "$defs": {
+    "time": { "type": "number", "minimum": 1700000000, "maximum": 4102444800, "description": "Unix seconds." },
+    "time_or_null": { "type": ["number", "null"], "minimum": 1700000000, "maximum": 4102444800 },
+    "id": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[A-Za-z0-9_.:-]+$" },
+    "words": { "type": "string", "maxLength": 160, "description": "One short line for the person." },
+    "empty": { "type": "object", "additionalProperties": false, "properties": {} },
+
+    "act": { "enum": ["bring_back", "stop_waits", "set_level", "set_auto", "set_limit", "unarchive"], "description": "The only actions that exist. The server sends no free text, no command and no prompt." },
+    "args": {
+      "oneOf": [
+        { "$ref": "#/$defs/args.bring_back" },
+        { "$ref": "#/$defs/args.stop_waits" },
+        { "$ref": "#/$defs/args.set_level" },
+        { "$ref": "#/$defs/args.set_auto" },
+        { "$ref": "#/$defs/args.set_limit" },
+        { "$ref": "#/$defs/args.unarchive" }
+      ]
+    },
+    "args.bring_back": { "type": "object", "additionalProperties": false, "required": ["wait"], "description": "Bring it back now: end this wait now.", "properties": { "wait": { "$ref": "#/$defs/id" } } },
+    "args.stop_waits": { "type": "object", "additionalProperties": false, "required": ["waits"], "description": "Stop waiting (every wait the phone showed) or Stop (one wait). The Mac stops only these ids.", "properties": { "waits": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/id" } } } },
+    "args.set_level": { "type": "object", "additionalProperties": false, "required": ["cse", "level"], "description": "Set the effort; this turns Auto off for the session.", "properties": { "cse": { "$ref": "#/$defs/id" }, "level": { "enum": ["low", "medium", "high", "xhigh", "max"] } } },
+    "args.set_auto": { "type": "object", "additionalProperties": false, "required": ["cse", "on"], "properties": { "cse": { "$ref": "#/$defs/id" }, "on": { "type": "boolean" } } },
+    "args.set_limit": {
+      "type": "object", "additionalProperties": false, "required": ["cse", "sid", "mode", "at"],
+      "description": "The session's At the usage limit setting.",
+      "properties": {
+        "cse": { "$ref": "#/$defs/id" },
+        "sid": { "type": ["string", "null"], "maxLength": 64, "pattern": "^[A-Za-z0-9-]+$" },
+        "mode": { "enum": ["follow", "credits", "hold"] },
+        "at": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 }
+      }
+    },
+    "args.unarchive": { "type": "object", "additionalProperties": false, "required": ["cse"], "description": "Bring an archived session back on the same link.", "properties": { "cse": { "$ref": "#/$defs/id" } } },
+    "act_args": {
+      "description": "Pairs each act with its own args.",
+      "allOf": [
+        { "if": { "properties": { "act": { "const": "bring_back" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.bring_back" } } } },
+        { "if": { "properties": { "act": { "const": "stop_waits" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.stop_waits" } } } },
+        { "if": { "properties": { "act": { "const": "set_level" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.set_level" } } } },
+        { "if": { "properties": { "act": { "const": "set_auto" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.set_auto" } } } },
+        { "if": { "properties": { "act": { "const": "set_limit" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.set_limit" } } } },
+        { "if": { "properties": { "act": { "const": "unarchive" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.unarchive" } } } }
+      ]
+    },
+    "state": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "The part of a session an action changed, before or after it. Only the fields that apply.",
+      "properties": {
+        "level": { "enum": ["low", "medium", "high", "xhigh", "max", null] },
+        "manual": { "type": "boolean" },
+        "limit_mode": {
+          "type": "object", "additionalProperties": false, "required": ["mode", "at"],
+          "properties": { "mode": { "enum": ["follow", "credits", "hold"] }, "at": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 } }
+        },
+        "waits": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/id" } },
+        "archived": { "type": "boolean" }
+      }
+    },
+    "success_matches_reason": {
+      "description": "success is true only when reason is ok.",
+      "if": { "properties": { "payload": { "properties": { "reason": { "const": "ok" } } } } },
+      "then": { "properties": { "success": { "const": true } } },
+      "else": { "properties": { "success": { "const": false } } }
+    },
+    "error_payload": {
+      "type": "object", "additionalProperties": false, "required": ["code", "words"],
+      "properties": {
+        "code": { "enum": ["bad_message", "old_version", "too_fast"], "description": "bad_message: it did not match this schema. old_version: the server does not take this format version. too_fast: more than the server takes in a short time." },
+        "words": { "$ref": "#/$defs/words" }
+      }
+    },
+
+    "server_to_mac": {
+      "oneOf": [
+        { "$ref": "#/$defs/server_to_mac.challenge" },
+        { "$ref": "#/$defs/server_to_mac.welcome" },
+        { "$ref": "#/$defs/server_to_mac.watching" },
+        { "$ref": "#/$defs/server_to_mac.want_archived" },
+        { "$ref": "#/$defs/server_to_mac.action" },
+        { "$ref": "#/$defs/server_to_mac.error" }
+      ]
+    },
+    "server_to_mac.challenge": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "First message on a new connection. The Mac signs kit-mac-v1, its Mac id and the nonce.",
+      "properties": {
+        "event": { "const": "challenge" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["nonce"], "properties": { "nonce": { "type": "string", "minLength": 16, "maxLength": 128, "pattern": "^[A-Za-z0-9_-]+$" } } }
+      }
+    },
+    "server_to_mac.welcome": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The signature is good. The Mac sends its snapshot next.",
+      "properties": {
+        "event": { "const": "welcome" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["phones", "watching"],
+          "properties": {
+            "phones": { "type": "integer", "minimum": 0, "maximum": 50, "description": "How many of the person's phones can get a push." },
+            "watching": { "type": "boolean", "description": "A phone page of the person is visible now." }
+          }
+        }
+      }
+    },
+    "server_to_mac.watching": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A phone page became visible (on) or none is visible (off). While on, the Kit reads the Claude app's session list every 10 seconds.",
+      "properties": {
+        "event": { "const": "watching" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["on"], "properties": { "on": { "type": "boolean" } } }
+      }
+    },
+    "server_to_mac.want_archived": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A phone opened the Archived tab and the server's copy is older than the Mac's archived_rev. The Mac answers with archived (full list), or with archived_delta when it still has the list with rev have.",
+      "properties": {
+        "event": { "const": "want_archived" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["have"], "properties": { "have": { "type": ["string", "null"], "maxLength": 64, "pattern": "^[0-9a-f]{8,64}$" } } }
+      }
+    },
+    "server_to_mac.action": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A person's action from a phone. The Mac checks it against its own state at the moment it runs, and answers with result.",
+      "properties": {
+        "event": { "const": "action" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["id", "act", "args", "by"],
+          "allOf": [{ "$ref": "#/$defs/act_args" }],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "act": { "$ref": "#/$defs/act" },
+            "args": { "$ref": "#/$defs/args" },
+            "by": {
+              "type": "object", "additionalProperties": false, "required": ["email", "name"], "description": "Who asked, for the Mac's log.",
+              "properties": {
+                "email": { "type": "string", "maxLength": 254, "pattern": "^[^@\\s]+@sttark\\.com$" },
+                "name": { "type": "string", "maxLength": 120 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "server_to_mac.error": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The server refused a message. It closes the socket after old_version.",
+      "properties": { "event": { "const": "error" }, "success": { "const": false }, "payload": { "$ref": "#/$defs/error_payload" } }
+    },
+
+    "mac_to_server": {
+      "oneOf": [
+        { "$ref": "#/$defs/mac_to_server.auth" },
+        { "$ref": "#/$defs/mac_to_server.snapshot" },
+        { "$ref": "#/$defs/mac_to_server.archived" },
+        { "$ref": "#/$defs/mac_to_server.archived_delta" },
+        { "$ref": "#/$defs/mac_to_server.result" },
+        { "$ref": "#/$defs/mac_to_server.remind" },
+        { "$ref": "#/$defs/mac_to_server.bye" },
+        { "$ref": "#/$defs/mac_to_server.unlink" }
+      ]
+    },
+    "mac_to_server.auth": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The answer to challenge. Wrong signature: the server closes with 4401. Its person is not on the roster: 4403.",
+      "properties": {
+        "event": { "const": "auth" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["mac", "sig", "kit"],
+          "properties": {
+            "mac": { "$ref": "#/$defs/id", "description": "The random Mac id made at linking." },
+            "sig": { "type": "string", "minLength": 64, "maxLength": 256, "pattern": "^[A-Za-z0-9+/=_-]+$", "description": "P-256 ECDSA signature, base64." },
+            "kit": { "type": "string", "maxLength": 20, "pattern": "^[0-9]+(\\.[0-9]+)*$" }
+          }
+        }
+      }
+    },
+    "mac_to_server.snapshot": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "On connect, then on change (at most every 2 seconds), and every 5 minutes if it changed.",
+      "properties": { "event": { "const": "snapshot" }, "success": { "const": true }, "payload": { "$ref": "snapshot.v1.json" } }
+    },
+    "mac_to_server.archived": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The full archived list, only after want_archived.",
+      "properties": { "event": { "const": "archived" }, "success": { "const": true }, "payload": { "$ref": "archived.v1.json#/$defs/list" } }
+    },
+    "mac_to_server.archived_delta": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The changes since the list with rev base, after the server holds a list.",
+      "properties": { "event": { "const": "archived_delta" }, "success": { "const": true }, "payload": { "$ref": "archived.v1.json#/$defs/delta" } }
+    },
+    "mac_to_server.result": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The answer to action. ok: done. gone: the wait ended, the session is in no group, or (unarchive) it is not archived now. not_now: an effort change for a session that waits on someone else. not_here: (unarchive) its conversation is not on this Mac. bad: the args do not fit the session.",
+      "allOf": [{ "$ref": "#/$defs/success_matches_reason" }],
+      "properties": {
+        "event": { "const": "result" }, "success": { "type": "boolean" },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["id", "reason", "words", "before", "after"],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "reason": { "enum": ["ok", "gone", "not_now", "not_here", "bad"] },
+            "words": { "$ref": "#/$defs/words" },
+            "before": { "$ref": "#/$defs/state" },
+            "after": { "$ref": "#/$defs/state" }
+          }
+        }
+      }
+    },
+    "mac_to_server.remind": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A session has needed the person for 10 minutes and the person is away from the Mac: the server sends one Web Push.",
+      "properties": {
+        "event": { "const": "remind" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["cse", "waiting_since", "title", "why"],
+          "properties": {
+            "cse": { "$ref": "#/$defs/id" },
+            "waiting_since": { "$ref": "#/$defs/time" },
+            "title": { "type": "string", "maxLength": 160 },
+            "why": { "type": ["string", "null"], "maxLength": 160 }
+          }
+        }
+      }
+    },
+    "mac_to_server.bye": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "Sent before the Mac sleeps, the Kit quits, or the Kit updates.",
+      "properties": {
+        "event": { "const": "bye" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["why"], "properties": { "why": { "enum": ["sleep", "quit", "update"] } } }
+      }
+    },
+    "mac_to_server.unlink": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The person turned Kit on your phone off. The server removes this Mac.",
+      "properties": { "event": { "const": "unlink" }, "success": { "const": true }, "payload": { "$ref": "#/$defs/empty" } }
+    },
+
+    "phone_to_server": {
+      "oneOf": [
+        { "$ref": "#/$defs/phone_to_server.hello" },
+        { "$ref": "#/$defs/phone_to_server.visible" },
+        { "$ref": "#/$defs/phone_to_server.open_archived" },
+        { "$ref": "#/$defs/phone_to_server.action" }
+      ]
+    },
+    "phone_to_server.hello": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "First message from a phone page.",
+      "properties": {
+        "event": { "const": "hello" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["visible"], "properties": { "visible": { "type": "boolean" } } }
+      }
+    },
+    "phone_to_server.visible": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The page became visible or hidden.",
+      "properties": {
+        "event": { "const": "visible" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["visible"], "properties": { "visible": { "type": "boolean" } } }
+      }
+    },
+    "phone_to_server.open_archived": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The Archived tab opened. The server answers with archived from its copy and sends want_archived to each Mac whose copy is old.",
+      "properties": { "event": { "const": "open_archived" }, "success": { "const": true }, "payload": { "$ref": "#/$defs/empty" } }
+    },
+    "phone_to_server.action": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A tap on a control. The server checks that the person owns the Mac and that it is connected, else it answers offline at once.",
+      "properties": {
+        "event": { "const": "action" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["id", "mac", "act", "args", "basis"],
+          "allOf": [{ "$ref": "#/$defs/act_args" }],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "mac": { "$ref": "#/$defs/id" },
+            "act": { "$ref": "#/$defs/act" },
+            "args": { "$ref": "#/$defs/args" },
+            "basis": { "$ref": "#/$defs/time", "description": "The at of the snapshot the phone showed." }
+          }
+        }
+      }
+    },
+
+    "server_to_phone": {
+      "oneOf": [
+        { "$ref": "#/$defs/server_to_phone.macs" },
+        { "$ref": "#/$defs/server_to_phone.snapshot" },
+        { "$ref": "#/$defs/server_to_phone.archived" },
+        { "$ref": "#/$defs/server_to_phone.action_result" },
+        { "$ref": "#/$defs/server_to_phone.record" },
+        { "$ref": "#/$defs/server_to_phone.error" }
+      ]
+    },
+    "server_to_phone.macs": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The person's Macs and the state of each. A Mac that is not live is never drawn as live.",
+      "properties": {
+        "event": { "const": "macs" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["macs"],
+          "properties": {
+            "macs": {
+              "type": "array", "maxItems": 20,
+              "items": {
+                "type": "object", "additionalProperties": false, "required": ["id", "name", "state", "last_seen", "kit"],
+                "properties": {
+                  "id": { "$ref": "#/$defs/id" },
+                  "name": { "type": "string", "maxLength": 80 },
+                  "state": { "enum": ["live", "updating", "asleep", "quit", "not_heard"], "description": "live: heard from in the last 60 seconds. updating: after bye update, up to 2 minutes. asleep, quit: after bye. not_heard: 60 seconds of silence with no bye." },
+                  "last_seen": { "$ref": "#/$defs/time_or_null" },
+                  "kit": { "type": "string", "maxLength": 20, "pattern": "^[0-9]+(\\.[0-9]+)*$" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "server_to_phone.snapshot": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A Mac's snapshot: live, or its last one (as of its at) for a Mac that is away.",
+      "properties": {
+        "event": { "const": "snapshot" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["mac", "snapshot"],
+          "properties": { "mac": { "$ref": "#/$defs/id" }, "snapshot": { "$ref": "snapshot.v1.json" } }
+        }
+      }
+    },
+    "server_to_phone.archived": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A Mac's archived list, from the server's copy.",
+      "properties": {
+        "event": { "const": "archived" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["mac", "rev", "items"],
+          "properties": {
+            "mac": { "$ref": "#/$defs/id" },
+            "rev": { "$ref": "archived.v1.json#/$defs/rev" },
+            "items": { "type": "array", "maxItems": 200, "items": { "$ref": "archived.v1.json#/$defs/item" } }
+          }
+        }
+      }
+    },
+    "server_to_phone.action_result": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The answer to an action. The Mac's reasons, and: offline (the Mac is not connected; nothing was sent), timeout (no answer in 20 seconds: check the session before you try again), denied (not the person's Mac).",
+      "allOf": [{ "$ref": "#/$defs/success_matches_reason" }],
+      "properties": {
+        "event": { "const": "action_result" }, "success": { "type": "boolean" },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["id", "reason", "words"],
+          "properties": {
+            "id": { "$ref": "#/$defs/id" },
+            "reason": { "enum": ["ok", "gone", "not_now", "not_here", "bad", "offline", "timeout", "denied"] },
+            "words": { "$ref": "#/$defs/words" }
+          }
+        }
+      }
+    },
+    "server_to_phone.record": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A new change record for the session page that is open.",
+      "properties": {
+        "event": { "const": "record" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["at", "mac", "mac_name", "cse", "session_title", "act", "by_name", "reason", "words", "before", "after"],
+          "properties": {
+            "at": { "$ref": "#/$defs/time" },
+            "mac": { "$ref": "#/$defs/id" },
+            "mac_name": { "type": "string", "maxLength": 80 },
+            "cse": { "$ref": "#/$defs/id" },
+            "session_title": { "type": "string", "maxLength": 160 },
+            "act": { "$ref": "#/$defs/act" },
+            "by_name": { "type": "string", "maxLength": 120 },
+            "reason": { "enum": ["ok", "gone", "not_now", "not_here", "bad", "offline", "timeout", "denied"] },
+            "words": { "$ref": "#/$defs/words" },
+            "before": { "$ref": "#/$defs/state" },
+            "after": { "$ref": "#/$defs/state" }
+          }
+        }
+      }
+    },
+    "server_to_phone.error": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The server refused a message.",
+      "properties": { "event": { "const": "error" }, "success": { "const": false }, "payload": { "$ref": "#/$defs/error_payload" } }
+    }
+  }
+}
