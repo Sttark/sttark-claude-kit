@@ -140,6 +140,23 @@ import SwiftUI
             uw.setFrameOrigin(NSPoint(x: -9000, y: 0))
             Shot.capture(uw, to: "whats-new/usage-by-session" + (look ? "-dark" : "") + ".png")
             uw.close()
+            // the human work note's picture: the totals with the human work line and its ⓘ note open, and the biggest rows
+            model.openNotes = ["usage-human"]
+            let hw = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            hw.appearance = w.appearance
+            hw.isReleasedWhenClosed = false
+            hw.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                UsagePage(model: model).human(r).padding(.horizontal, 10).padding(.bottom, 8)
+                ForEach(Array(r.lines.prefix(2).enumerated()), id: \.element.id) { i, l in
+                    if i > 0 { Hairline().padding(.horizontal, 10) }
+                    UsageRow(line: l, share: r.share(l.usd), top: r.lines.first?.usd ?? 1, selected: false, multiDay: true)
+                }
+                Spacer(minLength: 0)
+            }.padding(14).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            hw.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            Shot.capture(hw, to: "whats-new/human-work" + (look ? "-dark" : "") + ".png")
+            hw.close()
+            model.openNotes = []
             ShotWindow.key = true   // Settings as the person sees it while using it: an on switch in its accent color
             model.page = .settings
             Shot.redraw(w)
@@ -503,7 +520,9 @@ enum Sample {
             ("Exterior lighting", "session", "cse_01Sample3", 8, 6, 0.30, 1), ("Label press manual", "session", "cse_01Sample2", 41, 5, 0.40, 1),
             ("Sttark Claude Kit checks", "kit", nil, 60, 1.2, 0, 0), ("Rename report columns", "session", "cse_01Sample9", 190, 1.1, 0.2, 0),
             ("Runs in temporary folders", "temp", nil, 4000, 0.9, 0, 0)]
-        var cells: [[Any]] = [], agentRows: [[Any]] = []
+        // the kind of each one's work (usage-scan.py's WORK: 0 software, 1 design, 2 browser and admin, 3 small or mixed)
+        let kindOf = [0, 0, 1, 2, 2, 2, 2, 3, 0, 1, 0, 3, 1, 2, 3, 0, 3]
+        var cells: [[Any]] = [], agentRows: [[Any]] = [], work: [[Any]] = []
         for (i, x) in made.enumerated() {
             for d in 0..<30 {
                 // a few busy days, some quiet ones, the same on every run
@@ -515,6 +534,7 @@ enum Sample {
                     cells.append([i, d, m, v * (1 - x.5), v * x.5, v * (1 - x.5) * 2.4e6, v * x.5 * 2.4e6])
                 }
                 if x.6 > 0 { agentRows.append([i, d, max(1, Int(Double(x.6) * f))]) }
+                work.append([i, d, kindOf[i], (usd * 115).rounded()])   // about 2 minutes at work for each dollar, as on a busy Mac
             }
         }
         let byKey: [[String: Any]] = made.enumerated().map { i, x in
@@ -525,7 +545,10 @@ enum Sample {
             "v": 1, "at": now - 20, "keep_days": 45, "days": days,
             "models": [["id": "claude-opus-5-5", "name": "Opus 5.5", "priced": true], ["id": "claude-fable-5-2", "name": "Fable 5.2", "priced": true],
                        ["id": "claude-haiku-5-5", "name": "Haiku 5.5", "priced": true]],
-            "sessions": byKey, "rows": cells, "agents": agentRows, "unpriced": [String: Any]()]
+            "sessions": byKey, "rows": cells, "agents": agentRows, "unpriced": [String: Any](),
+            "kinds": [["id": "software", "name": "Software", "x": 12], ["id": "design", "name": "Design", "x": 5],
+                      ["id": "admin", "name": "Browser and admin", "x": 2.5], ["id": "small", "name": "Small or mixed", "x": 2]],
+            "work": work]
         try? FileManager.default.createDirectory(at: dir.appendingPathComponent("usage"), withIntermediateDirectories: true)
         try! JSONSerialization.data(withJSONObject: usageList).write(to: dir.appendingPathComponent("usage/by-session.json"))
     }

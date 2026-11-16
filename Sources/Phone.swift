@@ -251,28 +251,33 @@ enum Phone {
     // MARK: usage by session
 
     /// The `usage` payload (phone/schema/usage.v1.json) for a period the server asked for: each session's share of the
-    /// person's use on this Mac in it, the biggest first, at most 100, and the rest together. Names, Remote Control
-    /// ids and numbers only: the scan's names never hold a path, a prompt or a reply. Nil for a period the contract
-    /// does not have.
+    /// person's use on this Mac in it, the biggest first, at most 100, and the rest together, with the human work each
+    /// equals and the factors of each kind of work. Names, Remote Control ids and numbers only: the scan's names never
+    /// hold a path, a prompt or a reply. Nil for a period the contract does not have.
     static func usage(period key: String, data: SessionUsage.Data = SessionUsage.read(), now: Date = Date()) -> [String: Any]? {
         guard let p = SessionUsage.Period(key: key) else { return nil }
         let span = SessionUsage.span(p, now: now)
         let r = SessionUsage.report(data, from: span.from, to: span.to)
         func pct(_ x: Double) -> Double { min(100, max(0, (r.share(x) * 1000).rounded() / 10)) }
+        func hours(_ h: Double) -> Double { min(1e7, max(0, (h * 10).rounded() / 10)) }
         let rows: [[String: Any]] = r.lines.prefix(100).map { l in
             let share = pct(l.usd)
             return ["title": cut(l.session.title).nilIfEmpty ?? "Unnamed session",
                     "cse": l.session.kind == "session" ? id(l.session.cse).map { $0 as Any } ?? NSNull() : NSNull(),
                     "share": share, "agent_share": min(share, pct(l.agents)),
-                    "last_active": time(l.session.last), "agents": clamp(l.started, 0, 1_000_000)]
+                    "last_active": time(l.session.last), "agents": clamp(l.started, 0, 1_000_000),
+                    "human_hours": hours(l.human)]
         }
         let rest = r.lines.dropFirst(100)
         return [
             "v": 1, "period": p.key, "from": span.from, "to": span.to, "at": Int(now.timeIntervalSince1970.rounded()),
             "total": ["sessions": clamp(r.lines.count, 0, 1_000_000), "tokens": min(1e15, r.tokens.rounded()),
-                      "agent_share": pct(r.agents), "usd": min(1e9, (r.usd * 100).rounded() / 100)] as [String: Any],
+                      "agent_share": pct(r.agents), "usd": min(1e9, (r.usd * 100).rounded() / 100),
+                      "human_hours": hours(r.human)] as [String: Any],
             "rows": rows,
-            "more": ["sessions": rest.count, "share": pct(rest.reduce(0) { $0 + $1.usd })] as [String: Any],
+            "more": ["sessions": rest.count, "share": pct(rest.reduce(0) { $0 + $1.usd }),
+                     "human_hours": hours(rest.reduce(0) { $0 + $1.human })] as [String: Any],
+            "factors": data.kinds.prefix(8).map { ["name": String($0.name.prefix(40)), "x": min(100, max(0, $0.x))] as [String: Any] },
         ]
     }
 

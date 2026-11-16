@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kit.sttark.com/schema/usage.v1.json",
   "title": "Kit usage by session, version 1",
-  "description": "One Mac's Usage by session list for one period, as the Kit sends it on /mac after want_usage: each session's share of the person's Claude Code use on that Mac in the period, and the part its agents did. Each reply counts at its model's API price, so a share follows how the usage limit fills; a share is never a percent of the limit, which Anthropic gives only as a total. Only names, ids and numbers go up: no path, no prompt, no reply. See phone/DESIGN.md, section 14.",
+  "description": "One Mac's Usage by session list for one period, as the Kit sends it on /mac after want_usage: each session's share of the person's Claude Code use on that Mac in the period, and the part its agents did. Each reply counts at its model's API price, so a share follows how the usage limit fills; a share is never a percent of the limit, which Anthropic gives only as a total. A Kit that knows it also sends the human work estimate: the hours people would need for the same work (human_hours), and the factors it used. A Kit from before the estimate sends no human_hours and no factors, so they are optional. Only names, ids and numbers go up: no path, no prompt, no reply. See phone/DESIGN.md, section 14.",
   "$ref": "#/$defs/list",
   "$defs": {
     "period": {
@@ -14,6 +14,16 @@
     "day": { "type": "string", "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
     "share": { "type": "number", "minimum": 0, "maximum": 100, "description": "Percent of the person's use on this Mac in the period." },
     "count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "human_hours": { "type": "number", "minimum": 0, "maximum": 10000000, "description": "Human work, in hours: the hours Claude was at work (model replies and tool runs; waits do not count), each one times the factor for its kind of work. Rounded to 0.1." },
+    "factor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "x"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 40, "description": "A kind of work, as the page says it: Software, Design, Browser and admin, Small or mixed." },
+        "x": { "type": "number", "minimum": 0, "maximum": 100, "description": "The hours a person needs for each hour Claude was at work on this kind of work." }
+      }
+    },
     "row": {
       "type": "object",
       "additionalProperties": false,
@@ -27,7 +37,8 @@
         "share": { "$ref": "#/$defs/share" },
         "agent_share": { "$ref": "#/$defs/share", "description": "The part of share its agents did, in percent of the person's use; never more than share." },
         "last_active": { "type": ["number", "null"], "minimum": 1700000000, "maximum": 4102444800, "description": "Unix seconds: its newest reply." },
-        "agents": { "$ref": "#/$defs/count", "description": "Agents it started in the period." }
+        "agents": { "$ref": "#/$defs/count", "description": "Agents it started in the period." },
+        "human_hours": { "$ref": "#/$defs/human_hours", "description": "Optional. This session's human work in the period, in hours." }
       }
     },
     "list": {
@@ -48,7 +59,8 @@
             "sessions": { "$ref": "#/$defs/count" },
             "tokens": { "type": "number", "minimum": 0, "maximum": 1000000000000000 },
             "agent_share": { "$ref": "#/$defs/share", "description": "The part of the person's use that agents did." },
-            "usd": { "type": "number", "minimum": 0, "maximum": 1000000000, "description": "The use, in dollars at API prices." }
+            "usd": { "type": "number", "minimum": 0, "maximum": 1000000000, "description": "The use, in dollars at API prices." },
+            "human_hours": { "$ref": "#/$defs/human_hours", "description": "Optional. The human work in the period, in hours." }
           }
         },
         "rows": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/row" }, "description": "The biggest share first." },
@@ -57,7 +69,17 @@
           "additionalProperties": false,
           "required": ["sessions", "share"],
           "description": "The sessions after the first 100, together.",
-          "properties": { "sessions": { "$ref": "#/$defs/count" }, "share": { "$ref": "#/$defs/share" } }
+          "properties": {
+            "sessions": { "$ref": "#/$defs/count" },
+            "share": { "$ref": "#/$defs/share" },
+            "human_hours": { "$ref": "#/$defs/human_hours", "description": "Optional. Their human work, together, in hours." }
+          }
+        },
+        "factors": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/factor" },
+          "description": "Optional. The factor for each kind of work that human_hours uses. The page's note takes its numbers from here, never from fixed words."
         }
       }
     }

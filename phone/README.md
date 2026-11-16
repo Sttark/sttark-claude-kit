@@ -61,16 +61,19 @@ Code use on each Mac in a period, and the part its agents did: Today, 7 days,
 period: the days it covers, a note that says a share is of your use and never
 a percent of your limit (Anthropic gives only the total percent), the totals
 ("18 sessions · 8.1 billion tokens · agents did 77% · worth $3,106 at API
-prices"), a legend, then each Mac's sessions, biggest share first: the name,
-the share, when it was last active and how many agents it started, and a bar
-(the session's part in the info blue, its agents' in a lighter tint of it;
-never green). The top 15, then how many more and their share, with Show all.
-A row with a session link has the ↗ Open in Claude; a row opens nothing else
-(`../DESIGN-DECISIONS.md`, Phone pages, Usage by session). No folder or path.
-A Mac that is away shows its last list for the period, "As of" its time, in
-gray; a live Mac with no list yet says "Getting the list from MacBook
-Pro...", and after 15 seconds that it did not send one (a Kit from before
-this list does not). `DESIGN.md`, section 14.
+prices"), from a Kit that sends it the human work estimate ("Human work ≈ 1
+person for 4.7 months · ≈ 20 people full time over these 7 days", with an ⓘ
+that says how it is made, from the factors the Mac sent), a legend, then
+each Mac's sessions, biggest share first: the name, the share, when it was
+last active, how many agents it started and its human work ("≈ 1 person for
+2.5 days"), and a bar (the session's part in the info blue, its agents' in a
+lighter tint of it; never green). The top 15, then how many more and their
+share, with Show all. A row with a session link has the ↗ Open in Claude; a
+row opens nothing else (`../DESIGN-DECISIONS.md`, Phone pages, Usage by
+session). No folder or path. A Mac that is away shows its last list for the
+period, "As of" its time, in gray; a live Mac with no list yet says "Getting
+the list from MacBook Pro...", and after 15 seconds that it did not send one
+(a Kit from before this list does not). `DESIGN.md`, section 14.
 
 A tap on a control sends one `action`; its button says "Sending..." and the
 other controls wait. The answer shows where it was asked, in the server's
@@ -457,7 +460,10 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   totals and the legend, no folder or path and no green, the top 15 and Show
   all, ↗ only where there is a session link, a list per Mac, an away Mac's
   as of its time in gray, waiting and its 15 seconds, only the period shown,
-  no use, Custom's days, and the address.
+  no use, Custom's days, and the address. The human work estimate: its words
+  (`test/human.test.ts`, the same examples as the Mac window's tests), the
+  line under the totals and its ⓘ note, the end of each row's line, one line
+  per Mac, and a list from an older Kit shown as before.
 - **CI** (`../.github/workflows/phone-checks.yml`): the tests and the build
   on each change under `phone/`, then the page check and, on pull requests,
   the AI review against the guide.
@@ -480,7 +486,7 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
 | `src/pages/site.webmanifest.ts`, `public/sw.js`, `public/*.png`, `public/favicon.*` | The web app manifest, the service worker, the Kit's icons |
 | `src/pages/link/[token].astro`, `src/pages/api/mac/` | The link page; the Kit's link calls |
 | `src/layouts/Base.astro` | The page frame (top bar with Search and Menu, tabs), and the data the page was drawn from |
-| `src/view/` | The pages as HTML (`render.ts`), what they draw from (`model.ts`), times in words (`time.ts`): the server and the browser both use them |
+| `src/view/` | The pages as HTML (`render.ts`), what they draw from (`model.ts`), times in words (`time.ts`), the human work estimate in words (`human.ts`): the server and the browser both use them |
 | `src/scripts/app.ts` | The pages in the browser: `/live`, actions, search, ⓘ notes, Remove's confirm, the theme |
 | `src/lib/state.ts`, `src/lib/paths.ts` | The data a page is drawn from, from the database; `BASE_PATH` |
 | `src/styles/sttark-shared.css`, `src/styles/app.css` | The guide's shared style file, byte for byte, and this app's own |

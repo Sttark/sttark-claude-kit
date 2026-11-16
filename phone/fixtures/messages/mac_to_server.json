@@ -477,7 +477,8 @@
         "sessions": 18,
         "tokens": 8100000000,
         "agent_share": 77.3,
-        "usd": 3106.2
+        "usd": 3106.2,
+        "human_hours": 809.4
       },
       "rows": [
         {
@@ -486,7 +487,8 @@
           "share": 28.3,
           "agent_share": 23.2,
           "last_active": 1794585780,
-          "agents": 75
+          "agents": 75,
+          "human_hours": 236.0
         },
         {
           "title": "Sttark Claude Kit",
@@ -494,7 +496,8 @@
           "share": 27.2,
           "agent_share": 25.8,
           "last_active": 1794587220,
-          "agents": 51
+          "agents": 51,
+          "human_hours": 296.6
         },
         {
           "title": "HVAC updates",
@@ -502,13 +505,33 @@
           "share": 8.5,
           "agent_share": 6.9,
           "last_active": 1794586800,
-          "agents": 26
+          "agents": 26,
+          "human_hours": 64.0
         }
       ],
       "more": {
         "sessions": 15,
-        "share": 36.0
-      }
+        "share": 36.0,
+        "human_hours": 212.8
+      },
+      "factors": [
+        {
+          "name": "Software",
+          "x": 12
+        },
+        {
+          "name": "Design",
+          "x": 5
+        },
+        {
+          "name": "Browser and admin",
+          "x": 2.5
+        },
+        {
+          "name": "Small or mixed",
+          "x": 2
+        }
+      ]
     }
   },
   {

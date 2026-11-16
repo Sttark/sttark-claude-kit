@@ -22,6 +22,13 @@ enum SessionUsage {
     /// One session's use on one day with one model.
     struct Cell { let s: Int; let d: Int; let m: Int; let own: Double; let agents: Double; let ownTokens: Double; let agentTokens: Double }
 
+    /// A kind of work and its factor: the hours of a person's work that one hour of Claude at work equals. The scan
+    /// sets them (usage-scan.py's WORK; the method is docs/human-work.md).
+    struct Kind { let id: String; let name: String; let x: Double }
+
+    /// How long Claude was at work for one session on one day, in one kind of work (waits left out).
+    struct Work { let s: Int; let d: Int; let k: Int; let seconds: Double }
+
     struct Data {
         /// When the scan finished.
         var at: Date?
@@ -34,6 +41,8 @@ enum SessionUsage {
         var agents: [(s: Int, d: Int, n: Int)] = []
         /// Models with no price in usage-scan.py, and their tokens.
         var unpriced: [String: Double] = [:]
+        var kinds: [Kind] = []
+        var work: [Work] = []
         var empty: Bool { at == nil }
     }
 
@@ -67,6 +76,15 @@ enum SessionUsage {
             if v[0] >= 0, v[0] < n, v[1] >= 0, v[1] < days, v[2] > 0 { out.agents.append((v[0], v[1], v[2])) }
         }
         for (k, v) in j["unpriced"] as? [String: Any] ?? [:] { out.unpriced[k] = Limit.num(v) ?? 0 }
+        out.kinds = (j["kinds"] as? [[String: Any]] ?? []).compactMap {
+            guard let id = $0["id"] as? String, let x = Limit.num($0["x"]), x >= 0 else { return nil }
+            return Kind(id: id, name: $0["name"] as? String ?? id, x: x)
+        }
+        for r in j["work"] as? [[Any]] ?? [] where r.count == 4 {
+            let v = r.map { Limit.num($0) ?? -1 }
+            guard v[0] >= 0, Int(v[0]) < n, v[1] >= 0, Int(v[1]) < days, v[2] >= 0, Int(v[2]) < out.kinds.count, v[3] > 0 else { continue }
+            out.work.append(Work(s: Int(v[0]), d: Int(v[1]), k: Int(v[2]), seconds: v[3]))
+        }
         return out
     }
 
@@ -156,6 +174,9 @@ enum SessionUsage {
         var started = 0
         var byDay: [String: (own: Double, agents: Double)] = [:]
         var byModel: [Int: (usd: Double, tokens: Double)] = [:]
+        /// Hours Claude was at work, and the human hours they equal, in all and by kind of work.
+        var active = 0.0, human = 0.0
+        var humanByKind: [Int: Double] = [:]
         var usd: Double { own + agents }
     }
 
@@ -164,6 +185,8 @@ enum SessionUsage {
         /// The biggest first.
         var lines: [Line] = []
         var usd = 0.0, agents = 0.0, tokens = 0.0
+        /// Hours Claude was at work in the period, and the human hours they equal.
+        var active = 0.0, human = 0.0
         /// All use each day, for a day's part of the whole.
         var byDay: [String: Double] = [:]
         var dayList: [String] { SessionUsage.days(from: from, to: to) }
@@ -188,6 +211,14 @@ enum SessionUsage {
             r.byDay[day, default: 0] += c.own + c.agents
         }
         for a in d.agents where inside.contains(a.d) { lines[a.s]?.started += a.n }
+        for w in d.work where inside.contains(w.d) {
+            let h = w.seconds / 3600 * d.kinds[w.k].x
+            r.active += w.seconds / 3600
+            r.human += h
+            lines[w.s]?.active += w.seconds / 3600
+            lines[w.s]?.human += h
+            lines[w.s]?.humanByKind[w.k, default: 0] += h
+        }
         r.lines = lines.values.filter { $0.usd > 0 }.sorted { ($0.usd, $1.session.title) > ($1.usd, $0.session.title) }
         r.usd = r.lines.reduce(0) { $0 + $1.usd }
         r.agents = r.lines.reduce(0) { $0 + $1.agents }
@@ -246,6 +277,73 @@ enum SessionUsage {
     /// A share in words: "18%", "4.5%", "<0.1%".
     static func percent(_ x: Double) -> String {
         x >= 0.0995 ? String(format: "%.0f%%", x * 100) : x >= 0.000995 ? String(format: "%.1f%%", x * 100) : x > 0 ? "<0.1%" : "0%"
+    }
+
+    // MARK: human work in words (phone/src/view/human.ts says the same; the examples are in tools/usage-words-test.swift)
+
+    /// "3", "2.5" under 10 (round half up, no ".0"); "20", "1,240" from 10.
+    static func num(_ n: Double) -> String {
+        if n < 10 {
+            let r = (n * 10).rounded() / 10
+            return r == r.rounded() ? String(Int(r)) : String(format: "%.1f", r)
+        }
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 0
+        f.locale = Locale(identifier: "en_US")
+        return f.string(from: NSNumber(value: n.rounded())) ?? String(Int(n.rounded()))
+    }
+
+    /// What one person would take for `h` hours of work, at 8 hours a day, 40 a week, 4.33 weeks a month:
+    /// "1 person for 15 minutes", "1 person for 2.5 days", "1 person for 4.7 months".
+    static func personWords(_ h: Double) -> String {
+        let (n, unit): (Double, String)
+        if (h * 60).rounded() < 60 { n = max(1, (h * 60).rounded()); unit = "minute" }
+        else if h < 8 { n = h; unit = "hour" }
+        else if h < 80 { n = h / 8; unit = "day" }
+        else if h < 520 { n = h / 40; unit = "week" }
+        else if h < 4160 { n = h / 173.2; unit = "month" }
+        else { n = h / 2080; unit = "year" }
+        let shown = num(n)
+        return "1 person for \(shown) \(unit)\(shown == "1" ? "" : "s")"
+    }
+
+    /// Mondays to Fridays from `from` to `to`, both in, at least 1.
+    static func weekdays(from: String, to: String) -> Int {
+        let c = Calendar(identifier: .gregorian)
+        return max(1, days(from: from, to: to).filter { d in date(d).map { ![1, 7].contains(c.component(.weekday, from: $0)) } ?? false }.count)
+    }
+
+    /// The period as the picker names it, after a number of people: "today", "over these 7 days", "from Nov 2 to
+    /// Nov 9", "on Wed, Nov 4".
+    static func periodWords(_ p: Period, from: String, to: String) -> String {
+        switch p {
+        case .today: return "today"
+        case .week: return "over these 7 days"
+        case .month: return "over these 30 days"
+        case .custom: return from == to ? "on " + dayWords(from, weekday: true) : "from " + dayWords(from) + " to " + dayWords(to)
+        }
+    }
+
+    /// How many people full time, 8 hours each weekday, the work of `h` hours equals in a period: "≈ 20 people full
+    /// time over these 7 days", "less than 1 person full time today".
+    static func peopleWords(_ h: Double, _ p: Period, from: String, to: String) -> String {
+        let n = h / (8 * Double(weekdays(from: from, to: to)))
+        let when = periodWords(p, from: from, to: to)
+        if n < 1 { return "less than 1 person full time " + when }
+        let shown = num(n)
+        return "≈ \(shown) \(shown == "1" ? "person" : "people") full time " + when
+    }
+
+    /// "182 h", "2.5 h", "< 0.1 h".
+    static func hoursWords(_ h: Double) -> String { h < 0.1 ? "< 0.1 h" : num(h) + " h" }
+
+    /// The ⓘ note: how the estimate is made, with the factors the scan sent.
+    static func humanNote(_ kinds: [Kind]) -> String {
+        let f = kinds.map { $0.name.lowercased() + " " + num($0.x) }.joined(separator: ", ")
+        return "An estimate. The Kit counts the hours Claude was at work, its agents too: the model writing and the tools "
+            + "it ran. Waits do not count: for you, at the usage limit, for checks and timers. Each hour counts as the hours "
+            + "a person needs for that kind of work" + (f.isEmpty ? "" : ": " + f) + ". Full time is 8 hours a day, 5 days a week."
     }
 
     /// "Nov 16", "Mon, Nov 16".

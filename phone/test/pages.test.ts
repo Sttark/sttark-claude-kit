@@ -259,6 +259,59 @@ describe('Usage by session', () => {
     expect(c).toContain('>Show</button>');
     expect(bys(html(u({ pick: 'custom' }), k))).toContain('name="from" value="2026-11-07"');
   });
+  it('says the human work under the totals, with an ⓘ whose note opens in place', () => {
+    const k = kit({ usage: lists() }, one().macs);
+    const b = bys(html(u(), k));
+    const line = '<p><span>Human work ≈ <b>1 person for 4.7 months</b> ·</span> <span>≈ 20 people full time over these 7 days</span></p>';
+    expect(b).toContain(line);
+    expect(b.indexOf('class="bys-tot"')).toBeLessThan(b.indexOf(line));
+    expect(b.indexOf(line)).toBeLessThan(b.indexOf('<ul class="bys-rows">'));
+    expect(b).toContain(`data-act="info" data-key="human-${PRO}" data-k="info:human-${PRO}" aria-expanded="false" aria-controls="note-human-${PRO}" aria-label="About human work"`);
+    expect(b).toContain(`<div class="note" id="note-human-${PRO}" hidden>An estimate. The Kit counts the hours Claude was at work, its agents too:`);
+    expect(b).toContain('that kind of work: software 12, design 5, browser and admin 2.5, small or mixed 2. Full time is 8 hours a day, 5 days a week.');
+    const open = bys(draw(u(), k, { ...emptyUi(), notes: [`human-${PRO}`] }).html);
+    expect(open).toContain(`aria-expanded="true" aria-controls="note-human-${PRO}"`);
+    expect(open).toContain(`<div class="note" id="note-human-${PRO}">An estimate`);
+  });
+  it('ends each row’s line with its human work, when it has some', () => {
+    const b = bys(html(u({ all: true }), kit({ usage: lists() }, one().macs)));
+    const text = (h: string) => h.replace(/<[^>]+>/g, '');
+    const meta = [...b.matchAll(/<div class="sub bys-meta">(.*?)<\/div>/g)].map((m) => text(m[1]));
+    expect(meta[0]).toMatch(/^last active \d+:\d\d [AP]M · 75 agents · ≈ 1 person for 5\.9 weeks$/);
+    expect(meta[1]).toMatch(/ · 51 agents · ≈ 1 person for 7\.4 weeks$/);
+    expect(meta).toContainEqual(expect.stringMatching(/ · ≈ 1 person for 6 hours$/));
+    expect(meta).toContainEqual(expect.stringMatching(/ · ≈ 1 person for 18 minutes$/));
+    // A row with no human work (the Kit's own checks) ends as before.
+    expect(b).toMatch(/Sttark Claude Kit checks<\/span>.*?<div class="sub bys-meta"><span>last active [^<]*<\/span><\/div>/s);
+  });
+  it('gives each Mac its own human work line', () => {
+    const b = bys(html(u(), kit({ usage: lists() })));
+    expect(b).toContain('Human work ≈ <b>1 person for 4.7 months</b>');
+    expect(b).toContain('<div class="bys-human stale"><p><span>Human work ≈ <b>1 person for 5.8 days</b> ·</span> <span>≈ 1.2 people full time over these 7 days</span>');
+    expect(b).toContain(`aria-controls="note-human-${PRO}"`);
+    expect(b).toContain(`aria-controls="note-human-${MINI}"`);
+    expect(b).toContain('≈ 1 person for 30 minutes');
+  });
+  it('shows a list from a Kit before the estimate as before: no human work line, no ≈ on the rows', () => {
+    const old = (f: string) => {
+      const l = fixture(f);
+      delete l.total.human_hours;
+      delete l.more.human_hours;
+      delete l.factors;
+      for (const r of l.rows) delete r.human_hours;
+      return l;
+    };
+    const b = bys(html(u({ all: true }), kit({ usage: { [PRO]: old('usage.macbook-pro.json'), [MINI]: old('usage.mac-mini-away.json') } })));
+    expect(b).not.toContain('Human work');
+    expect(b).not.toContain('≈');
+    expect(b).not.toContain('note-human');
+    expect(b).toContain('18 sessions · 8.1 billion tokens · agents did <b>77%</b> · worth $3,106 at API prices</p><div><ul class="bys-rows">');
+    expect(b).toMatch(/<div class="sub bys-meta"><span>last active \d+:\d\d [AP]M ·<\/span> <span>75 agents<\/span><\/div>/);
+    // A list whose work comes to 0 hours says nothing either.
+    const none = fixture('usage.macbook-pro.json');
+    none.total.human_hours = 0;
+    expect(bys(html(u(), kit({ usage: { [PRO]: none } }, one().macs)))).not.toContain('Human work');
+  });
   it('reads its choice from the address, and writes it back', () => {
     const v = usageView(new URLSearchParams('p=custom&from=2026-11-09&to=2026-11-02&all=1'));
     expect(v).toEqual({ pick: 'custom', from: '2026-11-02', to: '2026-11-09', all: true });

@@ -1,7 +1,26 @@
 {
   "at": 1794587400,
+  "factors": [
+    {
+      "name": "Software",
+      "x": 12
+    },
+    {
+      "name": "Design",
+      "x": 5
+    },
+    {
+      "name": "Browser and admin",
+      "x": 2.5
+    },
+    {
+      "name": "Small or mixed",
+      "x": 2
+    }
+  ],
   "from": "2026-11-07",
   "more": {
+    "human_hours": 0,
     "sessions": 0,
     "share": 0
   },
@@ -11,6 +30,7 @@
       "agent_share": 63.1,
       "agents": 21,
       "cse": "cse_01PhoneSiteMap",
+      "human_hours": 143.5,
       "last_active": 1794585780,
       "share": 77.1,
       "title": "Site map plan"
@@ -19,6 +39,7 @@
       "agent_share": 7,
       "agents": 0,
       "cse": "cse_01PhoneHvac",
+      "human_hours": 26.3,
       "last_active": 1794586800,
       "share": 17.5,
       "title": "HVAC updates"
@@ -27,6 +48,7 @@
       "agent_share": 0,
       "agents": 0,
       "cse": null,
+      "human_hours": 3.5,
       "last_active": 1794580200,
       "share": 4.9,
       "title": "Bin label sizes"
@@ -35,6 +57,7 @@
       "agent_share": 0,
       "agents": 0,
       "cse": null,
+      "human_hours": 0,
       "last_active": 1794583800,
       "share": 0.4,
       "title": "Sttark Claude Kit checks"
@@ -43,6 +66,7 @@
       "agent_share": 0,
       "agents": 0,
       "cse": null,
+      "human_hours": 0,
       "last_active": 1794586500,
       "share": 0.1,
       "title": "Runs with no name in ReportBot"
@@ -51,6 +75,7 @@
   "to": "2026-11-13",
   "total": {
     "agent_share": 70.1,
+    "human_hours": 173.3,
     "sessions": 5,
     "tokens": 42910000,
     "usd": 99.89

@@ -408,5 +408,330 @@
         "share": 36.0
       }
     }
+  },
+  {
+    "why": "human work under 0 hours",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2,
+        "human_hours": 809.4
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75,
+          "human_hours": -1
+        }
+      ],
+      "more": {
+        "sessions": 0,
+        "share": 0,
+        "human_hours": 0
+      },
+      "factors": [
+        {
+          "name": "Software",
+          "x": 12
+        },
+        {
+          "name": "Design",
+          "x": 5
+        },
+        {
+          "name": "Browser and admin",
+          "x": 2.5
+        },
+        {
+          "name": "Small or mixed",
+          "x": 2
+        }
+      ]
+    }
+  },
+  {
+    "why": "human work as words, not a number",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2,
+        "human_hours": "809 hours"
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75,
+          "human_hours": 236.0
+        }
+      ],
+      "more": {
+        "sessions": 0,
+        "share": 0,
+        "human_hours": 0
+      },
+      "factors": [
+        {
+          "name": "Software",
+          "x": 12
+        },
+        {
+          "name": "Design",
+          "x": 5
+        },
+        {
+          "name": "Browser and admin",
+          "x": 2.5
+        },
+        {
+          "name": "Small or mixed",
+          "x": 2
+        }
+      ]
+    }
+  },
+  {
+    "why": "a kind of work with no factor",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2,
+        "human_hours": 809.4
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75,
+          "human_hours": 236.0
+        }
+      ],
+      "more": {
+        "sessions": 0,
+        "share": 0,
+        "human_hours": 0
+      },
+      "factors": [
+        {
+          "name": "Software"
+        },
+        {
+          "name": "Design",
+          "x": 5
+        },
+        {
+          "name": "Browser and admin",
+          "x": 2.5
+        },
+        {
+          "name": "Small or mixed",
+          "x": 2
+        }
+      ]
+    }
+  },
+  {
+    "why": "a factor over 100",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2,
+        "human_hours": 809.4
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75,
+          "human_hours": 236.0
+        }
+      ],
+      "more": {
+        "sessions": 0,
+        "share": 0,
+        "human_hours": 0
+      },
+      "factors": [
+        {
+          "name": "Software",
+          "x": 120
+        },
+        {
+          "name": "Design",
+          "x": 5
+        },
+        {
+          "name": "Browser and admin",
+          "x": 2.5
+        },
+        {
+          "name": "Small or mixed",
+          "x": 2
+        }
+      ]
+    }
+  },
+  {
+    "why": "a kind of work's name over 40 characters",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2,
+        "human_hours": 809.4
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75,
+          "human_hours": 236.0
+        }
+      ],
+      "more": {
+        "sessions": 0,
+        "share": 0,
+        "human_hours": 0
+      },
+      "factors": [
+        {
+          "name": "Software, design and all the other kinds of work",
+          "x": 12
+        },
+        {
+          "name": "Design",
+          "x": 5
+        },
+        {
+          "name": "Browser and admin",
+          "x": 2.5
+        },
+        {
+          "name": "Small or mixed",
+          "x": 2
+        }
+      ]
+    }
+  },
+  {
+    "why": "more than 8 kinds of work",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2,
+        "human_hours": 809.4
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75,
+          "human_hours": 236.0
+        }
+      ],
+      "more": {
+        "sessions": 0,
+        "share": 0,
+        "human_hours": 0
+      },
+      "factors": [
+        {
+          "name": "Kind 0",
+          "x": 2
+        },
+        {
+          "name": "Kind 1",
+          "x": 2
+        },
+        {
+          "name": "Kind 2",
+          "x": 2
+        },
+        {
+          "name": "Kind 3",
+          "x": 2
+        },
+        {
+          "name": "Kind 4",
+          "x": 2
+        },
+        {
+          "name": "Kind 5",
+          "x": 2
+        },
+        {
+          "name": "Kind 6",
+          "x": 2
+        },
+        {
+          "name": "Kind 7",
+          "x": 2
+        },
+        {
+          "name": "Kind 8",
+          "x": 2
+        }
+      ]
+    }
   }
 ]

@@ -371,6 +371,8 @@ The Mac window's Usage page and the phone's Usage tab show how much of the perso
 
 **What goes up.** Only after `want_usage {period}`: `usage` (`schema/usage.v1.json`), for one period: `today`, `7d`, `30d` or a range of days (`2026-11-02..2026-11-09`), the days it covers, when it was made, the totals (sessions, tokens, the agents' share, the use in dollars at API prices), at most 100 rows (biggest share first), and the rest together. Each row: the session's name (cut to 160), its Remote Control id (or null: a session only on that Mac, the Kit's own checks, runs in temporary folders), its share and the part its agents did (percent of the person's use), when it was last active, and how many agents it started.
 
+**Human work.** A Kit that knows it also sends an estimate of what the same work takes people. The scanner counts the hours Claude was at work in each session (its agents too: model replies and tool runs; waits do not count: for the person, at the usage limit, for checks and timers), then counts each hour as the hours a person needs for that kind of work. The factor for each kind (software, design, browser and admin, small or mixed) lives only in the scanner and goes up in the list, so the note on the page never has a fixed number. All of these are optional, so a list from an older Kit, or one the server kept from before, still passes and shows as before: `total.human_hours`, each row's `human_hours`, `more.human_hours` (hours, to 0.1), and `factors` (at most 8: each kind's `name` and `x`, the hours a person needs for each hour Claude was at work on it). The page shows, under the totals, "Human work ≈ 1 person for 4.7 months · ≈ 20 people full time over these 7 days" with an ⓘ that opens the note in place, and ends each row's line with "· ≈ 1 person for 2.5 days". The Mac window says the same words by the same rule: `src/view/human.ts` here, with the same examples in the tests on both sides.
+
 **Never leaves the Mac.** Paths and folder names of sessions, prompts, replies, record lines, model names and the tokens of each session.
 
 **The flow.** The Usage tab sends `open_usage {period}` when it opens, shows again, changes its period, and every minute. The server answers with each Mac's kept list for that period (`usage {mac, list}`), and sends `want_usage {period}` to each live Mac (at most once for a period in 10 seconds). The Mac answers with `usage`; the server keeps it and sends it to the person's pages that show that period. A Mac that connects while a page shows Usage is asked at once. A Mac that is away shows its last list for the period, "As of" its time, in gray. A Kit from before this list never answers; the page says so after 15 seconds.
@@ -391,7 +393,7 @@ Every message is `{event, success, payload}`. Linking comes before `/mac`, over 
 | `/mac` | Mac | `archived` | `rev`, `items` (section 13) |
 | `/mac` | Mac | `archived_delta` | `base`, `rev`, `add`, `remove` |
 | `/mac` | server | `want_usage` | `period` (`today`, `7d`, `30d`, or `first..last`) |
-| `/mac` | Mac | `usage` | `v`, `period`, `from`, `to`, `at`, `total`, `rows`, `more` (section 14) |
+| `/mac` | Mac | `usage` | `v`, `period`, `from`, `to`, `at`, `total`, `rows`, `more`, and from a Kit with the human work estimate `factors` and the `human_hours` fields (section 14) |
 | `/mac` | server | `watching` | `on` |
 | `/mac` | server | `phones` | `phones` (how many can get a push, when it changes after `welcome`) |
 | `/mac` | server | `action` | `id`, `act`, `args`, `by` (email, name) |

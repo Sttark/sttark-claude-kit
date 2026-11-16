@@ -8,7 +8,8 @@
     "sessions": 3,
     "tokens": 412000000,
     "agent_share": 41.5,
-    "usd": 166.4
+    "usd": 166.4,
+    "human_hours": 46.2
   },
   "rows": [
     {
@@ -17,7 +18,8 @@
       "share": 61.2,
       "agent_share": 30.1,
       "last_active": 1794524220,
-      "agents": 9
+      "agents": 9,
+      "human_hours": 30.1
     },
     {
       "title": "Bin label sizes",
@@ -25,7 +27,8 @@
       "share": 30.4,
       "agent_share": 11.4,
       "last_active": 1794517920,
-      "agents": 3
+      "agents": 3,
+      "human_hours": 15.6
     },
     {
       "title": "Sttark Claude Kit checks",
@@ -33,11 +36,30 @@
       "share": 8.4,
       "agent_share": 0,
       "last_active": 1794521520,
-      "agents": 0
+      "agents": 0,
+      "human_hours": 0.5
     }
   ],
   "more": {
     "sessions": 0,
     "share": 0
-  }
+  },
+  "factors": [
+    {
+      "name": "Software",
+      "x": 12
+    },
+    {
+      "name": "Design",
+      "x": 5
+    },
+    {
+      "name": "Browser and admin",
+      "x": 2.5
+    },
+    {
+      "name": "Small or mixed",
+      "x": 2
+    }
+  ]
 }
