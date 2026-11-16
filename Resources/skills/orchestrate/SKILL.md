@@ -71,7 +71,7 @@ No Asana writes during work (D15).
 
 ## Autonomy rails (these still bind)
 
-Browser work: the browser guard gives each agent a Chrome window of its own named Claude (in a session that asks before commands, agents share the session's window and tab). The main thread runs `claude-window done` before it hands browser work to an agent.
+Browser work: the browser guard gives each agent a Chrome window of its own named Claude (in a session that asks before commands, agents share the session's window and tab). Start only one browsing agent at a time and queue the others when one of these conditions is true: (a) the session is not in Bypass permissions, so all agents share one tab; (b) the agent uses the Claude in Chrome tools or `osascript`, not `claude-window`. In Bypass permissions, browsing agents that use `claude-window` can run at the same time. The main thread runs `claude-window done` before it hands browser work to an agent.
 
 Orchestrating doesn't relax your safety rails. Build, test, and open PRs autonomously — but **merge** only after the person types `approve merge` (the production guard denies merges, pushes to main, deploys and production migrations until the person types `approve merge`, `approve push-main`, `approve deploy` or `approve migrate`; each approval is good for one use in 10 minutes), and only after the verify gate passes. Agents never merge; `ops` never merges a PR. Anything prod-touching — prod migrations, secrets, deploys, payments — **always** stops for the user's explicit confirmation, regardless of confidence. Per-project scope locks and "ask first" rules beat this skill's autonomy. Can't ask? Skip the item and flag it.
 

@@ -656,7 +656,7 @@ On the `orchestrator` branch only, while it is tested. One main agent takes any 
 | `strategy-specialist` | `mt-strategy-reconciliation` | yes |
 | `specialist` | any skill the brief names | when the skill writes |
 
-When an org skill names its own browser method, that method wins over the general claude-window rule for that specialist. A specialist that needs the person's input returns NEEDS INPUT with numbered questions, and the orchestrator starts a new agent with the answers.
+When an org skill names its own browser method, that method wins over the general claude-window rule for that specialist. The browser guard blocks the Claude in Chrome tools and Chrome AppleScript until you ask for Claude in Chrome by name in the session. The orchestrator starts only one browsing agent at a time when the session is not in Bypass permissions (its agents share one tab), or when the agent uses the Claude in Chrome tools or `osascript`. A specialist that needs the person's input returns NEEDS INPUT with numbered questions, and the orchestrator starts a new agent with the answers.
 
 - Five specialists inherit the session's tools, so they reach the MCP connectors their skill needs (Workrouter, Chrome, Gmail). `disallowedTools:` removes the core tools they do not use. `bom-specialist` has a narrow tool list.
 - The skills and agents live in `Resources/skills/` and `Resources/agents/` in this repo. `Resources/skills/UPSTREAM.md` says where each came from: [cgraves09/claude-orchestrate-skill](https://github.com/cgraves09/claude-orchestrate-skill) (Unlicense) and the `grilling` skill from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT, notice in `Resources/skills/grilling/LICENSE`).

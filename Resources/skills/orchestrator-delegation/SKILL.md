@@ -115,7 +115,7 @@ One-line rules — the canonical incident catalog with full details is workflow-
 - **Give agents explicit absolute paths** — a sandboxed execution environment can strip PATH for write/git commands.
 - **Record what you launched (branches, worktree paths) in your working ledger** — background task handles can be lost across a context compaction; see context-and-state.
 - **Pre-assign shared serial resources (migrations, ports, slugs) before fan-out.**
-- **Browser work.** The browser guard gives each agent a Chrome window of its own named Claude (in a session that asks before commands, agents share the session's window and tab). The main thread runs `claude-window done` before it hands browser work to an agent.
+- **Browser work.** The browser guard gives each agent a Chrome window of its own named Claude (in a session that asks before commands, agents share the session's window and tab). Start only one browsing agent at a time and queue the others when one of these conditions is true: (a) the session is not in Bypass permissions, so all agents share one tab; (b) the agent uses the Claude in Chrome tools or `osascript`, not `claude-window`. In Bypass permissions, browsing agents that use `claude-window` can run at the same time. The main thread runs `claude-window done` before it hands browser work to an agent.
 
 ## Scope
 
