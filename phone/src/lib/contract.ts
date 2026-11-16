@@ -8,6 +8,7 @@
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import snapshotSchema from '../../schema/snapshot.v1.json';
 import archivedSchema from '../../schema/archived.v1.json';
+import usageSchema from '../../schema/usage.v1.json';
 import messagesSchema from '../../schema/messages.v1.json';
 import linkSchema from '../../schema/link.v1.json';
 
@@ -15,7 +16,7 @@ const MESSAGES = 'https://kit.sttark.com/schema/messages.v1.json';
 const LINK = 'https://kit.sttark.com/schema/link.v1.json';
 
 const ajv = new Ajv2020({ strict: false, allErrors: false });
-for (const s of [snapshotSchema, archivedSchema, messagesSchema, linkSchema]) ajv.addSchema(s as object);
+for (const s of [snapshotSchema, archivedSchema, usageSchema, messagesSchema, linkSchema]) ajv.addSchema(s as object);
 
 const compiled = new Map<string, ValidateFunction>();
 function validator(ref: string): ValidateFunction {

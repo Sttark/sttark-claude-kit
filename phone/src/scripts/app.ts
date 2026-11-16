@@ -12,9 +12,10 @@
 // It knows nothing of how the socket is served: only the messages.
 import { draw, drawList, type View } from '../view/render.ts';
 import {
-  NO_SERVER_WORDS, emptyUi, findArchived, findRow, needsCount, noticesOf,
-  type Kit, type MacInfo, type Notices, type Reason, type Result, type Ui,
+  NO_SERVER_WORDS, emptyUi, findArchived, findRow, needsCount, noticesOf, periodOf, usageQuery,
+  type Kit, type MacInfo, type Notices, type Reason, type Result, type Ui, type UsagePick, type UsageView,
 } from '../view/model.ts';
+import { dayKey } from '../view/time.ts';
 
 // ---------- light / auto / dark, on every page ----------
 
@@ -161,6 +162,7 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       if (conn) conn.hidden = true;
       sendMsg('hello', { visible: visible() });
       if (view.page === 'archived' || view.page === 'archived-item') sendMsg('open_archived', {});
+      askUsage();
     });
     ws.addEventListener('message', (ev) => {
       let m: { event?: string; success?: boolean; payload?: any };
@@ -189,8 +191,40 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       tries = 0;
       connect();
     }
-    if (visible()) redraw();
+    if (visible()) {
+      askUsage();
+      redraw();
+    }
   });
+
+  // ---------- Usage by session ----------
+
+  const usageNow = (): UsageView => (view.page === 'usage' && view.usage ? view.usage : { pick: '7d', from: null, to: null, all: false });
+  /** The Usage tab asks each Mac for its list for the period it shows: when
+   *  it opens or shows again, when the period changes, and every minute. A
+   *  Mac that does not answer in 15 seconds is said so. */
+  function askUsage() {
+    if (view.page !== 'usage' || !open) return;
+    const period = periodOf(usageNow());
+    if (!period) return;
+    sendMsg('open_usage', { period });
+    ui.usageAsked ??= now();
+    setTimeout(redraw, 15_500);
+  }
+  setInterval(() => {
+    if (visible()) askUsage();
+  }, 60_000);
+  function setUsage(u: UsageView) {
+    if (view.page !== 'usage') return;
+    const changed = periodOf(u) !== periodOf(usageNow());
+    view = { page: 'usage', usage: u };
+    history.replaceState(history.state, '', `${base}/usage${usageQuery(u)}`);
+    if (changed) {
+      ui.usageAsked = null;
+      askUsage();
+    }
+    drawAll();
+  }
 
   function onMessage(event: string, p: any) {
     switch (event) {
@@ -199,6 +233,7 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
         const ids = new Set(macs.map((m) => m.id));
         for (const id of Object.keys(kit.snaps)) if (!ids.has(id)) delete kit.snaps[id];
         for (const id of Object.keys(kit.archived)) if (!ids.has(id)) delete kit.archived[id];
+        for (const id of Object.keys(kit.usage ?? {})) if (!ids.has(id)) delete kit.usage![id];
         kit.macs = macs.map((m) => ({ ...m, name: kit.snaps[m.id]?.mac.name ?? m.name }));
         break;
       }
@@ -210,6 +245,10 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       case 'archived':
         if (!p.mac) return;
         kit.archived[p.mac] = p.items ?? [];
+        break;
+      case 'usage':
+        if (!p.mac || !p.list) return;
+        kit.usage = { ...kit.usage, [p.mac]: p.list };
         break;
       case 'action_result':
         answer(p.id, p.reason as Reason, p.words ?? '');
@@ -268,6 +307,19 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
   }
 
   const rowHere = () => (view.page === 'session' ? findRow(kit, view.cse)?.row : undefined);
+
+  // Custom's Show: the days picked, in the address, and their list.
+  root.addEventListener('submit', (ev) => {
+    const form = ev.target as HTMLFormElement;
+    if (form.id !== 'bys-range') return;
+    ev.preventDefault();
+    let from = (form.elements.namedItem('from') as HTMLInputElement | null)?.value ?? '';
+    let to = (form.elements.namedItem('to') as HTMLInputElement | null)?.value ?? '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return;
+    if (from > to) [from, to] = [to, from];
+    (document.activeElement as HTMLElement | null)?.blur();
+    setUsage({ pick: 'custom', from, to, all: false });
+  });
 
   root.addEventListener('change', (ev) => {
     const sel = ev.target as HTMLSelectElement;
@@ -354,6 +406,21 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
         return;
       case 'unarchive':
         if (view.page === 'archived-item') act('unarchive', 'top', 'unarchive', { cse: view.cse });
+        return;
+      case 'period': {
+        // Custom starts at the days the list shows now (else the 7 days to
+        // today), and asks for them at once; Show asks for other days.
+        const pick = el.dataset.pick as UsagePick;
+        const u = usageNow();
+        if (pick === u.pick) return;
+        if (pick !== 'custom') return setUsage({ pick, from: null, to: null, all: false });
+        const shown = Object.values(kit.usage ?? {}).find((l) => l.period === periodOf(u));
+        const first = kit.macs.find((m) => kit.snaps[m.id]);
+        const tz = first ? kit.snaps[first.id].mac.tz : 'America/New_York';
+        return setUsage({ pick, from: shown?.from ?? dayKey(now() - 6 * 86400, tz), to: shown?.to ?? dayKey(now(), tz), all: false });
+      }
+      case 'usage-all':
+        setUsage({ ...usageNow(), all: !usageNow().all });
         return;
       case 'search':
         if (view.page !== 'sessions') return; // the link opens Sessions with search

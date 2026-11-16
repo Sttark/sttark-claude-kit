@@ -1,13 +1,14 @@
 // What a phone page is drawn from on the server (view/model.ts, Kit): the
-// person's linked Macs, the last snapshot and archived list each sent, and
+// person's linked Macs, the last snapshot and archived list each sent, the
+// Usage by session list each sent for the period the Usage tab shows, and
 // the open session's change records, all from the database. The page is
 // drawn from this first; then the browser opens /live and keeps it up to
 // date.
 import { db } from './db.ts';
 import { basePath } from './paths.ts';
-import { macsOf } from './macs.ts';
+import { macsOf, usageOf } from './macs.ts';
 import { noticesOfSignIn, pushKey } from './push.ts';
-import type { ArchivedItem, ChangeRecord, Kit, MacInfo, Snapshot } from '../view/model.ts';
+import type { ArchivedItem, ChangeRecord, Kit, MacInfo, Snapshot, UsageList } from '../view/model.ts';
 
 function parse<T>(text: string): T | null {
   try {
@@ -18,9 +19,13 @@ function parse<T>(text: string): T | null {
 }
 
 /** Everything the person's pages show. `session` adds that session's
- *  change records from the phone; `notices` (Menu) adds the key a phone
+ *  change records from the phone; `usage` (the Usage tab) each Mac's Usage
+ *  by session list for that period; `notices` (Menu) adds the key a phone
  *  subscribes with and the notices of this sign-in (its id, or null). */
-export function loadKit(user: { email: string }, opts: { session?: string; now?: number; notices?: { signIn: string | null } } = {}): Kit {
+export function loadKit(
+  user: { email: string },
+  opts: { session?: string; now?: number; usage?: string | null; notices?: { signIn: string | null } } = {},
+): Kit {
   const now = opts.now ?? Math.floor(Date.now() / 1000);
   const d = db();
   // Each Mac's state as /live says it (lib/macs.ts): from when it was last
@@ -51,6 +56,14 @@ export function loadKit(user: { email: string }, opts: { session?: string; now?:
     );
   }
   const kit: Kit = { base: basePath(), now, email: user.email, macs, snaps, archived, records };
+  if (opts.usage) {
+    const usage: Record<string, UsageList> = {};
+    for (const m of macs) {
+      const list = usageOf(m.id, opts.usage);
+      if (list) usage[m.id] = list;
+    }
+    kit.usage = usage;
+  }
   if (opts.notices) kit.notices = { key: pushKey(), mine: noticesOfSignIn(opts.notices.signIn) };
   return kit;
 }

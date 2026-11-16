@@ -22,7 +22,9 @@ import {
   macById,
   multi,
   noticesOf,
+  periodOf,
   rowsOf,
+  sessionLink,
   tzOf,
   usageBlocks,
   waitsInWords,
@@ -33,16 +35,20 @@ import {
   type Result,
   type Row,
   type Ui,
+  type UsageList,
+  type UsagePick,
+  type UsageRow,
+  type UsageView,
   type Wait,
 } from './model.ts';
-import { clock, dayKey, dayLabel, span, until, when, whenFull } from './time.ts';
+import { clock, dayKey, dayLabel, dayWords, span, until, when, whenFull } from './time.ts';
 
 export type View =
   | { page: 'sessions' }
   | { page: 'session'; cse: string; from: string }
   | { page: 'archived' }
   | { page: 'archived-item'; cse: string }
-  | { page: 'usage' }
+  | { page: 'usage'; usage?: UsageView }
   | { page: 'mac'; id: string }
   | { page: 'menu' };
 
@@ -537,7 +543,143 @@ function meters(k: Kit, b: ReturnType<typeof usageBlocks>[number]): string {
   );
 }
 
-function pageUsage(k: Kit, ui: Ui): Drawn {
+// ---------- Usage: By session ----------
+// Each session's share of the person's use on each Mac in a period, and the
+// part its agents did (schema/usage.v1.json), under the limits. A share is
+// never a percent of the limit, and the note says so. The session's part is
+// the info blue and its agents' a lighter tint of it (never green, which
+// means "do this" and "you are here"). No folder or path anywhere.
+
+const PICKS: [UsagePick, string][] = [
+  ['today', 'Today'],
+  ['7d', '7 days'],
+  ['30d', '30 days'],
+  ['custom', 'Custom'],
+];
+/** Rows shown before Show all. */
+export const USAGE_SHOWN = 15;
+/** A live Mac that has not sent its list this long after the page asked is
+ *  said so. */
+export const USAGE_WAIT_S = 15;
+const DEFAULT_USAGE: UsageView = { pick: '7d', from: null, to: null, all: false };
+
+/** 28.3%; under 0.05, <0.1%. */
+const pct1 = (p: number) => (p > 0 && p < 0.05 ? '<0.1%' : `${p.toFixed(1)}%`);
+/** 77%; under 0.5, <1%. */
+const pct0 = (p: number) => (p > 0 && p < 0.5 ? '<1%' : `${Math.round(p)}%`);
+/** 8.1 billion, 412 million, 15 thousand. */
+function tokensWords(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} billion`;
+  if (n >= 1e6) return `${n >= 1e8 ? Math.round(n / 1e6) : (n / 1e6).toFixed(1)} million`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)} thousand`;
+  return String(Math.round(n));
+}
+/** $3,106; under $100, $12.40. */
+const usd = (x: number) => `$${x >= 100 ? Math.round(x).toLocaleString('en-US') : x.toFixed(2)}`;
+
+/** The first and last day of Custom before the person picks: the 7 days to
+ *  today, in the first Mac's time zone. */
+function rangeDefault(k: Kit): { from: string; to: string } {
+  const tz = tzOf(k);
+  return { from: dayKey(k.now - 6 * 86400, tz), to: dayKey(k.now, tz) };
+}
+
+function rangeForm(k: Kit, u: UsageView): string {
+  const d = rangeDefault(k);
+  const field = (name: 'from' | 'to', label: string, value: string) =>
+    `<label class="bys-field"><span>${label}</span><input type="date" name="${name}" value="${esc(value)}" max="${esc(d.to)}" required autocomplete="off" data-form-type="other" data-1p-ignore data-lpignore="true" data-k="${name}"></label>`;
+  return (
+    `<form class="bys-range" id="bys-range" method="get" action="${esc(L(k, '/usage'))}"><input type="hidden" name="p" value="custom">` +
+    field('from', 'From', u.from ?? d.from) +
+    field('to', 'To', u.to ?? d.to) +
+    `<button type="submit" class="btn ghost" data-k="range-show">Show</button></form>`
+  );
+}
+
+function usageRow(k: Kit, r: UsageRow, top: number, tz: string): string {
+  const meta = [r.last_active ? `last active ${when(r.last_active, k.now, tz)}` : '', r.agents ? `${r.agents} ${r.agents === 1 ? 'agent' : 'agents'}` : '']
+    .filter(Boolean)
+    .join(' · ');
+  const own = Math.max(0, r.share - r.agent_share);
+  const ag = Math.min(r.share, r.agent_share);
+  const width = Math.max(1, Math.min(100, (r.share / top) * 100));
+  const label = `${pct1(r.share)} of your use: the session ${pct1(own)}, its agents ${pct1(ag)}`;
+  const bar =
+    `<div class="bys-bar" style="width:${width.toFixed(1)}%" role="img" aria-label="${esc(label)}">` +
+    (own > 0 ? `<i class="own" style="flex:${own.toFixed(2)}"></i>` : '') +
+    (ag > 0 ? `<i class="ag" style="flex:${ag.toFixed(2)}"></i>` : '') +
+    `</div>`;
+  return (
+    `<li><div class="bys-main"><div class="bys-top"><span class="name">${esc(r.title)}</span><b class="bys-pct">${pct1(r.share)}</b></div>` +
+    (meta ? `<div class="sub">${esc(meta)}</div>` : '') +
+    `${bar}</div>${r.cse ? openLink(sessionLink(r.cse), '', false) : '<span class="open-none" aria-hidden="true"></span>'}</li>`
+  );
+}
+
+/** One Mac's list: its totals, then its sessions, biggest share first. */
+function macUsage(k: Kit, ui: Ui, u: UsageView, mac: MacInfo, list: UsageList | undefined, many: boolean): string {
+  const head = many ? `<h3 class="bys-mac">${esc(mac.name)}</h3>` : '';
+  const live = isLive(mac);
+  if (!list) {
+    if (!live) return `${head}<p class="quiet">No list from ${esc(mac.name)} for this period. It comes when this Mac is back.</p>`;
+    const waited = ui.usageAsked ? k.now - ui.usageAsked >= USAGE_WAIT_S : false;
+    return (
+      head +
+      `<p class="quiet">${
+        waited
+          ? `${esc(mac.name)} did not send the list. A Kit from before this list does not send it; the Kit updates by itself within an hour.`
+          : `Getting the list from ${esc(mac.name)}...`
+      }</p>`
+    );
+  }
+  const tz = tzOf(k, mac.id);
+  let html = head;
+  if (!live) html += `<p class="quiet">As of ${esc(whenFull(list.at, k.now, tz))}. ${esc(mac.name)} is away.</p>`;
+  if (!list.rows.length) return `${html}<p class="quiet">No use in this period.</p>`;
+  const t = list.total;
+  html += `<p class="bys-tot">${t.sessions} ${t.sessions === 1 ? 'session' : 'sessions'} · ${tokensWords(t.tokens)} tokens · agents did <b>${pct0(t.agent_share)}</b> · worth ${usd(t.usd)} at API prices</p>`;
+  const top = list.rows[0].share || 1;
+  const shown = u.all ? list.rows : list.rows.slice(0, USAGE_SHOWN);
+  html += `<div${live ? '' : ' class="stale"'}><ul class="bys-rows">${shown.map((r) => usageRow(k, r, top, tz)).join('')}</ul></div>`;
+  const rest = list.rows.slice(shown.length);
+  const restN = rest.length + list.more.sessions;
+  const restShare = rest.reduce((a, r) => a + r.share, 0) + list.more.share;
+  if (restN > 0) {
+    html +=
+      `<div class="bys-more"><span>${restN} more ${restN === 1 ? 'session' : 'sessions'} · ${pct1(restShare)} of your use</span>` +
+      (rest.length ? `<button type="button" class="btn ghost" data-act="usage-all" data-k="usage-all">Show all</button>` : '') +
+      `</div>`;
+  } else if (u.all && list.rows.length > USAGE_SHOWN) {
+    html += `<div class="bys-more"><span>All ${list.rows.length} sessions</span><button type="button" class="btn ghost" data-act="usage-all" data-k="usage-all">Show the top ${USAGE_SHOWN}</button></div>`;
+  }
+  return html;
+}
+
+/** The By session section of Usage: the period, the note, the legend, and
+ *  each Mac's list. */
+export function bySession(k: Kit, ui: Ui, u: UsageView = DEFAULT_USAGE): string {
+  const period = periodOf(u);
+  const lists: Record<string, UsageList> = {};
+  for (const [id, l] of Object.entries(k.usage ?? {})) if (l.period === period) lists[id] = l;
+  let html =
+    `<section class="bys sec" aria-labelledby="bys-h"><h2 class="sub-h" id="bys-h">By session</h2>` +
+    `<div class="segments periods" role="group" aria-label="Period">` +
+    PICKS.map(([key, label]) => `<button type="button" data-act="period" data-pick="${key}" data-k="period:${key}" aria-pressed="${u.pick === key}">${label}</button>`).join('') +
+    `</div>`;
+  if (u.pick === 'custom') html += rangeForm(k, u);
+  const first = Object.values(lists)[0];
+  if (first) html += `<p class="bys-days">Claude Code on ${k.macs.length > 1 ? 'your Macs' : 'this Mac'} · ${esc(first.from === first.to ? dayWords(first.from) : `${dayWords(first.from)} to ${dayWords(first.to)}`)}</p>`;
+  html +=
+    `<p class="bys-note">${ic('info')}<span>Each bar is the session’s share of <b>your use</b> in this period. ` +
+    `It is not a percent of your limit: Anthropic gives only the total percent.</span></p>`;
+  if (!period) return `${html}<p class="quiet">Pick the first and last day, then Show.</p></section>`;
+  html += `<p class="bys-key"><span><i class="own"></i>The session</span><span><i class="ag"></i>Its agents</span></p>`;
+  const many = k.macs.length > 1;
+  for (const mac of k.macs) html += macUsage(k, ui, u, mac, lists[mac.id], many);
+  return `${html}</section>`;
+}
+
+function pageUsage(k: Kit, ui: Ui, u?: UsageView): Drawn {
   if (!k.macs.length) return { title: 'Usage', tab: 'usage', status: 200, html: `<h1 class="vh">Usage</h1>${noMacHtml('Your 5-hour and weekly usage shows here, with the sessions that hold at the limit.')}` };
   const blocks = usageBlocks(k);
   const held = liveRows(k).filter((p) => p.row.group === 'held');
@@ -570,6 +712,7 @@ function pageUsage(k: Kit, ui: Ui): Drawn {
       blocks.map((b) => `<div class="f-top f-mac"><span>${esc(b.mac.name)}</span><b>${b.snap.flags.credits_all ? 'On' : 'Off'}</b></div>`).join('') +
       `<p>Change it in Settings on your Mac.</p></div>`;
   }
+  html += bySession(k, ui, u);
   return { title: 'Usage', tab: 'usage', status: 200, html };
 }
 
@@ -693,7 +836,7 @@ export function draw(view: View, k: Kit, ui: Ui): Drawn {
     case 'archived-item':
       return pageArchivedItem(k, view.cse, ui);
     case 'usage':
-      return pageUsage(k, ui);
+      return pageUsage(k, ui, view.usage);
     case 'mac':
       return pageMac(k, view.id, ui);
     case 'menu':

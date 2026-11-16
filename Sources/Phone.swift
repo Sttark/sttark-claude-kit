@@ -2,10 +2,11 @@ import CryptoKit
 import Foundation
 import SystemConfiguration
 
-/// Kit on your phone, the Mac side (phone/DESIGN.md, sections 3 and 13): what the Kit sends to the phone server (PhoneLink.address), and
+/// Kit on your phone, the Mac side (phone/DESIGN.md, sections 3, 13 and 14): what the Kit sends to the phone server (PhoneLink.address), and
 /// when. Each payload is what phone/schema says, field for field: the snapshot holds the rows of the four groups the
 /// phone shows (Needs you, Claude working, Waiting on someone else, Held at usage limit), the usage and the version of
-/// the archived list; the archived list itself goes up only when the server asks for it.
+/// the archived list; the archived list itself goes up only when the server asks for it, and so does the Usage by
+/// session list of a period (names, ids and numbers only).
 ///
 /// No payload holds a prompt, a reply, a transcript line, a file's contents, a path, a wait's target, a check script
 /// or its output, a check-prompt's question or a Reach me by address. The rows come from `Inbox.snapshot()`, the
@@ -245,6 +246,34 @@ enum Phone {
         return ["v": 1, "base": base, "rev": rev,
                 "add": new.items.filter { before[$0.cse] != $0 }.map(\.json),
                 "remove": old.items.map(\.cse).filter { !after.contains($0) }]
+    }
+
+    // MARK: usage by session
+
+    /// The `usage` payload (phone/schema/usage.v1.json) for a period the server asked for: each session's share of the
+    /// person's use on this Mac in it, the biggest first, at most 100, and the rest together. Names, Remote Control
+    /// ids and numbers only: the scan's names never hold a path, a prompt or a reply. Nil for a period the contract
+    /// does not have.
+    static func usage(period key: String, data: SessionUsage.Data = SessionUsage.read(), now: Date = Date()) -> [String: Any]? {
+        guard let p = SessionUsage.Period(key: key) else { return nil }
+        let span = SessionUsage.span(p, now: now)
+        let r = SessionUsage.report(data, from: span.from, to: span.to)
+        func pct(_ x: Double) -> Double { min(100, max(0, (r.share(x) * 1000).rounded() / 10)) }
+        let rows: [[String: Any]] = r.lines.prefix(100).map { l in
+            let share = pct(l.usd)
+            return ["title": cut(l.session.title).nilIfEmpty ?? "Unnamed session",
+                    "cse": l.session.kind == "session" ? id(l.session.cse).map { $0 as Any } ?? NSNull() : NSNull(),
+                    "share": share, "agent_share": min(share, pct(l.agents)),
+                    "last_active": time(l.session.last), "agents": clamp(l.started, 0, 1_000_000)]
+        }
+        let rest = r.lines.dropFirst(100)
+        return [
+            "v": 1, "period": p.key, "from": span.from, "to": span.to, "at": Int(now.timeIntervalSince1970.rounded()),
+            "total": ["sessions": clamp(r.lines.count, 0, 1_000_000), "tokens": min(1e15, r.tokens.rounded()),
+                      "agent_share": pct(r.agents), "usd": min(1e9, (r.usd * 100).rounded() / 100)] as [String: Any],
+            "rows": rows,
+            "more": ["sessions": rest.count, "share": pct(rest.reduce(0) { $0 + $1.usd })] as [String: Any],
+        ]
     }
 
     // MARK: when to send

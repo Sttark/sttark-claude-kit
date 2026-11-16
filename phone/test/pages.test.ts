@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { draw, resultHtml, type View } from '../src/view/render.ts';
-import { emptyUi, type Kit, type MacInfo, type Snapshot } from '../src/view/model.ts';
+import { emptyUi, periodOf, usageQuery, usageView, type Kit, type MacInfo, type Snapshot, type UsageView } from '../src/view/model.ts';
 import { span, until, when } from '../src/view/time.ts';
 import { db, resetDbForTests } from '../src/lib/db.ts';
 import { loadKit, kitJson } from '../src/lib/state.ts';
@@ -184,6 +184,92 @@ describe('Archived, Usage, a Mac, Menu', () => {
   });
 });
 
+describe('Usage by session', () => {
+  const lists = () => ({ [PRO]: fixture('usage.macbook-pro.json'), [MINI]: fixture('usage.mac-mini-away.json') });
+  const u = (over: Partial<UsageView> = {}): View => ({ page: 'usage', usage: { pick: '7d', from: null, to: null, all: false, ...over } });
+  /** The By session section only. */
+  const bys = (h: string) => h.slice(h.indexOf('<section class="bys'));
+  const rows = (h: string) => (bys(h).match(/<li><div class="bys-main">/g) ?? []).length;
+
+  it('lists the sessions under the limits, biggest share first, with the note, the totals and the legend', () => {
+    const h = html(u(), kit({ usage: lists() }, one().macs));
+    expect(h.indexOf('By session')).toBeGreaterThan(h.indexOf('Change it in Settings on your Mac.'));
+    const b = bys(h);
+    expect(b).toContain('It is not a percent of your limit: Anthropic gives only the total percent.');
+    expect(b).toContain('18 sessions · 8.1 billion tokens · agents did <b>77%</b> · worth $3,106 at API prices');
+    expect(b).toContain('<i class="own"></i>The session</span><span><i class="ag"></i>Its agents');
+    expect(b).toContain('Claude Code on this Mac · Nov 7 to Nov 13');
+    expect(b.indexOf('Site map plan')).toBeLessThan(b.indexOf('Sttark Claude Kit<'));
+    expect(b).toMatch(/Site map plan<\/span><b class="bys-pct">28\.3%<\/b>/);
+    expect(b).toContain('75 agents');
+    // The biggest share is the whole width; a bar is the session's part, then its agents'.
+    expect(b).toContain('style="width:100.0%" role="img" aria-label="28.3% of your use: the session 5.1%, its agents 23.2%"');
+    expect(b).toContain('<i class="own" style="flex:5.10"></i><i class="ag" style="flex:23.20"></i>');
+  });
+  it('has no folder or path, and no green', () => {
+    const b = bys(html(u({ all: true }), kit({ usage: lists() })));
+    expect(b).not.toMatch(/~\/|\/Users\/|\/src\b|class="folder"/);
+    expect(b).not.toMatch(/green/);
+  });
+  it('shows the top 15, then how many more and their share, with Show all; all of them with ?all=1', () => {
+    const k = kit({ usage: lists() }, one().macs);
+    const h = html(u(), k);
+    expect(rows(h)).toBe(15);
+    expect(bys(h)).toContain('3 more sessions · 3.5% of your use');
+    expect(bys(h)).toContain('data-act="usage-all"');
+    const all = html(u({ all: true }), k);
+    expect(rows(all)).toBe(18);
+    expect(bys(all)).toContain('Show the top 15');
+  });
+  it('gives a row with a session link its ↗ Open in Claude, and keeps the bars on one scale without one', () => {
+    const b = bys(html(u({ all: true }), kit({ usage: lists() }, one().macs)));
+    expect(b).toContain('href="https://claude.ai/code/session_01SampleSiteMap" target="_blank" rel="noopener" aria-label="Open in Claude"');
+    expect(b).toMatch(/Bin label sizes<\/span>.*?<span class="open-none" aria-hidden="true"><\/span>/s);
+    // a row opens nothing in the app
+    expect(b).not.toContain('href="/s/');
+  });
+  it('lists each Mac under its name; an away Mac’s list is as of its time, in gray', () => {
+    const b = bys(html(u(), kit({ usage: lists() })));
+    expect(b).toContain('Claude Code on your Macs');
+    expect(b).toContain('<h3 class="bys-mac">MacBook Pro</h3>');
+    expect(b).toContain('<h3 class="bys-mac">Mac mini</h3>');
+    expect(b).toMatch(/As of Thu 6:12 PM\. Mac mini is away\.<\/p>.*<div class="stale"><ul class="bys-rows">.*Nozzle check page/s);
+  });
+  it('waits for a live Mac’s list, and says after 15 seconds that it did not come', () => {
+    const k = kit({ usage: {} }, one().macs);
+    expect(bys(html(u(), k))).toContain('Getting the list from MacBook Pro...');
+    const late = bys(draw(u(), k, { ...emptyUi(), usageAsked: AT - 20 }).html);
+    expect(late).toContain('MacBook Pro did not send the list. A Kit from before this list does not send it; the Kit updates by itself within an hour.');
+    // An away Mac with no list says when it comes.
+    expect(bys(html(u(), kit({ usage: {} })))).toContain('No list from Mac mini for this period. It comes when this Mac is back.');
+  });
+  it('draws only the lists of the period it shows, and says when there is no use', () => {
+    const k = kit({ usage: lists() }, one().macs);
+    expect(bys(html(u({ pick: '30d' }), k))).toContain('Getting the list from MacBook Pro...');
+    const empty = { ...fixture('usage.macbook-pro.json'), rows: [], total: { sessions: 0, tokens: 0, agent_share: 0, usd: 0 } };
+    expect(bys(html(u(), kit({ usage: { [PRO]: empty } }, one().macs)))).toContain('No use in this period.');
+  });
+  it('the period buttons, and Custom with its two days and Show', () => {
+    const k = kit({ usage: lists() }, one().macs);
+    const h = bys(html(u(), k));
+    expect(h).toMatch(/data-pick="today"[^>]*aria-pressed="false">Today<.*data-pick="7d"[^>]*aria-pressed="true">7 days<.*>30 days<.*>Custom</s);
+    const c = bys(html(u({ pick: 'custom', from: '2026-11-02', to: '2026-11-09' }), k));
+    expect(c).toContain('name="from" value="2026-11-02"');
+    expect(c).toContain('name="to" value="2026-11-09" max="2026-11-13"');
+    expect(c).toContain('>Show</button>');
+    expect(bys(html(u({ pick: 'custom' }), k))).toContain('name="from" value="2026-11-07"');
+  });
+  it('reads its choice from the address, and writes it back', () => {
+    const v = usageView(new URLSearchParams('p=custom&from=2026-11-09&to=2026-11-02&all=1'));
+    expect(v).toEqual({ pick: 'custom', from: '2026-11-02', to: '2026-11-09', all: true });
+    expect(periodOf(v)).toBe('2026-11-02..2026-11-09');
+    expect(usageQuery(v)).toBe('?p=custom&from=2026-11-02&to=2026-11-09&all=1');
+    expect(usageView(new URLSearchParams('p=nope'))).toEqual({ pick: '7d', from: null, to: null, all: false });
+    expect(periodOf(usageView(new URLSearchParams('p=custom&from=2026-11-02')))).toBeNull();
+    expect(usageQuery(usageView(new URLSearchParams('')))).toBe('');
+  });
+});
+
 describe('Menu > Notices', () => {
   const menu = (k: Kit, notices: Partial<NonNullable<ReturnType<typeof emptyUi>['notices']>> | null = null) =>
     html({ page: 'menu' }, k, { ...emptyUi(), notices: notices ? { state: 'off', since: null, problem: null, device: 'phone', ...notices } : null });
@@ -263,7 +349,7 @@ describe('the data from the database', () => {
   it('reads the person’s Macs, snapshots, archived list and the session’s changes', async () => {
     const now = Math.floor(Date.now() / 1000);
     await seed(':memory:', 'avery.stone@sttark.com', now);
-    const k = loadKit({ email: 'avery.stone@sttark.com' }, { session: 'session_01SampleHvacUpdates', now });
+    const k = loadKit({ email: 'avery.stone@sttark.com' }, { session: 'session_01SampleHvacUpdates', now, usage: '7d' });
     expect(k.macs.map((m) => [m.name, m.state])).toEqual([
       ['MacBook Pro', 'live'],
       ['Mac mini', 'asleep'],
@@ -271,6 +357,9 @@ describe('the data from the database', () => {
     expect(k.snaps[PRO].rows.length).toBe(sample(now).snaps[PRO].rows.length);
     expect(k.archived[PRO].length).toBe(7);
     expect(k.records[0].words).toBe('Turned Auto on from the phone.');
+    expect(k.usage![PRO].rows.length).toBe(18);
+    expect(k.usage![MINI].rows[0].title).toBe('Nozzle check page');
+    expect(loadKit({ email: 'avery.stone@sttark.com' }, { usage: '30d' }).usage).toEqual({});
     expect(loadKit({ email: 'ada.anvil@sttark.com' }).macs).toEqual([]);
     expect(kitJson({ t: '</script>' })).not.toContain('</script>');
   });
@@ -282,5 +371,6 @@ describe('the data from the database', () => {
     expect(loadKit({ email: 'avery.stone@sttark.com' }).macs.map((m) => m.id)).toEqual([PRO]);
     expect(db().prepare("SELECT who, action, mac_name FROM records WHERE action = 'remove_mac'").get()).toEqual({ who: 'avery.stone@sttark.com', action: 'remove_mac', mac_name: 'Mac mini' });
     expect(db().prepare('SELECT COUNT(*) AS n FROM snapshots WHERE mac_id = ?').get(MINI)).toEqual({ n: 0 });
+    expect(db().prepare('SELECT COUNT(*) AS n FROM usage_lists WHERE mac_id = ?').get(MINI)).toEqual({ n: 0 });
   });
 });

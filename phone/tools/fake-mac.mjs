@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // A made-up Mac for local runs: it links itself with a key file, opens /mac,
-// signs the challenge, sends the fixture snapshot (times moved to now) and
-// the archived list when the server asks, answers each action, and says bye
-// when it stops. The phone pages are drawn and tried against it, and the
+// signs the challenge, sends the fixture snapshot (times moved to now), the
+// archived list and its Usage by session list when the server asks, answers
+// each action, and says bye when it stops. The phone pages are drawn and tried against it, and the
 // server's tests use its parts. Never point it at the live server.
 //
 //   node tools/fake-mac.mjs [options]        (from phone/; npm run fake-mac -- [options])
@@ -16,6 +16,8 @@
 //                       only); without it, open the link page it prints
 //   --snapshot <file>   default fixtures/snapshot.macbook-pro.json
 //   --archived <file>   default fixtures/archived.json
+//   --usage <file>      default fixtures/usage.macbook-pro.json (none: never answers want_usage,
+//                       as a Kit from before Usage by session)
 //   --answer <how>      how it answers actions: auto (default: as a Kit would, from
 //                       its own state), ok, gone, not_now, not_here, bad, cycle (each
 //                       of those in turn) or silent (never: the phone gets timeout)
@@ -238,12 +240,14 @@ const REASONS = ['ok', 'gone', 'not_now', 'not_here', 'bad'];
 
 /** The made-up Mac: its snapshot and archived list, and how it answers. */
 export class FakeMac {
-  constructor({ name = 'MacBook Pro', snapshot = 'fixtures/snapshot.macbook-pro.json', archived = 'fixtures/archived.json', shift = true, answer = 'auto', delay = 1, log = () => {} } = {}) {
+  constructor({ name = 'MacBook Pro', snapshot = 'fixtures/snapshot.macbook-pro.json', archived = 'fixtures/archived.json', usage = 'fixtures/usage.macbook-pro.json', shift = true, answer = 'auto', delay = 1, log = () => {} } = {}) {
     const snap = read(snapshot);
     const delta = shift ? Math.floor(Date.now() / 1000) - snap.at : 0;
     this.snap = shiftTimes(snap, delta);
     this.snap.mac.name = name;
     this.archived = shiftTimes(read(archived).items, delta);
+    this.usage = usage && usage !== 'none' ? shiftTimes(read(usage), delta) : null;
+    if (this.usage) this.usage.total.tokens = read(usage).total.tokens;   // a count, not a time
     this.history = new Map([[revOf(this.archived), this.archived]]);
     this.serverHas = null;
     this.answer = answer;
@@ -305,6 +309,35 @@ export class FakeMac {
       this.conn?.send({ event: 'archived', success: true, payload: { v: 1, rev, items: this.archived } });
     }
     this.serverHas = rev;
+  }
+
+  /** Its Usage by session list for a period (schema/usage.v1.json): the
+   *  fixture's sessions, with the days the period covers. Today has fewer
+   *  sessions, each share made up again so they add to 100. */
+  usageList(period) {
+    const now = Math.floor(Date.now() / 1000);
+    const day = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+    const back = { today: 0, '7d': 6, '30d': 29 }[period];
+    const [from, to] = back === undefined ? period.split('..') : [day(now - back * 86400), day(now)];
+    let rows = structuredClone(this.usage.rows);
+    if (period === 'today' || back === undefined) {
+      rows = rows.slice(0, period === 'today' ? 6 : 10);
+      const sum = rows.reduce((a, r) => a + r.share, 0);
+      for (const r of rows) {
+        const k = 100 / sum;
+        r.agent_share = Math.round(r.agent_share * k * 10) / 10;
+        r.share = Math.round(r.share * k * 10) / 10;
+        r.agent_share = Math.min(r.share, r.agent_share);
+      }
+    }
+    const agents = Math.round(rows.reduce((a, r) => a + r.agent_share, 0) * 10) / 10;
+    return { ...this.usage, period, from, to, at: now, rows, total: { ...this.usage.total, sessions: rows.length, agent_share: Math.min(100, agents) } };
+  }
+
+  onWantUsage(period) {
+    if (!this.usage) return this.log(`server wants the usage list for ${period}: not sending it (--usage none)`);
+    this.log(`server wants the usage list for ${period}`);
+    this.conn?.send({ event: 'usage', success: true, payload: this.usageList(period) });
   }
 
   /** The result for one action, and the change it makes to this Mac. */
@@ -404,6 +437,8 @@ export class FakeMac {
       case 'want_archived':
         this.log(`server wants the archived list (it has ${msg.payload.have ?? 'none'})`);
         return this.onWantArchived(msg.payload.have);
+      case 'want_usage':
+        return this.onWantUsage(msg.payload.period);
       case 'watching':
         return this.log(`watching: ${msg.payload.on ? 'a phone page is open' : 'no phone page is open'}`);
       case 'action': {
@@ -429,7 +464,7 @@ export class FakeMac {
 // ---------- the command ----------
 
 function args(argv) {
-  const o = { url: 'http://localhost:4350', name: 'MacBook Pro', snapshot: 'fixtures/snapshot.macbook-pro.json', archived: 'fixtures/archived.json', answer: 'auto', delay: 1, bye: 'quit', shift: true, approve: false };
+  const o = { url: 'http://localhost:4350', name: 'MacBook Pro', snapshot: 'fixtures/snapshot.macbook-pro.json', archived: 'fixtures/archived.json', usage: 'fixtures/usage.macbook-pro.json', answer: 'auto', delay: 1, bye: 'quit', shift: true, approve: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = () => argv[++i];
@@ -438,6 +473,7 @@ function args(argv) {
     else if (k === '--key') o.key = v();
     else if (k === '--snapshot') o.snapshot = v();
     else if (k === '--archived') o.archived = v();
+    else if (k === '--usage') o.usage = v();
     else if (k === '--answer') o.answer = v();
     else if (k === '--delay') o.delay = Number(v());
     else if (k === '--for') o.for = Number(v());
@@ -456,7 +492,7 @@ function args(argv) {
 async function main() {
   const o = args(process.argv.slice(2));
   if (o.help) {
-    console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 28).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+    console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 30).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
     return;
   }
   const say = (s) => console.log(`[fake-mac ${o.name}] ${s}`);

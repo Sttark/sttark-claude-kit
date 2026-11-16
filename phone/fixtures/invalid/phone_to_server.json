@@ -13,5 +13,16 @@
         }
       }
     }
+  },
+  {
+    "why": "open_usage with a field it does not have",
+    "value": {
+      "event": "open_usage",
+      "success": true,
+      "payload": {
+        "period": "7d",
+        "mac": "mac_7Hq2Lx9Kp4"
+      }
+    }
   }
 ]

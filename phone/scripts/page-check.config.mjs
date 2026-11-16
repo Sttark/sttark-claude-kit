@@ -35,13 +35,19 @@ const sampleServer = (name, person) => ({
 });
 /** The sample's pages: the three tabs, Menu, a search, a session of each
  *  group, an archived session, the Mac that is away and one of its
- *  sessions, and a link page waiting for Link. */
+ *  sessions, a link page waiting for Link, and Usage by session for each
+ *  period (the Mac that is away has a list for 7 days only), with every
+ *  row. */
 const SAMPLE_PAGES = [
   '/menu',
   '/',
   '/?q=lam',
   '/archived',
   '/usage',
+  '/usage?p=today',
+  '/usage?p=30d',
+  '/usage?p=custom&from=2026-11-02&to=2026-11-09',
+  '/usage?all=1',
   '/s/session_01SampleLaminator',
   '/s/session_01SampleHvacUpdates',
   '/s/session_01SampleSiteMap',

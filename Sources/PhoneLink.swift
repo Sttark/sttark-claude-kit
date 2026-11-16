@@ -642,6 +642,17 @@ enum PhoneLink {
             setPhones(p["phones"])
         case "want_archived":
             sendArchived(have: p["have"] as? String)
+        case "want_usage":
+            // a phone shows the Usage tab with this period: the list after a scan of what the records gained
+            let key = p["period"] as? String ?? ""
+            guard SessionUsage.Period(key: key) != nil else {
+                logLine("phone", "the server asked for a usage list of a period the Kit does not know")
+                return
+            }
+            SessionUsage.refresh(olderThan: 60) {
+                guard socket === s, s.welcomed, let payload = Phone.usage(period: key) else { return }
+                s.send("usage", payload)
+            }
         case "action":
             act(p) { reply in
                 guard socket === s, s.welcomed else { return }

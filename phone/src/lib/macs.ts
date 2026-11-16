@@ -13,6 +13,7 @@
 import { db } from './db.ts';
 import { addRecord } from './records.ts';
 import { events, type RemovedWhy } from './events.ts';
+import type { UsageList } from '../view/model.ts';
 
 export type MacState = 'live' | 'updating' | 'asleep' | 'quit' | 'not_heard';
 export type Bye = 'sleep' | 'quit' | 'update';
@@ -184,6 +185,24 @@ export function archivedOf(id: string): { rev: string; items: ArchivedItem[]; re
   return { rev: row.hash, items: Array.isArray(v) ? v : (v?.items ?? []), receivedAt: row.received_at };
 }
 
+/** The last Usage by session list a Mac sent for its period (replaced each
+ *  time). Of the ranges of days, only the newest is kept. */
+export function saveUsage(id: string, list: UsageList, now = nowS()): void {
+  const d = db();
+  d.transaction(() => {
+    if (list.period.includes('..')) d.prepare("DELETE FROM usage_lists WHERE mac_id = ? AND period LIKE '%..%' AND period <> ?").run(id, list.period);
+    d.prepare(
+      `INSERT INTO usage_lists (mac_id, period, received_at, data) VALUES (?, ?, ?, ?)
+       ON CONFLICT(mac_id, period) DO UPDATE SET received_at = excluded.received_at, data = excluded.data`,
+    ).run(id, list.period, now, JSON.stringify(list));
+  })();
+}
+
+export function usageOf(id: string, period: string): UsageList | null {
+  const row = db().prepare('SELECT data FROM usage_lists WHERE mac_id = ? AND period = ?').get(id, period) as { data: string } | undefined;
+  return row ? (JSON.parse(row.data) as UsageList) : null;
+}
+
 // ---------- removing a Mac ----------
 
 export type Removal = { why: RemovedWhy; by: string; byName: string; words: string };
@@ -196,6 +215,7 @@ export function markRemoved(m: { id: string; name: string }, r: Removal, now = n
   d.prepare('UPDATE macs SET removed_at = ?, removed_why = ?, removed_by = ? WHERE id = ?').run(now, r.why, r.by, m.id);
   d.prepare('DELETE FROM snapshots WHERE mac_id = ?').run(m.id);
   d.prepare('DELETE FROM archived WHERE mac_id = ?').run(m.id);
+  d.prepare('DELETE FROM usage_lists WHERE mac_id = ?').run(m.id);
   addRecord({
     at: now, who: r.by, whoName: r.byName, macId: m.id, macName: m.name, action: 'remove_mac',
     before: { linked: true }, after: { linked: false, why: r.why }, result: 'ok', words: r.words,

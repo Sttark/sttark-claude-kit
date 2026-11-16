@@ -1,6 +1,7 @@
 // What the phone pages draw from: the person's Macs, each Mac's last
 // snapshot and archived list (schema/snapshot.v1.json, archived.v1.json),
-// and the change records of the session that is open. The server fills it
+// its Usage by session list for the period the Usage tab shows
+// (usage.v1.json), and the change records of the session that is open. The server fills it
 // from the database (lib/state.ts) and draws the page; the browser keeps it
 // up to date from /live (scripts/app.ts) and draws again with the same
 // code. Pure: no database, no DOM.
@@ -67,6 +68,67 @@ export type MacInfo = { id: string; name: string; state: MacState; last_seen: nu
 export type ArchivedItem = { cse: string; title: string; folder: string; archived_at: number | null; url: string };
 export type ChangeRecord = { at: number; mac: string; cse: string; act: string; reason: string; words: string };
 
+/** Usage by session (schema/usage.v1.json): each session's share of the
+ *  person's use on one Mac in one period, in percent, and the part its
+ *  agents did. A share is never a percent of the usage limit. */
+export type UsageRow = { title: string; cse: string | null; share: number; agent_share: number; last_active: number | null; agents: number };
+export type UsageList = {
+  v: 1;
+  /** today, 7d, 30d, or a range of days: 2026-11-01..2026-11-10. */
+  period: string;
+  from: string;
+  to: string;
+  /** When the Mac made it. */
+  at: number;
+  total: { sessions: number; tokens: number; agent_share: number; usd: number };
+  /** The biggest share first; at most 100. */
+  rows: UsageRow[];
+  /** The sessions after the first 100, together. */
+  more: { sessions: number; share: number };
+};
+
+/** What the Usage tab's By session list shows: the period picked (Custom
+ *  with its first and last day), and whether every row shows. It lives in
+ *  the address: ?p=today|7d|30d|custom&from=&to=&all=1. */
+export type UsagePick = 'today' | '7d' | '30d' | 'custom';
+export type UsageView = { pick: UsagePick; from: string | null; to: string | null; all: boolean };
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** The Usage tab's choice from its address; 7 days when there is none. */
+export function usageView(q: URLSearchParams): UsageView {
+  const p = q.get('p');
+  const pick: UsagePick = p === 'today' || p === '30d' || p === 'custom' ? p : '7d';
+  let from = DAY.test(q.get('from') ?? '') ? q.get('from') : null;
+  let to = DAY.test(q.get('to') ?? '') ? q.get('to') : null;
+  if (from && to && from > to) [from, to] = [to, from];
+  return { pick, from, to, all: q.get('all') === '1' };
+}
+/** The contract's period for a choice; null for Custom without both days. */
+export function periodOf(u: UsageView | undefined): string | null {
+  const v = u ?? { pick: '7d', from: null, to: null, all: false };
+  if (v.pick !== 'custom') return v.pick;
+  return v.from && v.to ? `${v.from}..${v.to}` : null;
+}
+/** The address of a choice. */
+export function usageQuery(u: UsageView): string {
+  const q = new URLSearchParams();
+  if (u.pick !== '7d') q.set('p', u.pick);
+  if (u.pick === 'custom') {
+    if (u.from) q.set('from', u.from);
+    if (u.to) q.set('to', u.to);
+  }
+  if (u.all) q.set('all', '1');
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+/** The claude.ai link that Open in Claude uses, from a Remote Control id, as
+ *  the Mac makes it (Phone.link in the Kit). */
+export function sessionLink(cse: string): string {
+  if (cse.startsWith('cse_')) return `https://claude.ai/code/session_${cse.slice(4)}`;
+  if (cse.startsWith('session_')) return `https://claude.ai/code/${cse}`;
+  return 'https://claude.ai/code';
+}
+
 /** Needs you notices on this phone, as Menu draws them (lib/push.ts, and the
  *  page's own check of its browser in scripts/app.ts):
  *    off, on            this phone gets no notices, or gets them;
@@ -97,6 +159,9 @@ export type Kit = {
   macs: MacInfo[];
   snaps: Record<string, Snapshot>;
   archived: Record<string, ArchivedItem[]>;
+  /** Usage: each Mac's Usage by session list, for the period the tab shows
+   *  (a list for another period is not drawn). */
+  usage?: Record<string, UsageList>;
   /** The open session's changes from the phone, newest first. */
   records: ChangeRecord[];
   /** Menu only: the key a phone subscribes to notices with (null: notices
@@ -121,6 +186,9 @@ export type Ui = {
   /** Menu: Needs you notices on this phone, once the page checked its
    *  browser; until then Menu draws what the server knows (Kit.notices). */
   notices: Notices | null;
+  /** Usage: when the page asked the Macs for their list (Unix seconds); a
+   *  live Mac that has not answered in 15 seconds is said so. */
+  usageAsked?: number | null;
 };
 
 export type Reason = 'ok' | 'gone' | 'not_now' | 'not_here' | 'bad' | 'offline' | 'timeout' | 'denied';

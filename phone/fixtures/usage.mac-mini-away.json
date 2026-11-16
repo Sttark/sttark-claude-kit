@@ -1,0 +1,43 @@
+{
+  "v": 1,
+  "period": "7d",
+  "from": "2026-11-06",
+  "to": "2026-11-12",
+  "at": 1794525120,
+  "total": {
+    "sessions": 3,
+    "tokens": 412000000,
+    "agent_share": 41.5,
+    "usd": 166.4
+  },
+  "rows": [
+    {
+      "title": "Nozzle check page",
+      "cse": "session_01SampleNozzleCheck",
+      "share": 61.2,
+      "agent_share": 30.1,
+      "last_active": 1794524220,
+      "agents": 9
+    },
+    {
+      "title": "Bin label sizes",
+      "cse": "session_01SampleBinLabels",
+      "share": 30.4,
+      "agent_share": 11.4,
+      "last_active": 1794517920,
+      "agents": 3
+    },
+    {
+      "title": "Sttark Claude Kit checks",
+      "cse": null,
+      "share": 8.4,
+      "agent_share": 0,
+      "last_active": 1794521520,
+      "agents": 0
+    }
+  ],
+  "more": {
+    "sessions": 0,
+    "share": 0
+  }
+}

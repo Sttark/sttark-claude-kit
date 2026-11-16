@@ -2,7 +2,8 @@
 // made-up person, from the contract's fixtures (fixtures/), with every time
 // moved so the fixture's moment is now. MacBook Pro is live (its last_seen
 // is a day ahead, so it stays live through a long check); Mac mini went to
-// sleep when its snapshot was made. Never a real person or a live server.
+// sleep when its snapshot was made. Each has its Usage by session list for
+// 7 days. Never a real person or a live server.
 //
 //   node test/sample.mjs <database file> [email]
 //
@@ -20,13 +21,18 @@ export const MACS = { pro: 'mac_7Hq2Lx9Kp4', mini: 'mac_2Vd8Rt5Wn1' };
  *  Mac, Mac Studio, asked from another address, so the page shows its code. */
 export const SAMPLE_LINK = { token: 'sample-link-page-made-up-for-local-runs-001', mac: 'mac_SampleStudio1', name: 'Mac Studio', code: 'KXQM', address: '203.0.113.5' };
 
-const TIME_KEYS = new Set(['at', 'time_at', 'resets', 'until', 'since', 'waiting_since', 'turn_at', 'by', 'failing_since', 'archived_at', 'last_seen']);
+const TIME_KEYS = new Set(['at', 'time_at', 'resets', 'until', 'since', 'waiting_since', 'turn_at', 'by', 'failing_since', 'archived_at', 'last_seen', 'last_active']);
+const DAY_KEYS = new Set(['from', 'to']);
+/** 2026-11-13 moved by delta seconds. */
+const moveDay = (day, delta) => new Date(Date.parse(`${day}T12:00:00Z`) + delta * 1000).toISOString().slice(0, 10);
 /** A copy of a fixture with every time moved by delta seconds. */
 export function shift(value, delta) {
   if (Array.isArray(value)) return value.map((v) => shift(v, delta));
   if (value && typeof value === 'object') {
     const out = {};
-    for (const [k, v] of Object.entries(value)) out[k] = TIME_KEYS.has(k) && typeof v === 'number' && v > 1.7e9 ? v + delta : shift(v, delta);
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = TIME_KEYS.has(k) && typeof v === 'number' && v > 1.7e9 ? v + delta : DAY_KEYS.has(k) && typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? moveDay(v, delta) : shift(v, delta);
+    }
     return out;
   }
   return value;
@@ -38,6 +44,7 @@ export function sample(now = Math.floor(Date.now() / 1000)) {
   const pro = shift(read('../fixtures/snapshot.macbook-pro.json'), delta);
   const mini = shift(read('../fixtures/snapshot.mac-mini-away.json'), delta);
   const archived = shift(read('../fixtures/archived.json'), delta);
+  const usage = { [MACS.pro]: shift(read('../fixtures/usage.macbook-pro.json'), delta), [MACS.mini]: shift(read('../fixtures/usage.mac-mini-away.json'), delta) };
   return {
     delta,
     macs: [
@@ -46,6 +53,7 @@ export function sample(now = Math.floor(Date.now() / 1000)) {
     ],
     snaps: { [MACS.pro]: pro, [MACS.mini]: mini },
     archived: { [MACS.pro]: archived },
+    usage,
   };
 }
 
@@ -70,6 +78,10 @@ export async function seed(file, email = 'avery.stone@sttark.com', now = Math.fl
       snap.run(m.id, s.snaps[m.id].at, now, JSON.stringify(s.snaps[m.id]));
     }
     d.prepare('INSERT OR REPLACE INTO archived (mac_id, hash, received_at, data) VALUES (?, ?, ?, ?)').run(MACS.pro, s.archived[MACS.pro].rev, now, JSON.stringify(s.archived[MACS.pro]));
+    for (const m of list) {
+      const u = s.usage[m.id];
+      d.prepare('INSERT OR REPLACE INTO usage_lists (mac_id, period, received_at, data) VALUES (?, ?, ?, ?)').run(m.id, u.period, now, JSON.stringify(u));
+    }
     d.prepare(
       `INSERT INTO records (at, who, who_name, mac_id, mac_name, session, session_name, action, before, after, result, words)
        VALUES (?, ?, 'Sample Person', ?, 'MacBook Pro', 'session_01SampleHvacUpdates', 'HVAC updates', 'set_auto', '{"manual":true}', '{"manual":false}', 'ok', 'Turned Auto on from the phone.')`,

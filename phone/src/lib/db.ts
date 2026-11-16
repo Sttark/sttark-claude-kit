@@ -73,6 +73,10 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE TABLE IF NOT EXISTS snapshots (mac_id TEXT PRIMARY KEY, at INTEGER NOT NULL, received_at INTEGER NOT NULL, data TEXT NOT NULL);
 -- The last archived list each Mac sent: the same.
 CREATE TABLE IF NOT EXISTS archived (mac_id TEXT PRIMARY KEY, hash TEXT NOT NULL, received_at INTEGER NOT NULL, data TEXT NOT NULL);
+-- The last Usage by session list each Mac sent for each period (today, 7d,
+-- 30d, and its newest range of days): replaced each time, deleted when the
+-- Mac is removed.
+CREATE TABLE IF NOT EXISTS usage_lists (mac_id TEXT NOT NULL, period TEXT NOT NULL, received_at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (mac_id, period));
 -- Web Push subscriptions, one per phone, with the sign-in it was made
 -- under (Sign out on that phone ends it). Until sign-out, or until the push
 -- service says it is gone.

@@ -9,7 +9,7 @@
 //   5. Each message the schema defines has at least one fixture, and asyncapi.yaml names the same messages.
 // It knows the small part of JSON Schema 2020-12 that these schemas use, and stops on any other keyword.
 // Run: node phone/schema/check.mjs [folder ...]
-// Each folder given is checked as in 2 and 3 (snapshot*.json, archived*.json, archived-delta*.json): tools/phone-test.swift
+// Each folder given is checked as in 2 and 3 (snapshot*.json, archived*.json, archived-delta*.json, usage*.json): tools/phone-test.swift
 // checks every payload it builds this way.
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname, resolve as resolvePath } from 'node:path';
@@ -20,7 +20,7 @@ const phoneDir = dirname(schemaDir);
 const fixtureDir = join(phoneDir, 'fixtures');
 const docs = {};
 const load = (name) => (docs[name] ??= JSON.parse(readFileSync(join(schemaDir, name), 'utf8')));
-const SCHEMAS = ['snapshot.v1.json', 'archived.v1.json', 'messages.v1.json', 'link.v1.json'];
+const SCHEMAS = ['snapshot.v1.json', 'archived.v1.json', 'usage.v1.json', 'messages.v1.json', 'link.v1.json'];
 const DIRECTIONS = ['server_to_mac', 'mac_to_server', 'phone_to_server', 'server_to_phone'];
 
 const KNOWN = new Set(['$schema', '$id', '$defs', '$ref', 'title', 'description', 'type', 'const', 'enum',
@@ -141,7 +141,8 @@ function payloads(dir, label) {
     if (f.startsWith('snapshot')) expectValid(value, 'snapshot.v1.json', name);
     else if (f.startsWith('archived-delta')) expectValid(value, 'archived.v1.json#/$defs/delta', name);
     else if (f.startsWith('archived')) expectValid(value, 'archived.v1.json#/$defs/list', name);
-    else fail(`${name}: no schema for this name (snapshot*, archived*, archived-delta*)`);
+    else if (f.startsWith('usage')) expectValid(value, 'usage.v1.json#/$defs/list', name);
+    else fail(`${name}: no schema for this name (snapshot*, archived*, archived-delta*, usage*)`);
   }
 }
 payloads(fixtureDir, '');
@@ -159,7 +160,7 @@ for (const d of DIRECTIONS) {
 let refused = 0;
 for (const f of files('invalid')) {
   const target = f.replace(/\.json$/, '');
-  const ref = target === 'snapshot' ? 'snapshot.v1.json' : target === 'archived' ? 'archived.v1.json' : `messages.v1.json#/$defs/${target}`;
+  const ref = ['snapshot', 'archived', 'usage'].includes(target) ? `${target}.v1.json` : `messages.v1.json#/$defs/${target}`;
   for (const c of read('invalid', f)) {
     const errs = check(c.value, ref);
     if (!errs.length) fail(`invalid/${f} "${c.why}": passed, must fail`);

@@ -17,7 +17,7 @@ What it serves (under `BASE_PATH`, Environment below):
 | `/s/<cse>` | **One session**: what it does, Open in Claude, its waits (Stop, Bring it back now, Stop waiting), effort and Auto, At the usage limit, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
 | `/archived` | **Archived**, grouped by day; `?q=` searches names and folders |
 | `/archived/<cse>` | One archived session, with **Bring it back** |
-| `/usage` | **Usage** |
+| `/usage` | **Usage**: the 5-hour and weekly limits, the sessions held at them, the Use credits setting, and **By session** (The pages, below): `?p=today`, `7d` (the default), `30d` or `custom` with `from` and `to` (days, `2026-11-02`); `?all=1` shows every row |
 | `/mac/<id>` | One Mac's sessions; for a Mac that is away, its last list "As of" its time, in gray, with no buttons |
 | `/menu` | **Menu**: the Macs (state, last seen, **Remove**), **Sign out everywhere**, **Needs you notices** on this phone (Needs you notices, below), Light / Auto / Dark, **Sign out** |
 | `/macs` | Goes to `/menu` |
@@ -55,6 +55,23 @@ layout, words and behavior. Each page is drawn twice by the same code
    says "Not connected" over the page, and connects again (1, 2, 4 ... 30
    seconds; at once when the page shows again).
 
+**By session** on Usage lists each session's share of the person's Claude
+Code use on each Mac in a period, and the part its agents did: Today, 7 days,
+30 days, or Custom (From and To, then Show), in the address. Under the
+period: the days it covers, a note that says a share is of your use and never
+a percent of your limit (Anthropic gives only the total percent), the totals
+("18 sessions · 8.1 billion tokens · agents did 77% · worth $3,106 at API
+prices"), a legend, then each Mac's sessions, biggest share first: the name,
+the share, when it was last active and how many agents it started, and a bar
+(the session's part in the info blue, its agents' in a lighter tint of it;
+never green). The top 15, then how many more and their share, with Show all.
+A row with a session link has the ↗ Open in Claude; a row opens nothing else
+(`../DESIGN-DECISIONS.md`, Phone pages, Usage by session). No folder or path.
+A Mac that is away shows its last list for the period, "As of" its time, in
+gray; a live Mac with no list yet says "Getting the list from MacBook
+Pro...", and after 15 seconds that it did not send one (a Kit from before
+this list does not). `DESIGN.md`, section 14.
+
 A tap on a control sends one `action`; its button says "Sending..." and the
 other controls wait. The answer shows where it was asked, in the server's
 words (the first sentence bold): green for `ok`, blue for `gone`,
@@ -87,7 +104,9 @@ it links itself with a key file (`data/fake-macs/<name>.json`, made on the
 first run; `--approve` clicks Link as `DEV_FAKE_USER`, else open the link
 page it prints), opens `/mac`, signs the challenge, sends a fixture's
 snapshot with every time moved to now, sends its archived list when the
-server asks, answers each action (`--answer auto` from its own state, as a
+server asks, sends its Usage by session list for the period the server asks
+for (`fixtures/usage.macbook-pro.json`; `--usage none` never does, as a Kit
+from before it), answers each action (`--answer auto` from its own state, as a
 Kit would; or `ok`, `gone`, `not_now`, `not_here`, `bad`, `cycle` for each
 in turn, `silent` for a timeout), sends the snapshot the change makes, and
 says bye when it stops (`--for <seconds>`, `--bye sleep|quit|update`, or
@@ -98,7 +117,7 @@ second Mac: `--name "Mac mini" --snapshot fixtures/snapshot.mac-mini-away.json
 **The sample server** (`test/sample-server.mjs`, test only) runs the built
 app on a temp database with two made-up Macs from `fixtures/`
 (`test/sample.mjs`: MacBook Pro live, Mac mini asleep, every time moved to
-now) and a link page waiting for Link, with its real sockets: the fake Mac
+now, each with its Usage by session list for 7 days) and a link page waiting for Link, with its real sockets: the fake Mac
 signs in as MacBook Pro and answers each action. Type `next <reason>` to
 make the next action answer that reason (`timeout` waits the server's 20
 seconds; `offline` drops the Mac's socket just before), `mac <pro|mini>
@@ -215,7 +234,13 @@ allow.
   true`. `open_archived` gets the server's copy of each archived list, and
   a live Mac whose copy is older (its snapshot's `archived_rev`) gets
   `want_archived`; an `archived_delta` from a list the server does not
-  hold gets `want_archived` again. Sign out closes that sign-in's pages,
+  hold gets `want_archived` again. `open_usage {period}` (the Usage tab:
+  when it opens, shows again, changes its period, and every minute) gets the
+  server's copy of each Mac's Usage by session list for that period (for a
+  Mac that is away, its last one), and each live Mac gets `want_usage` (at
+  most once for a period in 10 seconds); a Mac's `usage` is kept and goes to
+  the person's pages that show its period. A Mac that connects while a page
+  shows Usage is asked at once. Sign out closes that sign-in's pages,
   Sign out everywhere every page of the person.
 - **Actions**: only the six of the contract. The server checks that the
   Mac is the person's (else `denied`) and connected and live (else
@@ -357,6 +382,7 @@ each kind of row is kept:
 | `macs` | Linked Macs and their public keys | For good; a removed Mac keeps its row, with when, why (`phone`, `mac`, `roster`, `quiet`) and by whom. A Mac not heard from in 90 days is removed by the daily job |
 | `links` | Link pages waiting for a sign-in (hashes of their tokens) | 1 day |
 | `snapshots`, `archived` | The last snapshot and archived list each Mac sent | Replaced each time; deleted when the Mac is removed |
+| `usage_lists` | The last Usage by session list each Mac sent for each period (today, 7 days, 30 days, and its newest range of days) | Replaced each time; deleted when the Mac is removed |
 | `push_subs` | Web Push subscriptions, one per phone: its person, the sign-in it was made under, its keys, notices on or off, when that last changed, the kind of device, and the address it was made at | Until sign-out, the push service says it is gone, or the server starts at another address |
 | `pushes_sent` | Needs you pushes sent | 2 days |
 | `records` | Every change, with who made it | **1 year** |
@@ -394,7 +420,11 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   bye and unlink, the page's cookie and Origin, watching, an action and its
   record, one person acting on another's Mac (denied), offline, timeout and
   a late answer, the six actions only, archived want and delta with a
-  missing base; and every message the server sent matches the contract.
+  missing base, Usage by session lists (asked once for a period in the gap,
+  kept, sent only to the pages on that period, a Mac that is away gives its
+  last one, a Mac that connects is asked, only the newest range of days
+  kept, a list with a field the contract does not know refused); and every
+  message the server sent matches the contract.
   `BASE_PATH` `/kit` in the gate, the cookie, Google's return, the link
   page and the sockets (`paths.test.ts`, `middleware.test.ts`,
   `hub.test.ts`). Web Push (`push.test.ts`, with the stand-in push service):
@@ -418,10 +448,16 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   `scripts/page-check.config.mjs`): every page at 390 and 1280 px, light and
   dark, as one made-up person twice: on an empty database, and with the two
   sample Macs on the sample server (each session group, archived, a Mac
-  away, Menu, a link page).
+  away, Menu, a link page, and Usage by session for each period and with
+  every row).
 - **The pages** (`test/pages.test.ts`): the groups and their order, a Mac
   that is away, Mac names only with several Macs, search, every answer,
   `BASE_PATH` in every link, a Mac's state from the database, and Remove.
+  Usage by session: under the limits, biggest share first, the note, the
+  totals and the legend, no folder or path and no green, the top 15 and Show
+  all, ↗ only where there is a session link, a list per Mac, an away Mac's
+  as of its time in gray, waiting and its 15 seconds, only the period shown,
+  no use, Custom's days, and the address.
 - **CI** (`../.github/workflows/phone-checks.yml`): the tests and the build
   on each change under `phone/`, then the page check and, on pull requests,
   the AI review against the guide.

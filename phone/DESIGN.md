@@ -197,6 +197,7 @@ A Mac that is not live is never drawn as live. Its sessions leave the four group
 | `links` | Link pages waiting for a sign-in | 1 day |
 | `snapshots` | The last snapshot per Mac | Replaced; deleted with the Mac |
 | `archived` | One row per Mac: the archived list's `rev` and its items (section 13) | Replaced at each update; deleted with the Mac |
+| `usage_lists` | One row per Mac and period: its Usage by session list (section 14) | Replaced at each update; only the newest range of days per Mac; deleted with the Mac |
 | `push_subs` | Endpoint and keys per phone, notices on or off, when that changed, the kind of device | Until sign-out or the push service says gone |
 | `pushes_sent` | Person, session, waiting time | 2 days |
 | `records` | Every change, append only | 1 year |
@@ -323,7 +324,7 @@ Everything else follows the guide: the black top bar with the Sttark mark, "Clau
 |---|---|
 | Sessions | The four groups (Needs you, Claude working, Waiting on someone else, Held at usage limit), then "Macs away"; a compact 5-hour and weekly strip above the tab bar |
 | Archived | Archived sessions, newest first, with a search field (section 13) |
-| Usage | The 5-hour and weekly bars with reset times and the 60% and 80% marks, the held sessions and when each goes on |
+| Usage | The 5-hour and weekly bars with reset times and the 60% and 80% marks, the held sessions and when each goes on, and By session: each session's share of your use in a period (section 14) |
 
 ![The phone screens: Sessions, One session, Usage and Archived, with the bottom tab bar](mockup.png)
 
@@ -362,6 +363,20 @@ Results:
 
 **On the phone.** The Archived tab sends `open_archived`; the server answers with `archived {mac, rev, items}` from its copy and asks the Mac for a newer one if needed. A search field at the top searches the names on the phone. Rows show the name, folder and when archived, with the ↗ button. A tap on a row opens its page with **Bring it back** and **Open in Claude**.
 
+## 14. Usage by session
+
+The Mac window's Usage page and the phone's Usage tab show how much of the person's Claude Code use each session took, so they can see which work fills the limit.
+
+**The source, on the Mac.** `Resources/hooks/usage-scan.py` reads each session's record in `~/.claude/projects` and its agents' records, a little at a time (it keeps, for each file, its size, time and how far it was read). Each reply counts once, at its model's API price for each kind of token, because the limit also counts a larger model as more use. A share is a session's part of the person's use in the period, never a percent of the limit: Anthropic gives only the total percent, and the page says so. Use in the Claude app or on other computers is not in it.
+
+**What goes up.** Only after `want_usage {period}`: `usage` (`schema/usage.v1.json`), for one period: `today`, `7d`, `30d` or a range of days (`2026-11-02..2026-11-09`), the days it covers, when it was made, the totals (sessions, tokens, the agents' share, the use in dollars at API prices), at most 100 rows (biggest share first), and the rest together. Each row: the session's name (cut to 160), its Remote Control id (or null: a session only on that Mac, the Kit's own checks, runs in temporary folders), its share and the part its agents did (percent of the person's use), when it was last active, and how many agents it started.
+
+**Never leaves the Mac.** Paths and folder names of sessions, prompts, replies, record lines, model names and the tokens of each session.
+
+**The flow.** The Usage tab sends `open_usage {period}` when it opens, shows again, changes its period, and every minute. The server answers with each Mac's kept list for that period (`usage {mac, list}`), and sends `want_usage {period}` to each live Mac (at most once for a period in 10 seconds). The Mac answers with `usage`; the server keeps it and sends it to the person's pages that show that period. A Mac that connects while a page shows Usage is asked at once. A Mac that is away shows its last list for the period, "As of" its time, in gray. A Kit from before this list never answers; the page says so after 15 seconds.
+
+**On the server.** Table `usage_lists`: one row per Mac and period, replaced at each update, only the newest range of days per Mac, deleted with the Mac.
+
 ## Appendix: the two sockets
 
 Every message is `{event, success, payload}`. Linking comes before `/mac`, over HTTP: `POST /api/mac/link` and `GET /api/mac/link/<poll>` (`schema/link.v1.json`).
@@ -375,6 +390,8 @@ Every message is `{event, success, payload}`. Linking comes before `/mac`, over 
 | `/mac` | server | `want_archived` | `have` (the rev the server holds, or null) |
 | `/mac` | Mac | `archived` | `rev`, `items` (section 13) |
 | `/mac` | Mac | `archived_delta` | `base`, `rev`, `add`, `remove` |
+| `/mac` | server | `want_usage` | `period` (`today`, `7d`, `30d`, or `first..last`) |
+| `/mac` | Mac | `usage` | `v`, `period`, `from`, `to`, `at`, `total`, `rows`, `more` (section 14) |
 | `/mac` | server | `watching` | `on` |
 | `/mac` | server | `phones` | `phones` (how many can get a push, when it changes after `welcome`) |
 | `/mac` | server | `action` | `id`, `act`, `args`, `by` (email, name) |
@@ -388,6 +405,8 @@ Every message is `{event, success, payload}`. Linking comes before `/mac`, over 
 | `/live` | server | `snapshot` | `mac`, the snapshot |
 | `/live` | phone | `open_archived` | |
 | `/live` | server | `archived` | `mac`, `rev`, `items` |
+| `/live` | phone | `open_usage` | `period` |
+| `/live` | server | `usage` | `mac`, `list` (a Mac's `usage`, new or the server's copy) |
 | `/live` | phone | `action` | `id`, `mac`, `act`, `args`, `basis` |
 | `/live` | server | `action_result` | `id`, `reason` (also `offline`, `timeout`, `denied`), `words` |
 | `/live` | server | `record` | a new change record for the session that is open |

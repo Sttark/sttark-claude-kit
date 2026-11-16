@@ -43,6 +43,20 @@
     }
   },
   {
+    "event": "want_usage",
+    "success": true,
+    "payload": {
+      "period": "7d"
+    }
+  },
+  {
+    "event": "want_usage",
+    "success": true,
+    "payload": {
+      "period": "2026-11-01..2026-11-10"
+    }
+  },
+  {
     "event": "action",
     "success": true,
     "payload": {
