@@ -230,19 +230,19 @@ def haiku(prompt, tools, timeout=180):
         raise RuntimeError('claude -p exit %d: %s' % (r.returncode, (r.stderr or r.stdout).strip()[:160]))
     why = ''
     wr = [t for t in tools if t.startswith(WR)]
-    if wr and init is not None:
-        server = [m for m in init.get('mcp_servers') or [] if m.get('name') == 'claude.ai Sttark Workrouter']
-        status = server[0].get('status', '') if server else 'not listed'
-        if status != 'connected':
-            why = 'the Workrouter connector did not load in the check (%s): a Claude outage or its sign-in' % status
-        elif not any(t in (init.get('tools') or []) for t in wr):
-            why = 'the Workrouter connector loaded without %s' % wr[0][len(WR):]
-    if not why and errors:
+    if errors:   # the tool ran, so its connector loaded: its own error says why
         why = '%s answered an error: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', errors[0])[:140])
-    if not why and not any(n in tools for n in called.values()):
-        why = 'Haiku did not call %s; it said: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', final)[:120] or 'nothing')
-    if not why and init is None:
-        why = 'claude -p gave no output: %s' % (r.stderr or '').strip()[:140]
+    elif not any(n in tools for n in called.values()):
+        # The start of the run lists only the connectors that loaded by then: run from the Kit, claude.ai connectors
+        # load after it and are not listed, yet the tool works. Only a connector listed as not loaded explains it.
+        server = [m for m in (init or {}).get('mcp_servers') or [] if m.get('name') == 'claude.ai Sttark Workrouter']
+        status = server[0].get('status', '') if server else ''
+        if init is None:
+            why = 'claude -p gave no output: %s' % (r.stderr or '').strip()[:140]
+        elif wr and status and status not in ('connected', 'pending'):
+            why = 'the Workrouter connector did not load in the check (%s): a Claude outage or its sign-in' % status
+        else:
+            why = 'Haiku did not call %s; it said: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', final)[:120] or 'nothing')
     return final, results, why
 
 
@@ -288,7 +288,21 @@ def check_email_reply(w):
             except (ValueError, AttributeError):
                 pass
         if not w.get('subject'):
-            raise RuntimeError('could not read the thread %s: %s' % (w['target'], why or 'no subject in the answer'))
+            # A thread started from a draft keeps the draft's id, and its first message got a new id when it was sent
+            # (gmail_read_message answers 404): find the subject in the person's own messages in the thread instead.
+            _, res, why2 = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'
+                                 % (WR, json.dumps('from:me after:%d' % (int(w['set_at']) - 2 * 86400))),
+                                 [WR + 'gmail_search'], timeout=120)
+            for t in res:
+                try:
+                    e = next((e for e in json.loads(t).get('emails') or []
+                              if e.get('thread_id') == w['target'] and e.get('subject')), None)
+                except (ValueError, AttributeError):
+                    e = None
+                if e:
+                    w['subject'] = re.sub(r'^((re|fwd?|aw):\s*)+', '', e['subject'], flags=re.I)
+            if not w.get('subject'):
+                raise RuntimeError('could not read the thread %s: %s' % (w['target'], why or why2 or 'no subject in the answer'))
     q = 'after:%d' % int(w['set_at']) + (' from:%s' % w['from'] if w.get('from') else
                                           ' -from:me subject:(%s)' % re.sub(r'[^\w\s]', ' ', w['subject']).strip()[:120])
     _, results, why = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'

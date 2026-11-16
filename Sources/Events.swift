@@ -116,17 +116,20 @@ enum Events {
         return fold(raw)
     }
 
-    /// Problems that happen again fold into one row wherever they fall (with how many times, since when, and the
-    /// last time); anything else folds with the same event just before it, or within a minute.
+    /// Problems that happen again in a day fold into one row for that day wherever they fall (with how many times that
+    /// day, since when, and the last time), so the count under Today is today's; anything else folds with the same
+    /// event just before it, or within a minute.
     static func fold(_ events: [KitEvent]) -> [KitEvent] {
         var out: [KitEvent] = []
         var at: [String: Int] = [:]
+        let day = DateFormatter(); day.dateFormat = "yyyy-MM-dd"
         for e in events {
-            if let i = at[e.key], e.level != .info || e.first.timeIntervalSince(out[i].last) < 60 || i == out.count - 1 {
+            let k = e.level != .info ? e.key + "|" + day.string(from: e.first) : e.key
+            if let i = at[k], e.level != .info || e.first.timeIntervalSince(out[i].last) < 60 || i == out.count - 1 {
                 out[i].count += 1; out[i].last = e.last; continue
             }
             out.append(e)
-            at[e.key] = out.count - 1
+            at[k] = out.count - 1
         }
         return out.sorted { $0.last > $1.last }
     }

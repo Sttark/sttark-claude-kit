@@ -30,6 +30,7 @@ import Foundation
             at(5) + " migrate 3796db69 \"Bin label sizes\" moved to Remote Control as cse_01BBBtest2; closed it in Terminal (window)",
         ]
         for m in stride(from: 50.0, through: 1, by: -7) { lines.append(at(m) + " limit  usage read failed: HTTP Error 429: Too Many Requests; next read in 2 min, using the last read") }
+        for m in [2880.0, 2875, 2870] { lines.append(at(m) + " limit  usage read failed: HTTP Error 429: Too Many Requests; next read in 2 min, using the last read") }
         lines.sort()
         let log = dir.appendingPathComponent("kit.log")
         try! (lines.joined(separator: "\n") + "\n").write(to: log, atomically: true, encoding: .utf8)
@@ -41,7 +42,8 @@ import Foundation
         let holds = ev.filter { $0.kind == .limit }
         check(holds.count == 1 && holds[0].text == "Held: the weekly limit is at 93%. Goes on Sat 2:00 AM", "a hold and its wait are one row")
         let usage = ev.filter { $0.kind == .problem }
-        check(usage.count == 1 && usage[0].count == 8 && usage[0].level == .warn, "a problem that occurs again is one row with its count")
+        check(usage.count == 2 && usage[0].count == 8 && usage[0].level == .warn && usage[1].count == 3,
+              "a problem that occurs again is one row a day, with that day's count")
         check(ev.first { $0.kind == .check }?.routine == true, "a reply check that passed is routine")
         check(ev.first?.last ?? .distantPast >= ev.last?.last ?? .distantFuture, "newest first")
         check(!ev.contains { $0.text.contains("cse_") || $0.text.contains("f46255ef") }, "no ids in the sentences")
