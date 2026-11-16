@@ -24,17 +24,33 @@ UserPromptSubmit: when the person asks for Claude in Chrome by name ("use Claude
 every call of that session through, its agents' calls too (they come with the session's id). Claude can't do
 this for itself: only a message typed to the session counts.
 
+A tab for each agent: an agent's commands run in the session's own process, so claude-window cannot tell one agent
+from the next. For each Bash or Monitor command of an agent (the input has agent_id), the hook answers with
+updatedInput: the same command with "export CLAUDE_WINDOW_AGENT=<agent id>; " in front. claude-window then gives
+that agent a tab of its own in the session's window, also when a script of the agent calls it. The added export
+needs approval where a session asks before commands, and auto mode can deny a command a hook changed, so the hook
+adds it only where no prompt can reach the person: in Bypass permissions, or in Manual on a Remote Control server
+whose prompts the Kit's bypass hook answers (bypass-hook.sh; that session moves to Bypass at its first prompt).
+In every other session the agents share the session's tab, as before.
+SubagentStop: the agent's tab closes (claude-window agent-done), when it has one.
+
 The hook reads claude_window from the state file on each call and lets everything through when that switch
 is off. On any error it lets the call through. Each deny and each opt-in is logged to
 ~/Library/Logs/sttark-claude-kit.log with the tag browser.
 """
-import json, os, re, shlex, sys, time
+import glob, json, os, re, shlex, subprocess, sys, time
 
 DIR = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
 STATE = os.path.join(DIR, 'state.json')
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 KEEP_DAYS = 7      # a chrome_ok entry older than this is dropped
 LOCK_WAIT = 5      # seconds to wait for the state file's lock
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SETTINGS = os.path.expanduser('~/.claude/settings.json')
+AGENT_ID = re.compile(r'[A-Za-z0-9_-]{1,64}')
+RC = re.compile(r'([^ ]*/)?claude ((rc|remote-control)( |$)|(.* )?--remote-control([ =]|$))')   # as bypass-hook.sh
+RC_BYPASS = re.compile(r' --permission-mode[= ]bypassPermissions( |$)')
 
 MCP = ('mcp__claude-in-chrome__', 'mcp__Control_Chrome__')
 
@@ -218,28 +234,85 @@ def allowed(s, data):
     return bool(sid and isinstance(e, dict) and (e.get('at') or 0) > time.time() - KEEP_DAYS * 86400)
 
 
+def parents():
+    """The command lines of this hook's parent processes, nearest first. STTARK_GUARD_CHAIN (a file, one command
+    line each) stands in for them in a test."""
+    fake = os.environ.get('STTARK_GUARD_CHAIN')
+    if fake:
+        with open(fake) as f:
+            return [ln.rstrip('\n') for ln in f if ln.strip()]
+    out, pid = [], os.getppid()
+    for _ in range(12):
+        if pid <= 1:
+            break
+        r = subprocess.run(['/bin/ps', '-ww', '-o', 'ppid=,args=', '-p', str(pid)], capture_output=True, text=True, timeout=5)
+        ppid, _, args = r.stdout.strip().partition(' ')
+        if not ppid.isdigit():
+            break
+        out.append(args.strip())
+        pid = int(ppid)
+    return out
+
+
+def bypass_ahead():
+    """The Kit's bypass hook is installed and acts on this session (the same test as bypass-hook.sh): it answers
+    the session's permission prompts and moves it to Bypass permissions at the first one."""
+    try:
+        with open(SETTINGS) as f:
+            groups = (json.load(f).get('hooks') or {}).get('PermissionRequest') or []
+    except (OSError, ValueError):
+        return False
+    if not any((h.get('command') or '').rstrip('"').endswith('bypass-hook.sh') for g in groups for h in g.get('hooks', [])):
+        return False
+    return any(RC.match(a) and RC_BYPASS.search(a) for a in parents())
+
+
+def agent_tabs(data):
+    """True when each agent of this session gets a tab of its own: no prompt can come from the added export."""
+    mode = data.get('permission_mode') or ''
+    if mode == 'bypassPermissions':
+        return True
+    return mode in ('default', 'bubble', 'acceptEdits') and bypass_ahead()
+
+
 def on_tool(data):
     tool = data.get('tool_name') or ''
-    if tool == 'Bash':
-        cmd = (data.get('tool_input') or {}).get('command') or ''
+    ti = data.get('tool_input') or {}
+    agent = data.get('agent_id') or ''
+    cmd = ti.get('command') if tool in ('Bash', 'Monitor') else None
+    look = False
+    if tool in ('Bash', 'Monitor'):
+        if not isinstance(cmd, str) or not cmd.strip():
+            return
         low = cmd.lower()
-        if not ('open' in low or 'osascript' in low or 'chrome' in low):
+        look = 'open' in low or 'osascript' in low or 'chrome' in low
+        if not (look or agent):
             return
     elif not tool.startswith(MCP):
         return
     s = peek()
-    if not s.get('claude_window') or allowed(s, data):
+    if not s.get('claude_window'):
         return
-    if tool == 'Bash':
-        why = bash_reason(cmd)
-        if not why:
+    if not allowed(s, data) and (look or cmd is None):
+        why = bash_reason(cmd) if cmd is not None else ''
+        if why or cmd is None:
+            what = f'{tool} ({why}): {" ".join(cmd.split())[:120]}' if cmd is not None else tool
+            log(f'deny   {who(data)} {what}')
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                                                     'permissionDecisionReason': REASON}}))
             return
-        what = f'Bash ({why}): {" ".join(cmd.split())[:120]}'
-    else:
-        what = tool
-    log(f'deny   {who(data)} {what}')
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
-                                             'permissionDecisionReason': REASON}}))
+    if cmd is not None and AGENT_ID.fullmatch(agent) and 'CLAUDE_WINDOW_AGENT=' not in cmd and agent_tabs(data):
+        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'updatedInput':
+                                                 dict(ti, command=f'export CLAUDE_WINDOW_AGENT={agent}; {cmd}')}}))
+
+
+def on_agent_stop(data):
+    """The agent stopped: close its tab in the Claude window, when it has one."""
+    agent = data.get('agent_id') or ''
+    if not AGENT_ID.fullmatch(agent) or not glob.glob(os.path.join(DIR, 'claude-window-tabs', '*.' + agent)):
+        return
+    subprocess.run(['/bin/zsh', os.path.join(HERE, 'claude-window.sh'), 'agent-done', agent],
+                   capture_output=True, timeout=12)
 
 
 def asks_for_chrome(prompt):
@@ -295,6 +368,8 @@ def main():
             on_tool(data)
         elif event == 'UserPromptSubmit':
             on_prompt(data)
+        elif event == 'SubagentStop':
+            on_agent_stop(data)
     except Exception as e:   # never stop a tool call or a message because of this hook
         log(f'error  {type(e).__name__}: {e}')
 

@@ -4,6 +4,7 @@
 //   whats-new/hold-before-limit.gif   the usage fills to 80%, a session set to hold stops, the limit resets to 0%
 //   whats-new/session-inbox.gif       a session that waits is archived, then comes back with a message
 //   whats-new/browser-guard.png       a still: which browser steps the Kit stops and which it lets through
+//   whats-new/own-claude-windows.png  a still: two sessions, each with its own Claude window; agents have tabs in it
 //   whats-new/server-on-by-itself.png a still: the Claude app's Code menu with Remote Control > src picked
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
@@ -297,6 +298,34 @@ func browserGuardPicture() -> NSBitmapImageRep {
     }
 }
 
+/// Two sessions, each with its own Chrome window named Claude. The second one has two agents, each with its own
+/// tab in that window. A still, so one PNG.
+func ownWindowsPicture() -> NSBitmapImageRep {
+    let h: CGFloat = 280
+    return frame(h) {
+        text("Each session has its own Claude window in Chrome", 20, 16, size: 13, color: C.steel)
+        let wins: [(String, [String])] = [("Session: Supplier quote", ["Session"]),
+                                          ("Session: Order page", ["Session", "Agent 1", "Agent 2"])]
+        for (i, wn) in wins.enumerated() {
+            let r = NSRect(x: 20 + CGFloat(i) * ((W - 52) / 2 + 12), y: 44, width: (W - 52) / 2, height: 168)
+            card(r)
+            text(wn.0, r.minX + 14, r.minY + 12, size: 14, bold: true)
+            var x = r.minX + 14, y = r.minY + 44
+            for t in wn.1 {
+                let w = width(t, size: 13) + 22
+                if x + w > r.maxX - 14 { x = r.minX + 14; y += 36 }
+                card(NSRect(x: x, y: y, width: w, height: 30), fill: t == "Session" ? C.goodSoft : nil)
+                text(t, x + 11, y + 7, size: 13)
+                x += w + 8
+            }
+            text(wn.1.count > 1 ? "Each agent has its own tab." : "No other session uses this window.",
+                 r.minX + 14, y + 44, size: 13, color: C.steel, width: r.width - 28)
+        }
+        text("A session's page stays in front in its window while other sessions work.", 20, 234,
+             size: 14, bold: true, width: W - 40)
+    }
+}
+
 /// The Claude app's Code menu, with the Mac's server under Remote Control picked: where a person starts a session
 /// that runs on their Mac. A still, so one PNG.
 func serverPicture() -> NSBitmapImageRep {
@@ -335,5 +364,6 @@ for dark in [false, true] {
     if wanted("session-inbox") { gif(inboxPicture(), to: "whats-new/session-inbox" + end) }
     if wanted("server-on-by-itself") { png(serverPicture(), to: "whats-new/server-on-by-itself" + (dark ? "-dark.png" : ".png")) }
     if wanted("new-sessions-on-server") { png(serverPicture(), to: "whats-new/new-sessions-on-server" + (dark ? "-dark.png" : ".png")) }
+    if wanted("own-claude-windows") { png(ownWindowsPicture(), to: "whats-new/own-claude-windows" + (dark ? "-dark.png" : ".png")) }
     if wanted("browser-guard") { png(browserGuardPicture(), to: "whats-new/browser-guard" + (dark ? "-dark.png" : ".png")) }
 }
