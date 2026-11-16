@@ -55,6 +55,31 @@ import Foundation
         check(moved?.name == "Bin label sizes" && moved?.detail.contains { $0.contains("open in Terminal") } == true,
               "a move to Remote Control reads in plain words under the session's name")
 
+        // The Remote Control server: what its health check does, in plain words, with the problems as problems
+        let server = [
+            at(9) + " server ended 25 old copies of the server that earlier starts left running",
+            at(8) + " server answered same-dir: the spawn mode, so every session starts in ~/src",
+            at(7) + " server not connected: it waits on a question the Kit can't answer: Region [1/2]:",
+            at(6) + " server stopped, and macOS started it again",
+            at(5) + " server not connected: it stopped 3 times soon after it started; it showed: Error: x. The Kit starts it again in 1 min.",
+            at(4) + " server start command updated: it gives --spawn same-dir when Claude Code has it, from the next start",
+            at(3) + " keep   the server is not connected: 4 session(s) on it wait until it connects, and none starts on its own",
+        ]
+        let slog = dir.appendingPathComponent("server.log")
+        try! (server.joined(separator: "\n") + "\n").write(to: slog, atomically: true, encoding: .utf8)
+        let sev = Events.read(kitLog: slog, bypassLog: dir.appendingPathComponent("none.log"), names: names)
+        check(sev.contains { $0.kind == .problem && $0.level == .warn && $0.text == "Ended 25 old copies of the Remote Control server" },
+              "old copies of the server that were ended are a problem row, with how many")
+        check(sev.contains { $0.text == "The server asked which spawn mode to use, so the Kit chose same-dir" && $0.level == .info },
+              "the spawn mode answer reads in plain words")
+        check(sev.filter { $0.kind == .problem && $0.text.hasPrefix("Remote Control server not connected: ") }.count == 2,
+              "a question the Kit can't answer, and a server that stops again and again, are problem rows")
+        check(sev.contains { $0.kind == .restart && $0.level == .warn && $0.text == "Remote Control server stopped, and macOS started it again" },
+              "a server that stopped and came back is a warning")
+        check(sev.contains { $0.routine && $0.text == "Remote Control server: start command updated" }, "the updated start command is a routine row")
+        check(sev.contains { $0.kind == .restart && $0.level == .warn && $0.text == "Sessions on the server wait until it connects" },
+              "sessions that wait for the server read in plain words")
+
         // Trim: 30 days, lines with no date go with the dated line before them, a writer that holds the file open
         // in append mode (as launchd does) goes on at the new end, and a second trim finds nothing to cut.
         var s = ""

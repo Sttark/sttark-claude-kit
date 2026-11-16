@@ -408,7 +408,7 @@ def bring_back(w, prompt=None):
     cid = os.path.basename(tp)[:-len('.jsonl')]
     with open(os.path.join(KIT, 'keep.lock'), 'w') as lock:  # the keep check starts chats too: one at a time
         fcntl.flock(lock, fcntl.LOCK_EX)
-        subprocess.run(['/usr/bin/screen', '-S', 'kit-' + cid[:8], '-X', 'quit'], capture_output=True)
+        e.quit_screen('kit-' + cid[:8])  # every copy: `screen -S <name>` acts on none when two have the name
         e.point_at(tp, cse, e.waiting_since_reply(e.chat_events(cse))[0])
         home = os.path.expanduser('~')
         stable = home + '/.local/share/claude/stable/claude'

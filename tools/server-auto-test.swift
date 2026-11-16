@@ -94,6 +94,60 @@ import Foundation
               .contains("long-lived token") == true)
         check("an API key", ServerHealth.refusal("Remote Control is only available with claude.ai subscriptions. Run /login")?.contains("API key") == true)
         check("a trust question already answered is not a question", ServerHealth.read(trust.replacingOccurrences(of: "[y/N]\n", with: "[y/N] y\n")) != .trustPrompt)
+        // the spawn mode question, as Claude Code 2.1.325 asks it in a git repo when it has no --spawn
+        let spawn = """
+
+        Remote Control is launching in spawn mode, which lets you start new sessions in this project from claude.ai/
+        code or the Claude mobile app. Learn more: https://code.claude.com/docs/en/remote-control
+        Spawn mode for this project:
+          [1] same-dir \u{2014} sessions share the current directory (default)
+          [2] worktree \u{2014} each session gets an isolated git worktree
+        This can be changed later or explicitly set with --spawn=same-dir or --spawn=worktree.
+
+        Choose [1/2] (default: 1):
+
+        """
+        check("the spawn mode question", ServerHealth.read(spawn) == .spawnPrompt)
+        check("the spawn mode question, answered, is not a question", ServerHealth.read(spawn.replacingOccurrences(of: "(default: 1):", with: "(default: 1): 1\nSpawn mode: same-dir")) == .starting)
+        check("a question the Kit does not know", ServerHealth.read("Pick a region for this server:\n  [1] here\n  [2] there\nRegion [1/2]:\n") == .question("Region [1/2]:"))
+        check("a line that ends with a question mark", ServerHealth.read("Keep the old sessions?\n") == .question("Keep the old sessions?"))
+        check("a link in brackets is not a question", ServerHealth.read("Learn more (https://code.claude.com/docs/en/remote-control)\n") == .starting)
+        check("a copy that still runs keeps the folder", ServerHealth.read("Error: This folder is already served by another Claude Code on this device. Stop it first.\n")
+              == .failed(ServerHealth.refusal("already served by another Claude Code")!))
+        check("an option this Claude Code does not know", ServerHealth.refusal("Error: Unknown argument: --spawn\nRun 'claude remote-control --help' for usage.")
+              == "This Claude Code doesn't know an option the Kit gives it (Unknown argument: --spawn).")
+        check("the log's escape codes go", ServerHealth.lastLine("\u{1B}[2mChoose [1/2]\u{1B}[22m\r\n\u{1B}]8;;https://x\u{07}a link\u{1B}]8;;\u{07}\r\n") == "a link")
+
+        // command(): --spawn same-dir only when this Claude Code's help names it, checked when it starts
+        let cmd = Server.command(folder: "/Users/x/src", claude: "/Users/x/.local/share/claude/stable/claude", screenrc: "/k/server.screenrc", screen: "claude-rc")
+        check("the command starts claude rc in its screen, in the folder, in bypass", cmd.hasPrefix("exec /usr/bin/screen -c '/k/server.screenrc' -DmS claude-rc /bin/zsh -c \"cd '/Users/x/src' && exec '/Users/x/.local/share/claude/stable/claude' rc --permission-mode bypassPermissions "))
+        check("the command gives --spawn same-dir when the help names it", cmd.contains("\\$('/Users/x/.local/share/claude/stable/claude' remote-control --help 2>/dev/null | /usr/bin/grep -q -- --spawn && echo --spawn same-dir)\""))
+        check("the command's screen still reads as a server", Server.isServer("/usr/bin/screen -c /k/server.screenrc -DmS claude-rc /bin/zsh -c cd '/Users/x/src' && exec '/Users/x/.local/share/claude/stable/claude' rc --permission-mode bypassPermissions $('/Users/x/.local/share/claude/stable/claude' remote-control --help 2>/dev/null | /usr/bin/grep -q -- --spawn && echo --spawn same-dir)"))
+        check("a server with --spawn is a server", Server.isServer("/Users/x/.local/share/claude/stable/claude rc --permission-mode bypassPermissions --spawn same-dir"))
+        check("its help is not a server", !Server.isServer("/Users/x/.local/share/claude/stable/claude remote-control --help"))
+        // the zsh that runs in the screen, with the help of a Claude Code that has --spawn and one that hasn't
+        for (help, want) in [("  --spawn <mode>   Spawn mode: same-dir, worktree, session", "rc --permission-mode bypassPermissions --spawn same-dir"),
+                             ("  --name <name>    Name for the session", "rc --permission-mode bypassPermissions")] {
+            let fake = dir.appendingPathComponent("claude")
+            try? "#!/bin/sh\n[ \"$2\" = --help ] && { echo '\(help)'; exit 0; }\necho \"$@\"\n".write(to: fake, atomically: true, encoding: .utf8)
+            chmod(fake.path, 0o755)
+            let inner = Server.command(folder: dir.path, claude: fake.path, screenrc: "", screen: "")
+                .components(separatedBy: "/bin/zsh -c \"").last!.dropLast().replacingOccurrences(of: "\\$", with: "$")
+            let out = Updater.run("/bin/zsh", ["-c", inner]).1.trimmingCharacters(in: .whitespacesAndNewlines)
+            check("zsh runs: \(want)", out == want)
+        }
+
+        // launchctl print, read: the job's own lines only
+        let printed = "gui/501/com.sttark.claude-rc = {\n\tactive count = 1\n\tpath = /Users/x/Library/LaunchAgents/com.sttark.claude-rc.plist\n\ttype = LaunchAgent\n\tstate = running\n\n\tprogram = /bin/zsh\n\truns = 221\n\tpid = 6008\n\tlast exit code = 0\n\n\tresource coalition = {\n\t\tid = 1234\n\t\tstate = active\n\t}\n}\n"
+        check("launchd's job: its process and how many times it started", Server.job(printed) == Server.Job(loaded: true, pid: 6008, runs: 221))
+        check("launchd's job between two starts", Server.job("\tstate = waiting\n\truns = 3\n\tlast exit code = 1\n") == Server.Job(loaded: true, pid: nil, runs: 3))
+        // which copies of `claude rc` are the Kit's: its marker or the server screen's STY in the environment
+        check("a copy with the Kit's marker", Server.isCopy(environment: "123 /x/claude rc --permission-mode bypassPermissions PATH=/bin STTARK_KIT_SERVER=com.sttark.claude-rc TERM=screen"))
+        check("a copy an older Kit started, in the server's screen", Server.isCopy(environment: "123 /x/claude rc --permission-mode bypassPermissions STY=6008.claude-rc TERM=screen WINDOW=0"))
+        check("a person's own claude rc in a terminal is not", !Server.isCopy(environment: "123 /x/claude rc TERM=xterm-256color HOME=/Users/x"))
+        check("one in another screen is not", !Server.isCopy(environment: "123 /x/claude rc STY=777.kit-0e1262ba TERM=screen"))
+        check("a test copy's marker is not the Kit's", !Server.isCopy(environment: "123 /x/claude rc STTARK_KIT_SERVER=com.sttark.claude-rc-test STY=1.claude-rc-test"))
+        check("ps's elapsed time in seconds", Server.seconds("05:03") == 303 && Server.seconds("02:03:04") == 7384 && Server.seconds("1-02:03:04") == 93784)
 
         // isServer(): only a process that runs a server, not a line that mentions one
         check("claude rc", Server.isServer("/Users/x/.local/share/claude/stable/claude rc --permission-mode bypassPermissions"))
