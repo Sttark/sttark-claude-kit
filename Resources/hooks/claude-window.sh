@@ -109,10 +109,12 @@ win_lib=$(cat <<'JXA'
 var NAME = 'Claude', STEP = 22
 function win(i) { return obj('cwin', null, 'ID  ', D.descriptorWithInt32(Number(i))) }
 function alive(i) { try { return /^[0-9]+$/.test(String(i)) && get(prop('GNam', win(i))) === NAME } catch (e) { return false } }
-function named() {  // the ids of the windows with the Kit's name, front to back
-  var ids = (get(prop('ID  ', every('cwin'))) || []).map(String), names = get(prop('GNam', every('cwin'))) || []
-  return ids.filter(function (i, k) { return names[k] === NAME })
-}
+// The ids of the windows with the Kit's name, front to back. Each window's name is read by the window's id, never
+// from a second list beside the list of ids: a window that opens, closes or comes to the front between two lists
+// puts them in different orders, and then a name stands beside another window's id. (That gave a spare window's
+// place to another window once: its record was dropped and it was closed. It could as well have named one of the
+// person's own windows.)
+function named() { return (get(prop('ID  ', every('cwin'))) || []).map(String).filter(alive) }
 // A window's frame as [left, top, right, bottom]. Chrome gives and takes it as a QuickDraw rectangle: top, left,
 // bottom, right, each a 16-bit number.
 var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -217,13 +219,13 @@ function run(argv) {
     } catch (x) {}
   }
   var own = null, ours = []
-  try {
-    var ids = get(prop('ID  ', every('cwin'))) || [], vis = get(prop('pvis', every('cwin'))) || [],
-        names = get(prop('GNam', every('cwin'))) || []
-    for (var i = 0; i < ids.length; i++) {
-      if (names[i] === NAME) ours.push(String(ids[i]))
-      else if (own === null && vis[i] === true) own = ids[i]
-    }
+  try {   // each window's name and "visible" by the window's id: see named()
+    (get(prop('ID  ', every('cwin'))) || []).forEach(function (i) {
+      var nm
+      try { nm = get(prop('GNam', win(i))) } catch (e) { return }
+      if (nm === NAME) ours.push(String(i))
+      else if (own === null) try { if (get(prop('pvis', win(i))) === true) own = i } catch (e) {}
+    })
   } catch (e) {}
   var t0 = Date.now(), napp = 0, nwin = 0, last = 0, seen = [], state = ''
   var w = make('cwin')
