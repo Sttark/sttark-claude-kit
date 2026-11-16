@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// The Kit's window: Sessions (the session inbox and one session's settings), Archived (the archived sessions this
-/// Mac can bring back), Settings (every one-time setting), What's new and Events. It opens only when the person picks Open Sttark Claude Kit or a session in the menu, and only
+/// Mac can bring back), Usage (each session's share of your use in a period), Settings (every one-time setting),
+/// What's new and Events. It opens only when the person picks Open Sttark Claude Kit or a session in the menu, and only
 /// then does the app come to the front: nothing here opens, activates or takes the keyboard by itself.
 /// Colors are the brand tokens for light and dark, so the window follows the system look as it changes.
 final class KitWindow: NSObject, NSWindowDelegate {
@@ -32,6 +33,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
         if page == .news { model.markNewsSeen() }
         if page == .events { model.readEvents() }
         if page == .archived { Archived.refresh(olderThan: 30) }
+        if page == .usage { model.refreshUsage() }
         if sheet { model.openSheet() }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
@@ -73,6 +75,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
         ticks += 1
         if model.page == .settings && ticks % 10 == 0 { model.reloadFacts() }
         if model.page == .events { model.readEvents() }
+        if model.page == .usage && ticks % 20 == 0 { model.refreshUsage() }   // each minute: what the records gained
     }
 
     @objc func zoomIn() { model.zoom(by: 1) }
@@ -137,7 +140,7 @@ final class KitNSWindow: NSWindow {
 
 /// What the window shows, read from the shared state. The settings run commands, so they're read off the main thread.
 final class KitModel: ObservableObject {
-    enum Page: String { case sessions, archived, settings, news, events }
+    enum Page: String { case sessions, archived, usage, settings, news, events }
     @Published var page: Page = .sessions
     @Published var snap = Inbox.Snapshot()
     @Published var selected: String?
@@ -176,6 +179,13 @@ final class KitModel: ObservableObject {
     @Published var backNote: (ok: Bool, words: String, at: Date, id: String, title: String)? = nil
     /// Kit on your phone, as PhoneLink last said: Settings draws the Phone box from it at once.
     @Published var phone = PhoneLink.Status()
+    /// The Usage page: the scan's last result, the period, the selected session, all or the top 15, and whether a
+    /// scan runs now.
+    @Published var usageData = SessionUsage.Data()
+    @Published var usagePeriod: SessionUsage.Period = .week
+    @Published var usageSelected: String?
+    @Published var usageAll = false
+    @Published var usageReading = false
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
     var fixedFacts: MenuFacts?
@@ -213,6 +223,46 @@ final class KitModel: ObservableObject {
     }
 
     var archivedItem: Archived.Item? { archived.items.first { $0.id == archivedSelected } }
+
+    /// The Usage page's period, added up; the selected session stays when it is in the new period, else the biggest.
+    var usageReport: SessionUsage.Report {
+        let s = SessionUsage.span(usagePeriod)
+        return SessionUsage.report(usageData, from: s.from, to: s.to)
+    }
+
+    /// The last scan's result at once, then a scan of what the records gained (at most every 30 seconds).
+    func refreshUsage() {
+        usageData = SessionUsage.read()
+        pickUsage()
+        usageReading = true
+        SessionUsage.refresh(olderThan: 30) { [weak self] in
+            guard let self else { return }
+            self.usageReading = false
+            self.usageData = SessionUsage.read()
+            self.pickUsage()
+        }
+    }
+
+    func pickUsage() {
+        let lines = usageReport.lines
+        if usageSelected == nil || !lines.contains(where: { $0.id == usageSelected }) { usageSelected = lines.first?.id }
+    }
+
+    func setUsagePeriod(_ p: SessionUsage.Period) {
+        usagePeriod = p
+        usageAll = false
+        pickUsage()
+    }
+
+    /// Custom's two days, as dates for the pickers.
+    var customFrom: Binding<Date> {
+        Binding(get: { SessionUsage.date(SessionUsage.span(self.usagePeriod).from) ?? Date() },
+                set: { d in self.setUsagePeriod(SessionUsage.Period(key: SessionUsage.day(d) + ".." + SessionUsage.span(self.usagePeriod).to) ?? .week) })
+    }
+    var customTo: Binding<Date> {
+        Binding(get: { SessionUsage.date(SessionUsage.span(self.usagePeriod).to) ?? Date() },
+                set: { d in self.setUsagePeriod(SessionUsage.Period(key: SessionUsage.span(self.usagePeriod).from + ".." + SessionUsage.day(d)) ?? .week) })
+    }
 
     /// Bring it back: the session goes back to the Claude app's list, and the Sessions page, on the same link.
     /// One that is not archived any more is in the list already, so that note is not a problem either.
@@ -374,6 +424,8 @@ enum K {
     static let warnText = Color(nsColor: Tokens.warnText), warnMark = Color(nsColor: Tokens.warnMark)
     static let infoMark = Color(nsColor: Tokens.infoMark), track = Color(nsColor: Tokens.track)
     static let infoText = Color(nsColor: Tokens.infoText), infoSoft = Color(nsColor: Tokens.infoSoft), infoBorder = Color(nsColor: Tokens.infoBorder)
+    /// Usage by session's data colors: a session's own use in the brand's blue, its agents' in a tint of it.
+    static let session = Color(nsColor: Tokens.infoMark), agents = Color(nsColor: Tokens.agents)
 
     /// The window's zoom (View > Zoom In, Zoom Out, Actual Size): every size in the window is multiplied by it.
     static var zoom: CGFloat = {
@@ -443,6 +495,7 @@ struct KitRoot: View {
                 switch model.page {
                 case .sessions: SessionsPage(model: model)
                 case .archived: ArchivedPage(model: model)
+                case .usage: UsagePage(model: model)
                 case .settings: SettingsPage(model: model)
                 case .news: NewsPage(model: model)
                 case .events: EventsPage(model: model)
@@ -469,6 +522,7 @@ struct Sidebar: View {
             Color.clear.frame(height: max(52, K.z(52)))   // the window's buttons
             nav(.sessions, "Sessions", "tray", badge: model.snap.count(.needs), strong: true)
             nav(.archived, "Archived", "archivebox")
+            nav(.usage, "Usage", "chart.bar")
             nav(.settings, "Settings", "gearshape")
             nav(.news, "What's new", "sparkles", text: Updater.version == "?" ? "" : Updater.version)
             nav(.events, "Events", "list.bullet.rectangle")
@@ -489,6 +543,7 @@ struct Sidebar: View {
             if p == .news { model.markNewsSeen() }
             if p == .events { model.readEvents() }
             if p == .archived { Archived.refresh(olderThan: 30) }
+            if p == .usage { model.refreshUsage() }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 13 * K.zoom)).foregroundColor(on ? K.greenText : K.steel).frame(width: K.z(18))
@@ -573,6 +628,18 @@ struct Header: View {
                 .frame(width: K.z(220), height: K.z(28))
                 .background(K.card, in: RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(K.gray))
+            } else if model.page == .usage {
+                // the period: a choice among a few, the chosen one in ink
+                let tags: [(SessionUsage.Period, String)] = [(.today, "Today"), (.week, "7 days"), (.month, "30 days")]
+                Segments(options: tags.map { ($0.0.key, $0.1) } + [("custom", "Custom")],
+                         value: model.usagePeriod.isCustom ? "custom" : model.usagePeriod.key) { k in
+                    if k == "custom" {
+                        let s = SessionUsage.span(model.usagePeriod)
+                        if !model.usagePeriod.isCustom { model.setUsagePeriod(.custom(s.from, s.to)) }
+                    } else if let p = SessionUsage.Period(key: k) { model.setUsagePeriod(p) }
+                }
+                .frame(width: K.z(320))
+                .accessibilityLabel("Period")
             }
         }
         .padding(.leading, K.z(20))
@@ -582,7 +649,7 @@ struct Header: View {
 
     var title: String {
         switch model.page {
-        case .sessions: return "Sessions"; case .archived: return "Archived"; case .settings: return "Settings"
+        case .sessions: return "Sessions"; case .archived: return "Archived"; case .usage: return "Usage by session"; case .settings: return "Settings"
         case .news: return "What's new"; case .events: return "Events"
         }
     }
@@ -593,6 +660,10 @@ struct Header: View {
             guard let at = model.archived.at else { return "Reading the archived sessions…" }
             let old = -at.timeIntervalSinceNow > 15 * 60
             return "Newest first · read \(Limit.clock(at))" + (old ? ", may be old" : "")
+        case .usage:
+            let s = SessionUsage.span(model.usagePeriod)
+            let read = model.usageData.at.map { " · read " + Limit.clock($0) } ?? ""
+            return "Claude Code on this Mac · " + SessionUsage.spanWords(from: s.from, to: s.to) + read
         case .settings: return "Saved as you change them"
         case .news: return "What changed in the Kit in the last 7 days, newest first"
         case .events:

@@ -131,6 +131,9 @@ final class Controller: NSObject, NSMenuDelegate {
         // the Archived page's list: keep() writes it where the server runs; with no server, read it every 10 minutes
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) { Archived.refresh(olderThan: 540) }
         Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Archived.refresh(olderThan: 540) }
+        // Usage by session: read the sessions' records once in the background, so the page opens at once; each later
+        // read takes only what they gained
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120) { SessionUsage.refresh(olderThan: 3600) }
         LocalSessions.scan()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in LocalSessions.scan() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
