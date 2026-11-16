@@ -89,6 +89,11 @@ import SwiftUI
         for look in [false, true] where !look || dark != nil {
             Shot.phoneStates(dark: look, to: (look ? dark! : "docs") + "/settings-phone.png")
         }
+        // the What's new note's picture: the Phone box at the new address with no phone that gets notices yet, as a
+        // linked Mac shows it after the move until the person turns notices on again
+        for look in [false, true] {
+            Shot.phoneBox(Sample.phone[3].1, dark: look, to: "whats-new/kit-new-address" + (look ? "-dark" : "") + ".png")
+        }
         model.selected = model.snap.rows.first { $0.wait?.kind == "email-reply" }?.id
         let w = Shot.window(model)
         for look in [false, true] where !look || dark != nil {
@@ -207,6 +212,18 @@ import SwiftUI
             }
         }
         .padding(20).frame(width: 480).background(K.card).font(K.font(13)).foregroundColor(K.ink)
+        shoot(view, dark: dark, to: path)
+    }
+
+    /// One state of the Phone box, alone, 440 points wide: a What's new note's picture.
+    static func phoneBox(_ s: PhoneLink.Status, dark: Bool, to path: String) {
+        let view = Box { PhoneRow(status: s, link: {}, toggle: {}) }
+            .padding(16).frame(width: 440).background(K.card).font(K.font(13)).foregroundColor(K.ink)
+        shoot(view, dark: dark, to: path)
+    }
+
+    /// A view in a window of its own, off the screen, captured at its fitting size; switches as they really are.
+    static func shoot<V: View>(_ view: V, dark: Bool, to path: String) {
         let host = NSHostingView(rootView: view)
         let size = host.fittingSize
         let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)

@@ -13,7 +13,8 @@
 // checkout of feature/phone-link before it merges) on a free port, with a test database and DEV_FAKE_USER, never the
 // live one: as a Mac and as a phone page, the link, the signed challenge, the snapshot, watching, the archived list,
 // an action of each kind (STTARK_WAIT_DRY, STTARK_EFFORT_DRY: nothing is started or sent to a session), bye, a
-// reconnect after a restart and after a network change, STTARK_PHONE_DRY, the removal on the phone and turning it off.
+// reconnect after a restart and after a network change, the server at a new address (the same link, no new link),
+// STTARK_PHONE_DRY, the removal on the phone and turning it off.
 // Then where a Needs you reminder goes (Waiting.notifyDue, PhoneLink.reminderPlace; phone/DESIGN.md section 5): this
 // Mac's notice when the person is at the Mac, else remind to the server when a phone can get a push, else this Mac's
 // notice, never both; none for a session that sent a Reach me by message in the last 30 minutes (notify.py's
@@ -377,15 +378,16 @@ import Foundation
 
         // the server's address: one setting, and STTARK_PHONE_URL for tests; a path is allowed
         unsetenv("STTARK_PHONE_URL")
-        check("the address: building.sttark.com/kit, a path: the API and the socket under it", PhoneLink.shown == "building.sttark.com/kit"
+        check("the address: kit.sttark.com, its own origin: the API and the socket at its root", PhoneLink.shown == "kit.sttark.com"
+              && PhoneLink.socketURL.absoluteString == "wss://kit.sttark.com/mac" && PhoneLink.url("api/mac/link").absoluteString == "https://kit.sttark.com/api/mac/link")
+        check("a link page on kit.sttark.com opens; one on another host, or at the first address, never does",
+              PhoneLink.page(from: ["link": "https://kit.sttark.com/link/abc", "poll": String(repeating: "a", count: 43), "code": "ABCD", "expires_at": 1_800_000_000])?.code == "ABCD"
+              && PhoneLink.page(from: ["link": "https://evil.example/link/x", "poll": String(repeating: "a", count: 43), "code": "ABCD"]) == nil
+              && PhoneLink.page(from: ["link": "https://building.sttark.com/kit/link/abc", "poll": String(repeating: "a", count: 43), "code": "ABCD"]) == nil)
+        setenv("STTARK_PHONE_URL", "https://building.sttark.com/kit/", 1)
+        check("an address with a path: the API and the socket under it", PhoneLink.shown == "building.sttark.com/kit"
               && PhoneLink.socketURL.absoluteString == "wss://building.sttark.com/kit/mac"
               && PhoneLink.url("api/mac/link").absoluteString == "https://building.sttark.com/kit/api/mac/link")
-        setenv("STTARK_PHONE_URL", "https://kit.sttark.com/", 1)
-        check("an address with no path: the API and the socket at its root", PhoneLink.shown == "kit.sttark.com"
-              && PhoneLink.socketURL.absoluteString == "wss://kit.sttark.com/mac" && PhoneLink.url("api/mac/link").absoluteString == "https://kit.sttark.com/api/mac/link")
-        setenv("STTARK_PHONE_URL", "https://building.sttark.com/kit/", 1)
-        check("a link page on another host is never opened", PhoneLink.page(from: ["link": "https://evil.example/link/x", "poll": String(repeating: "a", count: 43), "code": "ABCD"]) == nil
-              && PhoneLink.page(from: ["link": "https://building.sttark.com/kit/link/abc", "poll": String(repeating: "a", count: 43), "code": "ABCD", "expires_at": 1_800_000_000])?.code == "ABCD")
         setenv("STTARK_PHONE_URL", "http://127.0.0.1:9", 1)
         check("a local copy: ws, not wss", PhoneLink.socketURL.absoluteString == "ws://127.0.0.1:9/mac" && PhoneLink.shown == "127.0.0.1:9")
 
@@ -426,7 +428,7 @@ import Foundation
               && event("not connected: another copy of the Kit on this Mac took over the connection; the Kit tries again in a minute")?.detail == ["The Kit tries again in a minute."])
         check("Events: removed and refused are warnings; connected and bye are routine",
               event("removed from your phone (4401): the Kit dropped this Mac's key")?.level == .warn && event("refused (4403): not on the roster")?.level == .warn
-              && event("connected to building.sttark.com/kit")?.routine == true && event("bye: sleep")?.text == "Told 127.0.0.1:9 that this Mac sleeps")
+              && event("connected to kit.sttark.com")?.routine == true && event("bye: sleep")?.text == "Told 127.0.0.1:9 that this Mac sleeps")
         check("Events: linked, and the link page with its code", event("linked to kip.valve@sttark.com")?.text == "This Mac is linked to your phone"
               && event("link page opened, code KXRT, until 11:40 AM")?.detail == ["This Mac's code: KXRT.", "It works until 11:40 AM."])
         let r = event("reminder to your phone: Order page login")
@@ -859,7 +861,8 @@ enum E2E {
     }
 
     /// `node server.mjs`: the built app, a test database, the made-up person, this port, no secrets.
-    static func start() -> Bool {
+    /// Starts the server; `at` is the address it serves at (APP_ORIGIN), the test's own unless given.
+    static func start(at appOrigin: String? = nil) -> Bool {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", "node server.mjs & n=$!; trap 'kill $n 2>/dev/null; wait $n; exit 0' TERM INT; "
@@ -871,7 +874,7 @@ enum E2E {
         env["HOST"] = "127.0.0.1"
         env["KIT_DB"] = db.path
         env["DEV_FAKE_USER"] = person
-        env["APP_ORIGIN"] = origin
+        env["APP_ORIGIN"] = appOrigin ?? origin
         env["NODE_ENV"] = "development"   // server.mjs makes it production unless told, and DEV_FAKE_USER is only for a local run
         p.environment = env
         if !FileManager.default.fileExists(atPath: serverLog.path) { FileManager.default.createFile(atPath: serverLog.path, contents: nil) }
@@ -1206,6 +1209,29 @@ enum E2E {
         let fast = wait(5) { PhoneLink.status.connected }
         check("a network change connects at once (in \(String(format: "%.1f", -t0.timeIntervalSinceNow)) s), not after the \(Int(waitWas)) s wait",
               fast && -t0.timeIntervalSinceNow < Double(waitWas) - 1)
+
+        // ---- the server moves to a new address (as building.sttark.com/kit to kit.sttark.com): the same server,
+        // database and key, so the Mac keeps its link and connects there with no new link ----
+        let linkedBefore = PhoneLink.readSaved()
+        let pagesBefore = opened.count, connectsBefore = serverSaid("connected, Kit")
+        let moved = "http://localhost:\(port)"
+        stop()
+        wait(5) { !PhoneLink.status.connected }
+        setenv("STTARK_PHONE_URL", moved, 1)
+        guard start(at: moved) else { check("the server starts at its new address", false); return }
+        PhoneLink.networkChanged(up: true)
+        check("a new address: the Mac connects there with the same Mac id and key, no new link and no link page",
+              wait(20) { PhoneLink.status.connected } && PhoneLink.readSaved() == linkedBefore && fm.fileExists(atPath: keyFile.path)
+              && opened.count == pagesBefore && serverSaid("connected, Kit") == connectsBefore + 1)
+        check("the Kit says the new address: in Settings and in the log", PhoneLink.status.words.hasPrefix("Your sessions show at localhost:\(port),")
+              && ((try? String(contentsOf: logURL, encoding: .utf8)) ?? "").contains("connected to localhost:\(port)"))
+        // back to the test's own address for the rest
+        stop()
+        wait(5) { !PhoneLink.status.connected }
+        setenv("STTARK_PHONE_URL", origin, 1)
+        guard start() else { check("the server starts again", false); return }
+        PhoneLink.networkChanged(up: true)
+        check("back at the test's address: connected again, still the same link", wait(20) { PhoneLink.status.connected } && PhoneLink.readSaved() == linkedBefore)
 
         // ---- removed on the phone: 4401, the key dropped, and it does not link again by itself ----
         let page3 = Page()
