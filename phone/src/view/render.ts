@@ -454,7 +454,7 @@ function archivedList(k: Kit, ui: Ui): string {
             .map(
               (a) =>
                 `<li><a class="row" href="${esc(L(k, `/archived/${enc(a.item.cse)}`))}"><div class="row-main"><div class="name-line"><span class="name">${esc(a.item.title)}</span></div>` +
-                `<div class="sub">${multi(k) ? `<span class="mac">${esc(a.mac.name)}</span> · ` : ''}<span class="folder">${esc(a.item.folder)}</span></div></div>` +
+                (multi(k) ? `<div class="sub"><span class="mac">${esc(a.mac.name)}</span></div>` : '') + `</div>` +
                 `<span class="time">${a.item.archived_at ? esc(clock(a.item.archived_at, a.tz)) : ''}</span></a>${openLink(a.item.url, '', false)}</li>`,
             )
             .join('') +
