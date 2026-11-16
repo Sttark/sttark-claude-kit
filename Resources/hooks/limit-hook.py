@@ -64,6 +64,8 @@ BACKOFF = 120    # seconds to wait after a failed usage read, doubling each time
 BACKOFF_MAX = 900  # ... up to 15 minutes
 CALM = 1800      # a good read keeps the count of failed reads until this long after the last one, so a server that
                  # allows a read only now and then backs the reads off instead of failing every few minutes
+NEAR_CALM = 6 * 3600  # near a limit, the 15-second reads start again only this long after the last failed read: the
+                 # server refuses them within minutes, so with CALM alone they brought a 429 every 33 minutes
 FENCE = 3600     # older copies of this script back off while `retry_at` is ahead; every write keeps it this far ahead,
                  # so a wait loop still running old code never reads the usage endpoint again (it uses the cache)
 STALE = 600      # a wait loop that isn't the reader reads the endpoint itself only when the cache is this old
@@ -165,17 +167,30 @@ def calm(c, now=None):
     return {'fails': c.get('fails', 0), 'failed_at': f} if f and now - f < CALM else {}
 
 
+def kept(c, now=None):
+    """What a good read keeps of the failed reads: calm(c), and the last failure's time until NEAR_CALM after it."""
+    now = time.time() if now is None else now
+    f = c.get('last_failed_at') or c.get('failed_at', 0)
+    return {**calm(c, now), **({'last_failed_at': f} if f and now - f < NEAR_CALM else {})}
+
+
 def good_for(c, u, max_age):
-    """How long the cached read is good for: max_age when given, else a minute (15 seconds near a limit, unless a
-    read failed in the last CALM: then FRESH_SLOW, so frequent reads don't bring the next 429)."""
+    """How long the cached read is good for: max_age when given, else FRESH. Near a limit FRESH_NEAR, but only when no
+    read failed in the last NEAR_CALM; in the CALM after a failed read FRESH_SLOW. So frequent reads don't bring the
+    next 429."""
     if max_age is not None:
         return max_age
-    return FRESH_SLOW if calm(c) else fresh_for(u)
+    if calm(c):
+        return FRESH_SLOW
+    f = fresh_for(u)
+    if f < FRESH and time.time() - (c.get('last_failed_at') or 0) < NEAR_CALM:
+        return FRESH
+    return f
 
 
 def usage(max_age=None, wait=0):
-    """The latest usage read, from the cache when it's no older than max_age (by default a minute, 15 seconds
-    near a limit). One process reads at a time; the others use the cache, or, with `wait`, wait up to that
+    """The latest usage read, from the cache when it's no older than max_age (by default good_for: 2 minutes, 15
+    seconds near a limit). One process reads at a time; the others use the cache, or, with `wait`, wait up to that
     many seconds for the read in progress (so the two hooks of one tool call decide on the same read). After a
     failed read (a 429, say) no process reads again until the back-off ends (Retry-After, or 2 min doubling to
     15 min), and every caller gets the last good read meanwhile. None when there's no read at all. With
@@ -218,13 +233,13 @@ def usage(max_age=None, wait=0):
                 except (TypeError, ValueError):
                     after = 0
             wait_s = max(after, min(BACKOFF * 2 ** (fails - 1), BACKOFF_MAX))
-            c.update(fails=fails, failed_at=time.time(), next_read=time.time() + wait_s)
+            c.update(fails=fails, failed_at=time.time(), last_failed_at=time.time(), next_read=time.time() + wait_s)
             if fails == 1 or wait_s >= BACKOFF_MAX:
                 log(f'usage read failed: {e}; next read in {wait_s // 60 or 1} min, '
                     + ('using the last read' if u else 'no read yet'))
             put(c)
             return u
-        put({'at': time.time(), 'usage': u, **calm(c)})
+        put({'at': time.time(), 'usage': u, **kept(c)})
         return u
 
 
