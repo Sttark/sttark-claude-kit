@@ -424,24 +424,14 @@ def bring_back(w, prompt=None):
         fcntl.flock(lock, fcntl.LOCK_EX)
         e.quit_screen('kit-' + cid[:8])  # every copy: `screen -S <name>` acts on none when two have the name
         e.point_at(tp, cse, e.waiting_since_reply(e.chat_events(cse))[0])
-        home = os.path.expanduser('~')
-        stable = home + '/.local/share/claude/stable/claude'
-        claude = stable if os.access(stable, os.X_OK) else home + '/.local/bin/claude'
-        env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
-               'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
-               'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
-        first = ''
+        pfile = ''
         if prompt:
             pf = os.path.join(KIT, 'wait-prompts')
             os.makedirs(pf, exist_ok=True)
             pfile = os.path.join(pf, w['id'] + '.txt')
             with open(pfile, 'w') as f:
                 f.write(prompt)
-            first = f" \"$(cat '{pfile}')\""
-        cwd = w.get('cwd') or home
-        subprocess.run(['/usr/bin/screen', '-dmS', 'kit-' + cid[:8], '/bin/zsh', '-lc',
-                        f"cd '{cwd}' && exec '{claude}' --resume {cid} --remote-control --permission-mode "
-                        f"bypassPermissions{first}"], env=env)
+        e.start_screen(cid, w.get('cwd') or '', first=pfile)  # in its folder, marked trusted first, as every start
         now = time.time()
 
         def alone(s):

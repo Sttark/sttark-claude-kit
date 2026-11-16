@@ -26,7 +26,7 @@ Test variables: STTARK_KIT_DIR and STTARK_KIT_LOG (as the other hooks), STTARK_C
 STTARK_DESKTOP_SESSIONS (the desktop app's session records), STTARK_MIGRATE_DRY=1 (decide and log, but start,
 stop and rename nothing; the new link is made up).
 """
-import calendar, fcntl, glob, importlib.util, json, os, re, shlex, signal, subprocess, sys, time
+import calendar, fcntl, glob, importlib.util, json, os, re, signal, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.realpath(__file__))  # claude-migrate is a link to this file
 spec = importlib.util.spec_from_file_location('effort', os.path.join(HERE, 'effort-hook.py'))
@@ -214,57 +214,23 @@ def links(transcript):
         return []
 
 
-def screen_text(name):
-    path = os.path.join(KIT, f'.migrate-{name}.txt')
-    try:
-        subprocess.run(['/usr/bin/screen', '-S', name, '-p', '0', '-X', 'hardcopy', path], timeout=10)
-        for _ in range(10):
-            time.sleep(0.2)
-            if os.path.exists(path):
-                with open(path, 'rb') as f:
-                    t = f.read().decode('utf-8', 'replace')
-                if t.strip():
-                    return t
-        return ''
-    except Exception:
-        return ''
-    finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-
-
 def launch(x):
     """Start the conversation with Remote Control in a screen named as keep() names the sessions it starts on
-    their own (kit-<first 8 of the id>), in a clean environment so nothing from the app or another session leaks
-    in (that turns transcript saving off). Returns the screen's name."""
-    cid = x['id']
-    name = 'kit-' + cid[:8]
-    effort.quit_screen(name)  # every copy: `screen -S <name>` acts on none when two have the name
-    stable = os.path.expanduser('~/.local/share/claude/stable/claude')
-    claude = stable if os.access(stable, os.X_OK) else effort.CLAUDE
-    home = os.path.expanduser('~')
-    env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
-           'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
-           'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
-    cwd = x['cwd'] if os.path.isdir(x['cwd']) else home
-    cmd = (f"cd {shlex.quote(cwd)} && exec {shlex.quote(claude)} --resume {cid} --remote-control "
-           f"--permission-mode bypassPermissions" + (f" --model {shlex.quote(x['model'])}" if x.get('model') else ''))
-    subprocess.run(['/usr/bin/screen', '-dmS', name, '/bin/zsh', '-lc', cmd], env=env, stdin=subprocess.DEVNULL,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # the app reads this command's output to its end
-    return name
+    their own (kit-<first 8 of the id>), in its folder, marked trusted first, with the model it ran on: the Kit's
+    one way to start a chat by itself (start_screen() in effort-hook.py). Returns the screen's name."""
+    return effort.start_screen(x['id'], x['cwd'], x.get('model') or '')
 
 
 def wait_link(x, name, before, wait=90):
-    """The new link, once Claude Code records it. Claude Code first asks whether to trust a folder it hasn't
-    been trusted in; the session already ran there, so the Kit answers yes."""
+    """The new link, once Claude Code records it. Claude Code asks first whether to trust a folder it has no trust
+    for: launch() marks the session's folder trusted, so it doesn't, except in the home folder, whose trust Claude
+    Code keeps for one session only. The session already ran there, so the Kit answers yes on the screen."""
     trusted = False
     for i in range(wait // 2):
         ids = links(x['transcript'])
         if len(ids) > before and ids[-1]:
             return ids[-1]
-        if not trusted and i % 2 == 1 and 'trust this folder' in screen_text(name):
+        if not trusted and i % 2 == 1 and effort.asks_trust(name):
             subprocess.run(['/usr/bin/screen', '-S', name, '-p', '0', '-X', 'stuff', '\x1b[B'])
             time.sleep(0.5)
             subprocess.run(['/usr/bin/screen', '-S', name, '-p', '0', '-X', 'stuff', '\r'])

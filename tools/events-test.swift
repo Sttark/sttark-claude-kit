@@ -82,6 +82,24 @@ import Foundation
         check(sev.contains { $0.kind == .restart && $0.level == .warn && $0.text == "Sessions on the server wait until it connects" },
               "sessions that wait for the server read in plain words")
 
+        // A session started on its own: its folder trusted in Claude Code first, and a start that waits at the trust question
+        let trust = [
+            at(4) + " trust  /Users/x/src/airpark home trusted in Claude Code, so a chat that ran there starts without its safety question",
+            at(3) + " trust  /Users/x/src/other could not be marked trusted in Claude Code: PermissionError(13, 'Permission denied')",
+            at(2) + " keep   cse_01AAAtest1 \"Press color\" won't start, and starting it on a new link didn't work either - it waits in kit-6850f368 at Claude Code's question whether to trust /Users/x/src/airpark home",
+        ]
+        let tlog = dir.appendingPathComponent("trust.log")
+        try! (trust.joined(separator: "\n") + "\n").write(to: tlog, atomically: true, encoding: .utf8)
+        let tev = Events.read(kitLog: tlog, bypassLog: dir.appendingPathComponent("none.log"), names: names)
+        check(tev.contains { $0.kind == .restart && $0.routine && $0.text == "Trusted a session's folder in Claude Code"
+                             && $0.detail.first == "Folder: /Users/x/src/airpark home" }, "a folder trusted for a session is a routine row, with the folder")
+        check(tev.contains { $0.level == .warn && $0.text == "Could not trust a session's folder in Claude Code"
+                             && $0.detail.first == "Folder: /Users/x/src/other" }, "a folder that could not be trusted is a warning")
+        let stuck = tev.first { $0.name == "Press color" }
+        check(stuck?.text == "Won't start, and starting it on a new link didn't work either"
+              && stuck?.detail.contains("Why: it waits in kit-6850f368 at Claude Code's question whether to trust /Users/x/src/airpark home") == true,
+              "a start that waits at the trust question says why")
+
         // Trim: 30 days, lines with no date go with the dated line before them, a writer that holds the file open
         // in append mode (as launchd does) goes on at the new end, and a second trim finds nothing to cut.
         var s = ""
