@@ -668,7 +668,7 @@ def main():
         set_prod(s['hooks'], on)
         save(s, before, None)
         state_word = 'on' if on else 'off'
-        print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}, daylog {state_word}, rotation {state_word}, prod {state_word}')
+        print((word + '; ' if word else '') + f'inline {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}, daylog {state_word}, rotation {state_word}, prod {state_word}')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)

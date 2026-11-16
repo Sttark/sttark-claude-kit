@@ -168,7 +168,7 @@ install()
 check('install, switch off: no uicheck entry', groups() == [])
 check('--status uicheck false', json.loads(install('--status'))['uicheck'] is False)
 out = install('--orchestrator', 'on')
-check('--orchestrator on: output names uicheck', out.endswith('guard on, subrules on, uicheck on, browser on, daylog on, rotation on, prod on'))
+check('--orchestrator on: output names uicheck', out.endswith('inline on, subrules on, uicheck on, browser on, daylog on, rotation on, prod on'))
 check('--orchestrator on: one entry, matcher implementer, command quoted',
       len(groups()) == 1 and groups()[0]['matcher'] == 'implementer'
       and groups()[0]['hooks'][0]['command'].startswith('"') and groups()[0]['hooks'][0]['command'].endswith('ui-check-guard.py"'))
