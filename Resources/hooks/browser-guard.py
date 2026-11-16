@@ -24,15 +24,15 @@ UserPromptSubmit: when the person asks for Claude in Chrome by name ("use Claude
 every call of that session through, its agents' calls too (they come with the session's id). Claude can't do
 this for itself: only a message typed to the session counts.
 
-A tab for each agent: an agent's commands run in the session's own process, so claude-window cannot tell one agent
-from the next. For each Bash or Monitor command of an agent (the input has agent_id), the hook answers with
+A window for each agent: an agent's commands run in the session's own process, so claude-window cannot tell one
+agent from the next. For each Bash or Monitor command of an agent (the input has agent_id), the hook answers with
 updatedInput: the same command with "export CLAUDE_WINDOW_AGENT=<agent id>; " in front. claude-window then gives
-that agent a tab of its own in the session's window, also when a script of the agent calls it. The added export
-needs approval where a session asks before commands, and auto mode can deny a command a hook changed, so the hook
-adds it only where no prompt can reach the person: in Bypass permissions, or in Manual on a Remote Control server
-whose prompts the Kit's bypass hook answers (bypass-hook.sh; that session moves to Bypass at its first prompt).
-In every other session the agents share the session's tab, as before.
-SubagentStop: the agent's tab closes (claude-window agent-done), when it has one.
+that agent a Chrome window of its own, also when a script of the agent calls it. The added export needs approval
+where a session asks before commands, and auto mode can deny a command a hook changed, so the hook adds it only
+where no prompt can reach the person: in Bypass permissions, or in Manual on a Remote Control server whose prompts
+the Kit's bypass hook answers (bypass-hook.sh; that session moves to Bypass at its first prompt). In every other
+session the agents share the session's window and tab, as before.
+SubagentStop: the agent's window goes back to the spare ones (claude-window agent-done), when it has one.
 
 The hook reads claude_window from the state file on each call and lets everything through when that switch
 is off. On any error it lets the call through. Each deny and each opt-in is logged to
@@ -268,7 +268,7 @@ def bypass_ahead():
 
 
 def agent_tabs(data):
-    """True when each agent of this session gets a tab of its own: no prompt can come from the added export."""
+    """True when each agent of this session gets a window of its own: no prompt can come from the added export."""
     mode = data.get('permission_mode') or ''
     if mode == 'bypassPermissions':
         return True
@@ -307,9 +307,11 @@ def on_tool(data):
 
 
 def on_agent_stop(data):
-    """The agent stopped: close its tab in the Claude window, when it has one."""
+    """The agent stopped: its Claude window goes back to the spare ones, when it has one (or its tab closes, when
+    it has a tab in its session's window from before each agent had its own)."""
     agent = data.get('agent_id') or ''
-    if not AGENT_ID.fullmatch(agent) or not glob.glob(os.path.join(DIR, 'claude-window-tabs', '*.' + agent)):
+    if not AGENT_ID.fullmatch(agent) or not any(glob.glob(os.path.join(DIR, d, '*.' + agent))
+                                                for d in ('claude-window-tabs', 'claude-window-wins')):
         return
     subprocess.run(['/bin/zsh', os.path.join(HERE, 'claude-window.sh'), 'agent-done', agent],
                    capture_output=True, timeout=12)

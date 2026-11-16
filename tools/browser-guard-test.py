@@ -236,7 +236,7 @@ state(claude_window=False, sessions={})
 check('switch off: nothing added', rewrite(call()) is None)
 state(claude_window=True, sessions={})
 
-# --- the agent stopped: its tab closes, through claude-window agent-done, only when it has a tab ---
+# --- the agent stopped: its window goes back, through claude-window agent-done, only when it has a tab or a window ---
 HOOKS2 = os.path.join(T, 'hooks2')
 os.makedirs(HOOKS2)
 shutil.copy(HOOK, HOOKS2)
@@ -255,6 +255,9 @@ os.makedirs(os.path.join(KIT, 'claude-window-tabs'))
 open(os.path.join(KIT, 'claude-window-tabs', f'{SID}.{AG}'), 'w').write('1 2 3\n')
 check('agent stopped, with a tab: claude-window agent-done <its id>', stop(AG) == f'agent-done {AG}\n', stop(AG))
 check('another agent stopped: claude-window is not run again', stop('abc') == f'agent-done {AG}\nagent-done {AG}\n')
+os.makedirs(os.path.join(KIT, 'claude-window-wins'))
+open(os.path.join(KIT, 'claude-window-wins', f'{SID}.w1nd0w'), 'w').write('3 2\n')
+check('agent stopped, with a window and no tab: claude-window agent-done <its id>', stop('w1nd0w').endswith('agent-done w1nd0w\n'), stop('w1nd0w'))
 
 # --- never crash a tool call ---
 p = subprocess.run(['/usr/bin/python3', HOOK], input='not json', capture_output=True, text=True)
