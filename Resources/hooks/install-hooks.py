@@ -151,7 +151,7 @@ def set_limit(hooks, on):
 
 
 GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser-guard.py')
-GUARD_MATCHER = 'Bash|mcp__claude-in-chrome__.*|mcp__Control_Chrome__.*'
+GUARD_MATCHER = 'Bash|Monitor|mcp__claude-in-chrome__.*|mcp__Control_Chrome__.*'
 
 
 def is_guard(cmd):
@@ -160,14 +160,16 @@ def is_guard(cmd):
 
 def set_guard(hooks, on):
     """Before Bash and the Claude in Chrome and Control Chrome tools: stop steps that open or bring forward the
-    person's own Chrome while "Claude window in Chrome" is on. On every message: the person's opt-in."""
-    for event in ('PreToolUse', 'UserPromptSubmit'):
+    person's own Chrome while "Claude window in Chrome" is on, and give each agent's commands the agent's id, so
+    claude-window gives each agent its own tab. On every message: the person's opt-in. When an agent stops: its
+    tab closes."""
+    for event in ('PreToolUse', 'UserPromptSubmit', 'SubagentStop'):
         groups = hooks.get(event, [])
         for g in groups:
             g['hooks'] = [h for h in g.get('hooks', []) if not is_guard(h.get('command', ''))]
         groups = [g for g in groups if g.get('hooks')]
         if on:
-            g = {'hooks': [{'type': 'command', 'command': f'"{GUARD}"', 'timeout': 10}]}
+            g = {'hooks': [{'type': 'command', 'command': f'"{GUARD}"', 'timeout': 15 if event == 'SubagentStop' else 10}]}
             if event == 'PreToolUse':
                 g = dict(matcher=GUARD_MATCHER, **g)
             groups.append(g)

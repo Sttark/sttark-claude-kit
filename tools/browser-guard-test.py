@@ -2,7 +2,10 @@
 """Tests of the browser guard (Resources/hooks/browser-guard.py), all on copies: a temp state folder and log,
 and a temp HOME for install-hooks.py. It feeds the hook the JSON Claude Code sends (a main session and a
 subagent), and checks each step it must stop and each one it must let through, with the switch off, and after
-the person asks for Claude in Chrome by name. Nothing real is read or written, and no model is called.
+the person asks for Claude in Chrome by name. It also checks the agent's id that the hook puts in front of an
+agent's commands (so claude-window gives each agent its own tab): in which sessions, and never for the session
+itself; and the step when an agent stops, with a stand-in for claude-window. Nothing real is read or written, and
+no model is called.
 Prints each case; exits 1 if any fails.
 Run: /usr/bin/python3 tools/browser-guard-test.py"""
 import json, os, shutil, subprocess, sys, tempfile, time
@@ -179,6 +182,80 @@ state(claude_window=False)
 prompt('use Claude in Chrome', sid=OTHER)
 check('switch off: no opt-in written', 'chrome_ok' not in json.load(open(STATE)))
 
+# --- a tab for each agent: the agent's id goes in front of its commands, only where no prompt can come from it ---
+state(claude_window=True, sessions={})
+AG = 'a91f3c02deadbeef'
+
+
+def rewrite(data, **env):
+    old = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
+    out = run(data)[0]
+    for k, v in old.items():
+        if v is None:
+            del os.environ[k]
+        else:
+            os.environ[k] = v
+    try:
+        return json.loads(out)['hookSpecificOutput'].get('updatedInput', {}).get('command') if out else None
+    except (ValueError, KeyError):
+        return 'bad output: ' + out[:80]
+
+
+def call(cmd='ls -la', mode='bypassPermissions', agent=AG, name='Bash'):
+    return dict(tool(name, {'command': cmd, 'description': 'd'}, agent=agent), permission_mode=mode)
+
+
+want = f'export CLAUDE_WINDOW_AGENT={AG}; ls -la'
+check('agent, Bypass permissions: its id goes in front', rewrite(call()) == want, rewrite(call()))
+out = json.loads(run(call())[0])['hookSpecificOutput']
+check('agent: other input kept, no permission decision', out['updatedInput'].get('description') == 'd' and 'permissionDecision' not in out, out)
+check('session itself: nothing added', rewrite(call(agent=None)) is None)
+check('agent, a Monitor command: its id goes in front', rewrite(call(name='Monitor')) == want)
+check('agent, a script it runs: its id goes in front', rewrite(call('python3 helper.py')) == f'export CLAUDE_WINDOW_AGENT={AG}; python3 helper.py')
+check('agent, command that has the id already: left as it is', rewrite(call(want)) is None)
+check('agent, an id that is not safe in a command: nothing added', rewrite(call(agent='a1;rm -rf x')) is None)
+for mode in ('default', 'bubble', 'acceptEdits', 'auto', 'plan', 'dontAsk', ''):
+    check(f'agent, mode {mode or "(none)"}, no Kit bypass hook: nothing added', rewrite(call(mode=mode)) is None)
+os.makedirs(os.path.join(HOME, '.claude'), exist_ok=True)
+json.dump({'hooks': {'PermissionRequest': [{'hooks': [{'type': 'command', 'command': '"/k/hooks/bypass-hook.sh"'}]}]}},
+          open(os.path.join(HOME, '.claude/settings.json'), 'w'))
+RCCHAIN, PLAIN = os.path.join(T, 'chain-rc'), os.path.join(T, 'chain-plain')
+open(RCCHAIN, 'w').write('/bin/sh -c hook\n/x/claude --print --sdk-url https://x\n/x/claude rc --permission-mode bypassPermissions\n')
+open(PLAIN, 'w').write('/bin/sh -c hook\n/x/claude\n-zsh\n')
+for mode in ('default', 'bubble', 'acceptEdits'):
+    check(f'agent, mode {mode}, on a server the bypass hook answers for: its id goes in front',
+          rewrite(call(mode=mode), STTARK_GUARD_CHAIN=RCCHAIN) == want)
+check('agent, auto mode on that server: nothing added', rewrite(call(mode='auto'), STTARK_GUARD_CHAIN=RCCHAIN) is None)
+check('agent, Manual in a session the bypass hook does not answer for: nothing added',
+      rewrite(call(mode='default'), STTARK_GUARD_CHAIN=PLAIN) is None)
+os.remove(os.path.join(HOME, '.claude/settings.json'))
+os.rmdir(os.path.join(HOME, '.claude'))
+expect('agent: a step that opens Chrome is still stopped', call('open -a "Google Chrome"'), 'deny')
+state(claude_window=False, sessions={})
+check('switch off: nothing added', rewrite(call()) is None)
+state(claude_window=True, sessions={})
+
+# --- the agent stopped: its tab closes, through claude-window agent-done, only when it has a tab ---
+HOOKS2 = os.path.join(T, 'hooks2')
+os.makedirs(HOOKS2)
+shutil.copy(HOOK, HOOKS2)
+CALLS = os.path.join(T, 'window-calls')
+open(os.path.join(HOOKS2, 'claude-window.sh'), 'w').write('#!/bin/zsh\nprint -r -- "$*" >> "%s"\n' % CALLS)
+
+
+def stop(agent):
+    subprocess.run(['/usr/bin/python3', os.path.join(HOOKS2, 'browser-guard.py')], capture_output=True, text=True, timeout=20,
+                   input=json.dumps({'hook_event_name': 'SubagentStop', 'session_id': SID, 'agent_id': agent}))
+    return open(CALLS).read() if os.path.exists(CALLS) else ''
+
+
+check('agent stopped, no tab: claude-window is not run', stop(AG) == '')
+os.makedirs(os.path.join(KIT, 'claude-window-tabs'))
+open(os.path.join(KIT, 'claude-window-tabs', f'{SID}.{AG}'), 'w').write('1 2 3\n')
+check('agent stopped, with a tab: claude-window agent-done <its id>', stop(AG) == f'agent-done {AG}\n', stop(AG))
+check('another agent stopped: claude-window is not run again', stop('abc') == f'agent-done {AG}\nagent-done {AG}\n')
+
 # --- never crash a tool call ---
 p = subprocess.run(['/usr/bin/python3', HOOK], input='not json', capture_output=True, text=True)
 check('bad input: no output, exit 0', p.stdout == '' and p.returncode == 0, p.stdout + p.stderr)
@@ -195,8 +272,10 @@ st = json.load(open(os.path.join(HOME, '.claude/settings.json')))
 pre = [g for g in st['hooks']['PreToolUse'] if any('browser-guard.py' in h['command'] for h in g['hooks'])]
 ups = [g for g in st['hooks']['UserPromptSubmit'] if any('browser-guard.py' in h['command'] for h in g['hooks'])]
 check('install: one PreToolUse entry with the matcher',
-      len(pre) == 1 and pre[0].get('matcher') == 'Bash|mcp__claude-in-chrome__.*|mcp__Control_Chrome__.*', pre)
+      len(pre) == 1 and pre[0].get('matcher') == 'Bash|Monitor|mcp__claude-in-chrome__.*|mcp__Control_Chrome__.*', pre)
 check('install: one UserPromptSubmit entry', len(ups) == 1 and 'matcher' not in ups[0], ups)
+stops = [g for g in st['hooks'].get('SubagentStop', []) if any('browser-guard.py' in h['command'] for h in g['hooks'])]
+check('install: one SubagentStop entry', len(stops) == 1 and 'matcher' not in stops[0], stops)
 check('install: own hooks and settings kept', st.get('model') == 'x' and st['hooks']['PreToolUse'][0]['matcher'] == 'Edit')
 status = json.loads(subprocess.run(['/usr/bin/python3', INSTALL, '--status'], capture_output=True, text=True).stdout)
 check('install: --status says guard', status.get('guard') is True, status)
