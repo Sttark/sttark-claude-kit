@@ -77,10 +77,10 @@ FAMILY = [('fable', 'claude-fable-5-2'), ('mythos', 'claude-mythos-5-2'), ('opus
 # Kinds of work, and their factors: the hours of a person's work that one hour of Claude at work equals. The one place
 # they are set; the Usage page and the phone take them from by-session.json. Where the numbers come from, and how
 # the active time and the kind are found: docs/human-work.md.
-WORK = [('software', 'Software', 12.0),             # writes, tests and ships code
+WORK = [('software', 'Software', 15.0),             # writes, tests and ships code
         ('design', 'Design', 5.0),                  # CAD, drawings, renders, 3D models, plan sheets
-        ('admin', 'Browser and admin', 2.5),        # the browser, forms, orders, email, office tools
-        ('small', 'Small or mixed', 2.0)]           # short questions and quick fixes, or no clear kind
+        ('admin', 'Browser and admin', 5.5),        # the browser, forms, orders, email, office tools
+        ('small', 'Small or mixed', 2.5)]           # short questions and quick fixes, or no clear kind
 SMALL = 3600            # seconds: a session with less active time than this and no clear kind is small
 STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')   # the Kit's fixed copy of Claude Code
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')

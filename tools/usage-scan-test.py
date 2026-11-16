@@ -380,7 +380,7 @@ check('the scan reads them', code == 0)
 check('no prompt, reply, command or hook text in what it writes', not any(
     w in open(os.path.join(akit, 'usage', f)).read() for f in ('by-session.json', 'scan-cache.json') for w in ('MARKER', 'claude-limit-wait', 'gh pr')))
 check('the kinds of work and their factors go with it', [(k['id'], k['x']) for k in o['kinds']]
-      == [('software', 12.0), ('design', 5.0), ('admin', 2.5), ('small', 2.0)])
+      == [('software', 15.0), ('design', 5.0), ('admin', 5.5), ('small', 2.5)])
 check('usage limit: claude-limit-wait and the replies that only wait again count nothing (16 s of 1,111): %s' % secs(o, 'Limit wait'),
       abs(secs(o, 'Limit wait') - 16.5) <= 1)
 check('a prompt held with no reply counts from the hooks after the hold (5 s of 7,205), and an agent held by the Kit '
