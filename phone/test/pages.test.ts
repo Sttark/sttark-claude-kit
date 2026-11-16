@@ -150,10 +150,10 @@ describe('answers', () => {
 });
 
 describe('Archived, Usage, a Mac, Menu', () => {
-  it('groups archived sessions by day, newest first, with the folder', () => {
+  it('groups archived sessions by day, newest first, with no folder in the rows', () => {
     const h = html({ page: 'archived' }, one());
     expect(h.indexOf('Weekly plan')).toBeLessThan(h.indexOf('South E building model'));
-    expect(h).toContain('<span class="folder">building</span>');
+    expect(h).not.toContain('class="folder"');
     expect(html({ page: 'archived' }, one(), { ...emptyUi(), q: 'quotes' })).toContain('Laminator RFQ');
   });
   it('offers Bring it back for an archived session', () => {

@@ -468,7 +468,7 @@ struct Sidebar: View {
         VStack(alignment: .leading, spacing: 2) {
             Color.clear.frame(height: max(52, K.z(52)))   // the window's buttons
             nav(.sessions, "Sessions", "tray", badge: model.snap.count(.needs), strong: true)
-            nav(.archived, "Archived", "archivebox", text: model.archived.items.isEmpty ? "" : "\(model.archived.items.count)")
+            nav(.archived, "Archived", "archivebox")
             nav(.settings, "Settings", "gearshape")
             nav(.news, "What's new", "sparkles", text: Updater.version == "?" ? "" : Updater.version)
             nav(.events, "Events", "list.bullet.rectangle")
@@ -590,10 +590,9 @@ struct Header: View {
         switch model.page {
         case .sessions: return model.snap.summary
         case .archived:
-            let n = model.archived.items.count
             guard let at = model.archived.at else { return "Reading the archived sessions…" }
             let old = -at.timeIntervalSinceNow > 15 * 60
-            return (n == 1 ? "1 session" : "\(n) sessions") + " this Mac can bring back, newest first · read \(Limit.clock(at))" + (old ? ", may be old" : "")
+            return "Newest first · read \(Limit.clock(at))" + (old ? ", may be old" : "")
         case .settings: return "Saved as you change them"
         case .news: return "What changed in the Kit in the last 7 days, newest first"
         case .events:
@@ -1143,8 +1142,9 @@ struct ArchivedRow: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).font(K.font(13.5, true)).lineLimit(1)
-                (Text(item.folderShort) + Text(item.doing.isEmpty ? "" : " · " + item.doing))
-                    .font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
+                if !item.doing.isEmpty {
+                    Text(item.doing).font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
+                }
             }
             Spacer(minLength: 8)
             Text(ArchivedRow.time(item.at)).font(K.font(12)).foregroundColor(K.steel)
