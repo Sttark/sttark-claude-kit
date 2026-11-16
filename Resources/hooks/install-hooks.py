@@ -27,13 +27,14 @@ The inline guard hooks (inline-guard.py: PreToolUse, PostToolUse and UserPromptS
 Orchestrator switch is on, and come out when it is off and with --remove (--status calls them "inline"). So does the subagent rules hook
 (subagent-rules-hook.py: SubagentStart), which gives subagents the worker rules, and the page-check guard
 (ui-check-guard.py: SubagentStop, matcher implementer), which blocks an implementer once when it changed
-UI files and reports no page-check output. So does the browser lock (browser-lock.py: PreToolUse with a
-matcher for Bash and the Claude in Chrome tools, and SubagentStop), which lets one browsing agent at a time use
-the browser. So does the day log (daylog.py --hook: SubagentStop, Stop, SessionStart, PostToolUse with matcher AskUserQuestion and UserPromptSubmit), which
+UI files and reports no page-check output. So does the day log (daylog.py --hook: SubagentStop, Stop, SessionStart, PostToolUse with matcher AskUserQuestion and UserPromptSubmit), which
 records the validator's verdict, blocks a turn until the day log has the entry, saves questions and agent findings, and restores them and the state after /clear.
 So does the production guard (prod-guard.py: PreToolUse with a matcher for Bash and MCP tools, UserPromptSubmit and
 SubagentStop), which denies pushes to main, merges, deploys and production migrations until the person types
 `approve <action>`.
+Every run without a switch, and --orchestrator on|off, takes out the hook entries of the Orchestrator's old browser
+lock (browser-lock.py, at any path), so a settings.json from an older build loses them. The browser guard took its
+place: it gives each agent a Claude window of its own.
 --defaults turns on Claude Code's phone notices (inputNeededNotifEnabled: a notice when Claude waits on you;
 agentPushNotifEnabled: Claude may send one, which claude-notify's "Claude app" way needs) when the key is missing;
 a value the person set, true or false, is never changed.
@@ -334,28 +335,21 @@ def set_uicheck(hooks, on):
         hooks.pop('SubagentStop', None)
 
 
-BROWSER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser-lock.py')
-BROWSER_MATCH = '^(Bash|Agent|Task|mcp__claude-in-chrome__.*)$'
-BROWSER_TIMEOUT = 60   # must be more than browser-lock.py's WAIT (50 seconds)
-
-
-def is_browser(cmd):
+def is_old_lock(cmd):
     return 'browser-lock.py' in cmd
 
 
-def set_browser(hooks, on):
-    """The browser lock: one browsing agent at a time, with the Orchestrator switch on."""
-    for event in ('PreToolUse', 'SubagentStop'):
-        groups = hooks.get(event, [])
+def drop_old_lock(hooks):
+    """Takes out the Orchestrator's old browser lock (browser-lock.py, at any path), from every event. The file
+    is gone; the browser guard gives each agent a Claude window of its own."""
+    for event in list(hooks):
+        groups = hooks.get(event)
+        if not isinstance(groups, list) or not any(
+                is_old_lock(h.get('command', '')) for g in groups for h in g.get('hooks', [])):
+            continue
         for g in groups:
-            g['hooks'] = [h for h in g.get('hooks', []) if not is_browser(h.get('command', ''))]
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_old_lock(h.get('command', ''))]
         groups = [g for g in groups if g.get('hooks')]
-        if on:
-            group = {'hooks': [{'type': 'command', 'command': f'"{BROWSER}"',
-                                'timeout': BROWSER_TIMEOUT if event == 'PreToolUse' else 10}]}
-            if event == 'PreToolUse':
-                group = {'matcher': BROWSER_MATCH, **group}
-            groups.append(group)
         if groups:
             hooks[event] = groups
         else:
@@ -644,7 +638,6 @@ def main():
                           'inline': has(s, 'PreToolUse', is_inline),
                           'subrules': has(s, 'SubagentStart', is_subrules),
                           'uicheck': has(s, 'SubagentStop', is_uicheck),
-                          'browser': has(s, 'PreToolUse', is_browser) and has(s, 'SubagentStop', is_browser),
                           'daylog': all(has(s, e, is_daylog) for e in ('SubagentStop', 'Stop', 'SessionStart', 'PostToolUse',
                                                                  'PostToolUseFailure', 'UserPromptSubmit')),
                           'daylog_allow': ALLOW_RULE in ((s.get('permissions') or {}).get('allow') or []),
@@ -661,14 +654,14 @@ def main():
         set_inline(s.setdefault('hooks', {}), on)
         set_subrules(s['hooks'], on)
         set_uicheck(s['hooks'], on)
-        set_browser(s['hooks'], on)
+        drop_old_lock(s['hooks'])
         set_daylog(s['hooks'], on)
         set_daylog_allow(s, on)
         set_rotation(s['hooks'], on)
         set_prod(s['hooks'], on)
         save(s, before, None)
         state_word = 'on' if on else 'off'
-        print((word + '; ' if word else '') + f'inline {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}, daylog {state_word}, rotation {state_word}, prod {state_word}')
+        print((word + '; ' if word else '') + f'inline {state_word}, subrules {state_word}, uicheck {state_word}, daylog {state_word}, rotation {state_word}, prod {state_word}')
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -745,7 +738,7 @@ def main():
     set_inline(hooks, orchestrator_on() and not remove)
     set_subrules(hooks, orchestrator_on() and not remove)
     set_uicheck(hooks, orchestrator_on() and not remove)
-    set_browser(hooks, orchestrator_on() and not remove)
+    drop_old_lock(hooks)
     set_daylog(hooks, orchestrator_on() and not remove)
     set_daylog_allow(s, orchestrator_on() and not remove)
     set_rotation(hooks, orchestrator_on() and not remove)

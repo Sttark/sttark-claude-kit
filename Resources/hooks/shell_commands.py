@@ -1,4 +1,4 @@
-"""Shared by the Orchestrator hooks inline-guard.py and browser-lock.py (no hook entry of its own).
+"""Shared by the Orchestrator hooks inline-guard.py and prod-guard.py (no hook entry of its own).
 The app copies it next to them. Plain functions, Python 3.9, no third-party imports.
 
 commands(cmd): the commands in a Bash command line, split quote-aware.

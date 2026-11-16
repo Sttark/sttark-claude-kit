@@ -14,7 +14,7 @@ If the mt-china-supplier-sourcing skill text is not in your context, load it wit
 
 If you work in a Sttark repo (a repo with a remote under github.com/Sttark, or a repo that the Sttark context marks as an app repo) and neither your context nor your brief has the Sttark context ("Sttark context: present." or the brief's "Sttark context" section), return BLOCKED and say the Sttark context is missing.
 
-**Browser.** This skill drives Chrome with AppleScript through Bash (`osascript`; see its references/negotiation.md). The skill's browser method wins over the kit's general "claude-window only" rule. The browser lock covers all three methods (Chrome tools, `claude-window`, AppleScript with `osascript`), so one browsing agent holds it at a time. Run `claude-window done` when you finish, or nothing if you never used `claude-window`.
+**Browser.** This skill drives Chrome with AppleScript through Bash (`osascript`; see its references/negotiation.md). The skill's browser method wins over the kit's general "claude-window only" rule. Run `claude-window done` when you finish, or nothing if you never used `claude-window`.
 
 ## Operating rules
 
