@@ -34,8 +34,8 @@ answer in a claim file (deciding, then holding or free); with no answer in 3 sec
 loaded the --hold entry) the plain hook does what it did before: it stops the call with the instruction.
 
 UserPromptSubmit: a message sent while the session must wait goes through with the same instruction, so
-nothing typed is lost. A message of just "use credits" lets that session use usage credits until the limit
-resets. A message that is one of the setting phrases changes the session's setting. While a wait runs, it
+nothing typed is lost. A message of just "use credits" sets that session to Always use credits, as the menu
+does. A message that is one of the setting phrases changes the session's setting. While a wait runs, it
 watches the session's transcript and events for these phrases and acts on them at once.
 
 The other Kit hooks call held() before their own side calls to Claude, so they spend nothing while the
@@ -60,6 +60,8 @@ FRESH = 60       # seconds a usage read is good for
 FRESH_NEAR = 15  # ... when a limit is at 90% or more, so the pause starts soon after the limit
 BACKOFF = 120    # seconds to wait after a failed usage read, doubling each time ...
 BACKOFF_MAX = 900  # ... up to 15 minutes
+CALM = 1800      # a good read keeps the count of failed reads until this long after the last one, so a server that
+                 # allows a read only now and then backs the reads off instead of failing every few minutes
 TICK = float(os.environ.get('STTARK_LIMIT_TICK') or 10)   # seconds between checks while a session waits
 SESSIONS = 'https://api.anthropic.com/v1/code/sessions/'
 EVENTS = os.environ.get('STTARK_LIMIT_EVENTS')   # tests: a file that stands in for the session's server events
@@ -151,6 +153,21 @@ def fresh_for(u):
     return FRESH_NEAR if near else FRESH
 
 
+def calm(c, now=None):
+    """The failed-read count and time a good read keeps: both until CALM after the last failure."""
+    now = time.time() if now is None else now
+    f = c.get('failed_at', 0)
+    return {'fails': c.get('fails', 0), 'failed_at': f} if f and now - f < CALM else {}
+
+
+def good_for(c, u, max_age):
+    """How long the cached read is good for: max_age when given, else a minute (15 seconds near a limit, unless a
+    read failed in the last CALM: then a minute, so the 15-second reads don't bring the next 429)."""
+    if max_age is not None:
+        return max_age
+    return FRESH if calm(c) else fresh_for(u)
+
+
 def usage(max_age=None, wait=0):
     """The latest usage read, from the cache when it's no older than max_age (by default a minute, 15 seconds
     near a limit). One process reads at a time; the others use the cache, or, with `wait`, wait up to that
@@ -168,7 +185,7 @@ def usage(max_age=None, wait=0):
     except (OSError, ValueError):
         c = {}
     u = c.get('usage')
-    if u and time.time() - c.get('at', 0) < (fresh_for(u) if max_age is None else max_age):
+    if u and time.time() - c.get('at', 0) < good_for(c, u, max_age):
         return u
     if time.time() < c.get('retry_at', 0):
         return u   # backing off after a failed read: keep the last good one
@@ -182,7 +199,7 @@ def usage(max_age=None, wait=0):
             pass
         u = c.get('usage')
         if time.time() < c.get('retry_at', 0) or (
-                u and time.time() - c.get('at', 0) < (fresh_for(u) if max_age is None else max_age)):
+                u and time.time() - c.get('at', 0) < good_for(c, u, max_age)):
             return u
         try:
             u = fetch()
@@ -196,13 +213,13 @@ def usage(max_age=None, wait=0):
                 except (TypeError, ValueError):
                     after = 0
             wait_s = max(after, min(BACKOFF * 2 ** (fails - 1), BACKOFF_MAX))
-            c.update(fails=fails, retry_at=time.time() + wait_s)
-            if fails == 1 or after:
+            c.update(fails=fails, failed_at=time.time(), retry_at=time.time() + wait_s)
+            if fails == 1 or after or wait_s >= BACKOFF_MAX:
                 log(f'usage read failed: {e}; next read in {wait_s // 60 or 1} min, '
                     + ('using the last read' if u else 'no read yet'))
             put(c)
             return u
-        put({'at': time.time(), 'usage': u})
+        put({'at': time.time(), 'usage': u, **calm(c)})
         return u
 
 
@@ -397,7 +414,7 @@ def mtime(p):
 
 def prune(s):
     """Inside the state lock: drop the settings of sessions not used for KEEP_DAYS (KEEP_ARCHIVED_DAYS when
-    archived), and "use credits" choices whose reset has passed."""
+    archived), and the old one-time "use credits" entries."""
     now = time.time()
     m = s.get('limit_modes') or {}
     sessions = s.get('sessions') or {}
@@ -414,8 +431,15 @@ def prune(s):
             m.pop(k)
     if 'limit_modes' in s:
         s['limit_modes'] = m
-    if 'limit_credits' in s:
-        s['limit_credits'] = {k: v for k, v in (s.get('limit_credits') or {}).items() if v > now}
+    drop_old_credits(s)
+
+
+def drop_old_credits(s):
+    """Inside the state lock: the one-time "use credits" (limit_credits) is gone; a session's own setting is the one
+    control, so an entry left from an older Kit is dropped and logged once."""
+    old = s.pop('limit_credits', None)
+    if old:
+        log(f'credits dropped the old one-time "use credits" of {len(old)} session(s): each session\'s setting decides')
 
 
 def set_mode(sid, c, mode, n=None, by='command', name=''):
@@ -446,30 +470,14 @@ def set_mode(sid, c, mode, n=None, by='command', name=''):
     return False
 
 
-def credits_until(s, sid):
-    """When this session's own "use credits" ends (0 when it has none)."""
-    lc = s.get('limit_credits') or {}
-    return max([v for k, v in lc.items() if sid and (k == sid or k.startswith(sid + '/'))] or [0])
-
-
-def reached(u, transcript, mode, n):
-    """The limit this session's setting stops at, whatever credits were chosen: for the reset time of a
-    "use credits"."""
-    if mode == 'hold':
-        return wall(u, transcript, at=n, credits_only=False, mode='hold')
-    return wall(u, transcript)
-
-
-def hold_for(sid, c, transcript, u, s=None, once=True):
-    """The Hold this session must wait for now under its setting, or None. c None: look it up if needed.
-    once=False leaves out a "use credits" chosen for this session alone."""
+def hold_for(sid, c, transcript, u, s=None):
+    """The Hold this session must wait for now under its setting, or None. c None: look it up if needed. The
+    session's own setting is the only thing that decides for it; nothing else overrides it."""
     s = s if s is not None else peek()
     if c is None:
         c = session_cse(sid, s)
     mode, n = mode_of(s, sid, c)
     if mode == 'credits':
-        return None
-    if once and credits_until(s, sid) > time.time():
         return None
     if mode == 'hold':
         return wall(u, transcript, at=n, credits_only=False, mode='hold')
@@ -543,16 +551,15 @@ PHRASE_HOLD = re.compile(r'(?:no credits|never use credits)(?: at)?(?: (\d{1,3})
 
 
 def phrase(text):
-    """The setting asked for when the whole message is one of the phrases: ('once', None) for "use credits",
-    ('credits', None), ('follow', None) or ('hold', N). None for any other message."""
+    """The setting asked for when the whole message is one of the phrases: ('credits', None) (also for "use
+    credits", which sets Always use credits, as the menu does), ('follow', None) or ('hold', N). None for any other
+    message."""
     if isinstance(text, list):
         text = ' '.join(b.get('text', '') for b in text if isinstance(b, dict) and b.get('type') == 'text')
     if not isinstance(text, str) or len(text) > 60:
         return None
     t = ' '.join(re.sub(r'[^a-z0-9% ]', ' ', text.lower()).split())
-    if t == 'use credits':
-        return 'once', None
-    if t in ('credits ok', 'always use credits'):
+    if t in ('use credits', 'credits ok', 'always use credits'):
         return 'credits', None
     if t == 'follow the menu':
         return 'follow', None
@@ -628,22 +635,10 @@ def typed(c, since_ms):
     return None
 
 
-def apply(p, sid, c, tp, by, cwd=None, fresh=False):
-    """Act on a phrase: "use credits" for this session until the limit resets, or a new setting. Every hook and
-    every holding process of the session may act on the same phrase: a change is made and logged once."""
+def apply(p, sid, c, tp, by, cwd=None):
+    """Act on a phrase: a new setting for the session ("use credits" sets Always use credits). Every hook and every
+    holding process of the session may act on the same phrase: a change is made and logged once."""
     kind, n = p
-    if kind == 'once':
-        h = reached(usage(max_age=0) if fresh else usage(), tp, *mode_of(peek(), sid, c))
-        until = h.until if h else time.time() + 5 * 3600
-        with state() as s:
-            lc = {k: v for k, v in (s.get('limit_credits') or {}).items() if v > time.time()}
-            changed = lc.get(sid, 0) < until - 60
-            if changed:
-                lc[sid] = until
-            s['limit_credits'] = lc
-        if changed:
-            log(f'credits {short(sid, c)} "use credits" typed, until {clock(until)}')
-        return
     s = peek()
     set_mode(sid, c, kind, n, by, title(s, c, cwd or os.getcwd()))
 
@@ -688,8 +683,10 @@ def wait_cmd(sid, agent=''):
 
 def line(h):
     if h.mode == 'hold':
-        return f'This session holds at {h.at}% usage. I continue at {clock(h.until)}. Type use credits to continue now.'
-    return f'Usage limit reached. I continue at {clock(h.until)}. Type use credits to continue now on credits.'
+        return (f'This session holds at {h.at}% usage. I continue at {clock(h.until)}. '
+                'Type use credits to set it to Always use credits and continue now.')
+    return (f'Usage limit reached. I continue at {clock(h.until)}. '
+            'Type use credits to set this session to Always use credits and continue now.')
 
 
 def say(sid, h, agent=''):
@@ -718,11 +715,8 @@ def where(h):
 def why_go(sid, c, s, h=None):
     """Why a session no longer waits (for GO ON), from the state and the hold it waited for, if any."""
     mode, n = mode_of(s, sid, c)
-    cu = credits_until(s, sid)
     if mode == 'credits':
         return 'this session is set to always use usage credits.'
-    if cu > time.time():
-        return f'usage credits were chosen for this session, until {clock(cu)}.'
     if mode == 'follow' and s.get('limit_credits_all') and (h is None or h.mode == 'follow'):
         return 'usage credits were chosen in the Kit menu for every session.'
     if mode == 'hold':
@@ -873,7 +867,7 @@ def hold_loop(sid, agent, tp, c, h, budget, what, key, note=''):
             why = why_go(sid, c, s, h)
             mins = int((time.time() - started) / 60)
             if leave():
-                if mode_of(s, sid, c) == start_mode and credits_until(s, sid) <= time.time() and not (
+                if mode_of(s, sid, c) == start_mode and not (
                         h.mode == 'follow' and s.get('limit_credits_all')):
                     log(f'resume {w} the {h.name} limit ' + (f'is under {h.at}%' if h.mode == 'hold' else 'reset')
                         + f', after {mins} min')
@@ -892,9 +886,9 @@ def hold_loop(sid, agent, tp, c, h, budget, what, key, note=''):
 def waiting_line(h):
     if h.mode == 'hold':
         return (f'Holding at {h.at}%: the {h.name} limit is at {h.percent}%. It goes on at {clock(h.until)}, when '
-                'the limit resets. Type "use credits" to continue now.')
+                'the limit resets. Type "use credits" to set it to Always use credits and continue now.')
     return (f'Waiting for the {h.name} usage limit to reset at {clock(h.until)}. '
-            'Type "use credits" to continue now on credits.')
+            'Type "use credits" to set this session to Always use credits and continue now.')
 
 
 def wait_main(key):
@@ -1024,16 +1018,6 @@ def on_prompt(data):
     s = peek()
     p = phrase(prompt)
     c = cse_of(sid, s) if p else session_cse(sid, s)
-    if p == ('once', None):
-        apply(p, sid, c, tp, 'typed', data.get('cwd'), fresh=True)
-        s = peek()
-        h = reached(usage(), tp, *mode_of(s, sid, c))
-        note = (f'until the {h.name} limit resets at {clock(h.until)}' if h
-                else 'if it would wait in the next 5 hours')
-        print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext':
-            f'Sttark Claude Kit: the person typed "use credits". This session now goes on with usage credits {note}. '
-            'Say so in one line, then go on with the task you were doing before the pause, if there was one.'}}))
-        return
     if p:
         apply(p, sid, c, tp, 'typed', data.get('cwd'))
         s = peek()
@@ -1044,8 +1028,10 @@ def on_prompt(data):
     if p:
         said = prompt if isinstance(prompt, str) else ' '.join(
             b.get('text', '') for b in prompt if isinstance(b, dict) and b.get('type') == 'text')
-        head = (f'Sttark Claude Kit: the person typed "{said.strip()}". This session is now set to: '
-                f'{describe(*mode_of(s, sid, c))}. ')
+        head = (f'Sttark Claude Kit: the person typed "{said.strip()}". '
+                + f'This session is now set to: {describe(*mode_of(s, sid, c))}. '
+                + ('(In the Sttark Claude Kit window, this session\'s At the usage limit menu shows it; '
+                   'picking another item there undoes it.) ' if p[0] == 'credits' else ''))
         if h and not quiet:
             log(f'message {short(sid, c)} {where(h)}: Claude says so and waits')
             ctx = head + 'Say so in one line. Then: ' + say(sid, h) + \

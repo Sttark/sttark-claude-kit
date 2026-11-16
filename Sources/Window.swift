@@ -29,6 +29,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
         if page == .news { model.markNewsSeen() }
+        if page == .events { model.readEvents() }
         if sheet { model.openSheet() }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
@@ -60,6 +61,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
         model.reload()
         ticks += 1
         if model.page == .settings && ticks % 10 == 0 { model.reloadFacts() }
+        if model.page == .events { model.readEvents() }
     }
 
     @objc func zoomIn() { model.zoom(by: 1) }
@@ -124,7 +126,7 @@ final class KitNSWindow: NSWindow {
 
 /// What the window shows, read from the shared state. The settings run commands, so they're read off the main thread.
 final class KitModel: ObservableObject {
-    enum Page: String { case sessions, settings, news }
+    enum Page: String { case sessions, settings, news, events }
     @Published var page: Page = .sessions
     @Published var snap = Inbox.Snapshot()
     @Published var selected: String?
@@ -139,6 +141,21 @@ final class KitModel: ObservableObject {
     /// A What's new picture shown bigger, over the page.
     @Published var big: WhatsNew.Note?
     @Published var zoom: CGFloat = K.zoom
+    /// The Events page: what the Kit did, newest first, and its filters.
+    @Published var events: [KitEvent] = []
+    @Published var eventSearch = ""
+    @Published var eventKind: KitEvent.Kind?
+    @Published var eventSession: String?
+    @Published var eventProblems = false
+    @Published var eventRoutine = false
+    @Published var openEvent: String?
+    private var eventsStamp = ""
+    private var eventsReading = false
+    /// What the last Move to Remote Control said, over the session list: the moved row leaves its group at once.
+    @Published var moveNote: (ok: Bool, words: String, at: Date)? = nil
+    /// The session being moved now (its row id), and the one whose "close it there?" question shows.
+    @Published var moving: String? = nil
+    @Published var confirmMove: String? = nil
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
     var fixedFacts: MenuFacts?
@@ -149,6 +166,62 @@ final class KitModel: ObservableObject {
         notes = WhatsNew.all
         unseen = WhatsNew.unseen.count
         if selected == nil || !snap.rows.contains(where: { $0.id == selected }) { selected = snap.rows.first?.id }
+    }
+
+    /// The events, read off the main thread, and only when a log changed since the last read.
+    func readEvents() {
+        let files = [logURL, KitLogs.all[1].url]
+        let stamp = files.map { u -> String in
+            let v = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            return "\(v?.fileSize ?? 0)/\(v?.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        }.joined(separator: ",")
+        guard stamp != eventsStamp, !eventsReading else { return }
+        eventsReading = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ev = Events.read()
+            DispatchQueue.main.async {
+                self.events = ev
+                self.eventsStamp = stamp
+                self.eventsReading = false
+            }
+        }
+    }
+
+    var eventMatches: [KitEvent] {
+        let words = eventSearch.lowercased().split(separator: " ").map(String.init)
+        return events.filter { e in
+            if !eventRoutine && e.routine && e.level == .info { return false }
+            if eventProblems && e.level == .info { return false }
+            if let k = eventKind, e.kind != k && !(k == .problem && e.level != .info) { return false }
+            if let n = eventSession, e.name != n { return false }
+            if !words.isEmpty {
+                let hay = ([e.name ?? "", e.text, e.kind.title] + e.detail).joined(separator: " ").lowercased()
+                if !words.allSatisfy({ hay.contains($0) }) { return false }
+            }
+            return true
+        }
+    }
+    var shownEvents: [KitEvent] { Array(eventMatches.prefix(1500)) }
+    var shownEventsCut: Bool { eventMatches.count > 1500 }
+    /// The sessions in the events, the most recent first.
+    var eventSessionNames: [String] {
+        var seen = Set<String>(), out: [String] = []
+        for e in events { if let n = e.name, !seen.contains(n) { seen.insert(n); out.append(n) } }
+        if let s = eventSession, !seen.contains(s) { out.insert(s, at: 0) }
+        return out
+    }
+    var eventFiltered: Bool { eventKind != nil || eventSession != nil || eventProblems || eventRoutine || !eventSearch.isEmpty }
+    func clearEventFilters() { eventKind = nil; eventSession = nil; eventProblems = false; eventRoutine = false; eventSearch = "" }
+    func snapHas(_ cse: String) -> Bool { snap.rows.contains { $0.id == cse } }
+    /// The session's name: to that session on the Sessions page when it is listed there, else its events only.
+    func goToSession(_ e: KitEvent) {
+        if let c = e.session, snapHas(c) { selected = c; page = .sessions }
+        else { eventSession = e.name }
+    }
+    /// Problems in the last day, for the page's status line.
+    var recentProblems: Int {
+        let since = Date().addingTimeInterval(-86400)
+        return events.filter { $0.level != .info && $0.last > since }.count
     }
 
     func reloadFacts() {
@@ -298,6 +371,7 @@ struct KitRoot: View {
                 case .sessions: SessionsPage(model: model)
                 case .settings: SettingsPage(model: model)
                 case .news: NewsPage(model: model)
+                case .events: EventsPage(model: model)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -322,6 +396,7 @@ struct Sidebar: View {
             nav(.sessions, "Sessions", "tray", badge: model.snap.count(.needs), strong: true)
             nav(.settings, "Settings", "gearshape")
             nav(.news, "What's new", "sparkles", text: Updater.version == "?" ? "" : Updater.version)
+            nav(.events, "Events", "list.bullet.rectangle")
             Spacer()
             UsageBox(usage: model.usage)
         }
@@ -337,6 +412,7 @@ struct Sidebar: View {
             model.page = p
             if p == .settings { model.reloadFacts() }
             if p == .news { model.markNewsSeen() }
+            if p == .events { model.readEvents() }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 13 * K.zoom)).foregroundColor(on ? K.greenText : K.steel).frame(width: K.z(18))
@@ -406,12 +482,13 @@ struct Header: View {
                 Text(subtitle).font(K.font(12)).foregroundColor(K.steel)
             }
             Spacer()
-            if model.page == .sessions {
+            if model.page == .sessions || model.page == .events {
+                let text = model.page == .events ? $model.eventSearch : $model.search
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").foregroundColor(K.steel)
-                    TextField("Search sessions", text: $model.search).textFieldStyle(.plain).font(K.font(13))
-                    if !model.search.isEmpty {
-                        Button { model.search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(K.steel) }
+                    TextField(model.page == .events ? "Search events" : "Search sessions", text: text).textFieldStyle(.plain).font(K.font(13))
+                    if !text.wrappedValue.isEmpty {
+                        Button { text.wrappedValue = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(K.steel) }
                             .buttonStyle(.plain).accessibilityLabel("Clear search")
                     }
                 }
@@ -427,13 +504,16 @@ struct Header: View {
     }
 
     var title: String {
-        switch model.page { case .sessions: return "Sessions"; case .settings: return "Settings"; case .news: return "What's new" }
+        switch model.page { case .sessions: return "Sessions"; case .settings: return "Settings"; case .news: return "What's new"; case .events: return "Events" }
     }
     var subtitle: String {
         switch model.page {
         case .sessions: return model.snap.summary
         case .settings: return "Saved as you change them"
         case .news: return "What changed in the Kit, newest first"
+        case .events:
+            let n = model.recentProblems
+            return (n == 0 ? "No problems in the last day" : "\(n) problem\(n == 1 ? "" : "s") in the last day") + ". Newest first."
         }
     }
 }
@@ -446,6 +526,19 @@ struct SessionsPage: View {
         HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let n = model.moveNote, -n.at.timeIntervalSinceNow < 300 {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: n.ok ? "checkmark.circle" : "exclamationmark.triangle")
+                                .foregroundColor(n.ok ? K.infoMark : K.warnMark)
+                            Text(n.words).font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            Button { model.moveNote = nil } label: { Image(systemName: "xmark") }
+                                .buttonStyle(.borderless).help("Hide this message.")
+                        }
+                        .padding(10)
+                        .background(K.wash, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(.top, 10)
+                    }
                     let groups = Inbox.Group.allCases.filter { !model.rows($0).isEmpty }
                     if groups.isEmpty {
                         Text(model.search.isEmpty ? "No sessions in the last 12 hours." : "No session matches \"\(model.search)\".")
@@ -467,7 +560,7 @@ struct SessionsPage: View {
             }
             Rectangle().fill(K.hair).frame(width: 1)
             Group {
-                if let r = model.row { DetailView(model: model, row: r) } else {
+                if let r = model.row { DetailView(model: model, row: r).id(r.id) } else {
                     Text("Pick a session to see it here.").foregroundColor(K.steel).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -500,6 +593,7 @@ struct GroupHeader: View {
         case .waits: return "hourglass"
         case .held: return "pause.circle"
         case .idle: return "moon.zzz"
+        case .local: return "desktopcomputer"
         }
     }
     var color: Color { group == .needs ? K.warnMark : group == .working ? K.infoMark : K.steel }
@@ -585,6 +679,7 @@ struct DetailView: View {
             return row.wait.map { $0.by.map { $0 < Date() } == true ? "Past its deadline" : $0.from.isEmpty || row.waits.count > 1 ? "Waiting on someone else" : "Waiting on \($0.from)" } ?? "Waiting"
         case .held: return row.hold?.hold == true ? "On hold at \(row.hold!.at)%" : "At the usage limit"
         case .idle: return "Idle"
+        case .local: return row.local?.pending == true ? "Moves when its reply ends" : "On this Mac only"
         }
     }
 
@@ -651,6 +746,16 @@ struct DetailView: View {
             }
         case .idle:
             if let s = row.session { p.append(("Last active", "\(Waiting.ago(s.at)) ago, at \(Limit.clock(s.at))")) }
+        case .local:
+            if let x = row.local {
+                p.append(("Runs", "Only on this Mac, in \(x.whereWords)" + (x.inDesktop ? ", under This computer" : "")
+                          + ". Your phone and the Claude app's list don't show it."))
+                p.append(("Now", x.pending ? "Open, and Claude is in a reply. It moves when the reply ends."
+                                 : x.busy ? "Open in \(x.whereWords), and Claude is in a reply"
+                                 : x.pid != nil ? "Open in \(x.whereWords)" : "Closed"))
+                if !x.cwd.isEmpty { p.append(("Folder", x.folder)) }
+                p.append(("Last active", "\(Waiting.ago(x.last)) ago, at \(Limit.clock(x.last))"))
+            }
         }
         return p
     }
@@ -704,11 +809,54 @@ struct DetailView: View {
             }
             .controlSize(K.control)
             .padding(.top, 12)
+        } else if let x = row.local {
+            moveActions(x)
         } else if let h = row.hold {
-            Button("Use credits until \(Limit.clock(h.until))") { Limit.useCredits(h); model.changed() }
-                .controlSize(K.control)
-                .help("Goes on now, and may use usage credits until the limit resets at \(Limit.clock(h.until)). After that, its setting applies again.")
+            // the session's own setting below is the one control: to go on now, set it to Always use credits
+            Text((h.hold ? "Holds at \(h.at)% until \(Limit.clock(h.until))." : "Waits at the \(h.limit) limit until \(Limit.clock(h.until)).")
+                 + " To go on now, set this session to Always use credits below.")
+                .font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
+        }
+    }
+
+    /// On this Mac only: move it to Remote Control. A session open somewhere runs in one place only, so moving it
+    /// closes it there: the Kit asks first. One in a reply moves when the reply ends.
+    @ViewBuilder func moveActions(_ x: LocalSessions.Item) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !x.pending {
+                let moving = model.moving == row.id
+                HStack(spacing: 8) {
+                    Button(moving ? "Moving…" : "Move to Remote Control") { if x.pid != nil { model.confirmMove = row.id } else { startMove(x) } }
+                        .buttonStyle(GreenButtonStyle())
+                        .disabled(model.moving != nil)
+                        .help("Starts this session again with Remote Control, with its whole conversation, in the same folder on this Mac.")
+                    if moving { ProgressView().controlSize(.small) }
+                }
+            }
+            Text("It keeps its whole conversation and its folder on this Mac. Then it shows on your phone and in the Claude app, and the Kit keeps it running after a restart."
+                 + (x.inDesktop ? " The old entry stays under This computer in the desktop app: archive it there." : ""))
+                .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+        }
+        .controlSize(K.control)
+        .padding(.top, 12)
+        .alert(x.busy ? "Move \"\(x.title)\" when Claude finishes this reply?" : "Close \"\(x.title)\" in \(x.whereWords) and move it?",
+               isPresented: Binding(get: { model.confirmMove == row.id }, set: { if !$0 { model.confirmMove = nil } })) {
+            Button(x.busy ? "Move When the Reply Ends" : "Close and Move") { startMove(x) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(x.busy ? "Claude is in a reply in \(x.whereWords). When the reply ends, the session closes there and opens with Remote Control, with its whole conversation."
+                        : "A session runs in one place only. It closes in \(x.whereWords) and opens with Remote Control, with its whole conversation.")
+        }
+    }
+
+    func startMove(_ x: LocalSessions.Item) {
+        model.moving = row.id
+        model.moveNote = nil
+        LocalSessions.move(x) { [model] ok, words in
+            model.moving = nil
+            model.moveNote = (ok, words, Date())
+            model.changed()
         }
     }
 
@@ -759,7 +907,7 @@ struct DetailView: View {
         return VStack(alignment: .leading, spacing: 6) {
             Text("At the usage limit").font(K.font(12.5, true))
             Picker("At the usage limit", selection: pick) {
-                Text("Same as Settings").tag("follow")
+                Text("Same as Settings (" + (model.snap.creditsAll ? "use credits at the limit" : "hold at the limit") + ")").tag("follow")
                 Text("Always use credits").tag("credits")
                 Divider()
                 ForEach(choices, id: \.self) { n in Text("Never use credits; hold at \(n)%").tag("hold:\(n)") }
@@ -1020,7 +1168,7 @@ struct SettingsPage: View {
                 Button("Sign in…") { c?.signIn() }.help(f.loginTip)
             }
             Hairline()
-            SettingRow(title: "Log", desc: "Every decision, one line each") { Button("Open log") { c?.openLog() } }
+            SettingRow(title: "Events", desc: "What the Kit did, in plain words, newest first") { Button("Show events") { model.page = .events; model.readEvents() } }
         }
     }
 

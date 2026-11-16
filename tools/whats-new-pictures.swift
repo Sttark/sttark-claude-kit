@@ -3,9 +3,10 @@
 // moves can add a function here the same way; a still picture can be any PNG or SVG.
 //   whats-new/hold-before-limit.gif   the usage fills to 80%, a session set to hold stops, the limit resets to 0%
 //   whats-new/session-inbox.gif       a session that waits is archived, then comes back with a message
+//   whats-new/server-on-by-itself.png a still: the Claude app's Code menu with Remote Control > src picked
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
-//   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures
+//   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug]   (a slug draws only that one)
 import AppKit
 
 let W: CGFloat = 440, scale: CGFloat = 2
@@ -268,9 +269,38 @@ func inboxPicture() -> [Frame] {
     return out
 }
 
+/// The Claude app's Code menu, with the Mac's server under Remote Control picked: where a person starts a session
+/// that runs on their Mac. A still, so one PNG.
+func serverPicture() -> NSBitmapImageRep {
+    frame(250) {
+        text("In the Claude app, under Code", 20, 18, size: 13, bold: true, color: C.steel)
+        let menu = NSRect(x: 20, y: 44, width: 250, height: 150)
+        card(menu, radius: 8)
+        text("Local", menu.minX + 14, menu.minY + 12, size: 12, color: C.steel)
+        text("This computer", menu.minX + 14, menu.minY + 32, size: 14)
+        C.line.setFill(); NSRect(x: menu.minX + 1, y: menu.minY + 60, width: menu.width - 2, height: 1).fill()
+        text("Remote Control", menu.minX + 14, menu.minY + 70, size: 12, color: C.steel)
+        let row = NSRect(x: menu.minX + 6, y: menu.minY + 88, width: menu.width - 12, height: 30)
+        card(row, fill: C.goodSoft, border: C.goodBorder, radius: 6)
+        text("src", row.minX + 10, row.minY + 6, size: 14, bold: true, color: C.goodText)
+        text("your Mac", row.maxX - 10 - width("your Mac", size: 13), row.minY + 7, size: 13, color: C.steel)
+        text("Pick it, then type.", menu.minX + 14, menu.minY + 126, size: 12, color: C.steel)
+        // what that gives: on the right
+        text("The session runs on your Mac, with its files and tools.", 290, 70, size: 14, width: 130)
+        text("It shows on your phone and in the Kit.", 290, 150, size: 14, width: 130)
+        text("The Kit set this up for you. Turn it off in Settings.", 20, 210, size: 13, color: C.steel, width: W - 40)
+    }
+}
+
+let only = CommandLine.arguments.dropFirst().first
 for dark in [false, true] {
     C.dark = dark
     let end = dark ? "-dark.gif" : ".gif"
-    gif(holdPicture(), to: "whats-new/hold-before-limit" + end)
-    gif(inboxPicture(), to: "whats-new/session-inbox" + end)
+    if only == nil || only == "hold-before-limit" { gif(holdPicture(), to: "whats-new/hold-before-limit" + end) }
+    if only == nil || only == "session-inbox" { gif(inboxPicture(), to: "whats-new/session-inbox" + end) }
+    if only == nil || only == "server-on-by-itself" {
+        let path = "whats-new/server-on-by-itself" + (dark ? "-dark.png" : ".png")
+        try! serverPicture().representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
+        print("wrote \(path)")
+    }
 }

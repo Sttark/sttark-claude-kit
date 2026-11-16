@@ -30,6 +30,16 @@ records the validator's verdict, blocks a turn until the day log has the entry, 
 So does the production guard (prod-guard.py: PreToolUse with a matcher for Bash and MCP tools, UserPromptSubmit and
 SubagentStop), which denies pushes to main, merges, deploys and production migrations until the person types
 `approve <action>`.
+--defaults turns on Claude Code's phone notices (inputNeededNotifEnabled: a notice when Claude waits on you;
+agentPushNotifEnabled: Claude may send one, which claude-notify's "Claude app" way needs) when the key is missing;
+a value the person set, true or false, is never changed.
+On install it also sets remoteControlAtStartup to true when the key is missing, so sessions started in the
+Claude desktop app on "This computer", or in a terminal, connect to Remote Control and show on the phone and in
+the Kit; an explicit false is never changed. A marker in the app's folder records that the Kit set it, so a key
+the person removes later stays removed, and --remove takes out only a true the Kit set.
+--bypass-defaults on sets permissions.defaultMode to bypassPermissions and skipDangerousModePermissionPrompt to
+true, each only when missing, and records what it set in kit-settings.json in the Kit's folder; --bypass-defaults off
+takes out only what it recorded, when the value is still the one it set.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -121,8 +131,10 @@ LIMIT_WAIT = 60  # the hooks only check and answer; the wait runs as a visible c
 LIMIT_HOLD = 8 * 24 * 3600  # --hold: a session that holds at its own N% waits in this hook, past a weekly reset
 NOTIFY = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'notify.py')
 WAIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wait.py')
+MIGRATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'migrate.py')
 # commands in ~/.local/bin, next to claude, and the script each points at
-LINKS = {'claude-limit-wait': LIMIT, 'claude-limit-mode': LIMIT, 'claude-notify': NOTIFY, 'claude-wait': WAIT}
+LINKS = {'claude-limit-wait': LIMIT, 'claude-limit-mode': LIMIT, 'claude-notify': NOTIFY, 'claude-wait': WAIT,
+         'claude-migrate': MIGRATE}
 
 
 def is_limit(cmd):
@@ -485,8 +497,8 @@ def same_tree(a, b):
 
 
 def set_links(on):
-    """claude-limit-wait and claude-limit-mode (links to limit-hook.py) and claude-notify (notify.py) and claude-wait (wait.py) in
-    ~/.local/bin, next to claude. Removed on --remove, only when they point at this kit's copy."""
+    """claude-limit-wait and claude-limit-mode (links to limit-hook.py), claude-notify (notify.py), claude-wait (wait.py) and
+    claude-migrate (migrate.py) in ~/.local/bin, next to claude. Removed on --remove, only when they point at this kit's copy."""
     home_bin = os.path.expanduser('~/.local/bin')
     for name, script in LINKS.items():
         target = os.path.realpath(script)
@@ -502,6 +514,29 @@ def set_links(on):
                 os.remove(p)
         except OSError:
             pass
+
+
+KIT_DIR = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
+PUSH_KEYS = ('inputNeededNotifEnabled', 'agentPushNotifEnabled')
+
+
+RC_SET = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/remote-control-at-startup.kit')
+
+
+def set_rc_startup(s, on):
+    """Remote Control for every session, the setting Claude Code's /config calls "Enable Remote Control for all
+    sessions". The Claude desktop app reads it while its own "Connect new sessions to Remote Control" switch was
+    never changed."""
+    if on:
+        if 'remoteControlAtStartup' in s or os.path.exists(RC_SET):
+            return
+        s['remoteControlAtStartup'] = True
+        os.makedirs(os.path.dirname(RC_SET), exist_ok=True)
+        open(RC_SET, 'w').close()
+    elif os.path.exists(RC_SET):
+        if s.get('remoteControlAtStartup') is True:
+            s.pop('remoteControlAtStartup')
+        os.remove(RC_SET)
 
 
 def ours(cmd):
@@ -579,7 +614,8 @@ def main():
                           'daylog_allow': ALLOW_RULE in ((s.get('permissions') or {}).get('allow') or []),
                           'rotation': has(s, 'UserPromptSubmit', is_rotation),
                           'prod': has(s, 'PreToolUse', is_prod) and has(s, 'UserPromptSubmit', is_prod)
-                                  and has(s, 'SubagentStop', is_prod)}))
+                                  and has(s, 'SubagentStop', is_prod),
+                          'remote_control_at_startup': s.get('remoteControlAtStartup')}))
         return
     if '--orchestrator' in sys.argv:
         on = sys.argv[sys.argv.index('--orchestrator') + 1] == 'on'
@@ -599,6 +635,44 @@ def main():
         print((word + '; ' if word else '') + f'guard {state_word}, subrules {state_word}, uicheck {state_word}, browser {state_word}, daylog {state_word}, rotation {state_word}, prod {state_word}')
         return
     remove = '--remove' in sys.argv
+    before = json.dumps(s, sort_keys=True)
+    if '--bypass-defaults' in sys.argv:
+        on = sys.argv[sys.argv.index('--bypass-defaults') + 1] == 'on'
+        rec_path = os.path.join(KIT_DIR, 'kit-settings.json')
+        try:
+            with open(rec_path) as f:
+                rec = json.load(f)
+        except (OSError, ValueError):
+            rec = {}
+        perms = s.setdefault('permissions', {})
+        done = []
+        if on:
+            if 'defaultMode' not in perms:
+                perms['defaultMode'] = 'bypassPermissions'
+                rec['permissions.defaultMode'] = 'bypassPermissions'
+                done.append('permissions.defaultMode')
+            if 'skipDangerousModePermissionPrompt' not in s:
+                s['skipDangerousModePermissionPrompt'] = True
+                rec['skipDangerousModePermissionPrompt'] = True
+                done.append('skipDangerousModePermissionPrompt')
+        else:
+            if rec.pop('permissions.defaultMode', None) and perms.get('defaultMode') == 'bypassPermissions':
+                del perms['defaultMode']
+                done.append('-permissions.defaultMode')
+            if rec.pop('skipDangerousModePermissionPrompt', None) and s.get('skipDangerousModePermissionPrompt') is True:
+                del s['skipDangerousModePermissionPrompt']
+                done.append('-skipDangerousModePermissionPrompt')
+        if not perms:
+            s.pop('permissions', None)
+        os.makedirs(KIT_DIR, exist_ok=True)
+        with open(rec_path, 'w') as f:
+            json.dump(rec, f)
+        return save(s, before, ('set ' if on else 'removed ') + ', '.join(d.lstrip('-') for d in done) if done else 'unchanged')
+    if '--defaults' in sys.argv:
+        added = [k for k in PUSH_KEYS if k not in s]
+        for k in added:
+            s[k] = True
+        return save(s, before, 'set ' + ', '.join(added) if added else 'unchanged')
     before = json.dumps(s, sort_keys=True)
     hooks = s.setdefault('hooks', {})
     if '--bypass' in sys.argv:
@@ -641,6 +715,7 @@ def main():
     set_prod(hooks, orchestrator_on() and not remove)
     set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
+    set_rc_startup(s, not remove)
     for event in ('UserPromptSubmit', 'PostToolUse'):
         groups = hooks.get(event, [])
         for g in groups:  # drop every copy, old paths included
