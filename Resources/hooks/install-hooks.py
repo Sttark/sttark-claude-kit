@@ -161,8 +161,8 @@ def is_guard(cmd):
 def set_guard(hooks, on):
     """Before Bash and the Claude in Chrome and Control Chrome tools: stop steps that open or bring forward the
     person's own Chrome while "Claude window in Chrome" is on, and give each agent's commands the agent's id, so
-    claude-window gives each agent its own tab. On every message: the person's opt-in. When an agent stops: its
-    tab closes."""
+    claude-window gives each agent its own window. On every message: the person's opt-in. When an agent stops:
+    its window goes back to the spare ones."""
     for event in ('PreToolUse', 'UserPromptSubmit', 'SubagentStop'):
         groups = hooks.get(event, [])
         for g in groups:
