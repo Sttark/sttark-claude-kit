@@ -61,25 +61,41 @@ Never active:
 
 | Kind | Factor (human hours for each active hour) |
 |---|---|
-| Software | 12 |
+| Software | 15 |
 | Design | 5 |
-| Browser and admin | 2.5 |
-| Small or mixed | 2 |
+| Browser and admin | 5.5 |
+| Small or mixed | 2.5 |
 
 They are set in one place, `WORK` in `Resources/hooks/usage-scan.py`; the window and the phone take them, and the
 words of the ⓘ note, from the scan's output.
 
-**Where they come from.** A one-time study (November 2026) had reviewers read a week of one Mac's records, the 24
-sessions that held 92% of that week's active hours, and estimate how long a person would take for each. Their
-estimate divided by the session's active hours fell into groups by kind of work: six software sessions from 4.5 to 14.7,
-half of them at 12.5 or more; two house design sessions, 4.2 and 7.2; two browser and admin sessions (orders,
-freight, email), 2.0 and 3.1; and 14 short sessions, together 1.8. The factors were chosen from those groups.
+### Where they come from
 
-The study measured active hours with a simpler rule: the gaps of 5 minutes or less between any two lines of a record.
-The rule above leaves out more waits (notes between turns made many idle gaps look active). For the same week it finds
-112 active hours where the simple rule found 148, mostly less in the sessions' own records, which wait on the person
-and on agents; agents' records change little. So the estimate is lower than the study's factors and the simple rule
-would give together. The factors can be checked again with a new study, and changed in `WORK`.
+A one-time study (November 2026) had reviewers read a week of one Mac's records, the 24 sessions that held 92% of that
+week's active hours, and estimate from what each session made how long a person would take for it. Those human hours
+are the fixed part. The study measured active hours with a simpler rule (the gaps of 5 minutes or less between any two
+lines of a record), which counts many idle stretches that the rule above leaves out, so the factors are set again from
+the same sessions, measured by the rule above:
+
+**factor of a kind = the study's human hours for that kind's sessions ÷ the active hours of the same sessions (rule
+above), rounded to 0.5.**
+
+The active hours are each session's own record, its agents and the runs in its scratchpad, from the start of the
+study's week to the moment the study ran, so both sides cover the same work. A session counts whole under its kind;
+the one session the study split by kind (a house design session) counts each part with the active hours the rule above
+gave that kind in it, and its document and research parts go with design, the session's main kind.
+
+| Kind | Sessions | Study's human hours | Active hours | Factor |
+|---|---|---|---|---|
+| Software | a facility map app (260), three Kit sessions (205, 92, 88), a fourth (21), a browser tool (14), and the design session's software part (12) | 692 | 45.96 | 15.06, so 15 |
+| Design | a house design session (50), and the other's design, document and research parts (115 + 15 + 12) | 192 | 38.52 | 4.98, so 5 |
+| Browser and admin | freight and email (13), online orders (8), and the design session's admin part (28) | 49 | 8.97 | 5.46, so 5.5 |
+| Small or mixed | 14 short sessions | 23.5 | 9.23 | 2.55, so 2.5 |
+
+With the simple rule's active hours, the factors were 12, 5, 2.5 and 2. Browser and admin moves the most: its sessions wait
+the most (on the person, on pages, on agents), so the rule above finds the fewest active hours in them, and the design
+session's admin part is 28 human hours in 4.4 active hours. Without that part, the browser and admin factor would be 4.5.
+The factors can be checked again with a new study, and changed in `WORK`.
 
 ## In words
 
