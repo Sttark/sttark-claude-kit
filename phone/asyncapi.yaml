@@ -6,7 +6,8 @@ info:
     The two WebSockets of Kit on your phone (kit.sttark.com). A Mac's Kit opens /mac and keeps it open (the Mac is behind NAT, so
     it dials out). A phone page opens /live while it is open. Every message is {event, success, payload};
     success is true except on an error message and on a result whose reason is not ok. The message schemas
-    are in schema/messages.v1.json, which references schema/snapshot.v1.json and schema/archived.v1.json.
+    are in schema/messages.v1.json, which references schema/snapshot.v1.json, schema/archived.v1.json and
+    schema/usage.v1.json.
     Every schema refuses fields it does not know. Run `node phone/schema/check.mjs` after a change.
     This file is written from the server's side: send is a message the server sends, receive is one it takes.
     Why each message exists, and what never leaves the Mac: phone/DESIGN.md.
@@ -43,12 +44,14 @@ channels:
       watching: { $ref: '#/components/messages/server_to_mac.watching' }
       phones: { $ref: '#/components/messages/server_to_mac.phones' }
       want_archived: { $ref: '#/components/messages/server_to_mac.want_archived' }
+      want_usage: { $ref: '#/components/messages/server_to_mac.want_usage' }
       action: { $ref: '#/components/messages/server_to_mac.action' }
       error: { $ref: '#/components/messages/server_to_mac.error' }
       auth: { $ref: '#/components/messages/mac_to_server.auth' }
       snapshot: { $ref: '#/components/messages/mac_to_server.snapshot' }
       archived: { $ref: '#/components/messages/mac_to_server.archived' }
       archived_delta: { $ref: '#/components/messages/mac_to_server.archived_delta' }
+      usage: { $ref: '#/components/messages/mac_to_server.usage' }
       result: { $ref: '#/components/messages/mac_to_server.result' }
       remind: { $ref: '#/components/messages/mac_to_server.remind' }
       bye: { $ref: '#/components/messages/mac_to_server.bye' }
@@ -66,10 +69,12 @@ channels:
       hello: { $ref: '#/components/messages/phone_to_server.hello' }
       visible: { $ref: '#/components/messages/phone_to_server.visible' }
       open_archived: { $ref: '#/components/messages/phone_to_server.open_archived' }
+      open_usage: { $ref: '#/components/messages/phone_to_server.open_usage' }
       phone_action: { $ref: '#/components/messages/phone_to_server.action' }
       macs: { $ref: '#/components/messages/server_to_phone.macs' }
       phone_snapshot: { $ref: '#/components/messages/server_to_phone.snapshot' }
       phone_archived: { $ref: '#/components/messages/server_to_phone.archived' }
+      phone_usage: { $ref: '#/components/messages/server_to_phone.usage' }
       action_result: { $ref: '#/components/messages/server_to_phone.action_result' }
       record: { $ref: '#/components/messages/server_to_phone.record' }
       phone_error: { $ref: '#/components/messages/server_to_phone.error' }
@@ -85,6 +90,7 @@ operations:
       - $ref: '#/channels/mac/messages/watching'
       - $ref: '#/channels/mac/messages/phones'
       - $ref: '#/channels/mac/messages/want_archived'
+      - $ref: '#/channels/mac/messages/want_usage'
       - $ref: '#/channels/mac/messages/action'
       - $ref: '#/channels/mac/messages/error'
   receiveFromMac:
@@ -96,6 +102,7 @@ operations:
       - $ref: '#/channels/mac/messages/snapshot'
       - $ref: '#/channels/mac/messages/archived'
       - $ref: '#/channels/mac/messages/archived_delta'
+      - $ref: '#/channels/mac/messages/usage'
       - $ref: '#/channels/mac/messages/result'
       - $ref: '#/channels/mac/messages/remind'
       - $ref: '#/channels/mac/messages/bye'
@@ -108,6 +115,7 @@ operations:
       - $ref: '#/channels/live/messages/hello'
       - $ref: '#/channels/live/messages/visible'
       - $ref: '#/channels/live/messages/open_archived'
+      - $ref: '#/channels/live/messages/open_usage'
       - $ref: '#/channels/live/messages/phone_action'
   sendToPhone:
     action: send
@@ -117,6 +125,7 @@ operations:
       - $ref: '#/channels/live/messages/macs'
       - $ref: '#/channels/live/messages/phone_snapshot'
       - $ref: '#/channels/live/messages/phone_archived'
+      - $ref: '#/channels/live/messages/phone_usage'
       - $ref: '#/channels/live/messages/action_result'
       - $ref: '#/channels/live/messages/record'
       - $ref: '#/channels/live/messages/phone_error'
@@ -143,6 +152,10 @@ components:
       name: want_archived
       summary: A phone opened Archived and the server's copy is old. The Mac sends archived, or archived_delta from have.
       payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.want_archived' }
+    server_to_mac.want_usage:
+      name: want_usage
+      summary: A phone shows the Usage tab with this period. The Mac sends usage, its Usage by session list for it.
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.want_usage' }
     server_to_mac.action:
       name: action
       summary: One of six actions, with who asked. The Mac checks its own state when it runs it and answers with result.
@@ -167,6 +180,10 @@ components:
       name: archived_delta
       summary: The changes to the archived list since rev base.
       payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.archived_delta' }
+    mac_to_server.usage:
+      name: usage
+      summary: The Usage by session list for one period (names, ids and numbers only), only after want_usage.
+      payload: { $ref: './schema/messages.v1.json#/$defs/mac_to_server.usage' }
     mac_to_server.result:
       name: result
       summary: The answer to an action. ok, gone, not_now, not_here or bad, with before and after.
@@ -195,6 +212,10 @@ components:
       name: open_archived
       summary: The Archived tab opened.
       payload: { $ref: './schema/messages.v1.json#/$defs/phone_to_server.open_archived' }
+    phone_to_server.open_usage:
+      name: open_usage
+      summary: The Usage tab shows this period.
+      payload: { $ref: './schema/messages.v1.json#/$defs/phone_to_server.open_usage' }
     phone_to_server.action:
       name: action
       summary: A tap on a control, with the Mac and the time of the snapshot the phone showed.
@@ -211,6 +232,10 @@ components:
       name: archived
       summary: A Mac's archived list from the server's copy.
       payload: { $ref: './schema/messages.v1.json#/$defs/server_to_phone.archived' }
+    server_to_phone.usage:
+      name: usage
+      summary: A Mac's Usage by session list for a period, new or from the server's copy (as of its time for a Mac that is away).
+      payload: { $ref: './schema/messages.v1.json#/$defs/server_to_phone.usage' }
     server_to_phone.action_result:
       name: action_result
       summary: The answer to an action, with offline, timeout and denied added to the Mac's reasons.

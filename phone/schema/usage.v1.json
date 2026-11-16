@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kit.sttark.com/schema/usage.v1.json",
+  "title": "Kit usage by session, version 1",
+  "description": "One Mac's Usage by session list for one period, as the Kit sends it on /mac after want_usage: each session's share of the person's Claude Code use on that Mac in the period, and the part its agents did. Each reply counts at its model's API price, so a share follows how the usage limit fills; a share is never a percent of the limit, which Anthropic gives only as a total. Only names, ids and numbers go up: no path, no prompt, no reply. See phone/DESIGN.md, section 14.",
+  "$ref": "#/$defs/list",
+  "$defs": {
+    "period": {
+      "type": "string",
+      "maxLength": 22,
+      "pattern": "^(today|7d|30d|[0-9]{4}-[0-9]{2}-[0-9]{2}\\.\\.[0-9]{4}-[0-9]{2}-[0-9]{2})$",
+      "description": "today, 7d (today and the 6 days before), 30d, or a range of days, first..last, in the Mac's time zone."
+    },
+    "day": { "type": "string", "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "share": { "type": "number", "minimum": 0, "maximum": 100, "description": "Percent of the person's use on this Mac in the period." },
+    "count": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "cse", "share", "agent_share", "last_active", "agents"],
+      "properties": {
+        "title": { "type": "string", "maxLength": 160, "description": "The session's name, cut to 160 characters. Never a prompt or a reply." },
+        "cse": {
+          "type": ["string", "null"], "minLength": 1, "maxLength": 80, "pattern": "^[A-Za-z0-9_.:-]+$",
+          "description": "The Remote Control session id, for Open in Claude; null for use with no session link (a session only on that Mac, the Kit's own checks, runs in temporary folders)."
+        },
+        "share": { "$ref": "#/$defs/share" },
+        "agent_share": { "$ref": "#/$defs/share", "description": "The part of share its agents did, in percent of the person's use; never more than share." },
+        "last_active": { "type": ["number", "null"], "minimum": 1700000000, "maximum": 4102444800, "description": "Unix seconds: its newest reply." },
+        "agents": { "$ref": "#/$defs/count", "description": "Agents it started in the period." }
+      }
+    },
+    "list": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "period", "from", "to", "at", "total", "rows", "more"],
+      "properties": {
+        "v": { "const": 1 },
+        "period": { "$ref": "#/$defs/period" },
+        "from": { "$ref": "#/$defs/day", "description": "The first day the list covers." },
+        "to": { "$ref": "#/$defs/day", "description": "The last day the list covers." },
+        "at": { "type": "number", "minimum": 1700000000, "maximum": 4102444800, "description": "Unix seconds: when the Mac made the list." },
+        "total": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessions", "tokens", "agent_share", "usd"],
+          "properties": {
+            "sessions": { "$ref": "#/$defs/count" },
+            "tokens": { "type": "number", "minimum": 0, "maximum": 1000000000000000 },
+            "agent_share": { "$ref": "#/$defs/share", "description": "The part of the person's use that agents did." },
+            "usd": { "type": "number", "minimum": 0, "maximum": 1000000000, "description": "The use, in dollars at API prices." }
+          }
+        },
+        "rows": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/row" }, "description": "The biggest share first." },
+        "more": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessions", "share"],
+          "description": "The sessions after the first 100, together.",
+          "properties": { "sessions": { "$ref": "#/$defs/count" }, "share": { "$ref": "#/$defs/share" } }
+        }
+      }
+    }
+  }
+}

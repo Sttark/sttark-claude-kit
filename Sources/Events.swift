@@ -606,6 +606,21 @@ enum Events {
             }
         case "log":
             e.kind = .app; e.routine = true; e.text = "Old log lines removed"
+        case "usage":   // Usage by session (usage-scan.py): the first read of the records, a model with no price, a failed read
+            e.kind = .app
+            if rest.hasPrefix("first scan: ") {
+                e.text = "Read the sessions' records for the Usage page: " + rest.dropFirst(12)
+            } else if rest.hasPrefix("no price for ") {
+                e.level = .warn
+                let model = rest.dropFirst(13).split(separator: " ").first.map(String.init) ?? "a model"
+                e.text = "No price for \(model) in the Kit: on the Usage page its use counts at the price of its family"
+            } else if rest.hasPrefix("scan failed") {
+                e.level = .warn
+                e.text = "Could not read the sessions' records for the Usage page"
+                e.detail.append(String(rest.prefix(300)))
+            } else {
+                e.text = "Usage page: " + rest.prefix(160)
+            }
         case "error":
             e.kind = .problem; e.level = .error
             if first.hasPrefix("cse_") { who(first) }

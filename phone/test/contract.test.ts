@@ -55,7 +55,8 @@ describe('contract', () => {
     expect(checkMessage('mac_to_server', { event: 'welcome', success: true, payload: { phones: 0, watching: false } }).ok).toBe(false);
     expect(checkMessage('phone_to_server', [1]).ok).toBe(false);
     expect(checkMessage('phone_to_server', null).ok).toBe(false);
-    expect([...EVENTS.mac_to_server].sort()).toEqual(['archived', 'archived_delta', 'auth', 'bye', 'remind', 'result', 'snapshot', 'unlink']);
+    expect([...EVENTS.mac_to_server].sort()).toEqual(['archived', 'archived_delta', 'auth', 'bye', 'remind', 'result', 'snapshot', 'unlink', 'usage']);
+    expect([...EVENTS.phone_to_server].sort()).toEqual(['action', 'hello', 'open_archived', 'open_usage', 'visible']);
   });
 
   it('the link refusals and answers have their shape', () => {

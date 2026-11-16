@@ -72,5 +72,15 @@
         "phones": "2"
       }
     }
+  },
+  {
+    "why": "want_usage with a period of hours",
+    "value": {
+      "event": "want_usage",
+      "success": true,
+      "payload": {
+        "period": "24h"
+      }
+    }
   }
 ]

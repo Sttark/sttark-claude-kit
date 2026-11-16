@@ -1,0 +1,412 @@
+[
+  {
+    "why": "a field a row does not have: a folder, which never leaves the Mac",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75,
+          "folder": "src"
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  },
+  {
+    "why": "a share over 100",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 128.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  },
+  {
+    "why": "a period that is none of today, 7d, 30d or a range of days",
+    "value": {
+      "v": 1,
+      "period": "week",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  },
+  {
+    "why": "a range of days with a time in it",
+    "value": {
+      "v": 1,
+      "period": "2026-11-01T00:00..2026-11-10",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  },
+  {
+    "why": "a session id with a slash",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01/../x",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  },
+  {
+    "why": "no total",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  },
+  {
+    "why": "a name over 160 characters",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  },
+  {
+    "why": "a field the list does not have: the prompt",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      },
+      "prompt": "fix the order page"
+    }
+  },
+  {
+    "why": "an agent count that is not a whole number",
+    "value": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 7.5
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  }
+]

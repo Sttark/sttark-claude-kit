@@ -72,6 +72,12 @@ export function dayKey(t: number, tz: string): string {
   return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`;
 }
 
+/** A day of the contract (2026-11-10) in words: Nov 10. */
+export function dayWords(day: string): string {
+  const [, m, d] = day.split('-').map(Number);
+  return m >= 1 && m <= 12 && d ? `${MONTHS[m - 1]} ${d}` : day;
+}
+
 /** A span: 22 min, 1 hr 5 min, 14 hr, 3 days. At least 1 min. */
 export function span(sec: number): string {
   const min = Math.max(1, Math.floor(sec / 60));

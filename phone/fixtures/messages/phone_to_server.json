@@ -19,6 +19,13 @@
     "payload": {}
   },
   {
+    "event": "open_usage",
+    "success": true,
+    "payload": {
+      "period": "30d"
+    }
+  },
+  {
     "event": "action",
     "success": true,
     "payload": {

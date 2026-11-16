@@ -170,6 +170,9 @@ enum Tokens {
     static let warnText = token(0x7a5c00, 0xe8c547)
     static let warnMark = token(0xe5b200, 0xe5b200)
     static let greenText = token(0x007a2a, 0x00a82d)
+    /// Usage by session's second data color, for a session's agents: the info mark mixed 60% with the card ground in
+    /// OKLab, as the phone's CSS mixes it (color-mix), so it is a tint of the session's blue in light and in dark.
+    static let agents = token(0x7aabd2, 0x416d8d)
     /// The window's own grounds: the sidebar, the side panel, and hairlines between parts.
     static let side = token(0xebe8e4, 0x17191c)
     static let panel = token(0xfbfaf9, 0x15181b)

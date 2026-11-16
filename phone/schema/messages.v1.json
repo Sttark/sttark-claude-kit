@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kit.sttark.com/schema/messages.v1.json",
   "title": "Kit phone socket messages, version 1",
-  "description": "Every message on the two WebSockets, /mac (a Mac's Kit and the server) and /live (a phone page and the server). Each message is {event, success, payload}. success is true, except on an error message and on a result whose reason is not ok. The four direction groups (server_to_mac, mac_to_server, phone_to_server, server_to_phone) list the messages each side may send; asyncapi.yaml names the same messages. See phone/DESIGN.md, sections 4 and 13, and its appendix.",
+  "description": "Every message on the two WebSockets, /mac (a Mac's Kit and the server) and /live (a phone page and the server). Each message is {event, success, payload}. success is true, except on an error message and on a result whose reason is not ok. The four direction groups (server_to_mac, mac_to_server, phone_to_server, server_to_phone) list the messages each side may send; asyncapi.yaml names the same messages. See phone/DESIGN.md, sections 4, 13 and 14, and its appendix.",
   "$defs": {
     "time": { "type": "number", "minimum": 1700000000, "maximum": 4102444800, "description": "Unix seconds." },
     "time_or_null": { "type": ["number", "null"], "minimum": 1700000000, "maximum": 4102444800 },
@@ -83,6 +83,7 @@
         { "$ref": "#/$defs/server_to_mac.watching" },
         { "$ref": "#/$defs/server_to_mac.phones" },
         { "$ref": "#/$defs/server_to_mac.want_archived" },
+        { "$ref": "#/$defs/server_to_mac.want_usage" },
         { "$ref": "#/$defs/server_to_mac.action" },
         { "$ref": "#/$defs/server_to_mac.error" }
       ]
@@ -133,6 +134,14 @@
         "payload": { "type": "object", "additionalProperties": false, "required": ["have"], "properties": { "have": { "type": ["string", "null"], "maxLength": 64, "pattern": "^[0-9a-f]{8,64}$" } } }
       }
     },
+    "server_to_mac.want_usage": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A phone shows the Usage tab with this period. The Mac answers with usage: its Usage by session list for the period (usage.v1.json).",
+      "properties": {
+        "event": { "const": "want_usage" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["period"], "properties": { "period": { "$ref": "usage.v1.json#/$defs/period" } } }
+      }
+    },
     "server_to_mac.action": {
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
       "description": "A person's action from a phone. The Mac checks it against its own state at the moment it runs, and answers with result.",
@@ -168,6 +177,7 @@
         { "$ref": "#/$defs/mac_to_server.snapshot" },
         { "$ref": "#/$defs/mac_to_server.archived" },
         { "$ref": "#/$defs/mac_to_server.archived_delta" },
+        { "$ref": "#/$defs/mac_to_server.usage" },
         { "$ref": "#/$defs/mac_to_server.result" },
         { "$ref": "#/$defs/mac_to_server.remind" },
         { "$ref": "#/$defs/mac_to_server.bye" },
@@ -203,6 +213,11 @@
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
       "description": "The changes since the list with rev base, after the server holds a list.",
       "properties": { "event": { "const": "archived_delta" }, "success": { "const": true }, "payload": { "$ref": "archived.v1.json#/$defs/delta" } }
+    },
+    "mac_to_server.usage": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The Usage by session list for one period, only after want_usage.",
+      "properties": { "event": { "const": "usage" }, "success": { "const": true }, "payload": { "$ref": "usage.v1.json#/$defs/list" } }
     },
     "mac_to_server.result": {
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
@@ -257,6 +272,7 @@
         { "$ref": "#/$defs/phone_to_server.hello" },
         { "$ref": "#/$defs/phone_to_server.visible" },
         { "$ref": "#/$defs/phone_to_server.open_archived" },
+        { "$ref": "#/$defs/phone_to_server.open_usage" },
         { "$ref": "#/$defs/phone_to_server.action" }
       ]
     },
@@ -280,6 +296,14 @@
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
       "description": "The Archived tab opened. The server answers with archived from its copy and sends want_archived to each Mac whose copy is old.",
       "properties": { "event": { "const": "open_archived" }, "success": { "const": true }, "payload": { "$ref": "#/$defs/empty" } }
+    },
+    "phone_to_server.open_usage": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "The Usage tab shows this period (it opened, the period changed, or it shows again). The server answers with usage from its copy of each Mac's list for the period, and sends want_usage to each live Mac.",
+      "properties": {
+        "event": { "const": "open_usage" }, "success": { "const": true },
+        "payload": { "type": "object", "additionalProperties": false, "required": ["period"], "properties": { "period": { "$ref": "usage.v1.json#/$defs/period" } } }
+      }
     },
     "phone_to_server.action": {
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
@@ -305,6 +329,7 @@
         { "$ref": "#/$defs/server_to_phone.macs" },
         { "$ref": "#/$defs/server_to_phone.snapshot" },
         { "$ref": "#/$defs/server_to_phone.archived" },
+        { "$ref": "#/$defs/server_to_phone.usage" },
         { "$ref": "#/$defs/server_to_phone.action_result" },
         { "$ref": "#/$defs/server_to_phone.record" },
         { "$ref": "#/$defs/server_to_phone.error" }
@@ -358,6 +383,17 @@
             "rev": { "$ref": "archived.v1.json#/$defs/rev" },
             "items": { "type": "array", "maxItems": 200, "items": { "$ref": "archived.v1.json#/$defs/item" } }
           }
+        }
+      }
+    },
+    "server_to_phone.usage": {
+      "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
+      "description": "A Mac's Usage by session list for a period: new from the Mac, or the server's copy, which for a Mac that is away is its last list, as of its at.",
+      "properties": {
+        "event": { "const": "usage" }, "success": { "const": true },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["mac", "list"],
+          "properties": { "mac": { "$ref": "#/$defs/id" }, "list": { "$ref": "usage.v1.json#/$defs/list" } }
         }
       }
     },

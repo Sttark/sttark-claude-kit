@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db, resetDbForTests } from '../src/lib/db.ts';
 import { resetHubForTests, settings, sweep, WORDS } from '../src/lib/hub.ts';
-import { getMac, macState, removeMac, resetPresenceForTests, archivedOf, lastSnapshot } from '../src/lib/macs.ts';
+import { getMac, macState, removeMac, resetPresenceForTests, archivedOf, lastSnapshot, usageOf } from '../src/lib/macs.ts';
 import { resetLinkRateForTests } from '../src/lib/link.ts';
 import { macConnect, signChallenge, FakeMac } from '../tools/fake-mac.mjs';
 import { ROSTER, storeSampleRoster } from './helpers.ts';
@@ -13,6 +13,7 @@ import { Conn, allValid, linkedMac, newMac, phone, sleep, startServer, type At }
 import snapshot from '../fixtures/snapshot.macbook-pro.json';
 import archived from '../fixtures/archived.json';
 import delta from '../fixtures/archived-delta.json';
+import usageFixture from '../fixtures/usage.macbook-pro.json';
 
 const ADA = 'ada.anvil@sttark.com';
 const BIX = 'bix.dowel@sttark.com';
@@ -369,6 +370,95 @@ describe('archived lists', () => {
     const p2 = await phoneOf(ADA);
     p2.send({ event: 'open_archived', success: true, payload: {} });
     expect((await p2.next('archived')).payload.rev).toBe(delta.rev);
+  });
+});
+
+/** A Usage by session list for a period, from the fixture. */
+function usageList(period: string, over: Record<string, unknown> = {}) {
+  const [from, to] = period.includes('..') ? period.split('..') : ['2026-11-07', '2026-11-13'];
+  return { ...structuredClone(usageFixture), period, from, to, at: Math.floor(Date.now() / 1000), ...over };
+}
+
+describe('usage by session lists', () => {
+  it('open_usage asks each live Mac once per period in the gap; its answer is kept and goes to the pages on that period only', async () => {
+    settings.wantEveryMs = 10_000;
+    const k = linkedMac(ADA);
+    const c = await mac(k);
+    c.send(snap());
+    const p = await phoneOf(ADA);
+    await p.next('snapshot');
+    p.send({ event: 'open_usage', success: true, payload: { period: '7d' } });
+    expect((await c.next('want_usage')).payload).toEqual({ period: '7d' });
+    // The same period again in the gap asks nothing more; another one asks.
+    p.send({ event: 'open_usage', success: true, payload: { period: '7d' } });
+    const p2 = await phoneOf(ADA);
+    await p2.next('snapshot');
+    p2.send({ event: 'open_usage', success: true, payload: { period: '30d' } });
+    expect((await c.next('want_usage')).payload).toEqual({ period: '30d' });
+    await sleep(150);
+    expect(c.inbox.filter((m: any) => m.event === 'want_usage')).toEqual([]);
+    // The Mac's answer: kept, and sent to the page that shows 7 days only.
+    c.send({ event: 'usage', success: true, payload: usageList('7d') });
+    const got = await p.next('usage');
+    expect(got.payload.mac).toBe(k.mac);
+    expect(got.payload.list.period).toBe('7d');
+    expect(got.payload.list.rows.length).toBe(usageFixture.rows.length);
+    await sleep(150);
+    expect(p2.inbox.filter((m: any) => m.event === 'usage')).toEqual([]);
+    expect(usageOf(k.mac, '7d')!.rows[0].title).toBe('Site map plan');
+    // Another person's page never gets it.
+    const bix = await phoneOf(BIX);
+    bix.send({ event: 'open_usage', success: true, payload: { period: '7d' } });
+    await sleep(150);
+    expect(bix.inbox.filter((m: any) => m.event === 'usage')).toEqual([]);
+  });
+
+  it('a page that opens later gets the kept list at once: for a Mac that is away, its last one, and nothing is asked', async () => {
+    const k = linkedMac(ADA);
+    const c = await mac(k);
+    c.send(snap());
+    c.send({ event: 'usage', success: true, payload: usageList('7d') });
+    await sleep(150);
+    c.send({ event: 'bye', success: true, payload: { why: 'sleep' } });
+    c.close();
+    await c.closedWith();
+    await sleep(100);
+    const p = await phoneOf(ADA);
+    p.send({ event: 'open_usage', success: true, payload: { period: '7d' } });
+    const got = await p.next('usage');
+    expect(got.payload).toMatchObject({ mac: k.mac, list: { period: '7d' } });
+    // Nothing for a period it never sent.
+    p.send({ event: 'open_usage', success: true, payload: { period: 'today' } });
+    await sleep(150);
+    expect(p.inbox.filter((m: any) => m.event === 'usage')).toEqual([]);
+  });
+
+  it('asks a Mac that connects while a page shows Usage', async () => {
+    const k = linkedMac(ADA);
+    const p = await phoneOf(ADA);
+    p.send({ event: 'open_usage', success: true, payload: { period: '30d' } });
+    await sleep(100);
+    const c = await mac(k);
+    expect((await c.next('want_usage')).payload).toEqual({ period: '30d' });
+  });
+
+  it('keeps only the newest range of days; refuses a list with a field the contract does not know', async () => {
+    const k = linkedMac(ADA);
+    const c = await mac(k);
+    c.send({ event: 'usage', success: true, payload: usageList('7d') });
+    c.send({ event: 'usage', success: true, payload: usageList('2026-11-01..2026-11-05') });
+    c.send({ event: 'usage', success: true, payload: usageList('2026-11-02..2026-11-06') });
+    await sleep(150);
+    const periods = (db().prepare('SELECT period FROM usage_lists WHERE mac_id = ? ORDER BY period').all(k.mac) as { period: string }[]).map((r) => r.period);
+    expect(periods).toEqual(['2026-11-02..2026-11-06', '7d']);
+    const bad = usageList('30d');
+    (bad.rows[0] as any).folder = 'src';
+    c.send({ event: 'usage', success: true, payload: bad });
+    expect((await c.next('error')).payload.code).toBe('bad_message');
+    expect(usageOf(k.mac, '30d')).toBeNull();
+    // Removing the Mac deletes its lists.
+    removeMac(k.mac, { why: 'phone', by: ADA, byName: 'Ada Anvil', words: 'Removed.' });
+    expect(db().prepare('SELECT COUNT(*) AS n FROM usage_lists WHERE mac_id = ?').get(k.mac)).toEqual({ n: 0 });
   });
 });
 

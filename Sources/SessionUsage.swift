@@ -1,0 +1,271 @@
+import Foundation
+
+/// Usage by session: each session's share of the person's Claude Code use on this Mac in a period, and the part its
+/// agents did, for the window's Usage page and the phone's Usage tab. usage-scan.py reads the sessions' records on this
+/// Mac (only what was added since its last read) and writes usage/by-session.json in the Kit's folder: for each
+/// session, day and model, the use in dollars at API prices and the tokens. This reads that file and adds up any
+/// period. Each token counts at its model's API price, because the usage limit also counts a larger model as more
+/// use; a share is of the person's use, never a percent of the limit, which Anthropic gives only as a total.
+enum SessionUsage {
+    struct Model { let id: String; let name: String; let priced: Bool }
+
+    struct Session {
+        /// "cse:<id>", "sid:<id>", "runs:<folder name>", "kit" or "temp", as the scan groups records.
+        let key: String
+        /// session (it has a Remote Control link), local (only on this Mac), runs, kit or temp.
+        let kind: String
+        let cse: String?
+        let title: String
+        let last: Date?
+    }
+
+    /// One session's use on one day with one model.
+    struct Cell { let s: Int; let d: Int; let m: Int; let own: Double; let agents: Double; let ownTokens: Double; let agentTokens: Double }
+
+    struct Data {
+        /// When the scan finished.
+        var at: Date?
+        /// "2026-11-16", the oldest kept first, through the day of the scan.
+        var days: [String] = []
+        var models: [Model] = []
+        var sessions: [Session] = []
+        var cells: [Cell] = []
+        /// Agents each session started on each day.
+        var agents: [(s: Int, d: Int, n: Int)] = []
+        /// Models with no price in usage-scan.py, and their tokens.
+        var unpriced: [String: Double] = [:]
+        var empty: Bool { at == nil }
+    }
+
+    static var dir: URL { supportDir.appendingPathComponent("usage") }
+    static var file: URL { dir.appendingPathComponent("by-session.json") }
+    static var script: URL { hooksDir.appendingPathComponent("usage-scan.py") }
+
+    /// The scan's last result; empty before the first scan.
+    static func read() -> Data {
+        guard let d = try? Foundation.Data(contentsOf: file),
+              let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return Data() }
+        var out = Data(at: Limit.num(j["at"]).map { Date(timeIntervalSince1970: $0) })
+        out.days = j["days"] as? [String] ?? []
+        out.models = (j["models"] as? [[String: Any]] ?? []).map {
+            Model(id: $0["id"] as? String ?? "", name: $0["name"] as? String ?? "", priced: $0["priced"] as? Bool ?? true)
+        }
+        out.sessions = (j["sessions"] as? [[String: Any]] ?? []).map {
+            Session(key: $0["key"] as? String ?? "", kind: $0["kind"] as? String ?? "local",
+                    cse: ($0["cse"] as? String).flatMap { $0.isEmpty ? nil : $0 }, title: $0["title"] as? String ?? "",
+                    last: Limit.num($0["last"]).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil })
+        }
+        let n = out.sessions.count, days = out.days.count, models = out.models.count
+        for r in j["rows"] as? [[Any]] ?? [] where r.count == 7 {
+            let v = r.map { Limit.num($0) ?? -1 }
+            guard v[0] >= 0, Int(v[0]) < n, v[1] >= 0, Int(v[1]) < days, v[2] >= 0, Int(v[2]) < models else { continue }
+            out.cells.append(Cell(s: Int(v[0]), d: Int(v[1]), m: Int(v[2]), own: max(0, v[3]), agents: max(0, v[4]),
+                                  ownTokens: max(0, v[5]), agentTokens: max(0, v[6])))
+        }
+        for r in j["agents"] as? [[Any]] ?? [] where r.count == 3 {
+            let v = r.map { Int(Limit.num($0) ?? -1) }
+            if v[0] >= 0, v[0] < n, v[1] >= 0, v[1] < days, v[2] > 0 { out.agents.append((v[0], v[1], v[2])) }
+        }
+        for (k, v) in j["unpriced"] as? [String: Any] ?? [:] { out.unpriced[k] = Limit.num(v) ?? 0 }
+        return out
+    }
+
+    // MARK: periods
+
+    /// Today, the last 7 days, the last 30 days (today among them), or a range of days. The key is the phone
+    /// contract's period (phone/schema/usage.v1.json): today, 7d, 30d or first..last.
+    enum Period: Hashable {
+        case today, week, month
+        case custom(String, String)
+
+        var key: String {
+            switch self {
+            case .today: return "today"
+            case .week: return "7d"
+            case .month: return "30d"
+            case .custom(let a, let b): return a + ".." + b
+            }
+        }
+
+        init?(key: String) {
+            switch key {
+            case "today": self = .today
+            case "7d": self = .week
+            case "30d": self = .month
+            default:
+                let parts = key.components(separatedBy: "..")
+                guard parts.count == 2, let a = SessionUsage.date(parts[0]), let b = SessionUsage.date(parts[1]) else { return nil }
+                self = a <= b ? .custom(parts[0], parts[1]) : .custom(parts[1], parts[0])
+            }
+        }
+
+        var isCustom: Bool { if case .custom = self { return true } else { return false } }
+    }
+
+    /// The first and last day of a period, "2026-11-10" and "2026-11-16", in this Mac's time zone.
+    static func span(_ p: Period, now: Date = Date()) -> (from: String, to: String) {
+        let today = day(now)
+        switch p {
+        case .today: return (today, today)
+        case .week: return (day(now, plus: -6), today)
+        case .month: return (day(now, plus: -29), today)
+        case .custom(let a, let b): return (a, b)
+        }
+    }
+
+    static func dayFormatter() -> DateFormatter {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }
+
+    /// "2026-11-16" for a date, `plus` days on.
+    static func day(_ d: Date, plus: Int = 0) -> String {
+        let c = Calendar.current
+        return dayFormatter().string(from: c.date(byAdding: .day, value: plus, to: c.startOfDay(for: d)) ?? d)
+    }
+
+    /// The start of a day "2026-11-16", or nil when it is not one.
+    static func date(_ day: String) -> Date? {
+        guard day.count == 10, let d = dayFormatter().date(from: day) else { return nil }
+        return Calendar.current.startOfDay(for: d)
+    }
+
+    /// Every day from `from` to `to`.
+    static func days(from: String, to: String) -> [String] {
+        guard let a = date(from), let b = date(to), a <= b else { return [] }
+        var out: [String] = [], d = a
+        while d <= b, out.count < 400 {
+            out.append(day(d))
+            d = Calendar.current.date(byAdding: .day, value: 1, to: d) ?? b.addingTimeInterval(1)
+        }
+        return out
+    }
+
+    // MARK: adding up a period
+
+    /// One session's use in a period.
+    struct Line: Identifiable {
+        let s: Int
+        let session: Session
+        var id: String { session.key }
+        var own = 0.0, agents = 0.0, tokens = 0.0
+        var started = 0
+        var byDay: [String: (own: Double, agents: Double)] = [:]
+        var byModel: [Int: (usd: Double, tokens: Double)] = [:]
+        var usd: Double { own + agents }
+    }
+
+    struct Report {
+        var from = "", to = ""
+        /// The biggest first.
+        var lines: [Line] = []
+        var usd = 0.0, agents = 0.0, tokens = 0.0
+        /// All use each day, for a day's part of the whole.
+        var byDay: [String: Double] = [:]
+        var dayList: [String] { SessionUsage.days(from: from, to: to) }
+        func share(_ x: Double) -> Double { usd > 0 ? x / usd : 0 }
+    }
+
+    static func report(_ d: Data, from: String, to: String) -> Report {
+        var r = Report(from: from, to: to)
+        let inside = Set(d.days.indices.filter { d.days[$0] >= from && d.days[$0] <= to })
+        var lines: [Int: Line] = [:]
+        for c in d.cells where inside.contains(c.d) {
+            var l = lines[c.s] ?? Line(s: c.s, session: d.sessions[c.s])
+            l.own += c.own
+            l.agents += c.agents
+            l.tokens += c.ownTokens + c.agentTokens
+            let day = d.days[c.d]
+            let x = l.byDay[day] ?? (0, 0)
+            l.byDay[day] = (x.own + c.own, x.agents + c.agents)
+            let m = l.byModel[c.m] ?? (0, 0)
+            l.byModel[c.m] = (m.usd + c.own + c.agents, m.tokens + c.ownTokens + c.agentTokens)
+            lines[c.s] = l
+            r.byDay[day, default: 0] += c.own + c.agents
+        }
+        for a in d.agents where inside.contains(a.d) { lines[a.s]?.started += a.n }
+        r.lines = lines.values.filter { $0.usd > 0 }.sorted { ($0.usd, $1.session.title) > ($1.usd, $0.session.title) }
+        r.usd = r.lines.reduce(0) { $0 + $1.usd }
+        r.agents = r.lines.reduce(0) { $0 + $1.agents }
+        r.tokens = r.lines.reduce(0) { $0 + $1.tokens }
+        return r
+    }
+
+    // MARK: reading the records again
+
+    private static var running = false
+    private static var waiting: [() -> Void] = []
+
+    /// Runs usage-scan.py when its result is more than `olderThan` seconds old, off the main thread and one at a time,
+    /// then calls `done` on the main thread (also when nothing was due). The scan reads only what the records gained.
+    static func refresh(olderThan: TimeInterval, done: (() -> Void)? = nil) {
+        if let done { waiting.append(done) }
+        guard !running else { return }
+        running = true
+        DispatchQueue.global(qos: .utility).async {
+            let (code, said) = Updater.run("/usr/bin/python3", [script.path, "--if-older", String(Int(olderThan))])
+            if code != 0 { logLine("usage", "scan failed: " + said.split(separator: "\n").suffix(2).joined(separator: " ").prefix(300)) }
+            DispatchQueue.main.async {
+                running = false
+                let calls = waiting
+                waiting = []
+                calls.forEach { $0() }
+            }
+        }
+    }
+
+    // MARK: words
+
+    /// "8.1 billion", "173 million", "12 thousand", "640".
+    static func tokens(_ n: Double) -> String {
+        if n >= 1e9 { return String(format: "%.1f billion", n / 1e9) }
+        if n >= 1e8 { return String(format: "%.0f million", n / 1e6) }
+        if n >= 1e6 { return String(format: "%.1f million", n / 1e6) }
+        if n >= 1e3 { return String(format: "%.0f thousand", n / 1e3) }
+        return String(format: "%.0f", n)
+    }
+
+    /// "$3,106" from $100, else "$8.79".
+    static func dollars(_ x: Double) -> String {
+        if x >= 100 {
+            let f = NumberFormatter()
+            f.numberStyle = .decimal
+            f.maximumFractionDigits = 0
+            return "$" + (f.string(from: NSNumber(value: x.rounded())) ?? String(Int(x.rounded())))
+        }
+        return String(format: "$%.2f", x)
+    }
+
+    /// A share as the list shows it: "28.3%", "<0.1%".
+    static func percent1(_ x: Double) -> String { x > 0 && x < 0.001 ? "<0.1%" : String(format: "%.1f%%", x * 100) }
+
+    /// A share in words: "18%", "4.5%", "<0.1%".
+    static func percent(_ x: Double) -> String {
+        x >= 0.0995 ? String(format: "%.0f%%", x * 100) : x >= 0.000995 ? String(format: "%.1f%%", x * 100) : x > 0 ? "<0.1%" : "0%"
+    }
+
+    /// "Nov 16", "Mon, Nov 16".
+    static func dayWords(_ day: String, weekday: Bool = false) -> String {
+        guard let d = date(day) else { return day }
+        let f = DateFormatter()
+        f.dateFormat = weekday ? "EEE, MMM d" : "MMM d"
+        return f.string(from: d)
+    }
+
+    /// "Nov 10 to Nov 16", or "Mon, Nov 16" for one day.
+    static func spanWords(from: String, to: String) -> String {
+        from == to ? dayWords(from, weekday: true) : dayWords(from) + " to " + dayWords(to)
+    }
+
+    /// When a session was last active: "9:43 AM" today, else "Nov 15".
+    static func lastWords(_ d: Date?) -> String {
+        guard let d else { return "" }
+        let f = DateFormatter()
+        f.dateFormat = Calendar.current.isDateInToday(d) ? "h:mm a" : "MMM d"
+        return f.string(from: d)
+    }
+}

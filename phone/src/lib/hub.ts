@@ -13,7 +13,7 @@
 //
 // /live: a signed-in phone page (the sign-in cookie, Origin APP_ORIGIN). It
 // gets the person's Macs, each Mac's last snapshot, each new one at once,
-// and the archived lists it asks for. Its actions go to the Mac with who
+// and the archived lists and Usage by session lists it asks for. Its actions go to the Mac with who
 // asked, never kept for later: a Mac that is not live answers offline at
 // once, and no answer in 20 seconds is timeout. Each outcome is one record
 // (lib/records.ts) with before and after.
@@ -40,7 +40,7 @@ import { devUser, sessionFromCookieHeader, sessionStillValid } from './session.t
 import { onUpgrade } from './upgrade.ts';
 import {
   type ArchivedItem, type MacRow, archivedOf, clearBye, getMac, heard, lastSnapshot, macView, macsOf, personName,
-  removeMac, saveArchived, saveSnapshot, setBye, setConnected,
+  removeMac, saveArchived, saveSnapshot, saveUsage, setBye, setConnected, usageOf,
 } from './macs.ts';
 
 /** Timings, here so the tests can make them short. */
@@ -55,7 +55,8 @@ export const settings = {
   silenceMs: 60_000,
   /** How often the server looks at every socket and Mac state. */
   sweepEveryMs: 5_000,
-  /** At most one want_archived per Mac in this long. */
+  /** At most one want_archived per Mac, and one want_usage per Mac and
+   *  period, in this long. */
   wantEveryMs: 10_000,
   /** A result that comes after its timeout is still recorded, this long. */
   lateKeepMs: 10 * 60_000,
@@ -89,9 +90,11 @@ function take(b: Bucket): boolean {
 type Sock = { ws: WebSocket; lastFrame: number; lastPing: number; bucket: Bucket };
 type MacSock = Sock & {
   kind: 'mac'; nonce: string; authed: boolean; id: string; email: string; name: string;
-  authTimer?: ReturnType<typeof setTimeout>; wantAt: number; watching: boolean | null; phones: number | null; bye: boolean; closing: number | null;
+  authTimer?: ReturnType<typeof setTimeout>; wantAt: number; usageAt: Map<string, number>; watching: boolean | null; phones: number | null; bye: boolean;
+  closing: number | null;
 };
-type PhoneSock = Sock & { kind: 'phone'; email: string; name: string; session: string | null; visible: boolean; archived: boolean };
+/** usage: the period the page's Usage tab shows, or null. */
+type PhoneSock = Sock & { kind: 'phone'; email: string; name: string; session: string | null; visible: boolean; archived: boolean; usage: string | null };
 type Asked = {
   id: string; macId: string; macName: string; email: string; name: string; phone: PhoneSock | null; phoneId: string;
   act: string; args: any; cse: string | null; title: string | null;
@@ -229,6 +232,34 @@ function openArchived(p: PhoneSock): void {
   }
 }
 
+// ---------- Usage by session lists ----------
+
+function askUsage(m: MacSock, period: string): void {
+  const last = m.usageAt.get(period) ?? 0;
+  if (Date.now() - last < settings.wantEveryMs) return;
+  m.usageAt.set(period, Date.now());
+  send(m.ws, 'server_to_mac', { event: 'want_usage', success: true, payload: { period } });
+}
+
+/** A phone's Usage tab shows a period: each Mac's list for it from the
+ *  server's copy (for a Mac that is away, its last one), and want_usage to
+ *  each live Mac, which answers with its list now. */
+function openUsage(p: PhoneSock, period: string): void {
+  p.usage = period;
+  for (const mac of macsOf(p.email)) {
+    const list = usageOf(mac.id, period);
+    if (list) send(p.ws, 'server_to_phone', { event: 'usage', success: true, payload: { mac: mac.id, list } });
+    const live = H.macs.get(mac.id);
+    if (live) askUsage(live, period);
+  }
+}
+
+/** A Mac's list: kept, and sent to its person's pages that show its period. */
+function onUsage(m: MacSock, list: any): void {
+  saveUsage(m.id, list);
+  toPhones(m.email, { event: 'usage', success: true, payload: { mac: m.id, list } }, (p) => p.usage === list.period);
+}
+
 // ---------- /mac ----------
 
 function frame(s: Sock): void {
@@ -262,7 +293,7 @@ function parse(data: RawData, isBinary: boolean, max: number): unknown {
 function acceptMac(req: IncomingMessage, socket: Duplex, head: Buffer): void {
   wss.handleUpgrade(req, socket, head, (ws) => {
     const m: MacSock = {
-      kind: 'mac', ws, nonce: newNonce(), authed: false, id: '', email: '', name: '', wantAt: 0, watching: null, phones: null, bye: false, closing: null,
+      kind: 'mac', ws, nonce: newNonce(), authed: false, id: '', email: '', name: '', wantAt: 0, usageAt: new Map(), watching: null, phones: null, bye: false, closing: null,
       lastFrame: Date.now(), lastPing: Date.now(), bucket: bucket(30, 1),
     };
     H.unauthed.add(m);
@@ -305,6 +336,8 @@ function onAuth(m: MacSock, value: unknown): void {
   send(m.ws, 'server_to_mac', { event: 'welcome', success: true, payload: { phones: m.phones, watching: m.watching } });
   console.log(`[hub] ${row.name} (${id}) connected, Kit ${kit}`);
   showMacs(row.email);
+  // A Usage tab is open: its list from this Mac.
+  for (const period of new Set(phonesOf(row.email).map((p) => p.usage).filter((x): x is string => !!x))) askUsage(m, period);
 }
 
 function onMacMessage(m: MacSock, data: RawData, isBinary: boolean): void {
@@ -330,6 +363,8 @@ function onMacMessage(m: MacSock, data: RawData, isBinary: boolean): void {
       return sendArchived(m);
     case 'archived_delta':
       return onArchivedDelta(m, payload);
+    case 'usage':
+      return onUsage(m, payload);
     case 'result':
       return onResult(m, payload);
     case 'remind':
@@ -517,7 +552,7 @@ function acceptPhone(req: IncomingMessage, socket: Duplex, head: Buffer): void {
   if (!who) return refuse(socket, 401, 'Unauthorized');
   if (phonesOf(who.email).length >= MAX_PHONE_SOCKETS) return refuse(socket, 429, 'Too Many Requests');
   wss.handleUpgrade(req, socket, head, (ws) => {
-    const p: PhoneSock = { kind: 'phone', ws, ...who, visible: false, archived: false, lastFrame: Date.now(), lastPing: Date.now(), bucket: bucket(20, 2) };
+    const p: PhoneSock = { kind: 'phone', ws, ...who, visible: false, archived: false, usage: null, lastFrame: Date.now(), lastPing: Date.now(), bucket: bucket(20, 2) };
     H.phones.add(p);
     ws.on('message', (data, isBinary) => onPhoneMessage(p, data, isBinary));
     ws.on('ping', () => frame(p));
@@ -551,6 +586,8 @@ function onPhoneMessage(p: PhoneSock, data: RawData, isBinary: boolean): void {
       return updateWatching(p.email);
     case 'open_archived':
       return openArchived(p);
+    case 'open_usage':
+      return openUsage(p, payload.period);
     case 'action':
       return onAction(p, payload);
   }

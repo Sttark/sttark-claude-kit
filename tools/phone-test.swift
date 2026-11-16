@@ -1,10 +1,11 @@
 // Tests what the Kit sends to the phone (Sources/Phone.swift) on a temporary STTARK_KIT_DIR and log, never the real
 // ones. The sample state has every group the phone shows, waits of each kind, three holds (one with an agent), two
-// agents in the background, idle and On this Mac only sessions (which stay on the Mac), and archived sessions.
+// agents in the background, idle and On this Mac only sessions (which stay on the Mac), archived sessions, and
+// the Usage by session list of each period (from a made-up usage/by-session.json, as usage-scan.py writes it).
 // Marker words are planted in transcripts, prompts, replies, file and folder paths, wait targets, check scripts and
 // their output, check-prompt questions, the log and the Reach me by settings; the test fails if any shows in a payload.
 // Every payload is checked against phone/schema with the contract's own check (node phone/schema/check.mjs). The
-// snapshot, the archived list and a delta are written to phone/fixtures/from-mac/ for the server and the pages, with
+// snapshot, the archived list, a delta and a usage list are written to phone/fixtures/from-mac/ for the server and the pages, with
 // the times moved to a fixed day, so the files change only when the builder does. It also tests when the Kit sends:
 // the pacer with a made-up clock, and the feed on real writes to the state.
 // Then the link (Sources/PhoneLink.swift): its checks of an action, the key in a key file (STTARK_PHONE_KEY: the
@@ -297,6 +298,43 @@ import Foundation
         feed.stop()
         if let last = sends.last?.payload { built.append(("snapshot.feed", last)) }
 
+        // ---- usage by session ----
+        let fixedNow = Date(timeIntervalSince1970: Double(fixtureNow))
+        Sample.usage(kit: kit, now: fixedNow)
+        let week = Phone.usage(period: "7d", now: fixedNow) ?? [:]
+        built.append(("usage.7d", week))
+        let wrows = list(week["rows"])
+        let shares = wrows.map { ($0["share"] as? Double) ?? Double(int($0["share"]) ?? -1) }
+        check("usage: the period and its days, in this Mac's time zone", week["period"] as? String == "7d"
+              && week["from"] as? String == SessionUsage.day(fixedNow, plus: -6) && week["to"] as? String == SessionUsage.day(fixedNow))
+        check("usage: the biggest share first, each at most 100, adding up to 100", shares == shares.sorted(by: >) && shares.allSatisfy { $0 >= 0 && $0 <= 100 }
+              && abs(shares.reduce(0, +) - 100) < 0.6)
+        check("usage: its agents' part is never more than its share", wrows.allSatisfy {
+            (($0["agent_share"] as? Double) ?? Double(int($0["agent_share"]) ?? 0)) <= (($0["share"] as? Double) ?? Double(int($0["share"]) ?? 0)) })
+        check("usage: a session with a link goes with its id; one only on this Mac, the Kit's checks and runs go with none",
+              wrows.first?["cse"] as? String == "cse_01PhoneSiteMap" && wrows.filter { $0["cse"] is NSNull }.count == 3)
+        check("usage: names only, never the scan's own keys (a folder's name, a session file's id)",
+              wrows.map { $0["title"] as? String ?? "" }.contains("Runs with no name in ReportBot")
+              && !(String(data: Phone.json(week), encoding: .utf8) ?? "").contains("sid:"))
+        check("usage: agents started in the period, and when each was last active", int(wrows.first?["agents"]) == 7 * 3
+              && int(wrows.first?["last_active"]) == fixtureNow - 1620)
+        let tot = obj(week["total"])
+        check("usage: the totals", int(tot["sessions"]) == 5 && (tot["usd"] as? Double ?? 0) > 0 && obj(week["more"])["sessions"] as? Int == 0)
+        let today = Phone.usage(period: "today", now: fixedNow) ?? [:], month = Phone.usage(period: "30d", now: fixedNow) ?? [:]
+        let custom = Phone.usage(period: SessionUsage.day(fixedNow, plus: -20) + ".." + SessionUsage.day(fixedNow, plus: -10), now: fixedNow) ?? [:]
+        built.append(contentsOf: [("usage.today", today), ("usage.30d", month), ("usage.custom", custom)])
+        check("usage: Today is one day; 30 days is more use than 7", today["from"] as? String == today["to"] as? String
+              && (obj(month["total"])["usd"] as? Double ?? 0) > (tot["usd"] as? Double ?? 0))
+        check("usage: a custom range is its own two days, and a period the contract does not have makes nothing",
+              custom["from"] as? String == SessionUsage.day(fixedNow, plus: -20) && Phone.usage(period: "week", now: fixedNow) == nil
+              && Phone.usage(period: "2026-11-01T00:00..2026-11-02", now: fixedNow) == nil)
+        Sample.usage(kit: kit, now: fixedNow, many: 130)
+        let many = Phone.usage(period: "7d", now: fixedNow) ?? [:]
+        built.append(("usage.many", many))
+        check("usage: at most 100 rows; the rest go as one count and share", list(many["rows"]).count == 100
+              && obj(many["more"])["sessions"] as? Int == 35 && ((obj(many["more"])["share"] as? Double) ?? 0) > 0)
+        Sample.usage(kit: kit, now: fixedNow)
+
         // ---- the empty state ----
         for f in ["state.json", "usage.json", "archived.json", "local-sessions.json"] { try? fm.removeItem(at: kit.appendingPathComponent(f)) }
         Sample.hookWrite(["reach": ["ways": [String](), "email": "empty@sttark.com"]], kit: kit)
@@ -317,7 +355,7 @@ import Foundation
 
         // ---- the fixtures for the server and the pages ----
         let shift = now - fixtureNow
-        let fixtures = [("snapshot.json", moved(snap, by: shift)), ("archived.json", p1), ("archived-delta.json", delta)]
+        let fixtures = [("snapshot.json", moved(snap, by: shift)), ("archived.json", p1), ("archived-delta.json", delta), ("usage.json", week)]
         let out = URL(fileURLWithPath: "phone/fixtures/from-mac")
         try? fm.createDirectory(at: out, withIntermediateDirectories: true)
         for (name, p) in fixtures {
@@ -561,6 +599,40 @@ import Foundation
 
 /// The sample state, as the hooks and the app write it, with a marker in every place that must stay on the Mac.
 enum Sample {
+    /// usage/by-session.json as usage-scan.py writes it, for 30 days to `now`: a session with a link and its agents,
+    /// one with a link and no agents, one only on this Mac, the Kit's checks and another app's unnamed runs. Its keys
+    /// hold a folder's name and a session file's id, which never go up. `many` adds that many small sessions.
+    static func usage(kit: URL, now: Date, many: Int = 0) {
+        let days = (0..<30).map { SessionUsage.day(now, plus: $0 - 29) }
+        var sessions: [[String: Any]] = [
+            ["key": "cse:cse_01PhoneSiteMap", "kind": "session", "cse": "cse_01PhoneSiteMap", "title": "Site map plan", "last": now.timeIntervalSince1970 - 1620],
+            ["key": "cse:cse_01PhoneHvac", "kind": "session", "cse": "cse_01PhoneHvac", "title": "HVAC updates", "last": now.timeIntervalSince1970 - 600],
+            ["key": "sid:5f1c2e7a-0000-4000-8000-PATHMARK", "kind": "local", "cse": NSNull(), "title": "Bin label sizes", "last": now.timeIntervalSince1970 - 7200],
+            ["key": "kit", "kind": "kit", "cse": NSNull(), "title": "Sttark Claude Kit checks", "last": now.timeIntervalSince1970 - 3600],
+            ["key": "runs:ReportBot", "kind": "runs", "cse": NSNull(), "title": "Runs with no name in ReportBot", "last": now.timeIntervalSince1970 - 900],
+        ]
+        var rows: [[Any]] = [], agents: [[Any]] = []
+        for d in 0..<30 {
+            rows.append([0, d, 0, 2.0, 9.0, 1.0e6, 4.0e6])
+            rows.append([1, d, 1, 1.5, 1.0, 5.0e5, 3.0e5])
+            rows.append([2, d, 0, 0.7, 0.0, 2.0e5, 0])
+            rows.append([3, d, 2, 0.05, 0.0, 9.0e4, 0])
+            rows.append([4, d, 2, 0.02, 0.0, 4.0e4, 0])
+            agents.append([0, d, 3])
+        }
+        for i in 0..<many {
+            sessions.append(["key": "cse:cse_01PhoneMany\(i)", "kind": "session", "cse": "cse_01PhoneMany\(i)", "title": "Small session \(i)",
+                             "last": now.timeIntervalSince1970 - Double(i * 60)])
+            rows.append([5 + i, 29, 0, 0.01 + Double(i) * 0.0001, 0.0, 1000, 0])
+        }
+        let j: [String: Any] = ["v": 1, "at": now.timeIntervalSince1970, "keep_days": 45, "days": days,
+                                "models": [["id": "claude-opus-5-5", "name": "Opus 5.5", "priced": true], ["id": "claude-sonnet-5-5", "name": "Sonnet 5.5", "priced": true],
+                                           ["id": "claude-haiku-5-5", "name": "Haiku 5.5", "priced": true]],
+                                "sessions": sessions, "rows": rows, "agents": agents, "unpriced": [String: Any]()]
+        try? FileManager.default.createDirectory(at: kit.appendingPathComponent("usage"), withIntermediateDirectories: true)
+        try? JSONSerialization.data(withJSONObject: j).write(to: kit.appendingPathComponent("usage/by-session.json"))
+    }
+
     static func iso(_ t: Int) -> String {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1128,6 +1200,18 @@ enum E2E {
         let v2 = Phone.archived()?.rev ?? "?"
         check("a change of the archived list goes up as archived_delta, and the phone's list follows", wait(15) {
             page.payloads("archived").last { $0["mac"] as? String == mac }?["rev"] as? String == v2
+        })
+
+        // ---- the usage list: only while a phone shows the Usage tab, for the period it shows ----
+        Sample.usage(kit: kit, now: Date())   // a fresh scan result, so the Kit answers from it
+        page.send("open_usage", ["period": "7d"])
+        check("Usage opens: the server asks, the Kit sends its list for the period, the phone gets it", wait(15) {
+            let l = page.payloads("usage").last { $0["mac"] as? String == mac }?["list"] as? [String: Any]
+            return l?["period"] as? String == "7d" && (l?["rows"] as? [Any])?.count == 5
+        })
+        page.send("open_usage", ["period": "30d"])
+        check("another period: the Kit sends that period's list", wait(15) {
+            (page.payloads("usage").last { $0["mac"] as? String == mac }?["list"] as? [String: Any])?["period"] as? String == "30d"
         })
 
         // ---- an action of each kind, from the phone ----

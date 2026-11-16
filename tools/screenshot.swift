@@ -3,6 +3,7 @@
 //   docs/menu.png             the menu: what needs you, one row for each other group, one group's submenu open
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
 //   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
+//   docs/window-usage.png     the window's Usage page, 7 days, the biggest session selected with its days and models
 //   docs/window-settings.png  the window's Settings page
 //   docs/settings-phone.png   the Settings page's Phone box in each of its states (Kit on your phone)
 //   docs/window-news.png      the window's What's new page
@@ -112,6 +113,33 @@ import SwiftUI
             // the archived note's picture: the selected session with Open and Bring it back
             Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
                       to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
+            model.page = .usage
+            model.usageData = SessionUsage.read()
+            model.setUsagePeriod(.week)
+            model.usageSelected = model.usageReport.lines.first?.id
+            let usage = "/tmp/kit-shot-\(getpid())-usage.png"
+            Shot.capture(w, to: usage)
+            try? FileManager.default.removeItem(atPath: folder + "/window-usage.png")
+            try? FileManager.default.copyItem(atPath: usage, toPath: folder + "/window-usage.png")
+            print("wrote \(folder)/window-usage.png")
+            // the usage note's picture: the period, the legend and the biggest sessions, at the note's size
+            let r = model.usageReport
+            let uw = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            uw.appearance = w.appearance
+            uw.isReleasedWhenClosed = false
+            uw.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                Segments(options: [("today", "Today"), ("7d", "7 days"), ("30d", "30 days"), ("custom", "Custom")], value: "7d") { _ in }
+                    .padding(.bottom, 12)
+                UsageLegend().padding(.horizontal, 10).padding(.bottom, 4)
+                ForEach(Array(r.lines.prefix(3).enumerated()), id: \.element.id) { i, l in
+                    if i > 1 { Hairline().padding(.horizontal, 10) } else if i > 0 { Color.clear.frame(height: 1) }
+                    UsageRow(line: l, share: r.share(l.usd), top: r.lines.first?.usd ?? 1, selected: i == 0, multiDay: true)
+                }
+                Spacer(minLength: 0)
+            }.padding(14).frame(width: 440, height: 280).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            uw.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            Shot.capture(uw, to: "whats-new/usage-by-session" + (look ? "-dark" : "") + ".png")
+            uw.close()
             ShotWindow.key = true   // Settings as the person sees it while using it: an on switch in its accent color
             model.page = .settings
             Shot.redraw(w)
@@ -462,6 +490,44 @@ enum Sample {
             archived(25, "Weekly plan", "/Documents/plans", at(8, 45, daysAhead: -3), ""),
         ]]
         try! JSONSerialization.data(withJSONObject: arch).write(to: dir.appendingPathComponent("archived.json"))
+        // Usage by session: what usage-scan.py writes, for made-up sessions over the last 30 days
+        let days = (0..<30).map { SessionUsage.day(Date(), plus: $0 - 29) }
+        // name, kind, Remote Control id, minutes since last active, its use a day in dollars, its agents' part, agents a day
+        let made: [(String, String, String?, Double, Double, Double, Int)] = [
+            ("Site map plan", "session", "cse_01Sample7", 27, 126, 0.82, 11), ("Sttark Claude Kit", "session", "cse_01Sample4", 3, 122, 0.95, 8),
+            ("HVAC updates", "session", "cse_01Sample5", 9, 38, 0.81, 4), ("Press color", "session", "cse_01Sample6", 4, 33, 0.91, 4),
+            ("Order page login", "session", "cse_01Sample1", 22, 17, 0.82, 3), ("Inventory photo cleanup", "session", "cse_01Sample8", 50, 16, 0.85, 3),
+            ("Laminator quote", "session", "cse_01Sample10", 300, 15, 0.36, 2), ("Powder watch", "session", "cse_01Sample12", 1500, 13, 0.78, 1),
+            ("Usage report retry", "session", "cse_01Sample11", 2900, 11, 0.70, 1), ("Bin label printer", "session", "cse_01Sample20", 95, 9, 0.85, 1),
+            ("Door relay fix", "session", "cse_01Sample22", 1100, 8, 0.48, 1), ("Bin label sizes", "local", nil, 35, 7, 0, 0),
+            ("Exterior lighting", "session", "cse_01Sample3", 8, 6, 0.30, 1), ("Label press manual", "session", "cse_01Sample2", 41, 5, 0.40, 1),
+            ("Sttark Claude Kit checks", "kit", nil, 60, 1.2, 0, 0), ("Rename report columns", "session", "cse_01Sample9", 190, 1.1, 0.2, 0),
+            ("Runs in temporary folders", "temp", nil, 4000, 0.9, 0, 0)]
+        var cells: [[Any]] = [], agentRows: [[Any]] = []
+        for (i, x) in made.enumerated() {
+            for d in 0..<30 {
+                // a few busy days, some quiet ones, the same on every run
+                let f = [1.0, 0.2, 0.0, 1.6, 0.7, 0.0, 2.3, 1.2, 0.4, 0.9][(d * 7 + i * 3) % 10]
+                guard f > 0 else { continue }
+                let usd = x.4 * f
+                let opus = usd * (i % 3 == 0 ? 0.79 : 0.92), other = usd - opus
+                for (m, v) in [(0, opus), (i % 3 == 0 ? 1 : 2, other)] where v > 0 {
+                    cells.append([i, d, m, v * (1 - x.5), v * x.5, v * (1 - x.5) * 2.4e6, v * x.5 * 2.4e6])
+                }
+                if x.6 > 0 { agentRows.append([i, d, max(1, Int(Double(x.6) * f))]) }
+            }
+        }
+        let byKey: [[String: Any]] = made.enumerated().map { i, x in
+            ["key": x.2.map { "cse:" + $0 } ?? (x.1 == "local" ? "sid:5f1c2e7a-sample-local-1" : x.1), "kind": x.1, "cse": x.2 as Any? ?? NSNull(),
+             "title": x.0, "last": now - x.3 * 60]
+        }
+        let usageList: [String: Any] = [
+            "v": 1, "at": now - 20, "keep_days": 45, "days": days,
+            "models": [["id": "claude-opus-5-5", "name": "Opus 5.5", "priced": true], ["id": "claude-fable-5-2", "name": "Fable 5.2", "priced": true],
+                       ["id": "claude-haiku-5-5", "name": "Haiku 5.5", "priced": true]],
+            "sessions": byKey, "rows": cells, "agents": agentRows, "unpriced": [String: Any]()]
+        try? FileManager.default.createDirectory(at: dir.appendingPathComponent("usage"), withIntermediateDirectories: true)
+        try! JSONSerialization.data(withJSONObject: usageList).write(to: dir.appendingPathComponent("usage/by-session.json"))
     }
 }
 

@@ -1174,6 +1174,189 @@ main > div > h1.page-title,
   line-height: 18px;
 }
 
+/* ---------- usage: By session ----------
+   Each session's share of the person's use in a period, and the part its
+   agents did: the session in the info blue, its agents in a lighter tint of
+   the same blue (a two-step ramp, light and dark), with a legend. Never
+   green, which means "do this" and "you are here". */
+
+.bys {
+  margin-top: 24px;
+}
+.periods button {
+  font-size: 15px;
+}
+.bys-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.bys-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.bys-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 1px solid var(--gray);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  font: 400 16px var(--font);
+}
+.bys-range .btn {
+  min-height: 48px;
+}
+.bys-days {
+  margin-top: 12px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.bys-note {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius);
+  background: var(--info-soft);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.bys-note svg.i {
+  color: var(--info-mark);
+}
+.bys-key {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.bys-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.bys-key i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+.bys-key .own,
+.bys-bar .own {
+  background: var(--info-mark);
+}
+.bys-key .ag,
+.bys-bar .ag {
+  background: color-mix(in oklab, var(--info-mark) 60%, var(--card));
+}
+.bys-mac {
+  margin-top: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.bys-tot {
+  margin-top: 8px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.bys-tot b {
+  color: var(--ink);
+}
+.bys-rows {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.bys-rows li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+.bys-rows li + li {
+  border-top: 1px solid var(--line);
+}
+.bys-main {
+  flex: 1;
+  min-width: 0;
+}
+.bys-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bys-pct {
+  flex: none;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+/* The bar: as long as the share against the biggest one in the list; the
+   session's part, then its agents', with a 2 px gap between them. */
+.bys-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  margin-top: 6px;
+}
+.bys-bar i {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+}
+.bys-bar i:first-child {
+  border-radius: 2px 0 0 2px;
+}
+.bys-bar i:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.bys-bar i:only-child {
+  border-radius: 2px 4px 4px 2px;
+}
+/* A row with no session link: the same width as the ↗, so every bar is on
+   one scale. */
+.open-none {
+  flex: none;
+  width: 44px;
+}
+.stale .bys-pct {
+  color: var(--steel);
+}
+.stale .bys-bar {
+  opacity: 0.55;
+}
+.bys-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.bys-more .btn {
+  flex: none;
+  min-height: 44px;
+}
+
 /* ---------- menu ---------- */
 
 .m-sec h2.sec {
