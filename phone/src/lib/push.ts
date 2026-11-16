@@ -20,13 +20,15 @@
 //
 // Turning notices on or off, on one phone, is a change with a record. Menu
 // says when it was last done. Sign out ends the phone's subscription
-// (lib/session.ts).
+// (lib/session.ts). A subscription belongs to the address it was made at
+// (its service worker's): at start, one made at another address ends, with
+// a record (endOtherAddresses).
 import { createHash } from 'node:crypto';
 import { generateRequestDetails, generateVAPIDKeys, type RequestDetails } from 'web-push';
 import { db } from './db.ts';
 import { addRecord } from './records.ts';
 import { events } from './events.ts';
-import { appOrigin, appUrl } from './paths.ts';
+import { appOrigin, appUrl, siteName } from './paths.ts';
 import { lastSnapshot, macsOf } from './macs.ts';
 import { span } from '../view/time.ts';
 
@@ -126,7 +128,7 @@ export function deviceOf(ua: string | null | undefined): string {
   return 'browser';
 }
 
-type SubRow = { endpoint: string; email: string; web_session: string | null; p256dh: string; auth: string; notices: number; created_at: number; changed_at: number | null; device: string | null };
+type SubRow = { endpoint: string; email: string; web_session: string | null; p256dh: string; auth: string; notices: number; created_at: number; changed_at: number | null; device: string | null; site: string | null };
 const subRow = (endpoint: string) => db().prepare('SELECT * FROM push_subs WHERE endpoint = ?').get(endpoint) as SubRow | undefined;
 
 /** How many of this person's phones can get a push now (welcome, phones). */
@@ -188,10 +190,10 @@ export function subscribe(user: { email: string; name: string }, webSession: str
     const notices = renewed ? renewed.notices : 1;
     const since = renewed ? (renewed.changed_at ?? renewed.created_at) : now;
     d.prepare(
-      `INSERT INTO push_subs (endpoint, email, web_session, p256dh, auth, notices, created_at, changed_at, device) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO push_subs (endpoint, email, web_session, p256dh, auth, notices, created_at, changed_at, device, site) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(endpoint) DO UPDATE SET email = excluded.email, web_session = excluded.web_session, p256dh = excluded.p256dh, auth = excluded.auth,
-         notices = excluded.notices, changed_at = excluded.changed_at, device = excluded.device`,
-    ).run(endpoint, user.email, webSession, k.p256dh, k.auth, notices, now, since, device);
+         notices = excluded.notices, changed_at = excluded.changed_at, device = excluded.device, site = excluded.site`,
+    ).run(endpoint, user.email, webSession, k.p256dh, k.auth, notices, now, since, device, siteName());
     if (renewed) d.prepare('DELETE FROM push_subs WHERE endpoint = ?').run(renewed.endpoint);
     const was = before && before.email === user.email ? before.notices === 1 : renewed ? renewed.notices === 1 : false;
     addRecord({
@@ -231,6 +233,37 @@ export function setNotices(user: { email: string; name: string }, endpoint: unkn
     return { ok: true, on, since: now };
   }
   return { ok: true, on, since: r.changed_at ?? r.created_at };
+}
+
+/** Subscriptions made at another address than this server's now: the Kit
+ *  moved (building.sttark.com/kit to kit.sttark.com). Each belongs to the
+ *  service worker of the address it was made at, which no page here can
+ *  reach to turn it off, and that phone would get each notice twice once
+ *  notices are on at this address too. So each ends, with a record, and its
+ *  person's Macs hear the new count; the person turns notices on again here.
+ *  A subscription with no address was made before the server kept one, at
+ *  the Kit's first address. Runs at start; returns how many ended. */
+export function endOtherAddresses(now = nowS()): number {
+  const here = siteName();
+  const d = db();
+  const ended = d.transaction(() => {
+    const rows = d.prepare('SELECT * FROM push_subs WHERE site IS NULL OR site != ?').all(here) as SubRow[];
+    for (const s of rows) {
+      d.prepare('DELETE FROM push_subs WHERE endpoint = ?').run(s.endpoint);
+      const was = s.site ?? 'the Kit\'s first address';
+      addRecord({
+        at: now, who: 'server start', whoName: 'Server start', action: 'notices',
+        before: { notices: s.notices === 1, device: s.device, site: s.site }, after: { notices: false, why: 'moved', site: here }, result: 'ok',
+        words: `Stopped Needs you notices for ${s.device ?? 'a phone'}: they were turned on at ${was}, and the Kit is at ${here} now. Turn them on again there.`,
+      });
+    }
+    return rows;
+  })();
+  for (const email of new Set(ended.map((s) => s.email))) {
+    console.log(`[push] ${email}: notices made at another address than ${here} ended`);
+    events.emit('push-subs-changed', { email });
+  }
+  return ended.length;
 }
 
 /** A subscription the push service says is gone: it can never get a push
@@ -349,6 +382,11 @@ export function startPush(): void {
   const g = globalThis as { __kitPushListening?: boolean };
   if (g.__kitPushListening) return;
   g.__kitPushListening = true;
+  try {
+    endOtherAddresses();
+  } catch (e) {
+    console.error(`[push] ALERT: could not end the notices made at another address: ${(e as Error).message}`);
+  }
   events.on('remind', (r) => {
     remind(r).catch((e) => console.error(`[push] ALERT: a reminder failed: ${(e as Error).message}`));
   });

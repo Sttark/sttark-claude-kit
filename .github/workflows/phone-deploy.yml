@@ -1,25 +1,22 @@
-# Deploys Kit on your phone (the phone/ server) to https://building.sttark.com/kit,
-# on the sttark-building Linode next to Building and HVAC. Building's own nginx
-# passes /kit/ to it. On each push to main that changes the server, and by hand
-# (Actions > phone-deploy > Run workflow).
+# Deploys Kit on your phone (the phone/ server) to https://kit.sttark.com, its
+# own nginx site on the sttark-building Linode, next to Building and HVAC. On
+# each push to main that changes the server, and by hand (Actions >
+# phone-deploy > Run workflow).
 # Changes here never make a Mac release (release.yml builds only from the Mac app's files).
 #
 # The runner tests the server, copies in the licensed fonts from Sttark/sttark-docs,
-# builds it for the path /kit (BASE_PATH), keeps only its production modules,
-# and packs server.mjs, dist/, package.json and node_modules. It sends the pack
-# and the VAULT_* secrets over SSH to the kit user's forced command on the box,
-# /usr/local/bin/kit-deploy (Sttark/building, ansible roles/kit). Whatever this
-# job asks for, the box runs that script and nothing else. It refuses a pack not
-# built for /kit, unpacks it to releases/<sha>, writes the env file (mode 600),
-# moves the current link, restarts claude-kit, checks /kit/healthz, and goes back
-# to the last release when the check fails, so this job's result is the deploy's
-# result. Then the job asks the public address for /kit/healthz and fails unless
-# it answers with this commit. The box sets NODE_ENV, HOST, PORT, KIT_DB and
-# APP_ORIGIN (https://building.sttark.com) itself.
-#
-# kit.sttark.com can come later: a site for it on the box (Sttark/building),
-# then APP_ORIGIN there and KIT_URL and BASE_PATH here (empty for its own
-# origin). The server's code does not change.
+# builds it for the root of its site (an empty BASE_PATH), keeps only its
+# production modules, and packs server.mjs, dist/, package.json and
+# node_modules. It sends the pack and the VAULT_* secrets over SSH to the kit
+# user's forced command on the box, /usr/local/bin/kit-deploy (Sttark/building,
+# ansible roles/kit). Whatever this job asks for, the box runs that script and
+# nothing else. It refuses a pack not built for the root, unpacks it to
+# releases/<sha>, writes the env file (mode 600), moves the current link,
+# restarts claude-kit, checks /healthz, and goes back to the last release when
+# the check fails, so this job's result is the deploy's result. Then the job
+# asks the public address for /healthz and fails unless it answers with this
+# commit. The box sets NODE_ENV, HOST, PORT, KIT_DB and APP_ORIGIN
+# (https://kit.sttark.com) itself.
 #
 # Until the box is set up, the repository variable KIT_DEPLOY_READY is not
 # 'true' and the job skips with a notice. It never fails for that: a failed run
@@ -65,10 +62,10 @@ env:
   # this address is refused (the same line as hvac_automation's deploy).
   DEPLOY_HOST: 45.33.102.173
   DEPLOY_HOST_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINOnWYkEYeWDbLTJST67wb4dEBrC5xUfhjIvdssZiWzR
-  # Where people reach the Kit, and the path it is built for. kit-deploy on
-  # the box refuses a pack built for another path than the one nginx serves.
-  KIT_URL: https://building.sttark.com/kit
-  KIT_BASE_PATH: /kit
+  # Where people reach the Kit, and the path it is built for: empty, the root
+  # of its own site. kit-deploy on the box refuses a pack built for a path.
+  KIT_URL: https://kit.sttark.com
+  KIT_BASE_PATH: ''
 
 jobs:
   not-ready:
@@ -127,13 +124,13 @@ jobs:
           echo "STTARK_FONTS_DIR=$docs/app/src/styles/fonts" >> "$GITHUB_ENV"
       - run: npm run fonts
 
-      - name: Build for ${{ env.KIT_BASE_PATH }}
+      - name: Build for ${{ env.KIT_URL }}
         env:
           BASE_PATH: ${{ env.KIT_BASE_PATH }}
         run: |
           npm run build
           built=$(node -p 'JSON.parse(require("fs").readFileSync("dist/kit-build.json", "utf8")).base')
-          [ "$built" = "$KIT_BASE_PATH" ] || { echo "::error::the build is for BASE_PATH \"$built\", not $KIT_BASE_PATH"; exit 1; }
+          [ "$built" = "$KIT_BASE_PATH" ] || { echo "::error::the build is for BASE_PATH \"$built\", not \"$KIT_BASE_PATH\""; exit 1; }
       - name: Keep only the production modules
         run: npm prune --omit=dev --no-audit --no-fund
 
