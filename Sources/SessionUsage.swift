@@ -335,8 +335,8 @@ enum SessionUsage {
         return "≈ \(shown) \(shown == "1" ? "person" : "people") full time " + when
     }
 
-    /// "182 h", "2.5 h", "< 0.1 h".
-    static func hoursWords(_ h: Double) -> String { h < 0.1 ? "< 0.1 h" : num(h) + " h" }
+    /// "182 h", "2.5 h", "< 0.1 h", with a space that never breaks, so a number and its unit stay on one line.
+    static func hoursWords(_ h: Double) -> String { h < 0.1 ? "<\u{00A0}0.1\u{00A0}h" : num(h) + "\u{00A0}h" }
 
     /// The ⓘ note: how the estimate is made, with the factors the scan sent.
     static func humanNote(_ kinds: [Kind]) -> String {

@@ -43,9 +43,9 @@ import Foundation
         same(SessionUsage.peopleWords(3000, .month, from: "2026-10-18", to: "2026-11-16"), "≈ 18 people full time over these 30 days")
         check("weekdays: Tue to Mon is 5, a Saturday alone counts as 1",
               SessionUsage.weekdays(from: "2026-11-10", to: "2026-11-16") == 5 && SessionUsage.weekdays(from: "2026-11-14", to: "2026-11-14") == 1)
-        same(SessionUsage.hoursWords(182.4), "182 h")
-        same(SessionUsage.hoursWords(2.46), "2.5 h")
-        same(SessionUsage.hoursWords(0.04), "< 0.1 h")
+        same(SessionUsage.hoursWords(182.4), "182\u{00A0}h")
+        same(SessionUsage.hoursWords(2.46), "2.5\u{00A0}h")
+        same(SessionUsage.hoursWords(0.04), "<\u{00A0}0.1\u{00A0}h")
         same(SessionUsage.num(1240.2), "1,240")
         let kinds = [SessionUsage.Kind(id: "software", name: "Software", x: 12), SessionUsage.Kind(id: "design", name: "Design", x: 5),
                      SessionUsage.Kind(id: "admin", name: "Browser and admin", x: 2.5), SessionUsage.Kind(id: "small", name: "Small or mixed", x: 2)]
