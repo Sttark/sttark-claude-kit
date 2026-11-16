@@ -24,8 +24,10 @@ enum PhoneLink {
     // MARK: the server
 
     /// The server's address: the one place it is written. STTARK_PHONE_URL points the Kit at a local copy for tests.
-    /// It may have a path (https://building.sttark.com/kit): the link API and the socket are under it.
-    static let address = "https://building.sttark.com/kit"
+    /// It may have a path (https://example.com/kit): the link API and the socket are under it. Nothing the Kit keeps
+    /// names it (phone.json, the key), so a Mac linked at the server's first address, building.sttark.com/kit, keeps
+    /// its link here: the same server, database and key.
+    static let address = "https://kit.sttark.com"
 
     static var base: URL {
         let env = ProcessInfo.processInfo.environment["STTARK_PHONE_URL"] ?? ""
@@ -33,7 +35,7 @@ enum PhoneLink {
         return URL(string: address)!
     }
 
-    /// The server as a person reads it: "building.sttark.com/kit", or "kit.sttark.com" for an origin of its own.
+    /// The server as a person reads it: "kit.sttark.com", or "example.com/kit" for a path on another origin.
     static var shown: String {
         let b = base
         let path = b.path.hasSuffix("/") ? String(b.path.dropLast()) : b.path
