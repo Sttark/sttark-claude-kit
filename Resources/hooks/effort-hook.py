@@ -1243,11 +1243,11 @@ def keep(dry=False):
         if now - w.get('at', 0) < (KEEP_PAUSE if w.get('failed') else KEEP_RETRY):
             continue
         try:
-            seq, archived = waiting_since_reply(chat_events(sid))
+            seq, was_archived = waiting_since_reply(chat_events(sid))
         except Exception as e:
             log(f'keep   {sid} can\'t read its events: {e!r}'[:200])
             continue
-        if (archived or w.get('tries', 0) >= KEEP_MOVE) and not w.get('failed'):
+        if (was_archived or w.get('tries', 0) >= KEEP_MOVE) and not w.get('failed'):
             if dry:
                 print(f'would start {sid} "{c.get("title", "")}" on its own, from {seq}')
                 continue
