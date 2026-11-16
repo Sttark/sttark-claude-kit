@@ -1,0 +1,16 @@
+---
+// Usage: the 5-hour and weekly limits with their resets and the 60% and
+// 80% marks, the sessions held at them, the Use credits setting, and Usage
+// by session: each session's share of your use in a period (?p=today, 7d,
+// 30d or custom with from and to; ?all=1 shows every row), from each Mac's
+// last list for it. Until a Mac is linked, how to link one.
+import Base from '../layouts/Base.astro';
+import { loadKit } from '../lib/state.ts';
+import { draw, type View } from '../view/render.ts';
+import { emptyUi, periodOf, usageView } from '../view/model.ts';
+const usage = usageView(Astro.url.searchParams);
+const kit = loadKit(Astro.locals.user!, { usage: periodOf(usage) });
+const view: View = { page: 'usage', usage };
+const drawn = draw(view, kit, emptyUi());
+---
+<Base title={drawn.title} drawn={drawn} kit={kit} view={view} />

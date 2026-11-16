@@ -22,6 +22,18 @@ enum Inbox {
             }
         }
 
+        /// The SF Symbol the window and the menu show for the group.
+        var symbol: String {
+            switch self {
+            case .needs: return "bell"
+            case .working: return "waveform.path.ecg"
+            case .waits: return "hourglass"
+            case .held: return "pause.circle"
+            case .idle: return "moon.zzz"
+            case .local: return "desktopcomputer"
+            }
+        }
+
         /// The time column's heading.
         var column: String {
             switch self {
@@ -43,6 +55,9 @@ enum Inbox {
         /// A part of `sub` drawn in ink (who or what it waits on).
         var subStrong = ""
         let time: String
+        /// What the time column counts from (needs you, working, idle, on this Mac only) or to (a wait's deadline, a
+        /// hold's end). The phone gets this time, not the words (Phone.swift).
+        var timeAt: Date? = nil
         /// The time is late: waited past the notice, or past a deadline.
         var late = false
         var session: Session? = nil
@@ -56,6 +71,18 @@ enum Inbox {
         var local: LocalSessions.Item? = nil
         /// What a session runs in the background after its turn ended (Claude working, with no turn).
         var background: Background? = nil
+        /// The time with what it is, for the menu: "waiting 15 min", "continues Sat 2:00 AM", "deadline Mon 9:00 AM".
+        var timeLabel: String {
+            guard !time.isEmpty else { return "" }
+            let now = time == "just now"
+            switch group {
+            case .needs: return now ? "waiting just now" : "waiting \(time)"
+            case .working: return now ? "started just now" : "working \(time)"
+            case .waits: return "deadline \(time)"
+            case .held: return "continues \(time)"
+            case .idle, .local: return now ? "active just now" : "active \(time) ago"
+            }
+        }
         /// The link that opens the session in the Claude app.
         var url: String { session?.url.nilIfEmpty ?? wait?.sessionURL.nilIfEmpty ?? "" }
         var target: Limit.Target? {
@@ -103,8 +130,8 @@ enum Inbox {
             sessions.first { (!cse.isEmpty && $0.id == cse) || (!sid.isEmpty && $0.sid == sid) }
         }
 
-        // The sessions the Claude app lists (not archived, not runs of a scheduled task), read every minute by the
-        // tracker. Only those show as needs you, working or idle; without a fresh list, the Kit's own sessions do.
+        // The sessions the Claude app lists (not archived, not runs of a scheduled task), read every 10 seconds while
+        // the window or the menu is open and every minute otherwise (Sync.swift). Only those show as needs you, working or idle; without a fresh list, the Kit's own sessions do.
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let list = state["app_list"] as? [String: Any]
@@ -135,6 +162,7 @@ enum Inbox {
             let sub = h.hold ? "Hold \(h.at)%" + agents
                 : (snap.creditsAll ? "Goes on with usage credits" : "Waits at the \(h.limit) limit") + agents
             var r = Row(id: s?.id ?? "hold:" + h.sid, group: .held, title: s?.title ?? h.title, sub: sub, time: Limit.clock(h.until))
+            r.timeAt = h.until
             r.session = s
             r.hold = h
             snap.rows.append(r)
@@ -149,14 +177,19 @@ enum Inbox {
             let w = s.waitingSince!
             var r = Row(id: s.id, group: .needs, title: s.title, sub: "Needs you" + (s.why.isEmpty ? "" : ": " + s.why),
                         time: Waiting.ago(w))
+            r.timeAt = w
             r.late = -w.timeIntervalSinceNow >= Waiting.after
             r.session = s
             snap.rows.append(r)
         }
 
         // Claude working, the longest first: in a turn, or with agents or background commands still running after it
+        // in a turn: the app's list when it is newer than the minute's check of the session, else that check
+        let listAt = Limit.num(list?["at"]) ?? 0
         func inTurn(_ s: Session) -> Bool {
-            (raw[s.id]?["app"] as? [String: Any])?["working"] as? Bool == true || bucket[s.id] == "working"
+            let app = raw[s.id]?["app"] as? [String: Any]
+            if let b = bucket[s.id], listAt > Limit.num(app?["checked"]) ?? 0 { return b == "working" }
+            return app?["working"] as? Bool == true || bucket[s.id] == "working"
         }
         let working = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id) && (inTurn($0) || background(raw[$0.id]) != nil) }
         func turnAt(_ s: Session) -> Date? { Limit.num(raw[s.id]?["turn_at"]).map { Date(timeIntervalSince1970: $0) } }
@@ -166,6 +199,7 @@ enum Inbox {
             let bg = inTurn(s) ? nil : background(raw[s.id])
             var r = Row(id: s.id, group: .working, title: s.title, sub: bg.map(\.words) ?? effortWords(s),
                         time: since(s).map(Waiting.ago) ?? "")
+            r.timeAt = since(s)
             r.session = s
             r.background = bg
             snap.rows.append(r)
@@ -187,6 +221,7 @@ enum Inbox {
             if ws.count == 1, !w.from.isEmpty { r.subStrong = "from " + w.from }
             let failing = ws.filter { !$0.failing.isEmpty }.count
             if failing > 0 { r.subStrong = ws.count == 1 || failing == ws.count ? "check failing" : "\(failing) check\(failing == 1 ? "" : "s") failing"; r.subWarn = true }
+            r.timeAt = w.by
             r.late = w.by.map { $0 < Date() } ?? false
             r.session = s
             r.wait = w
@@ -201,6 +236,7 @@ enum Inbox {
         for s in rest.sorted(by: { (unread[$0.id] ?? $0.at) > (unread[$1.id] ?? $1.at) }) {
             let sub = unread[s.id] != nil ? "Finished; reply not opened" : effortWords(s)
             var r = Row(id: s.id, group: .idle, title: s.title, sub: sub, time: Waiting.ago(unread[s.id] ?? s.at))
+            r.timeAt = unread[s.id] ?? s.at
             r.session = s
             snap.rows.append(r)
         }
@@ -210,6 +246,7 @@ enum Inbox {
             let now = x.pending ? "Moves to Remote Control when its reply ends"
                 : x.busy ? "Open in \(x.whereWords), Claude working" : x.pid != nil ? "Open in \(x.whereWords)" : "In \(x.whereWords)"
             var r = Row(id: "local:" + x.id, group: .local, title: x.title, sub: now, time: Waiting.ago(x.last))
+            r.timeAt = x.last
             r.local = x
             snap.rows.append(r)
         }
@@ -276,12 +313,13 @@ enum Inbox {
         return f.string(from: d) + " · " + relative(d)
     }
 
-    /// "in 3 days", "in 2 hr", "in 12 min", "5 min ago".
+    /// "in 3 days", "in 2 hr", "in 12 min", "5 min ago", with no-break spaces so a line never ends inside one.
     static func relative(_ d: Date) -> String {
         let s = d.timeIntervalSinceNow
         let a = abs(s)
-        let t = a < 3600 ? "\(max(1, Int(a / 60))) min" : a < 86400 ? "\(Int(a / 3600)) hr" : "\(Int((a / 86400).rounded())) day\(Int((a / 86400).rounded()) == 1 ? "" : "s")"
-        return s >= 0 ? "in " + t : t + " ago"
+        let t = a < 3600 ? "\(max(1, Int(a / 60)))\u{00a0}min" : a < 86400 ? "\(Int(a / 3600))\u{00a0}hr"
+            : "\(Int((a / 86400).rounded()))\u{00a0}day\(Int((a / 86400).rounded()) == 1 ? "" : "s")"
+        return s >= 0 ? "in\u{00a0}" + t : t + "\u{00a0}ago"
     }
 
     /// "10 min", "2 hr".

@@ -1,0 +1,41 @@
+{
+  "items": [
+    {
+      "archived_at": 1794580200,
+      "cse": "cse_01PhoneWeeklyPlan",
+      "folder": "src",
+      "title": "Weekly plan",
+      "url": "https://claude.ai/code/session_01PhoneWeeklyPlan"
+    },
+    {
+      "archived_at": 1794493800,
+      "cse": "cse_01PhoneDoorPi",
+      "folder": "building",
+      "title": "Door Pi cutover",
+      "url": "https://claude.ai/code/session_01PhoneDoorPi"
+    },
+    {
+      "archived_at": 1794328200,
+      "cse": "cse_01PhoneLongTitle",
+      "folder": "",
+      "title": "Compare the South B unit heads against the service report from September, find the one nearest the roll-up door, and write the plan for its wiring check and th…",
+      "url": "https://claude.ai/code/session_01PhoneLongTitle"
+    },
+    {
+      "archived_at": 1794155400,
+      "cse": "session_01PhoneBlinds",
+      "folder": "blind_control",
+      "title": "Blinds Wi-Fi watchdog",
+      "url": "https://claude.ai/code/session_01PhoneBlinds"
+    },
+    {
+      "archived_at": null,
+      "cse": "cse_01PhoneTileFan",
+      "folder": "tile-fan-onshape",
+      "title": "Tile fan print",
+      "url": "https://claude.ai/code/session_01PhoneTileFan"
+    }
+  ],
+  "rev": "897c16df23d6f473",
+  "v": 1
+}

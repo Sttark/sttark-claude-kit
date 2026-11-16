@@ -57,7 +57,7 @@ Hooks (`daylog.py --hook`, event from the input; each does nothing while the swi
   (FAIL) for a line whose item field (the first field after the time) matches, ignoring case and spaces. Found:
   dropped from pending. Missing: blocks the turn and gives the claude-daylog command to run. An item blocks at
   most 2 times (stop_hook_active still checks and counts); after that it is logged and dropped. Any error: allow.
-- SessionStart (startup, clear, compact, resume): adds the pending questions and findings (capture, see README item 27). Source `clear` also adds this repo's state file and today's Open items.
+- SessionStart (startup, clear, compact, resume): adds the pending questions and findings (capture, see README item 34). Source `clear` also adds this repo's state file and today's Open items.
   With nothing to restore it says nothing.
 
 Logged to ~/Library/Logs/sttark-claude-kit.log, with lines starting `daylog`. STTARK_KIT_DIR and STTARK_KIT_LOG

@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "base": "a1b2c3d4e5f60718",
+  "rev": "0f1e2d3c4b5a6978",
+  "add": [
+    {
+      "cse": "session_01SampleHvacOld",
+      "title": "HVAC fan curve",
+      "folder": "hvac_automation",
+      "archived_at": 1794587700,
+      "url": "https://claude.ai/code/session_01SampleHvacOld"
+    }
+  ],
+  "remove": [
+    "session_01SampleDoorPi"
+  ]
+}

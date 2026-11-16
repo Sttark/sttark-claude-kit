@@ -257,7 +257,7 @@ def guard_groups(event):
 
 install()
 check('install, switch off: no guard entries', guard_events() == [])
-check('--status guard false', json.loads(install('--status'))['guard'] is False)
+check('--status inline false', json.loads(install('--status'))['inline'] is False)
 out = install('--orchestrator', 'on')
 check('--orchestrator on: guard entries in all three events', guard_events() == ALL)
 check('--orchestrator on: output says guard on, subrules on, uicheck on, browser on', out.endswith('guard on, subrules on, uicheck on, browser on, daylog on, rotation on, prod on'))
@@ -273,7 +273,7 @@ for name, want in [('Read', 1), ('Bash', 1), ('Edit', 1), ('Agent', 1), ('Task',
           bool(re.search(pre['matcher'], name)) == bool(want))
 check('PostToolUse matcher: lookups and mcp only',
       all(re.search(post['matcher'], n) for n in ('Grep', 'mcp__a__b')) and not re.search(post['matcher'], 'Edit'))
-check('--status guard true', json.loads(install('--status'))['guard'] is True)
+check('--status inline true', json.loads(install('--status'))['inline'] is True)
 install()
 check('launch run, switch on: guard entries kept, one copy each',
       guard_events() == ALL and json.dumps(json.load(open(SET))).count('inline-guard.py') == 3)

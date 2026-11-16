@@ -1,0 +1,116 @@
+# Kit on your phone (phone/, the server at kit.sttark.com): on each pull
+# request and push to main that changes it, the tests and the build; then
+# the shared Sttark page check (every page at 390 and 1280 px, light and
+# dark) and, on pull requests, the AI review against the Sttark Brand and
+# App Guidelines. Those two are this repo's own page-check.yml and
+# app-review.yml, which every Sttark web app calls; here they are called for
+# phone/. Every night the page check walks every page again, unless main has
+# not moved. The contract files in phone/ (schema, fixtures, asyncapi.yaml,
+# DESIGN.md) have their own workflow, phone-contract.yml.
+#
+# Secrets: STTARK_DOCS_DEPLOY_KEY (the read-only deploy key for
+# Sttark/sttark-docs, where the page check, the guide and the fonts are),
+# CHECK_MAIL_SMTP_PASSWORD (emails whoever's change failed main; without it
+# a warning) and APP_REVIEW_ANTHROPIC_API_KEY (a Sttark organization secret;
+# without it the AI review is skipped with a warning).
+name: phone checks
+
+on:
+  pull_request:
+    paths:
+      - 'phone/**'
+      - '!phone/schema/**'
+      - '!phone/fixtures/**'
+      - '!phone/asyncapi.yaml'
+      - '!phone/DESIGN.md'
+      - '.github/workflows/phone-checks.yml'
+      - '.github/workflows/page-check.yml'
+      - '.github/workflows/app-review.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'phone/**'
+      - '!phone/schema/**'
+      - '!phone/fixtures/**'
+      - '!phone/asyncapi.yaml'
+      - '!phone/DESIGN.md'
+      - '.github/workflows/phone-checks.yml'
+      - '.github/workflows/page-check.yml'
+      - '.github/workflows/app-review.yml'
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+concurrency:
+  # A pull request's runs cancel its older runs; every main and nightly run
+  # finishes.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    name: Tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: phone
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: phone/package-lock.json
+      - run: npm ci
+      - run: npm test
+      # The build here has no fonts (they are licensed and fetched only for
+      # the page check and the deploy), so it warns about them and goes on.
+      - run: npm run build
+
+  page-check:
+    uses: ./.github/workflows/page-check.yml
+    with:
+      directory: phone
+      node-version: '24'
+      # The licensed fonts, from the sttark-docs copy page-check.yml fetches.
+      prepare: npm run fonts
+    secrets:
+      STTARK_DOCS_DEPLOY_KEY: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
+      CHECK_MAIL_SMTP_PASSWORD: ${{ secrets.CHECK_MAIL_SMTP_PASSWORD }}
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+
+  review-key:
+    name: AI review key
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      set: ${{ steps.key.outputs.set }}
+    steps:
+      - id: key
+        env:
+          KEY: ${{ secrets.APP_REVIEW_ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo set=true >> "$GITHUB_OUTPUT"
+          else
+            echo set=false >> "$GITHUB_OUTPUT"
+            echo "::warning::No AI review: this repo cannot read APP_REVIEW_ANTHROPIC_API_KEY, a Sttark organization secret that an organization admin can give it."
+          fi
+
+  app-review:
+    needs: review-key
+    if: needs.review-key.outputs.set == 'true'
+    uses: ./.github/workflows/app-review.yml
+    secrets:
+      APP_REVIEW_ANTHROPIC_API_KEY: ${{ secrets.APP_REVIEW_ANTHROPIC_API_KEY }}
+      STTARK_DOCS_DEPLOY_KEY: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
+    permissions:
+      contents: read
+      pull-requests: write

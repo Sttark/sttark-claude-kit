@@ -63,7 +63,13 @@ function make(cls, at) {
   }
   return send('core', 'crel', p)
 }
-function claudeWindow() {  // the window named Claude, or null
-  var names = get(prop('GNam', every('cwin'))) || [], i = names.indexOf('Claude')
-  return i < 0 ? null : obj('cwin', null, 'ID  ', D.descriptorWithInt32(get(prop('ID  ', nth('cwin', null, i + 1)))))
+function claudeWindow() {  // the first window named Claude, or null
+  // each name is read by the window's id: a list of names beside a list of ids can be in another order, when a
+  // window opens, closes or comes to the front between the two reads
+  var ids = get(prop('ID  ', every('cwin'))) || []
+  for (var k = 0; k < ids.length; k++) {
+    var w = obj('cwin', null, 'ID  ', D.descriptorWithInt32(ids[k]))
+    try { if (get(prop('GNam', w)) === 'Claude') return w } catch (e) {}
+  }
+  return null
 }

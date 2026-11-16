@@ -7,10 +7,12 @@ merges, a reply comes in), since a new turn in one of many sessions is easy to m
     claude-notify --test       a test message through every way picked
     claude-notify --show       the ways picked and their settings
 
-Each message names the session it comes from and links back to it with "Open in Claude": a link to the
-Kit's page https://sttark.github.io/sttark-claude-kit/open (pages/open.html), which opens the session in the
-Claude desktop app when the computer has it, else on claude.ai, and on a phone in the Claude app. Email and
-Google Chat don't make a claude:// link clickable, so the link goes through that page. The ways, set in the menu and kept in
+Each message names the session it comes from and links back to it two ways. "Open on phone" is the session's
+claude.ai link: a tap on it in Google Chat, Gmail or Messages on a phone opens the session in the Claude app at
+once (a page between would need a second tap: Chrome on a phone asks before a page opens an app). "Open on
+computer" is the Kit's page https://sttark.github.io/sttark-claude-kit/open (pages/open.html), which opens the
+session in the Claude desktop app, else on claude.ai; email and Google Chat don't make a claude:// link
+clickable, so it goes through that page. With no page link, one "Open in Claude" link. The ways, set in the menu and kept in
 "reach" in the shared state file:
 
   email  Mail from alerts@sttark.com to the person's @sttark.com address, sent by the notify workflow in
@@ -23,7 +25,9 @@ Google Chat don't make a claude:// link clickable, so the link goes through that
   mac    A notice on this Mac; the menu bar app shows it, and a click opens the session.
 
 The app's part (text, mac) goes through notify-queue/ in the Application Support folder: the app answers
-within a few seconds. Logged with lines starting "notify". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a
+within a few seconds. Logged with lines starting "notify". A message that went at least one way is noted in
+reach_sent[<cse>] in the state file: for 30 minutes the Kit sends that session no Needs you reminder, on the phone or
+the Mac, since this message already told the person (phone/DESIGN.md section 5). STTARK_KIT_DIR and STTARK_KIT_LOG point it at a
 test folder and log; STTARK_NOTIFY_DRY=1 does everything except send (the sealed email is checked instead).
 """
 import base64, fcntl, importlib.util, json, os, re, subprocess, sys, time, urllib.request, uuid
@@ -73,6 +77,27 @@ def settings(state=None):
     if not isinstance(r.get('ways'), list):
         r['ways'] = ['email'] if r['email'].lower().endswith('@sttark.com') else ['mac']
     return r
+
+
+def mark_sent(cse, now=None):
+    """reach_sent[cse] = now in the state file, under its lock as the hooks and the app write it. Entries over a day
+    old go."""
+    now = int(now or time.time())
+    os.makedirs(KIT, exist_ok=True)
+    with open(STATE + '.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            s = json.load(open(STATE))
+        except (OSError, ValueError):
+            s = {}
+        sent = {k: v for k, v in (s.get('reach_sent') or {}).items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and v > now - 86400}
+        sent[cse] = now
+        s['reach_sent'] = sent
+        tmp = STATE + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(s, f, indent=1)
+        os.replace(tmp, STATE)
 
 
 # --- the session -------------------------------------------------------------------------------------------
@@ -152,15 +177,28 @@ def gh():
     return 'gh'
 
 
+def session_links(m):
+    """[(words, link)] back to the session: the claude.ai link for a phone and the Kit's page for a computer,
+    or one link when there is no page link."""
+    page, web = m.get('url') or '', m.get('web') or ''
+    if page and web and page != web:
+        return [('Open on phone', web), ('Open on computer', page)]
+    return [('Open in Claude', page or web)] if (page or web) else []
+
+
 def html_of(m):
     esc = lambda s: s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
     parts = ['<p>%s</p>' % esc(p).replace('\n', '<br>') for p in m['body'].split('\n\n') if p.strip()]
     if m.get('link'):
         parts.append('<p><a href="%s">%s</a></p>' % (esc(m['link']), esc(m['link'])))
-    if m.get('url'):
-        parts.append('<p><a href="%s" style="display:inline-block;padding:10px 16px;background:#00892f;color:#ffffff;'
-                     'border-radius:6px;font-weight:600;text-decoration:none">Open in Claude</a></p>'
-                     '<p style="color:#5b6570">From the session %s</p>' % (esc(m['url']), esc(m['title'] or 'Claude Code')))
+    links = session_links(m)
+    if links:
+        btn = ('<a href="%s" style="display:inline-block;margin:0 8px 8px 0;padding:10px 16px;border-radius:6px;'
+               'font-weight:600;text-decoration:none;%s">%s</a>')
+        parts.append('<p>%s</p><p style="color:#5b6570">From the session %s</p>' % (''.join(
+            btn % (esc(u), 'background:#00892f;color:#ffffff;border:1px solid #00892f' if i == 0
+                   else 'color:#000000;border:1px solid #000000', esc(w)) for i, (w, u) in enumerate(links)),
+            esc(m['title'] or 'Claude Code')))
     return '<div style="font-family:Helvetica Neue,Arial,sans-serif;font-size:16px;line-height:1.5">%s</div>' % ''.join(parts)
 
 
@@ -192,8 +230,9 @@ def chat(m, r):
     t = '*%s*\n%s' % (m['subject'], m['body'])
     if m.get('link'):
         t += '\n<%s|Open the result>' % m['link']
-    if m.get('url'):
-        t += '\n<%s|Open in Claude> · from %s' % (m['url'], m['title'] or 'the session')
+    links = session_links(m)
+    if links:
+        t += '\n%s · from %s' % (' · '.join('<%s|%s>' % (u, w) for w, u in links), m['title'] or 'the session')
     if DRY:
         return True, 'would post %d characters to the webhook' % len(t)
     req = urllib.request.Request(hook, data=json.dumps({'text': t}).encode(),
@@ -209,8 +248,10 @@ def text_of(m):
     t = m['subject'] + '\n\n' + m['body']
     if m.get('link'):
         t += '\n\n' + m['link']
-    if m.get('url'):
-        t += '\n\nFrom the session %s. Open in Claude: %s' % (m['title'] or 'Claude Code', m['url'])
+    links = session_links(m)
+    if links:
+        t += '\n\nFrom the session %s.' % (m['title'] or 'Claude Code')
+        t += ''.join('\n%s: %s' % (w, u) for w, u in links)
     return t
 
 
@@ -248,14 +289,15 @@ def by_app(ways, m, r):
 
 
 def send(subject, body, link='', ways=None, title=None, url=None, cse=''):
-    """`url` is the session's claude.ai link and `cse` its Remote Control id; the message links to the session
-    through open_link. 'url' in the message is that link, and 'cse' the id the Mac notice opens directly."""
+    """`url` is the session's claude.ai link and `cse` its Remote Control id. In the message, 'url' is the
+    open_link page link (for a computer), 'web' the claude.ai link (for a phone), and 'cse' the id the Mac
+    notice opens directly."""
     r = settings()
     ways = [w for w in (ways or r['ways']) if w in WAYS]
     if title is None:
         title, url, cse = session()
     m = {'subject': subject.strip(), 'body': body.strip(), 'link': link, 'title': title or '',
-         'url': open_link(cse, url), 'cse': cse or ''}
+         'url': open_link(cse, url), 'web': url or '', 'cse': cse or ''}
     results = {}
     for w in ways:
         if w in ('text', 'mac'):
@@ -270,6 +312,11 @@ def send(subject, body, link='', ways=None, title=None, url=None, cse=''):
     for w in ways:
         ok, words = results[w]
         log('%s %s %s: %s | %s' % ((title or '-')[:40], w, 'ok' if ok else 'failed', words[:120], subject[:80]))
+    if cse and any(results[w][0] for w in ways):
+        try:
+            mark_sent(cse)
+        except OSError as e:
+            log('%s reach_sent not noted: %s' % ((title or '-')[:40], e))
     return [(w, results[w]) for w in ways]
 
 

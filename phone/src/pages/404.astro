@@ -1,0 +1,12 @@
+---
+// Not found: says so, and offers the way back.
+import Base from '../layouts/Base.astro';
+import { href } from '../lib/paths.ts';
+---
+<Base title="Not found">
+  <div class="error-page">
+    <h1 class="page-title">Page not found</h1>
+    <p class="lede">There is no page at {Astro.url.pathname}.</p>
+    <a class="btn ghost" href={href('/')}>Go to Sessions</a>
+  </div>
+</Base>

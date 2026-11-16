@@ -2,9 +2,13 @@ import AppKit
 import UserNotifications
 
 /// "Waiting on you": sessions where Claude finished a reply you haven't read, on any device. Checked every
-/// minute; a notice comes once per reply after it has waited 10 minutes.
+/// minute; a reminder comes once per reply after it has waited 10 minutes: this Mac's notice when you are at the Mac,
+/// else a push to your phone when one can get it (PhoneLink.reminderPlace), never both. A session that sent you a Reach
+/// me by message in the last 30 minutes gets none (phone/DESIGN.md section 5).
 enum Waiting {
     static let after: TimeInterval = 10 * 60
+    /// No reminder for a session that sent a Reach me by message this recently.
+    static let reachQuiet: TimeInterval = 30 * 60
 
     static var sessions: [Session] {
         // the ones that need you first, then the ones you haven't opened; oldest first in each
@@ -28,6 +32,8 @@ enum Waiting {
         }
     }
 
+    /// Once a minute: each session that has needed you for 10 minutes since its last reply gets one reminder. Rule 5
+    /// first (a recent Reach me by message), then rule 3 (where).
     static func notifyDue() {
         let d = UserDefaults.standard
         var told = d.dictionary(forKey: "waitingTold") as? [String: Double] ?? [:]
@@ -36,9 +42,41 @@ enum Waiting {
             guard s.needsYou, let w = s.waitingSince, -w.timeIntervalSinceNow >= after, -w.timeIntervalSinceNow < 86400 else { return false }
             return told[s.id] != w.timeIntervalSince1970
         }
-        guard let first = due.first else { return }
+        guard !due.isEmpty else { return }
         for s in due { told[s.id] = s.waitingSince!.timeIntervalSince1970 }
         d.set(told, forKey: "waitingTold")
+        let sent = reachSent()
+        let now = Date().timeIntervalSince1970
+        let quiet = due.filter { s in sent[s.id].map { now - $0 < reachQuiet } ?? false }
+        if !quiet.isEmpty {
+            note("waiting notice skipped: \(quiet.map(\.title).joined(separator: ", ")): it sent a Reach me by message in the last 30 min")
+        }
+        let remind = due.filter { s in !quiet.contains { $0.id == s.id } }
+        guard !remind.isEmpty else { return }
+        switch PhoneLink.reminderPlace() {
+        case .phone:
+            logLine("phone", "reminder to your phone: \(remind.map(\.title).joined(separator: ", "))")
+            PhoneLink.remind(remind) { failed in
+                guard !failed.isEmpty else { return }
+                logLine("phone", "reminder did not go to your phone, a Mac notice instead: \(failed.map(\.title).joined(separator: ", "))")
+                showNotice(failed, all)
+            }
+        case .mac:
+            showNotice(remind, all)
+        }
+    }
+
+    /// When each session last sent a Reach me by message: `reach_sent[cse]` in the state file, which notify.py writes.
+    static func reachSent(_ state: [String: Any]? = nil) -> [String: Double] {
+        ((state ?? State.read())["reach_sent"] as? [String: Any] ?? [:]).compactMapValues { Limit.num($0) }
+    }
+
+    /// Shows this Mac's notice for the sessions due (`all`: every session that waits on you). Tests put their own.
+    static var showNotice: (_ due: [Session], _ all: [Session]) -> Void = { macNotice($0, $1) }
+
+    /// This Mac's notice: one session by its name, or how many, with the ones that need you; a click opens the first.
+    static func macNotice(_ due: [Session], _ all: [Session]) {
+        guard let first = due.first else { return }
         let c = UNUserNotificationCenter.current()
         c.requestAuthorization(options: [.alert, .sound]) { ok, _ in
             guard ok else { return }

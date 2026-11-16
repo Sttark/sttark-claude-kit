@@ -11,9 +11,16 @@ session goes on and tells the person through Reach me by (claude-notify).
     claude-wait check-prompt "<yes/no question>" --every <30m> --by <deadline> --why "<...>"   (a Haiku call)
     --what "<what you watch for, in the person's words>"  (any wait; e.g. "New Star's reply about the laminator")
     claude-wait --list                 open waits, every session
-    claude-wait --cancel <id>          drop a wait
-    claude-wait --now <id>             bring its session back now
+    claude-wait --cancel <id> [--by window|phone]
+                                       drop a wait
+    claude-wait --now <id> [--by window|phone]
+                                       bring its session back now
     claude-wait --check                the app's check, every minute
+    claude-wait --unarchive <cse_id> [--by window|phone]
+                                       bring an archived session back on its link, with no first message (the
+                                       window's Archived page, the phone)
+    --cancel, --now and --unarchive exit with the phone's result names: 0 ok, 1 not_now, 2 not_here, 3 gone,
+    4 bad. Their --by says who asked, the Kit window or the phone, for the log (KitActions in the app).
 
 A time or deadline: 2026-11-16 17:00 (or ISO), 17:00 (today, or tomorrow once past), +90m, +4h, +2d, or
 "3 weekdays" (the same clock time, Saturdays and Sundays skipped). The session picks the deadline; there is none
@@ -223,19 +230,19 @@ def haiku(prompt, tools, timeout=180):
         raise RuntimeError('claude -p exit %d: %s' % (r.returncode, (r.stderr or r.stdout).strip()[:160]))
     why = ''
     wr = [t for t in tools if t.startswith(WR)]
-    if wr and init is not None:
-        server = [m for m in init.get('mcp_servers') or [] if m.get('name') == 'claude.ai Sttark Workrouter']
-        status = server[0].get('status', '') if server else 'not listed'
-        if status != 'connected':
-            why = 'the Workrouter connector did not load in the check (%s): a Claude outage or its sign-in' % status
-        elif not any(t in (init.get('tools') or []) for t in wr):
-            why = 'the Workrouter connector loaded without %s' % wr[0][len(WR):]
-    if not why and errors:
+    if errors:   # the tool ran, so its connector loaded: its own error says why
         why = '%s answered an error: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', errors[0])[:140])
-    if not why and not any(n in tools for n in called.values()):
-        why = 'Haiku did not call %s; it said: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', final)[:120] or 'nothing')
-    if not why and init is None:
-        why = 'claude -p gave no output: %s' % (r.stderr or '').strip()[:140]
+    elif not any(n in tools for n in called.values()):
+        # The start of the run lists only the connectors that loaded by then: run from the Kit, claude.ai connectors
+        # load after it and are not listed, yet the tool works. Only a connector listed as not loaded explains it.
+        server = [m for m in (init or {}).get('mcp_servers') or [] if m.get('name') == 'claude.ai Sttark Workrouter']
+        status = server[0].get('status', '') if server else ''
+        if init is None:
+            why = 'claude -p gave no output: %s' % (r.stderr or '').strip()[:140]
+        elif wr and status and status not in ('connected', 'pending'):
+            why = 'the Workrouter connector did not load in the check (%s): a Claude outage or its sign-in' % status
+        else:
+            why = 'Haiku did not call %s; it said: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', final)[:120] or 'nothing')
     return final, results, why
 
 
@@ -281,7 +288,21 @@ def check_email_reply(w):
             except (ValueError, AttributeError):
                 pass
         if not w.get('subject'):
-            raise RuntimeError('could not read the thread %s: %s' % (w['target'], why or 'no subject in the answer'))
+            # A thread started from a draft keeps the draft's id, and its first message got a new id when it was sent
+            # (gmail_read_message answers 404): find the subject in the person's own messages in the thread instead.
+            _, res, why2 = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'
+                                 % (WR, json.dumps('from:me after:%d' % (int(w['set_at']) - 2 * 86400))),
+                                 [WR + 'gmail_search'], timeout=120)
+            for t in res:
+                try:
+                    e = next((e for e in json.loads(t).get('emails') or []
+                              if e.get('thread_id') == w['target'] and e.get('subject')), None)
+                except (ValueError, AttributeError):
+                    e = None
+                if e:
+                    w['subject'] = re.sub(r'^((re|fwd?|aw):\s*)+', '', e['subject'], flags=re.I)
+            if not w.get('subject'):
+                raise RuntimeError('could not read the thread %s: %s' % (w['target'], why or why2 or 'no subject in the answer'))
     q = 'after:%d' % int(w['set_at']) + (' from:%s' % w['from'] if w.get('from') else
                                           ' -from:me subject:(%s)' % re.sub(r'[^\w\s]', ' ', w['subject']).strip()[:120])
     _, results, why = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'
@@ -379,8 +400,10 @@ def describe(w):
     return 'the time %s' % clock(w['at'])
 
 
-def bring_back(w, prompt):
-    """Unarchive the session on its own link with `prompt` as its first message. True when it started."""
+def bring_back(w, prompt=None):
+    """Unarchive the session on its own link, with its whole conversation and `prompt` as its first message; with no
+    prompt it waits for the person. True when it started. The window's Archived page brings a session back with this
+    too (archived.py --back), so there is one way to do it."""
     e = load('effort-hook')
     cse, tp = w.get('cse'), w.get('transcript')
     if not cse or not tp or not os.path.exists(tp):
@@ -399,7 +422,7 @@ def bring_back(w, prompt):
     cid = os.path.basename(tp)[:-len('.jsonl')]
     with open(os.path.join(KIT, 'keep.lock'), 'w') as lock:  # the keep check starts chats too: one at a time
         fcntl.flock(lock, fcntl.LOCK_EX)
-        subprocess.run(['/usr/bin/screen', '-S', 'kit-' + cid[:8], '-X', 'quit'], capture_output=True)
+        e.quit_screen('kit-' + cid[:8])  # every copy: `screen -S <name>` acts on none when two have the name
         e.point_at(tp, cse, e.waiting_since_reply(e.chat_events(cse))[0])
         home = os.path.expanduser('~')
         stable = home + '/.local/share/claude/stable/claude'
@@ -407,15 +430,18 @@ def bring_back(w, prompt):
         env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
                'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
                'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
-        pf = os.path.join(KIT, 'wait-prompts')
-        os.makedirs(pf, exist_ok=True)
-        pfile = os.path.join(pf, w['id'] + '.txt')
-        with open(pfile, 'w') as f:
-            f.write(prompt)
+        first = ''
+        if prompt:
+            pf = os.path.join(KIT, 'wait-prompts')
+            os.makedirs(pf, exist_ok=True)
+            pfile = os.path.join(pf, w['id'] + '.txt')
+            with open(pfile, 'w') as f:
+                f.write(prompt)
+            first = f" \"$(cat '{pfile}')\""
         cwd = w.get('cwd') or home
         subprocess.run(['/usr/bin/screen', '-dmS', 'kit-' + cid[:8], '/bin/zsh', '-lc',
                         f"cd '{cwd}' && exec '{claude}' --resume {cid} --remote-control --permission-mode "
-                        f"bypassPermissions \"$(cat '{pfile}')\""], env=env)
+                        f"bypassPermissions{first}"], env=env)
         now = time.time()
 
         def alone(s):
@@ -423,6 +449,85 @@ def bring_back(w, prompt):
             k.setdefault('alone', {})[cse] = {'transcript': tp, 'title': w.get('title', ''), 'at': now}
         change(alone)
     return True
+
+
+BACK_WAIT = 45  # seconds to wait for the Claude app to show an unarchived session back
+
+
+def unarchive(cse, by='window'):
+    """An archived session back in the person's list, on its own link with its whole conversation and no first
+    message: the Kit window's Archived page (or the phone) asks for it. The facts come from archived.json, which
+    effort-hook.py archived() writes; the start is bring_back(), as for a wait. Prints one line; returns the exit code:
+    0 ok, 1 not_now (Claude did not answer, the start failed, or the Claude app does not show it back yet), 2 not_here,
+    3 gone (phone/DESIGN.md, section 13).
+    STTARK_ARCHIVED_TEST (a JSON file {"sessions": [...]}) stands in for the session's status; STTARK_WAIT_DRY starts
+    nothing."""
+    e = load('effort-hook')
+    try:
+        listing = json.load(open(e.ARCHIVED))
+    except (OSError, ValueError):
+        listing = {}
+    items = listing.get('items') or []
+    item = next((x for x in items if x.get('cse') == cse), None)
+    test = os.environ.get('STTARK_ARCHIVED_TEST')
+
+    def status():
+        try:
+            if test:
+                return next((c for c in json.load(open(test)).get('sessions') or [] if c.get('id') == cse), {})
+            return e.sse().session(cse)
+        except Exception:
+            return {}
+
+    def drop():
+        e.write_archived([x for x in items if x.get('cse') != cse], force=True)
+    d = status()
+    title = (item or {}).get('title') or (d.get('title') or '').strip() or 'Session ' + cse[-6:]
+    if not d:  # unknown: never start one that may be running (bring_back archives an active session first)
+        print('Claude did not answer, so the Kit did not bring it back. Try again in a minute.')
+        log('%s "%s" not brought back from the archive (%s): its status could not be read' % (cse, title, by))
+        return 1
+    if d.get('status') != 'archived':
+        print('It is not archived now. It is in your list.')
+        log('%s "%s" not brought back from the archive (%s): it is not archived now' % (cse, title, by))
+        drop()
+        return 3
+    if not item or not os.path.exists(item.get('transcript') or ''):
+        print('Its conversation is not on this Mac, so this Mac cannot bring it back.')
+        log('%s "%s" not brought back from the archive (%s): its conversation is not on this Mac' % (cse, title, by))
+        drop()
+        return 2
+    w = {'id': cse[-6:], 'cse': cse, 'transcript': item['transcript'], 'cwd': item.get('folder') or '', 'title': title}
+    if DRY:
+        print('would bring %s back from %s' % (cse, item['transcript']))
+        return 0
+    try:
+        started = bring_back(w, None)
+    except Exception as x:
+        why = str(x)[:160] or type(x).__name__
+        print('It did not come back: %s.' % why)
+        log('%s "%s" could not come back from the archive (%s): %s' % (cse, title, by, why))
+        return 1
+    if not started:
+        print('Its conversation is not on this Mac, so this Mac cannot bring it back.')
+        drop()
+        return 2
+    for _ in range(BACK_WAIT // 3):  # Claude Code unarchives the link when it reattaches it
+        time.sleep(3)
+        if status().get('status') == 'active':
+            break
+    else:
+        print('The Kit started it again, but the Claude app does not show it back yet. Look again in a minute.')
+        log('%s "%s" started from the archive (%s), but it was not back after %d s' % (cse, title, by, BACK_WAIT))
+        return 1
+    log('%s "%s" brought back from the archive (%s)' % (cse, title, by))
+    drop()
+    try:
+        e.app_list()  # the Sessions page lists it at once
+    except Exception:
+        pass
+    print('It is back in your list, on the same link, with its whole conversation.')
+    return 0
 
 
 def fallback(w, what, late):
@@ -454,14 +559,18 @@ def notified_since(w, since):
     return any(l[:19] >= stamp and (' notify ' + name + ' ') in l for l in lines)
 
 
-def check(only=None):
-    """Every minute, from the app. No model calls: gh for pull requests and the clock."""
+def check(only=None, by=None):
+    """Every minute, from the app. No model calls: gh for pull requests and the clock.
+    With `only` (claude-wait --now <id>), that one wait ends now; `by` (window or phone) goes in its log line. Returns
+    what became of it: 'brought', 'sent' (the Kit sent the message itself), 'dry', 'busy' (its session is in a turn),
+    'back' (it already ended), 'locked' (the minute check runs now) or None (no such wait)."""
     lock = open(os.path.join(KIT, 'wait.lock'), 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        return
+        return 'locked'
     now = time.time()
+    result = None
     for wid, w in list((peek().get('waits') or {}).items()):
         if only and wid != only:
             continue
@@ -479,6 +588,7 @@ def check(only=None):
                     fallback(w, w.get('what', ''), w.get('late', False))
                     log('%s %s "%s" sent no message after coming back; the Kit sent one' % (wid, w.get('cse', '')[:12], w.get('title', '')))
                 change(lambda s: (s.get('waits') or {}).pop(wid, None))
+            result = 'back'
             continue
         if now - w.get('tried_at', 0) < RETRY and w.get('tried_at'):
             continue
@@ -515,15 +625,19 @@ def check(only=None):
             if upd or drop:
                 change(save)
             continue
-        log('%s %s "%s" %s%s' % (wid, w.get('cse', '')[:12], w.get('title', ''), what, ' (deadline)' if late else ''))
+        log('%s %s "%s" %s%s%s' % (wid, w.get('cse', '')[:12], w.get('title', ''), what, ' (deadline)' if late else '',
+                                   ' (%s)' % by if only and by else ''))
         if DRY:
             print('would bring back %s: %s' % (wid, what))
+            result = 'dry'
             continue
         try:
             ok = bring_back(w, prompt_for(w, what, late))
         except RuntimeError as e:
             if str(e) == 'busy':
-                log('%s its session is in a turn; trying again in a minute' % wid)
+                log('%s its session is in a turn; %s' % (wid, 'the wait stays open%s' % (' (%s)' % by if by else '')
+                                                          if only else 'trying again in a minute'))
+                result = 'busy'
                 continue
             ok = False
             log('%s could not bring it back: %s' % (wid, str(e)[:160]))
@@ -534,11 +648,14 @@ def check(only=None):
             log('%s brought "%s" back on its own link with what happened' % (wid, w.get('title', '')))
             upd.update(stage='back', back_at=time.time(), what=what, late=late)
             change(save)
+            result = 'brought'
         else:
             w['stage'] = 'out'
             fallback(w, what, late)
             log('%s sent the message from the Kit; the session did not come back' % wid)
             change(lambda s: (s.get('waits') or {}).pop(wid, None))
+            result = 'sent'
+    return result
 
 
 # --- the command -------------------------------------------------------------------------------------------
@@ -569,17 +686,41 @@ def main():
                                                 if w.get('failing') else ''))
         print('' if ws else 'No open waits.', end='')
         return 0
+    if args[0] == '--unarchive':
+        by = opt(args, '--by') or 'window'
+        cse = args[1] if len(args) > 1 else ''
+        if not re.fullmatch(r'(cse|session)_[A-Za-z0-9]+', cse) or by not in ('window', 'phone'):
+            print('Usage: claude-wait --unarchive <cse_id> [--by window|phone]', file=sys.stderr)
+            return 4
+        return unarchive('cse_' + cse.split('_', 1)[1], by)
     if args[0] in ('--cancel', '--now'):
+        by = opt(args, '--by')
+        if by is not None and by not in ('window', 'phone'):
+            print('Usage: claude-wait %s <id> [--by window|phone]' % args[0], file=sys.stderr)
+            return 4
         wid = args[1] if len(args) > 1 else ''
         if wid not in (peek().get('waits') or {}):
             print('No wait %s. claude-wait --list shows them.' % wid, file=sys.stderr)
-            return 1
+            return 3
         if args[0] == '--cancel':
             change(lambda s: s['waits'].pop(wid, None))
-            log('%s cancelled' % wid)
+            log('%s cancelled%s' % (wid, ' (%s)' % by if by else ''))
             print('Cancelled.')
-        else:
-            check(only=wid)
+            return 0
+        r = check(only=wid, by=by)
+        if r == 'locked':
+            print('The Kit is checking its waits now. Try again in a minute.')
+            return 1
+        if r == 'busy':
+            print('Its session is in a turn now. Try again when the turn ends.')
+            return 1
+        if r in ('back', None):
+            print('That wait already ended. Nothing was changed.')
+            return 3
+        if r == 'brought':
+            print('It is back in your list. It tells you where it stands.')
+        elif r == 'sent':
+            print('It could not come back by itself, so the Kit sent you the message.')
         return 0
     by, why, what = opt(args, '--by'), opt(args, '--why'), opt(args, '--what')
     sender, every = opt(args, '--from'), opt(args, '--every')

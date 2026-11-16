@@ -56,12 +56,19 @@ HOLDS = os.path.join(DIR, 'holds')   # --hold's claim files, and one lock per se
 TEST = os.environ.get('STTARK_LIMIT_TEST')
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 URL = os.environ.get('STTARK_LIMIT_URL') or 'https://api.anthropic.com/api/oauth/usage'   # tests: a stand-in server
-FRESH = 60       # seconds a usage read is good for
+FRESH = 120      # seconds a usage read is good for (Claude Code reads the same usage endpoint with the same
+                 # login in every session, so the Kit's own reads stay few)
+FRESH_SLOW = 300  # ... for CALM after a failed read, so a shared rate limit is not hit again and again
 FRESH_NEAR = 15  # ... when a limit is at 90% or more, so the pause starts soon after the limit
 BACKOFF = 120    # seconds to wait after a failed usage read, doubling each time ...
 BACKOFF_MAX = 900  # ... up to 15 minutes
 CALM = 1800      # a good read keeps the count of failed reads until this long after the last one, so a server that
                  # allows a read only now and then backs the reads off instead of failing every few minutes
+NEAR_CALM = 6 * 3600  # near a limit, the 15-second reads start again only this long after the last failed read: the
+                 # server refuses them within minutes, so with CALM alone they brought a 429 every 33 minutes
+FENCE = 3600     # older copies of this script back off while `retry_at` is ahead; every write keeps it this far ahead,
+                 # so a wait loop still running old code never reads the usage endpoint again (it uses the cache)
+STALE = 600      # a wait loop that isn't the reader reads the endpoint itself only when the cache is this old
 TICK = float(os.environ.get('STTARK_LIMIT_TICK') or 10)   # seconds between checks while a session waits
 SESSIONS = 'https://api.anthropic.com/v1/code/sessions/'
 EVENTS = os.environ.get('STTARK_LIMIT_EVENTS')   # tests: a file that stands in for the session's server events
@@ -160,17 +167,30 @@ def calm(c, now=None):
     return {'fails': c.get('fails', 0), 'failed_at': f} if f and now - f < CALM else {}
 
 
+def kept(c, now=None):
+    """What a good read keeps of the failed reads: calm(c), and the last failure's time until NEAR_CALM after it."""
+    now = time.time() if now is None else now
+    f = c.get('last_failed_at') or c.get('failed_at', 0)
+    return {**calm(c, now), **({'last_failed_at': f} if f and now - f < NEAR_CALM else {})}
+
+
 def good_for(c, u, max_age):
-    """How long the cached read is good for: max_age when given, else a minute (15 seconds near a limit, unless a
-    read failed in the last CALM: then a minute, so the 15-second reads don't bring the next 429)."""
+    """How long the cached read is good for: max_age when given, else FRESH. Near a limit FRESH_NEAR, but only when no
+    read failed in the last NEAR_CALM; in the CALM after a failed read FRESH_SLOW. So frequent reads don't bring the
+    next 429."""
     if max_age is not None:
         return max_age
-    return FRESH if calm(c) else fresh_for(u)
+    if calm(c):
+        return FRESH_SLOW
+    f = fresh_for(u)
+    if f < FRESH and time.time() - (c.get('last_failed_at') or 0) < NEAR_CALM:
+        return FRESH
+    return f
 
 
 def usage(max_age=None, wait=0):
-    """The latest usage read, from the cache when it's no older than max_age (by default a minute, 15 seconds
-    near a limit). One process reads at a time; the others use the cache, or, with `wait`, wait up to that
+    """The latest usage read, from the cache when it's no older than max_age (by default good_for: 2 minutes, 15
+    seconds near a limit). One process reads at a time; the others use the cache, or, with `wait`, wait up to that
     many seconds for the read in progress (so the two hooks of one tool call decide on the same read). After a
     failed read (a 429, say) no process reads again until the back-off ends (Retry-After, or 2 min doubling to
     15 min), and every caller gets the last good read meanwhile. None when there's no read at all. With
@@ -187,7 +207,7 @@ def usage(max_age=None, wait=0):
     u = c.get('usage')
     if u and time.time() - c.get('at', 0) < good_for(c, u, max_age):
         return u
-    if time.time() < c.get('retry_at', 0):
+    if time.time() < c.get('next_read', 0):
         return u   # backing off after a failed read: keep the last good one
     os.makedirs(DIR, exist_ok=True)
     with open(USAGE + '.lock', 'w') as lock:
@@ -198,7 +218,7 @@ def usage(max_age=None, wait=0):
         except (OSError, ValueError):
             pass
         u = c.get('usage')
-        if time.time() < c.get('retry_at', 0) or (
+        if time.time() < c.get('next_read', 0) or (
                 u and time.time() - c.get('at', 0) < good_for(c, u, max_age)):
             return u
         try:
@@ -213,17 +233,18 @@ def usage(max_age=None, wait=0):
                 except (TypeError, ValueError):
                     after = 0
             wait_s = max(after, min(BACKOFF * 2 ** (fails - 1), BACKOFF_MAX))
-            c.update(fails=fails, failed_at=time.time(), retry_at=time.time() + wait_s)
-            if fails == 1 or after or wait_s >= BACKOFF_MAX:
+            c.update(fails=fails, failed_at=time.time(), last_failed_at=time.time(), next_read=time.time() + wait_s)
+            if fails == 1 or wait_s >= BACKOFF_MAX:
                 log(f'usage read failed: {e}; next read in {wait_s // 60 or 1} min, '
                     + ('using the last read' if u else 'no read yet'))
             put(c)
             return u
-        put({'at': time.time(), 'usage': u, **calm(c)})
+        put({'at': time.time(), 'usage': u, **kept(c)})
         return u
 
 
 def put(c):
+    c = {**c, 'retry_at': time.time() + FENCE}   # the fence for older copies; this copy reads next_read
     tmp = USAGE + f'.{os.getpid()}.tmp'
     with open(tmp, 'w') as f:
         json.dump(c, f)
@@ -793,9 +814,78 @@ def prompt_key(data):
     return 'prompt-' + data['prompt_id'] if data.get('prompt_id') else ''
 
 
+def cached():
+    """The last usage read in the cache, with no read of the endpoint."""
+    if TEST:
+        return usage()
+    try:
+        return json.load(open(USAGE)).get('usage')
+    except (OSError, ValueError):
+        return None
+
+
+def cache_age():
+    try:
+        return time.time() - json.load(open(USAGE)).get('at', 0)
+    except (OSError, ValueError):
+        return float('inf')
+
+
+def script_stamp():
+    """This script's real path and its (size, mtime) now."""
+    me = os.path.realpath(__file__)
+    try:
+        st = os.stat(me)
+        return me, (st.st_size, st.st_mtime)
+    except OSError:
+        return me, None
+
+
+def reexec(me, record):
+    """Run the new copy of this script in this same process, so a wait that started before a Kit update goes on
+    in the new code with no gap: same process id, so Claude Code still waits on it, and its row and claim stay.
+    Only when the new copy compiles; else keep waiting in the old code."""
+    try:
+        compile(open(me).read(), me, 'exec')
+    except (OSError, SyntaxError, ValueError):
+        return
+    path = os.path.join(HOLDS, f'resume-{os.getpid()}.json')
+    with open(path, 'w') as f:
+        json.dump(record, f)
+    log(f'reload {record["sid"][:8]} {record["what"]}: the Kit updated, the wait goes on in the new code')
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.environ['STTARK_HOLD_RESUME'] = path
+    os.execv(sys.executable, [sys.executable, me] + sys.argv[1:])
+
+
+def resume_main(path):
+    """After reexec: go on with the wait the old code was in, then finish as it would have."""
+    try:
+        r = json.load(open(path))
+    except (OSError, ValueError):
+        return False
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    os.environ.pop('STTARK_HOLD_RESUME', None)
+    h = Hold(*r['h'])
+    if r['what'] == 'hold':
+        key = r['key'].split('/', 1)[1] if '/' in r['key'] else ''
+        if key and not key.startswith('wait-'):
+            atexit.register(unclaim, key)
+        hold_loop(r['sid'], r['agent'], r['tp'], r['c'], h, r['budget'], r['what'], r['key'], r['note'], resume=r)
+        return True
+    left = None if r['budget'] is None else max(1, r['budget'] - (time.time() - r['started']))
+    why = hold_loop(r['sid'], r['agent'], r['tp'], r['c'], h, left, r['what'], r['key'], r['note'], resume=r)
+    wait_end(r['sid'], r['c'], r['tp'], h, why)
+    return True
+
+
 # ---- the wait ------------------------------------------------------------------------------------------------
 
-def hold_loop(sid, agent, tp, c, h, budget, what, key, note=''):
+def hold_loop(sid, agent, tp, c, h, budget, what, key, note='', resume=None):
     """Wait while this session must wait, with no model calls: until the hold ends (returns why, for GO ON),
     until `budget` seconds pass (returns None; budget None: no limit but the hook's own), or until the turn or
     the process stops (exits). Shows as a row in the menu (limit_pauses, under `key`) while it waits. Of the
@@ -804,16 +894,20 @@ def hold_loop(sid, agent, tp, c, h, budget, what, key, note=''):
     if os.getppid() == 1:
         sys.exit(0)   # its Claude Code process is already gone
     w = who(sid, c, agent)
-    pos = size(tp)
-    start_mode = mode_of(peek(), sid, c)
+    r = resume or {}
+    pos = r.get('pos', size(tp))
+    start_mode = tuple(r['start_mode']) if r.get('start_mode') else mode_of(peek(), sid, c)
     with state() as s:
         p = s.setdefault('limit_pauses', {})
-        first = not others(p, key, sid, agent)
+        first = not r and not others(p, key, sid, agent)
         row = {'since': time.time(), 'until': h.until, 'limit': h.name, 'cse': c, 'title': title(s, c, os.getcwd()),
                'pid': os.getpid(), 'what': what, 'sid': sid, 'mode': h.mode, 'at': h.at, 'percent': h.top}
         if agent:
             row['agent'] = agent
-        p[key] = row
+        if r and key in p:
+            p[key]['pid'] = os.getpid()
+        else:
+            p[key] = row
     gone = []
 
     def leave():
@@ -837,14 +931,22 @@ def hold_loop(sid, agent, tp, c, h, budget, what, key, note=''):
         if note:
             log(f'hold   {w} {where(h)} ({note})')
         log(f'wait   {w} {where(h)}' + (', with no model calls until it ends' if what == 'hold' else ''))
-    started = asked = time.time()
-    since_ms = int(started * 1000)
+    started = r.get('started', time.time())
+    asked = time.time()
+    since_ms = r.get('since_ms', int(started * 1000))
     parent = os.getppid()
     os.makedirs(HOLDS, exist_ok=True)
     polls = open(os.path.join(HOLDS, re.sub(r'[^A-Za-z0-9_.-]', '_', sid or c or 'none') + '.poll'), 'w')
     poller = False
+    reads = open(USAGE + '.reader', 'w')   # one wait loop on the Mac reads usage; the others use its cache
+    reader = False
+    me, born = script_stamp()
     while budget is None or time.time() - started < budget:
         time.sleep(TICK)
+        if script_stamp()[1] != born:   # the Kit updated this script: go on waiting in the new code
+            reexec(me, {'sid': sid, 'agent': agent, 'tp': tp, 'c': c, 'h': list(h), 'budget': budget, 'what': what,
+                        'key': key, 'note': note, 'pos': pos, 'started': started, 'since_ms': since_ms,
+                        'start_mode': list(start_mode)})
         if os.getppid() != parent or os.getppid() == 1:
             if leave():
                 log(f'end    {w} {what} ended: the session closed')
@@ -861,7 +963,11 @@ def hold_loop(sid, agent, tp, c, h, budget, what, key, note=''):
             since_ms = int(time.time() * 1000)   # the server check skips what the transcript already showed
             apply(found, sid, c, tp, 'typed')
         s = peek()
-        u = usage(max_age=TICK) if time.time() >= h.until else usage()
+        reader = reader or take(reads)
+        if reader or cache_age() >= STALE:
+            u = usage(max_age=TICK) if time.time() >= h.until else usage()
+        else:
+            u = cached()
         now = hold_for(sid, c, tp, u, s)
         if not now:
             why = why_go(sid, c, s, h)
@@ -903,6 +1009,10 @@ def wait_main(key):
         return
     print(waiting_line(h), flush=True)
     why = hold_loop(sid, agent, tp, c, h, CHUNK, 'wait', key)
+    wait_end(sid, c, tp, h, why)
+
+
+def wait_end(sid, c, tp, h, why):
     if why:
         print('GO ON: ' + why)
         return
@@ -1199,6 +1309,8 @@ def mode_main(args):
 
 
 def main():
+    if os.environ.get('STTARK_HOLD_RESUME') and resume_main(os.environ['STTARK_HOLD_RESUME']):
+        return
     name = os.path.basename(sys.argv[0])
     if name == 'claude-limit-mode':
         sys.exit(mode_main(sys.argv[1:]))

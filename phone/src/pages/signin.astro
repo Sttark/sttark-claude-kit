@@ -1,0 +1,28 @@
+---
+// Sign in with Google: a verified @sttark.com account on the Sttark roster
+// (lib/auth.ts says how the server checks it).
+import Base from '../layouts/Base.astro';
+import { oauthConfigured } from '../lib/auth.ts';
+import { href } from '../lib/paths.ts';
+const next = Astro.url.searchParams.get('next') ?? '/';
+const error = Astro.url.searchParams.get('error');
+const out = Astro.url.searchParams.get('out');
+const ERRORS: Record<string, string> = {
+  unconfigured: 'Google sign-in is not set up on this server yet.',
+  expired: 'That sign-in took too long. Try again.',
+  domain: 'Only a verified @sttark.com Google account can sign in.',
+  roster: 'Your account is not on the Sttark roster, so it cannot sign in here.',
+  'no-roster': 'This server has not read the Sttark roster yet. Try again in a few minutes.',
+  failed: 'Google sign-in did not finish. Try again.',
+};
+const message = error ? (ERRORS[error] ?? ERRORS.failed) : null;
+---
+<Base title="Sign in" bare>
+  <div class="card signin">
+    <h1 class="page-title">Sign in to Claude Kit</h1>
+    <p class="lede">Use your @sttark.com Google account.</p>
+    {message && <p class="notice" role="alert">{message}</p>}
+    {!message && out && <p class="status info" role="status">{out === 'all' ? 'You are signed out on every phone and browser.' : 'You are signed out.'}</p>}
+    <a class="btn" href={href(`/auth/login?next=${encodeURIComponent(next)}`)}>{oauthConfigured() ? 'Sign in with Google' : 'Sign in (not set up)'}</a>
+  </div>
+</Base>

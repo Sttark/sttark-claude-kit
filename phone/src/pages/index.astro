@@ -1,0 +1,15 @@
+---
+// Sessions: the person's sessions from every live Mac in four groups (Needs
+// you first), then the Macs that are away, and the 5-hour and weekly strip.
+// Until a Mac is linked, how to link one. ?q= searches the names; ?find=1
+// shows the search field (the top bar's Search).
+import Base from '../layouts/Base.astro';
+import { loadKit } from '../lib/state.ts';
+import { draw, type View } from '../view/render.ts';
+import { emptyUi } from '../view/model.ts';
+const kit = loadKit(Astro.locals.user!);
+const view: View = { page: 'sessions' };
+const ui = { ...emptyUi(), q: Astro.url.searchParams.get('q') ?? '', find: Astro.url.searchParams.has('find') };
+const drawn = draw(view, kit, ui);
+---
+<Base title={drawn.title} drawn={drawn} kit={kit} view={view} ui={{ q: ui.q, find: ui.find }} />

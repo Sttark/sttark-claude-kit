@@ -3,10 +3,13 @@
 // moves can add a function here the same way; a still picture can be any PNG or SVG.
 //   whats-new/hold-before-limit.gif   the usage fills to 80%, a session set to hold stops, the limit resets to 0%
 //   whats-new/session-inbox.gif       a session that waits is archived, then comes back with a message
+//   whats-new/browser-guard.png       a still: which browser steps the Kit stops and which it lets through
+//   whats-new/own-claude-windows.png  a still: two sessions, each with its own Claude window; agents have tabs in it
+//   whats-new/agent-windows.png       a still: a session and its agents, each with its own Claude window, and a spare one
 //   whats-new/server-on-by-itself.png a still: the Claude app's Code menu with Remote Control > src picked
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
-//   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug]   (a slug draws only that one)
+//   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
 import AppKit
 
 let W: CGFloat = 440, scale: CGFloat = 2
@@ -269,6 +272,89 @@ func inboxPicture() -> [Frame] {
     return out
 }
 
+// MARK: the browser guard
+
+/// A still: four browser steps a session (or its agent) can take. The two that take the person's Chrome are stopped;
+/// the Claude window and the built-in browser pane go through. Under them, how to allow Claude in Chrome.
+func browserGuardPicture() -> NSBitmapImageRep {
+    let h: CGFloat = 280
+    return frame(h) {
+        text("A session or its agent wants a browser", 20, 16, size: 13, color: C.steel)
+        let rows: [(String, String, Bool)] = [
+            ("Claude in Chrome tools", "Stopped", false),
+            ("open -a \"Google Chrome\" https://…", "Stopped", false),
+            ("claude-window go https://…", "Claude window", true),
+            ("Browser pane: localhost", "Allowed", true),
+        ]
+        let mono = NSFont(name: "Menlo", size: 13) ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+        for (i, r) in rows.enumerated() {
+            let rr = NSRect(x: 20, y: 40 + CGFloat(i) * 48, width: W - 40, height: 40)
+            card(rr)
+            let a = NSAttributedString(string: r.0, attributes: [.font: i == 0 || i == 3 ? font(14) : mono, .foregroundColor: C.ink])
+            a.draw(at: NSPoint(x: rr.minX + 14, y: rr.midY - a.size().height / 2))
+            chip(r.1, right: rr.maxX - 10, midY: rr.midY, good: r.2)
+        }
+        text("To allow Claude in Chrome for one session, type \"use Claude in Chrome\" in it.", 20, 234,
+             size: 14, bold: true, width: W - 40)
+    }
+}
+
+/// Two sessions, each with its own Chrome window named Claude. The second one has two agents, each with its own
+/// tab in that window. A still, so one PNG.
+func ownWindowsPicture() -> NSBitmapImageRep {
+    let h: CGFloat = 280
+    return frame(h) {
+        text("Each session has its own Claude window in Chrome", 20, 16, size: 13, color: C.steel)
+        let wins: [(String, [String])] = [("Session: Supplier quote", ["Session"]),
+                                          ("Session: Order page", ["Session", "Agent 1", "Agent 2"])]
+        for (i, wn) in wins.enumerated() {
+            let r = NSRect(x: 20 + CGFloat(i) * ((W - 52) / 2 + 12), y: 44, width: (W - 52) / 2, height: 168)
+            card(r)
+            text(wn.0, r.minX + 14, r.minY + 12, size: 14, bold: true)
+            var x = r.minX + 14, y = r.minY + 44
+            for t in wn.1 {
+                let w = width(t, size: 13) + 22
+                if x + w > r.maxX - 14 { x = r.minX + 14; y += 36 }
+                card(NSRect(x: x, y: y, width: w, height: 30), fill: t == "Session" ? C.goodSoft : nil)
+                text(t, x + 11, y + 7, size: 13)
+                x += w + 8
+            }
+            text(wn.1.count > 1 ? "Each agent has its own tab." : "No other session uses this window.",
+                 r.minX + 14, y + 44, size: 13, color: C.steel, width: r.width - 28)
+        }
+        text("A session's page stays in front in its window while other sessions work.", 20, 234,
+             size: 14, bold: true, width: W - 40)
+    }
+}
+
+/// A session and its two agents, each with its own Chrome window named Claude, and a spare window that waits for
+/// the next one. A still, so one PNG.
+func agentWindowsPicture() -> NSBitmapImageRep {
+    let h: CGFloat = 250
+    return frame(h) {
+        text("Each session and each agent has its own Claude window", 20, 16, size: 13, color: C.steel)
+        let wins: [(String, String, Bool)] = [("Session", "Orders", true), ("Agent 1", "Prices", true),
+                                              ("Agent 2", "Stock", true), ("Spare", "Blank", false)]
+        let gap: CGFloat = 10, w = (W - 40 - gap * 3) / 4
+        for (i, wn) in wins.enumerated() {
+            let r = NSRect(x: 20 + CGFloat(i) * (w + gap), y: 44, width: w, height: 132)
+            card(r, radius: 8)
+            // the window's title bar: three dots and a line under them
+            C.gray.setFill()
+            for d in 0..<3 { NSBezierPath(ovalIn: NSRect(x: r.minX + 10 + CGFloat(d) * 9, y: r.minY + 9, width: 5, height: 5)).fill() }
+            C.line.setFill(); NSRect(x: r.minX + 1, y: r.minY + 22, width: r.width - 2, height: 1).fill()
+            text(wn.0, r.minX + 10, r.minY + 32, size: 14, bold: true)
+            // its one page
+            card(NSRect(x: r.minX + 10, y: r.minY + 60, width: width(wn.1, size: 13) + 22, height: 28),
+                 fill: wn.2 ? C.goodSoft : nil, border: wn.2 ? C.goodBorder : nil)
+            text(wn.1, r.minX + 21, r.minY + 66, size: 13, color: wn.2 ? C.goodText : C.steel)
+            text(wn.2 ? "In use" : "Waits", r.minX + 10, r.minY + 100, size: 13, color: C.steel)
+        }
+        text("When an agent has finished, the next one uses its window. So fewer new windows come in front of you.",
+             20, 192, size: 14, bold: true, width: W - 40)
+    }
+}
+
 /// The Claude app's Code menu, with the Mac's server under Remote Control picked: where a person starts a session
 /// that runs on their Mac. A still, so one PNG.
 func serverPicture() -> NSBitmapImageRep {
@@ -292,15 +378,22 @@ func serverPicture() -> NSBitmapImageRep {
     }
 }
 
-let only = CommandLine.arguments.dropFirst().first
+func png(_ rep: NSBitmapImageRep, to path: String) {
+    try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path)")
+}
+
+let only = Set(CommandLine.arguments.dropFirst())
+func wanted(_ slug: String) -> Bool { only.isEmpty || only.contains(slug) }
+
 for dark in [false, true] {
     C.dark = dark
     let end = dark ? "-dark.gif" : ".gif"
-    if only == nil || only == "hold-before-limit" { gif(holdPicture(), to: "whats-new/hold-before-limit" + end) }
-    if only == nil || only == "session-inbox" { gif(inboxPicture(), to: "whats-new/session-inbox" + end) }
-    if only == nil || only == "server-on-by-itself" {
-        let path = "whats-new/server-on-by-itself" + (dark ? "-dark.png" : ".png")
-        try! serverPicture().representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
-        print("wrote \(path)")
-    }
+    if wanted("hold-before-limit") { gif(holdPicture(), to: "whats-new/hold-before-limit" + end) }
+    if wanted("session-inbox") { gif(inboxPicture(), to: "whats-new/session-inbox" + end) }
+    if wanted("server-on-by-itself") { png(serverPicture(), to: "whats-new/server-on-by-itself" + (dark ? "-dark.png" : ".png")) }
+    if wanted("new-sessions-on-server") { png(serverPicture(), to: "whats-new/new-sessions-on-server" + (dark ? "-dark.png" : ".png")) }
+    if wanted("own-claude-windows") { png(ownWindowsPicture(), to: "whats-new/own-claude-windows" + (dark ? "-dark.png" : ".png")) }
+    if wanted("agent-windows") { png(agentWindowsPicture(), to: "whats-new/agent-windows" + (dark ? "-dark.png" : ".png")) }
+    if wanted("browser-guard") { png(browserGuardPicture(), to: "whats-new/browser-guard" + (dark ? "-dark.png" : ".png")) }
 }

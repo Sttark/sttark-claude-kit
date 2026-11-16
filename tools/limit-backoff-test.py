@@ -1,6 +1,7 @@
 """Test the usage read back-off on copies when the server allows a read only now and then: a good read between two
 429s keeps the count of failed reads, so the reads back off (2, 4, 8 min) instead of failing every 2 minutes, and a
-read is good for a minute, not 15 seconds, near a limit after a failure."""
+read is good for 5 minutes for 30 minutes after a failure, and near a limit for 2 minutes, not 15 seconds, for
+6 hours after it."""
 import http.server, importlib.util, json, os, tempfile, threading, time
 
 d = tempfile.mkdtemp()
@@ -54,20 +55,28 @@ waits = []
 for _ in range(3):
     lh.usage()   # 429
     k = json.load(open(lh.USAGE))
-    waits.append(round(k['retry_at'] - time.time()))
-    k['retry_at'] = 0                          # skip the wait
+    waits.append(round(k['next_read'] - time.time()))
+    k['next_read'] = 0                          # skip the wait
     k['at'] = 0
     json.dump(k, open(lh.USAGE, 'w'))
     lh.usage()   # good read
     k = json.load(open(lh.USAGE))
     check('a good read keeps the failed count', k.get('fails', 0) >= 1)
-    check('near the limit after a failure, a read is good for a minute, not 15 s',
-          lh.good_for(k, k['usage'], None) == lh.FRESH)
+    check('near the limit after a failure, a read is good for FRESH_SLOW, not 15 s',
+          lh.good_for(k, k['usage'], None) == lh.FRESH_SLOW)
     k['at'] = 0
     json.dump(k, open(lh.USAGE, 'w'))
 print('back-off after each 429 (s):', waits)
 check('the back-off doubles across good reads', waits[0] < waits[1] < waits[2])
 k['failed_at'] = time.time() - lh.CALM - 1
 check('the count ends CALM after the last failure', lh.calm(k) == {})
+check('after CALM, near a limit, a read is good for FRESH, not 15 s, while a read failed in the last NEAR_CALM',
+      lh.good_for(k, k['usage'], None) == lh.FRESH)
+check('a good read after CALM keeps the last failure for NEAR_CALM', 'last_failed_at' in lh.kept(k) and 'fails' not in lh.kept(k))
+k['last_failed_at'] = time.time() - lh.NEAR_CALM - 1
+check('NEAR_CALM after the last failure, near a limit, a read is good for 15 s again',
+      lh.good_for(k, k['usage'], None) == lh.FRESH_NEAR and lh.kept({**k, 'failed_at': k['last_failed_at']}) == {})
+old = {'usage': k['usage'], 'at': time.time(), 'fails': 1, 'failed_at': time.time() - lh.CALM - 1}
+check('a cache from the last Kit (failed_at, no last_failed_at) counts the same', lh.good_for({**old, **lh.kept(old)}, old['usage'], None) == lh.FRESH)
 print('FAILED' if fails else 'all passed')
 raise SystemExit(1 if fails else 0)

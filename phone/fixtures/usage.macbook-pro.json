@@ -1,0 +1,163 @@
+{
+  "v": 1,
+  "period": "7d",
+  "from": "2026-11-07",
+  "to": "2026-11-13",
+  "at": 1794587400,
+  "total": {
+    "sessions": 18,
+    "tokens": 8100000000,
+    "agent_share": 77.3,
+    "usd": 3106.2
+  },
+  "rows": [
+    {
+      "title": "Site map plan",
+      "cse": "session_01SampleSiteMap",
+      "share": 28.3,
+      "agent_share": 23.2,
+      "last_active": 1794585780,
+      "agents": 75
+    },
+    {
+      "title": "Sttark Claude Kit",
+      "cse": "session_01SampleKitDesign",
+      "share": 27.2,
+      "agent_share": 25.8,
+      "last_active": 1794587220,
+      "agents": 51
+    },
+    {
+      "title": "HVAC updates",
+      "cse": "session_01SampleHvacUpdates",
+      "share": 8.5,
+      "agent_share": 6.9,
+      "last_active": 1794586800,
+      "agents": 26
+    },
+    {
+      "title": "Press color",
+      "cse": "session_01SamplePressColor",
+      "share": 7.4,
+      "agent_share": 6.7,
+      "last_active": 1794586560,
+      "agents": 25
+    },
+    {
+      "title": "Order page login",
+      "cse": "session_01SampleOrderLogin",
+      "share": 3.7,
+      "agent_share": 3.2,
+      "last_active": 1794586080,
+      "agents": 20
+    },
+    {
+      "title": "Inventory photo cleanup",
+      "cse": "session_01SampleInventoryPhotos",
+      "share": 3.6,
+      "agent_share": 3.1,
+      "last_active": 1794328200,
+      "agents": 22
+    },
+    {
+      "title": "Laminator quote",
+      "cse": "session_01SampleLaminator",
+      "share": 3.3,
+      "agent_share": 1.2,
+      "last_active": 1794414600,
+      "agents": 13
+    },
+    {
+      "title": "Powder watch",
+      "cse": "session_01SamplePowderWatch",
+      "share": 2.9,
+      "agent_share": 2.2,
+      "last_active": 1794241800,
+      "agents": 7
+    },
+    {
+      "title": "Usage report retry",
+      "cse": "session_01SampleUsageRetry",
+      "share": 2.4,
+      "agent_share": 1.8,
+      "last_active": 1794501000,
+      "agents": 5
+    },
+    {
+      "title": "Weekly plan",
+      "cse": "session_01SampleWeeklyPlan",
+      "share": 2.1,
+      "agent_share": 1.0,
+      "last_active": 1794155400,
+      "agents": 4
+    },
+    {
+      "title": "Door Pi cutover",
+      "cse": "session_01SampleDoorPi",
+      "share": 1.9,
+      "agent_share": 0.9,
+      "last_active": 1794414600,
+      "agents": 3
+    },
+    {
+      "title": "Bin label sizes",
+      "cse": null,
+      "share": 1.6,
+      "agent_share": 0,
+      "last_active": 1794069000,
+      "agents": 0
+    },
+    {
+      "title": "Laminator RFQ",
+      "cse": "session_01SampleLaminatorRfq",
+      "share": 1.4,
+      "agent_share": 0.4,
+      "last_active": 1794328200,
+      "agents": 2
+    },
+    {
+      "title": "Tile fan print",
+      "cse": "session_01SampleTileFan",
+      "share": 1.2,
+      "agent_share": 0.6,
+      "last_active": 1794241800,
+      "agents": 2
+    },
+    {
+      "title": "Sttark Claude Kit checks",
+      "cse": null,
+      "share": 1.0,
+      "agent_share": 0,
+      "last_active": 1794583800,
+      "agents": 0
+    },
+    {
+      "title": "Blinds Wi-Fi watchdog",
+      "cse": "session_01SampleBlindsWatchdog",
+      "share": 0.9,
+      "agent_share": 0.3,
+      "last_active": 1794069000,
+      "agents": 1
+    },
+    {
+      "title": "Runs with no name in ReportBot",
+      "cse": null,
+      "share": 0.8,
+      "agent_share": 0,
+      "last_active": 1794580200,
+      "agents": 0
+    },
+    {
+      "title": "Runs in temporary folders",
+      "cse": null,
+      "share": 1.8,
+      "agent_share": 0,
+      "last_active": 1794582000,
+      "agents": 0
+    }
+  ],
+  "more": {
+    "sessions": 0,
+    "share": 0
+  }
+}

@@ -1,0 +1,601 @@
+[
+  {
+    "event": "auth",
+    "success": true,
+    "payload": {
+      "mac": "mac_7Hq2Lx9Kp4",
+      "sig": "MEUCIQDp3n0w5Yb1x2c3d4e5f6g7h8i9j0kLmNoPqRsTuVwXyZaBcDeFgIgYw6vV8u9t0s1r2q3p4o5n6m7l8k9j0i1h2g3f4e5d6c7=",
+      "kit": "1.140"
+    }
+  },
+  {
+    "event": "snapshot",
+    "success": true,
+    "payload": {
+      "v": 1,
+      "at": 1794587400,
+      "mac": {
+        "name": "MacBook Pro",
+        "kit": "1.140",
+        "tz": "America/New_York",
+        "account": "3f9a1c7db6bf8c04"
+      },
+      "flags": {
+        "paused": false,
+        "credits_all": false
+      },
+      "reach": [
+        "chat",
+        "push"
+      ],
+      "usage": {
+        "at": 1794587400,
+        "bars": [
+          {
+            "kind": "session",
+            "name": "5-hour limit",
+            "percent": 100,
+            "resets": 1794606000
+          },
+          {
+            "kind": "weekly_all",
+            "name": "Weekly",
+            "percent": 64,
+            "resets": 1794639600
+          }
+        ],
+        "reached": {
+          "name": "5-hour limit",
+          "until": 1794606000
+        }
+      },
+      "rows": [
+        {
+          "id": "session_01SampleOrderLogin",
+          "cse": "session_01SampleOrderLogin",
+          "sid": "5b0c2f4e-1d7a-4c11-9e2b-3a6f8d0c1e21",
+          "group": "needs_you",
+          "title": "Order page login",
+          "sub": "A plan waits for you",
+          "sub_strong": null,
+          "sub_warn": null,
+          "late": true,
+          "time_at": 1794586080,
+          "url": "https://claude.ai/code/session_01SampleOrderLogin",
+          "session": {
+            "level": "high",
+            "manual": false,
+            "reason": "A plan with several steps",
+            "needs_you": true,
+            "why": "A plan waits for your go-ahead",
+            "waiting_since": 1794586080,
+            "turn_at": null
+          },
+          "background": null,
+          "waits": [],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          }
+        },
+        {
+          "id": "session_01SamplePressColor",
+          "cse": "session_01SamplePressColor",
+          "sid": null,
+          "group": "working",
+          "title": "Press color",
+          "sub": "Manual: you set the effort",
+          "sub_strong": "High",
+          "sub_warn": null,
+          "late": false,
+          "time_at": 1794586560,
+          "url": "https://claude.ai/code/session_01SamplePressColor",
+          "session": {
+            "level": "high",
+            "manual": true,
+            "reason": "You set the effort",
+            "needs_you": false,
+            "why": null,
+            "waiting_since": null,
+            "turn_at": 1794586560
+          },
+          "background": null,
+          "waits": [],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          }
+        },
+        {
+          "id": "session_01SampleHvacUpdates",
+          "cse": "session_01SampleHvacUpdates",
+          "sid": null,
+          "group": "working",
+          "title": "HVAC updates",
+          "sub": "2 agents: photos of the B unit heads",
+          "sub_strong": "Medium",
+          "sub_warn": null,
+          "late": false,
+          "time_at": 1794586860,
+          "url": "https://claude.ai/code/session_01SampleHvacUpdates",
+          "session": {
+            "level": "medium",
+            "manual": false,
+            "reason": "Reads photos and compares them",
+            "needs_you": false,
+            "why": null,
+            "waiting_since": null,
+            "turn_at": 1794586860
+          },
+          "background": {
+            "agents": 2,
+            "bash": 0,
+            "what": "Photos of the B unit heads",
+            "since": 1794586860
+          },
+          "waits": [],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          }
+        },
+        {
+          "id": "session_01SampleKitDesign",
+          "cse": "session_01SampleKitDesign",
+          "sid": null,
+          "group": "working",
+          "title": "Sttark Claude Kit",
+          "sub": "Auto: Claude sets the effort",
+          "sub_strong": "Extra",
+          "sub_warn": null,
+          "late": false,
+          "time_at": 1794587040,
+          "url": "https://claude.ai/code/session_01SampleKitDesign",
+          "session": {
+            "level": "xhigh",
+            "manual": false,
+            "reason": "Design question on a full app window",
+            "needs_you": false,
+            "why": null,
+            "waiting_since": null,
+            "turn_at": 1794587040
+          },
+          "background": null,
+          "waits": [],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          }
+        },
+        {
+          "id": "session_01SampleUsageRetry",
+          "cse": "session_01SampleUsageRetry",
+          "sid": null,
+          "group": "waiting",
+          "title": "Usage report retry",
+          "sub": "Merge of the retry fix PR",
+          "sub_strong": null,
+          "sub_warn": null,
+          "late": false,
+          "time_at": 1794780000,
+          "url": "https://claude.ai/code/session_01SampleUsageRetry",
+          "session": {
+            "level": "medium",
+            "manual": false,
+            "reason": "Small fix",
+            "needs_you": false,
+            "why": null,
+            "waiting_since": null,
+            "turn_at": null
+          },
+          "background": null,
+          "waits": [
+            {
+              "id": "w01",
+              "kind": "pr",
+              "what": "Merge of the retry fix PR",
+              "from": null,
+              "why": "Sunday 5 PM: the reviewer merges within a day",
+              "by": 1794780000,
+              "checks": "Every 5 min",
+              "failing": false,
+              "failing_since": null
+            }
+          ],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          }
+        },
+        {
+          "id": "session_01SampleLaminator",
+          "cse": "session_01SampleLaminator",
+          "sid": null,
+          "group": "waiting",
+          "title": "Laminator quote",
+          "sub": "2 email replies",
+          "sub_strong": null,
+          "sub_warn": "1 check failing",
+          "late": false,
+          "time_at": 1794837600,
+          "url": "https://claude.ai/code/session_01SampleLaminator",
+          "session": {
+            "level": "medium",
+            "manual": false,
+            "reason": "Supplier emails",
+            "needs_you": false,
+            "why": null,
+            "waiting_since": null,
+            "turn_at": null
+          },
+          "background": null,
+          "waits": [
+            {
+              "id": "w02",
+              "kind": "email-reply",
+              "what": "Supplier's reply to the deposit email",
+              "from": "supplier.example",
+              "why": "They said 2 workdays; later misses this week's slot",
+              "by": 1794837600,
+              "checks": "Your email, every 30 min, 7 AM to 9 PM",
+              "failing": false,
+              "failing_since": null
+            },
+            {
+              "id": "w03",
+              "kind": "email-reply",
+              "what": "Supplier's reply on the web path drawing",
+              "from": null,
+              "why": "Same supplier, the older thread",
+              "by": 1794841200,
+              "checks": "Your email, every 30 min, 7 AM to 9 PM",
+              "failing": true,
+              "failing_since": 1794580260
+            }
+          ],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          }
+        },
+        {
+          "id": "session_01SamplePowderWatch",
+          "cse": "session_01SamplePowderWatch",
+          "sid": null,
+          "group": "waiting",
+          "title": "Powder watch",
+          "sub": "12 in of new snow at the resort",
+          "sub_strong": null,
+          "sub_warn": null,
+          "late": false,
+          "time_at": 1798045200,
+          "url": "https://claude.ai/code/session_01SamplePowderWatch",
+          "session": {
+            "level": "low",
+            "manual": false,
+            "reason": "One small check",
+            "needs_you": false,
+            "why": null,
+            "waiting_since": null,
+            "turn_at": null
+          },
+          "background": null,
+          "waits": [
+            {
+              "id": "w04",
+              "kind": "check-script",
+              "what": "12 in of new snow at the resort",
+              "from": null,
+              "why": "Ski season ends then",
+              "by": 1798045200,
+              "checks": "A script, every 2 hr",
+              "failing": false,
+              "failing_since": null
+            }
+          ],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          }
+        },
+        {
+          "id": "session_01SampleSiteMap",
+          "cse": "session_01SampleSiteMap",
+          "sid": null,
+          "group": "held",
+          "title": "Site map plan",
+          "sub": "Holds at 80% · 1 agent holds too",
+          "sub_strong": null,
+          "sub_warn": null,
+          "late": false,
+          "time_at": 1794606000,
+          "url": "https://claude.ai/code/session_01SampleSiteMap",
+          "session": {
+            "level": "high",
+            "manual": false,
+            "reason": "A plan for one map in all apps",
+            "needs_you": false,
+            "why": null,
+            "waiting_since": null,
+            "turn_at": null
+          },
+          "background": null,
+          "waits": [],
+          "hold": {
+            "hold": true,
+            "at": 80,
+            "percent": 100,
+            "limit": "5-hour limit",
+            "since": 1794585000,
+            "until": 1794606000,
+            "agents": 1
+          },
+          "limit_mode": {
+            "mode": "hold",
+            "at": 80
+          }
+        },
+        {
+          "id": "session_01SampleInventoryPhotos",
+          "cse": "session_01SampleInventoryPhotos",
+          "sid": null,
+          "group": "held",
+          "title": "Inventory photo cleanup",
+          "sub": "Holds at 60%",
+          "sub_strong": null,
+          "sub_warn": null,
+          "late": false,
+          "time_at": 1794639600,
+          "url": "https://claude.ai/code/session_01SampleInventoryPhotos",
+          "session": {
+            "level": "medium",
+            "manual": false,
+            "reason": "Many small edits",
+            "needs_you": false,
+            "why": null,
+            "waiting_since": null,
+            "turn_at": null
+          },
+          "background": null,
+          "waits": [],
+          "hold": {
+            "hold": true,
+            "at": 60,
+            "percent": 64,
+            "limit": "Weekly",
+            "since": 1794576600,
+            "until": 1794639600,
+            "agents": 0
+          },
+          "limit_mode": {
+            "mode": "hold",
+            "at": 60
+          }
+        }
+      ],
+      "archived_rev": "a1b2c3d4e5f60718",
+      "archived_count": 7
+    }
+  },
+  {
+    "event": "archived",
+    "success": true,
+    "payload": {
+      "v": 1,
+      "rev": "a1b2c3d4e5f60718",
+      "items": [
+        {
+          "cse": "session_01SampleWeeklyPlan",
+          "title": "Weekly plan",
+          "folder": "src",
+          "archived_at": 1794580200,
+          "url": "https://claude.ai/code/session_01SampleWeeklyPlan"
+        },
+        {
+          "cse": "session_01SampleDoorPi",
+          "title": "Door Pi cutover",
+          "folder": "building",
+          "archived_at": 1794493800,
+          "url": "https://claude.ai/code/session_01SampleDoorPi"
+        },
+        {
+          "cse": "session_01SampleLaminatorRfq",
+          "title": "Laminator RFQ",
+          "folder": "quotes",
+          "archived_at": 1794407400,
+          "url": "https://claude.ai/code/session_01SampleLaminatorRfq"
+        },
+        {
+          "cse": "session_01SampleTileFan",
+          "title": "Tile fan print",
+          "folder": "tile-fan-onshape",
+          "archived_at": 1794328200,
+          "url": "https://claude.ai/code/session_01SampleTileFan"
+        },
+        {
+          "cse": "session_01SampleBlindsWatchdog",
+          "title": "Blinds Wi-Fi watchdog",
+          "folder": "blind_control",
+          "archived_at": 1794155400,
+          "url": "https://claude.ai/code/session_01SampleBlindsWatchdog"
+        },
+        {
+          "cse": "session_01SamplePressManual",
+          "title": "Press color manual",
+          "folder": "sttark-docs",
+          "archived_at": 1793809800,
+          "url": "https://claude.ai/code/session_01SamplePressManual"
+        },
+        {
+          "cse": "session_01SampleSouthE",
+          "title": "South E building model",
+          "folder": "south-e-onshape",
+          "archived_at": 1792859400,
+          "url": "https://claude.ai/code/session_01SampleSouthE"
+        }
+      ]
+    }
+  },
+  {
+    "event": "archived_delta",
+    "success": true,
+    "payload": {
+      "v": 1,
+      "base": "a1b2c3d4e5f60718",
+      "rev": "0f1e2d3c4b5a6978",
+      "add": [
+        {
+          "cse": "session_01SampleHvacOld",
+          "title": "HVAC fan curve",
+          "folder": "hvac_automation",
+          "archived_at": 1794587700,
+          "url": "https://claude.ai/code/session_01SampleHvacOld"
+        }
+      ],
+      "remove": [
+        "session_01SampleDoorPi"
+      ]
+    }
+  },
+  {
+    "event": "usage",
+    "success": true,
+    "payload": {
+      "v": 1,
+      "period": "7d",
+      "from": "2026-11-07",
+      "to": "2026-11-13",
+      "at": 1794587400,
+      "total": {
+        "sessions": 18,
+        "tokens": 8100000000,
+        "agent_share": 77.3,
+        "usd": 3106.2
+      },
+      "rows": [
+        {
+          "title": "Site map plan",
+          "cse": "session_01SampleSiteMap",
+          "share": 28.3,
+          "agent_share": 23.2,
+          "last_active": 1794585780,
+          "agents": 75
+        },
+        {
+          "title": "Sttark Claude Kit",
+          "cse": "session_01SampleKitDesign",
+          "share": 27.2,
+          "agent_share": 25.8,
+          "last_active": 1794587220,
+          "agents": 51
+        },
+        {
+          "title": "HVAC updates",
+          "cse": "session_01SampleHvacUpdates",
+          "share": 8.5,
+          "agent_share": 6.9,
+          "last_active": 1794586800,
+          "agents": 26
+        }
+      ],
+      "more": {
+        "sessions": 15,
+        "share": 36.0
+      }
+    }
+  },
+  {
+    "event": "result",
+    "success": true,
+    "payload": {
+      "id": "act-0003",
+      "reason": "ok",
+      "words": "Effort is High now. Auto is off for this session.",
+      "before": {
+        "level": "medium",
+        "manual": false
+      },
+      "after": {
+        "level": "high",
+        "manual": true
+      }
+    }
+  },
+  {
+    "event": "result",
+    "success": false,
+    "payload": {
+      "id": "act-0001",
+      "reason": "gone",
+      "words": "That wait already ended. Nothing was changed.",
+      "before": null,
+      "after": null
+    }
+  },
+  {
+    "event": "result",
+    "success": false,
+    "payload": {
+      "id": "act-0007",
+      "reason": "not_now",
+      "words": "It does not run while it waits. Set the effort when it comes back.",
+      "before": null,
+      "after": null
+    }
+  },
+  {
+    "event": "result",
+    "success": false,
+    "payload": {
+      "id": "act-0006",
+      "reason": "not_here",
+      "words": "Its conversation is not on this Mac, so this Mac cannot bring it back.",
+      "before": null,
+      "after": null
+    }
+  },
+  {
+    "event": "result",
+    "success": true,
+    "payload": {
+      "id": "act-0008",
+      "reason": "ok",
+      "words": "Brought back on the same link.",
+      "before": {
+        "archived": true
+      },
+      "after": {
+        "archived": false
+      }
+    }
+  },
+  {
+    "event": "remind",
+    "success": true,
+    "payload": {
+      "cse": "session_01SampleOrderLogin",
+      "waiting_since": 1794586800,
+      "title": "Order page login",
+      "why": "A plan waits for your go-ahead"
+    }
+  },
+  {
+    "event": "bye",
+    "success": true,
+    "payload": {
+      "why": "sleep"
+    }
+  },
+  {
+    "event": "unlink",
+    "success": true,
+    "payload": {}
+  }
+]

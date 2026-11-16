@@ -19,8 +19,10 @@ in a new process starts from its new level instead.
 
 Only sessions with a claude.ai session id (Remote Control) can be changed.
 Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
+STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log. STTARK_EFFORT_DRY=1 sends no effort change
+to any session: --set still writes Manual and the level, and logs.
 """
-import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time, uuid
+import calendar, fcntl, glob, importlib.util, json, os, re, subprocess, sys, time, uuid
 from contextlib import contextmanager
 
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
@@ -34,6 +36,7 @@ LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 CHECKPOINTS = (10, 25, 50)  # tool calls into a turn when the level is checked again
 SETTLE = 30  # seconds after a send when a different reported level is just the change still arriving
 IDS = 20  # change ids kept per session, the kit's own and the ones it saw on the server
+DRY = bool(os.environ.get('STTARK_EFFORT_DRY'))  # tests: send nothing
 
 RULES = """You set the effort level for a Claude Code agent before it starts on \
 the user's latest message. Higher effort means more thinking and more careful \
@@ -91,10 +94,18 @@ level, then " - " and a reason of under 12 words."""
 
 BROWSER_RULE = ("Browser rule from Sttark Claude Kit: when you need the person's browser, use only the Chrome window "
                 "named Claude, with the claude-window command (claude-window go <url>, url, text, js '<code>', done). "
-                "It gives this session its own tab there, so other sessions can't move your page; run claude-window "
-                "done when you've finished with the browser. Never open a tab or window any other way and never bring "
+                "It gives this session, and each agent you start, a Chrome window of its own named Claude (in a "
+                "session that asks before commands, agents share the session's window and tab), so other sessions "
+                "and agents can't move your page or take its place as the front tab; run claude-window done when "
+                "you've finished with the browser, so the window is free for the next one. An agent's window is also "
+                "given back when the agent stops. Never open a tab or window any other way and never bring "
                 "Chrome to the front: that takes the person's screen while they're typing. If there's no Claude "
-                "window, claude-window makes one by itself and goes on.")
+                "window, claude-window gets one by itself and goes on. For localhost and public pages, the built-in "
+                "browser pane (mcp__Claude_Browser__* tools) is fine. The Kit blocks Claude in Chrome "
+                "(mcp__claude-in-chrome__*), Control Chrome (mcp__Control_Chrome__*), open -a Chrome, open <url> and "
+                "osascript to Chrome, for this session and its agents. Tell any agent you start that needs a browser "
+                "to use claude-window too. Only the person can allow Claude in Chrome for a session: they ask for it "
+                "by name in a message (for example \"use Claude in Chrome\").")
 
 FILE_RULE = ("Files from Sttark Claude Kit: when you give the person a file on this Mac (a picture, page, PDF, "
              "spreadsheet, anything they'd open), run claude-link <path> and give them the link it prints, as a "
@@ -401,6 +412,8 @@ def send(sid, level):
         x = s['sessions'].setdefault(sid, {})
         x['sent_id'] = rid
         x['ids'] = ((x.get('ids') or []) + [rid])[-IDS:]
+    if DRY:
+        return 200, 'dry: nothing sent', rid
     try:
         return (*sse().send(sid, level, rid), rid)
     except Exception as e:
@@ -620,14 +633,52 @@ def background(tp, running):
     return {'agents': agents, 'bash': bash, 'what': max(items)[1], 'since': min(items)[0]}
 
 
+def open_chats(pages=3):
+    """The account's Claude Code chats that are not archived, newest first: the same short list the Claude app reads
+    (statuses active and paused). One small request in most cases, so the Kit can read it every few seconds.
+    STTARK_ARCHIVED_TEST: a JSON file {"sessions": [...]} in place of Claude's list, as for --archived."""
+    test = os.environ.get('STTARK_ARCHIVED_TEST')
+    if test:
+        with open(test) as f:
+            return [c for c in json.load(f).get('sessions') or [] if c.get('status') in ('active', 'paused')]
+    out, cursor = [], ''
+    for _ in range(pages):
+        d = api('GET', 'https://api.anthropic.com/v1/code/sessions?statuses=active&statuses=paused&limit=100'
+                + (f'&cursor={cursor}' if cursor else ''))
+        out += d.get('data') or []
+        cursor = d.get('next_cursor')
+        if not cursor:
+            break
+    return out
+
+
+LIST_WAIT_MAX = 600  # the longest wait after failed reads of the list, in seconds
+
+
 def app_list():
     """The sessions the Claude app lists (not archived, and not a run of a scheduled task, which the app shows
     under Scheduled), newest first, for the Kit window. Saved as app_list in the state file; kept as it was when
-    the list can't be read."""
+    the list can't be read. After a failed read (too many requests, or no network) every reader on this Mac waits:
+    the wait is in the state file (app_list_wait), honors Retry-After and grows to LIST_WAIT_MAX. Only the first
+    failure of a run of them is logged."""
+    now = time.time()
+    wait = peek().get('app_list_wait') or {}
+    if now < wait.get('until', 0):
+        return
     try:
-        chats = all_chats()
+        chats = open_chats()
     except Exception as e:
-        log(f'error  app list: {e!r}'[:200])
+        fails = wait.get('fails', 0) + 1
+        after = 0
+        try:
+            after = int((getattr(e, 'headers', None) or {}).get('Retry-After') or 0)
+        except (TypeError, ValueError):
+            after = 0
+        secs = min(LIST_WAIT_MAX, max(after, 30 * 2 ** (fails - 1)))
+        with state() as s:
+            s['app_list_wait'] = {'until': now + secs, 'fails': fails}
+        if fails == 1:
+            log(f'error  app list: {e!r}'[:160] + f'; next read in {secs} s, then less often until it works')
         return
     keep = []
     for c in chats:
@@ -637,8 +688,16 @@ def app_list():
         keep.append({'id': c['id'], 'title': c.get('title') or '', 'bucket': c.get('status_bucket') or '',
                      'last': c.get('last_event_at') or '', 'unread': bool(c.get('unread')),
                      'level': (c.get('external_metadata') or {}).get('effort_level') or ''})
+    old = peek().get('app_list') or {}
+    # write only when something changed (or once a minute, to show the list is fresh): every write makes the
+    # window and the menu reload
+    if not wait and old.get('sessions') == keep and now - old.get('at', 0) < 60:
+        return
     with state() as s:
-        s['app_list'] = {'at': time.time(), 'sessions': keep}
+        if wait.get('fails'):
+            log(f'app    app list: read works again after {wait["fails"]} failed read(s)')
+        s.pop('app_list_wait', None)
+        s['app_list'] = {'at': now, 'sessions': keep}
 
 
 def track():
@@ -744,11 +803,28 @@ def all_chats(pages=5):
     return out
 
 
+def screen_ids(name):
+    """Every screen with this exact name, as <pid>.<name>. `screen -S <name>` acts on none of them when two have the
+    name ("There are several suitable screens"), so a second copy of a chat could never be quit by its name."""
+    try:
+        out = subprocess.run(['/usr/bin/screen', '-ls'], capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return []
+    return re.findall(r'^\s*(\d+\.' + re.escape(name) + r')\s', out, re.M)
+
+
+def quit_screen(name):
+    """Quit every screen with this name: the Kit's copy of a chat, and any second copy of it."""
+    for sid in screen_ids(name):
+        subprocess.run(['/usr/bin/screen', '-S', sid, '-X', 'quit'], capture_output=True)
+
+
 def start_alone(transcript, model=''):
     """Start a saved conversation as a chat of its own with Remote Control, in a screen so it needs no Terminal
     window. The first time it gets a new link; after that, starting it again reattaches the same link.
     A clean environment, so nothing from the app or a Claude session leaks in (that turns transcript saving off).
-    `model`: the model it ran on, for a session moved from this Mac only (migrate.py), which the server never ran."""
+    `model`: the model it ran on, for a session moved from this Mac only (migrate.py), which the server never ran.
+    A screen of the same name that still runs is quit first, so the chat runs in one copy."""
     cwd = ''
     with open(transcript) as f:
         for line in f:
@@ -760,6 +836,7 @@ def start_alone(transcript, model=''):
     env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
            'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
            'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
+    quit_screen('kit-' + cid[:8])
     subprocess.run(['/usr/bin/screen', '-dmS', 'kit-' + cid[:8], '/bin/zsh', '-lc',
                     f"cd '{cwd or home}' && exec '{claude}' --resume {cid} --remote-control --permission-mode bypassPermissions"
                     + (f" --model '{model}'" if re.fullmatch(r'[\w.\[\]-]+', model or '') else '')],
@@ -768,26 +845,29 @@ def start_alone(transcript, model=''):
 
 
 def stood_down(name):
-    """Whether the chat in screen `name` was taken over elsewhere: Claude Code printed code 4090 and its status
-    line reads /rc failed. It stays open but answers nothing."""
+    """Whether the chat in screen `name` (any copy of it) was taken over elsewhere: Claude Code printed code 4090
+    and its status line reads /rc failed. It stays open but answers nothing."""
     import tempfile
-    fd, path = tempfile.mkstemp(prefix='kit-screen-')
-    os.close(fd)
-    text = ''
-    try:
-        subprocess.run(['/usr/bin/screen', '-S', name, '-p', '0', '-X', 'hardcopy', '-h', path], timeout=10)
-        for _ in range(25):  # screen writes the copy a moment after the command returns
-            time.sleep(0.2)
-            with open(path, 'rb') as f:
-                text = f.read().decode('utf-8', 'replace')
-            if text:
-                break
-    except Exception:
-        return False
-    finally:
-        os.unlink(path)
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-    return 'standing down (code 4090)' in ' '.join(text.split()) and bool(lines) and lines[-1].endswith('/rc failed')
+    for sid in screen_ids(name):
+        fd, path = tempfile.mkstemp(prefix='kit-screen-')
+        os.close(fd)
+        text = ''
+        try:
+            subprocess.run(['/usr/bin/screen', '-S', sid, '-p', '0', '-X', 'hardcopy', '-h', path], timeout=10)
+            for _ in range(25):  # screen writes the copy a moment after the command returns
+                time.sleep(0.2)
+                with open(path, 'rb') as f:
+                    text = f.read().decode('utf-8', 'replace')
+                if text:
+                    break
+        except Exception:
+            continue
+        finally:
+            os.unlink(path)
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        if 'standing down (code 4090)' in ' '.join(text.split()) and bool(lines) and lines[-1].endswith('/rc failed'):
+            return True
+    return False
 
 
 def chat_events(sid, pages=5):
@@ -896,8 +976,198 @@ def move(c, seq):
     return {'id': new, 'transcript': transcript, 'title': title}
 
 
-def keep(dry=False):
-    """Every minute, from the app: keep every chat on this Mac running unless it's archived, in one copy.
+ARCHIVED = os.path.join(os.path.dirname(STATE), 'archived.json')  # the window's Archived page, and the phone's
+ARCHIVED_LINKS = os.path.join(os.path.dirname(STATE), 'archived-links.json')  # each conversation's links and folder, by file time and size
+CLAUDE_DIR = os.environ.get('STTARK_CLAUDE_DIR') or os.path.expanduser('~/.claude')
+LINKS_EVERY = 600  # seconds between scans of ~/.claude/projects for a conversation the Kit has no record of
+LINK_RE = re.compile(rb'"bridgeSessionId": ?"((?:cse|session)_[A-Za-z0-9]+)"')
+CWD_RE = re.compile(rb'"cwd": ?"((?:[^"\\]|\\.)*)"')
+
+
+def scheduled_run(c):
+    """A run of a scheduled task: the Claude app shows those under Scheduled, not in its list."""
+    return bool(c.get('trigger_id')) or any(t.startswith('routine') for t in c.get('tags') or [])
+
+
+def iso_time(text):
+    """A server time (UTC, ISO) as a Unix time; 0 when there is none."""
+    try:
+        return calendar.timegm(time.strptime((text or '')[:19], '%Y-%m-%dT%H:%M:%S'))
+    except ValueError:
+        return 0
+
+
+def file_facts(path, cache, links=True):
+    """[mtime, size, links (oldest first), folder] of one saved conversation, read once per change of the file."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    c = cache.get(path)
+    if not c or c[0] != st.st_mtime or c[1] != st.st_size:
+        c = cache[path] = [st.st_mtime, st.st_size, None, None]
+    if links and c[2] is None:
+        r = subprocess.run(['/usr/bin/grep', '-o', '-E', '"bridgeSessionId": ?"(cse|session)_[A-Za-z0-9]+"', path], capture_output=True)
+        c[2] = [m.decode() for m in LINK_RE.findall(r.stdout)]
+    if c[3] is None:  # the folder it last ran in: its last cwd, from the end of the file, else its start
+        c[3] = ''
+        try:
+            with open(path, 'rb') as f:
+                f.seek(max(0, st.st_size - 262144))
+                found = CWD_RE.findall(f.read())
+                if not found:
+                    f.seek(0)
+                    found = CWD_RE.findall(f.read(262144))
+            if found:
+                c[3] = json.loads(b'"' + found[-1] + b'"')
+        except (OSError, ValueError):
+            pass
+    return c
+
+
+def scan_links(cache, since):
+    """Fills in the links of every conversation changed since `since` (grep, 200 files a call); the rest are kept."""
+    todo, every = [], glob.glob(os.path.join(CLAUDE_DIR, 'projects', '*', '*.jsonl'))
+    for p in set(cache) - set(every):  # deleted conversations
+        cache.pop(p)
+    for p in every:
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        c = cache.get(p)
+        if st.st_mtime >= since and not (c and c[0] == st.st_mtime and c[1] == st.st_size and c[2] is not None):
+            cache[p] = [st.st_mtime, st.st_size, [], c[3] if c and c[0] == st.st_mtime and c[1] == st.st_size else None]
+            todo.append(p)
+    for i in range(0, len(todo), 200):
+        r = subprocess.run(['/usr/bin/grep', '-H', '-o', '-E', '"bridgeSessionId": ?"(cse|session)_[A-Za-z0-9]+"'] + todo[i:i + 200],
+                           capture_output=True)
+        for line in r.stdout.split(b'\n'):
+            path, _, m = line.rpartition(b':"bridgeSessionId')
+            found = re.search(rb'(?:cse|session)_[A-Za-z0-9]+', m)
+            p = path.decode('utf-8', 'replace')
+            if found and p in cache:
+                cache[p][2].append(found.group(0).decode())
+
+
+def archived(chats):
+    """The archived sessions this Mac can bring back, newest first, for the Kit window's Archived page and the phone:
+    archived.json {at, rev, items: [{cse, title, folder, transcript, archived_at, url, doing}]}; folder and transcript
+    are full paths and stay on the Mac (the phone gets the folder's own name only), and rev is a hash of the items as
+    the phone sees them (phone/DESIGN.md, section 13). `doing` is for the window only. From the account's list of
+    sessions (`chats`: keep() passes the one all_chats() just read; --archived reads the archived ones). Listed only when: archived, not a scheduled run, no open Kit wait (those show under Waiting on someone
+    else), and its conversation is on this Mac: the transcript the Kit recorded for it (its hooks, a wait, a session
+    it runs on its own), else a conversation whose bridge-session line names its link. A conversation that moved to
+    a newer link shows once, under that link. archived_at is last_event_at: the server gives no archive time.
+    Written when the items change, and once a minute so the page can say how fresh it is."""
+    now, s = time.time(), peek()
+    by_id = {c.get('id'): c for c in chats}
+    by_id.update({x.get('id'): x for x in (s.get('app_list') or {}).get('sessions') or [] if x.get('id') not in by_id})
+    waits = {w.get('cse') for w in (s.get('waits') or {}).values() if w.get('stage') != 'back'}
+    arch = [c for c in chats if c.get('id') and c.get('status') == 'archived' and not scheduled_run(c) and c['id'] not in waits]
+    known = {}
+    for w in (s.get('waits') or {}).values():
+        if w.get('cse') and w.get('transcript'):
+            known[w['cse']] = w['transcript']
+    for cse, a in ((s.get('keep') or {}).get('alone') or {}).items():
+        if a.get('transcript'):
+            known[cse] = a['transcript']
+    for cse, x in (s.get('sessions') or {}).items():
+        if x.get('transcript'):
+            known[cse] = x['transcript']
+    try:
+        with open(ARCHIVED_LINKS) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    cache = saved.get('files') or {}
+    before = json.dumps(cache, sort_keys=True)
+    found = {c['id']: known[c['id']] for c in arch if c['id'] in known and os.path.exists(known[c['id']])}
+    scanned = any(c['id'] not in found for c in arch) and now - saved.get('scanned', 0) > LINKS_EVERY
+    if scanned:
+        scan_links(cache, min((iso_time(c.get('created_at')) for c in arch), default=now) - 86400)
+        saved['scanned'] = now
+    newest = {}
+    for p, c in cache.items():
+        for link in set(c[2] or []):
+            if link not in found and (link not in newest or c[0] > cache[newest[link]][0]) and os.path.exists(p):
+                newest[link] = p
+    items = []
+    for c in arch:
+        tp = found.get(c['id']) or newest.get(c['id'])
+        f = tp and file_facts(tp, cache)
+        if not f:
+            continue  # its conversation isn't on this Mac: this Mac can't bring it back
+        if f[2] and f[2][-1] != c['id'] and f[2][-1] in by_id:
+            continue  # the conversation runs on a newer link now, which shows in its own place
+        meta = c.get('external_metadata') or {}
+        summary = meta.get('post_turn_summary') or {}
+        cid = c['id'].split('_', 1)[1]
+        items.append({'cse': c['id'], 'title': (c.get('title') or '').strip() or 'Session ' + cid[-6:], 'folder': f[3] or '',
+                      'transcript': tp, 'archived_at': iso_time(c.get('last_event_at')), 'url': 'https://claude.ai/code/session_' + cid,
+                      'doing': re.sub(r'\s+', ' ', summary.get('recent_action') or summary.get('status_detail') or '').strip()[:300]})
+    items.sort(key=lambda x: x['archived_at'], reverse=True)
+    if scanned or json.dumps(cache, sort_keys=True) != before:
+        saved['files'] = cache
+        write_json(ARCHIVED_LINKS, saved)
+    write_archived(items, now)
+
+
+def write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, path)  # a new file and a rename: the app's folder watch sees it at once
+
+
+def archived_rev(items):
+    """A hash of the items as the phone sees them: no paths, the folder's own name, the name cut to 160."""
+    import hashlib
+    seen = [{'cse': x['cse'], 'title': x['title'][:160], 'folder': os.path.basename(x.get('folder') or '')[:80],
+             'archived_at': x.get('archived_at'), 'url': x['url']} for x in items]
+    return hashlib.sha1(json.dumps(seen, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def write_archived(items, now=None, force=False):
+    """archived.json, when its items changed or it is a minute old (or `force`)."""
+    now = now or time.time()
+    try:
+        with open(ARCHIVED) as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        old = {}
+    if not force and old.get('items') == items and now - old.get('at', 0) < 60:
+        return
+    write_json(ARCHIVED, {'at': now, 'rev': archived_rev(items), 'items': items})
+
+
+def archived_now():
+    """effort-hook.py --archived: on a Mac with no server (keep() writes the list where one runs), every 10 minutes
+    and when the Archived page opens. It asks only for the archived sessions (statuses=archived, up to 5 pages of 100).
+    STTARK_ARCHIVED_TEST: a JSON file {"sessions": [...]} in place of Claude's list."""
+    test = os.environ.get('STTARK_ARCHIVED_TEST')
+    try:
+        if test:
+            with open(test) as f:
+                chats = json.load(f).get('sessions') or []
+        else:
+            chats, cursor = [], ''
+            for _ in range(5):
+                d = api('GET', 'https://api.anthropic.com/v1/code/sessions?statuses=archived&limit=100' + (f'&cursor={cursor}' if cursor else ''))
+                chats += d.get('data') or []
+                cursor = d.get('next_cursor')
+                if not cursor:
+                    break
+    except Exception as e:
+        log(f'error  archived sessions: can\'t list sessions: {e!r}'[:200])
+        return 1
+    archived(chats)
+    return 0
+
+
+def keep(dry=False, server_down=False):
+    """Every 15 seconds, from the app: keep every chat on this Mac running unless it's archived, in one copy.
     A Mac restart ends every chat, and the server only starts a chat again when something reaches it. Each stopped
     chat gets its own effort level sent to it again, which makes the server start it on the same link with its
     whole conversation, and shows nothing in the chat.
@@ -909,7 +1179,10 @@ def keep(dry=False):
     over elsewhere (code 4090), that copy is quit and the chat is dropped from `alone`. A taken-over copy stays
     open doing nothing, and while it lives, reminders for the chat are sent in a form only it reads, so they're lost.
     The server's environment (the place the Claude app lists for this Mac) is learned from the chats it runs,
-    and remembered for after a restart."""
+    and remembered for after a restart.
+    `server_down`: the Kit's own server is not connected (it starts, waits on a question, or fails), which the app
+    knows from its screen. A `claude rc` process is there, but a wake can't reach it, and after two wakes every chat
+    on it was started on its own, so each ran twice once the server came back. Its chats wait for it instead."""
     import fcntl
     lock = open(os.path.join(os.path.dirname(STATE), 'keep.lock'), 'w')
     try:  # one at a time: starting a chat can take longer than the gap between checks
@@ -945,7 +1218,7 @@ def keep(dry=False):
                 print(f'would hand over {sid} "{title}" to the server' + (f' and quit {name}' if up else ''))
             else:
                 if up:
-                    subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                    quit_screen(name)
                 log(f'handover {sid} "{title}" the server runs it now' + (f'; quit its own copy ({name})' if up else ''))
             alone.pop(sid)
             continue
@@ -953,13 +1226,13 @@ def keep(dry=False):
             if dry:
                 print(f'would quit {name}: {sid} "{title}" was taken over elsewhere (code 4090)')
             else:
-                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                quit_screen(name)
                 log(f'standdown {sid} "{title}" its own copy was taken over elsewhere (code 4090); quit {name}')
             alone.pop(sid)
             continue
         if status.get(sid) not in ('active', 'archived') or (up and status.get(sid) == 'archived' and now - a.get('at', 0) > 120):
             if not dry:
-                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                quit_screen(name)
                 log(f'keep   {sid} "{title}" archived or deleted in the Claude app; stopped it')
             alone.pop(sid)
             continue
@@ -994,17 +1267,25 @@ def keep(dry=False):
 
     mine = [c for c in chats if c.get('environment_id') in envs and c.get('environment_kind') == 'bridge']
     stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running and c['id'] not in alone]
+    held = bool(k.get('held')) and server_down  # logged once for each time the server is down
+    if server_down:  # they wait for the server: no wake (it can't reach it) and no start on its own (a second copy)
+        if dry and stopped:
+            print(f'would wait for the server: {len(stopped)} session(s) on it')
+        elif stopped and not held:
+            log(f'keep   the server is not connected: {len(stopped)} session(s) on it wait until it connects, and none starts on its own')
+            held = True
+        stopped = []
     room = KEEP_MAX - sum(1 for c in mine if c['id'] in running) - len(alone)
     for c in sorted(stopped, key=lambda c: c.get('last_event_at') or '', reverse=True)[:max(room, 0)]:
         sid, w = c['id'], woke.get(c['id'], {})
         if now - w.get('at', 0) < (KEEP_PAUSE if w.get('failed') else KEEP_RETRY):
             continue
         try:
-            seq, archived = waiting_since_reply(chat_events(sid))
+            seq, was_archived = waiting_since_reply(chat_events(sid))
         except Exception as e:
             log(f'keep   {sid} can\'t read its events: {e!r}'[:200])
             continue
-        if (archived or w.get('tries', 0) >= KEEP_MOVE) and not w.get('failed'):
+        if (was_archived or w.get('tries', 0) >= KEEP_MOVE) and not w.get('failed'):
             if dry:
                 print(f'would start {sid} "{c.get("title", "")}" on its own, from {seq}')
                 continue
@@ -1030,7 +1311,12 @@ def keep(dry=False):
             woke.pop(sid)
     if not dry:
         with state() as s:
-            s['keep'] = {'envs': sorted(envs), 'woke': woke, 'alone': alone}
+            s['keep'] = {'envs': sorted(envs), 'woke': woke, 'alone': alone, **({'held': True} if held else {})}
+        lock.close()  # the Archived page's list, from the same read, after keep.lock is free: its first scan can take a while
+        try:
+            archived(chats)
+        except Exception as e:
+            log(f'error  archived sessions: {e!r}'[:200])
 
 
 def title_later(sid, x):
@@ -1104,7 +1390,7 @@ def on_prompt(data, sid):
 
 
 def on_tool(data, sid):
-    if data.get('agent_id'):  # a subagent's own steps
+    if data.get('agent_id'):  # a subagent's own steps: a running subagent keeps its level, so its pick is at start
         return
     level_now = (data.get('effort') or {}).get('level', '')
     proc, launched = session_process()
@@ -1174,9 +1460,83 @@ def on_tool(data, sid):
         log(f'error  {sid} send {level} failed {status} {text[:120]} | {snippet}')
 
 
-def set_level(sid, level):
-    """The Kit window's effort pick: the person sets this session's level, so it goes to Manual, and the level goes
-    out the way the hook sends its own (the change id is kept, so the check never reads it as a pick in the app)."""
+AGENT_ASK = ('A Claude Code session is starting a subagent. The subagent sees only its brief below, not the '
+             'conversation, and works on it alone until it reports back.\n\nAgent type: {typ}\nDescription: {desc}\n\n'
+             'Brief:\n{brief}\n\nEffort level for this subagent?')
+
+
+def agent_def_effort(typ, cwd):
+    """The effort an agent definition sets for itself (`effort:` in the front matter of a user or project agent
+    file), or ''. A definition that sets it was set that way on purpose, so the Kit leaves it."""
+    for d in (os.path.join(cwd or '', '.claude', 'agents'), os.path.expanduser('~/.claude/agents')):
+        try:
+            with open(os.path.join(d, f'{typ}.md')) as f:
+                head = f.read(4000)
+        except OSError:
+            continue
+        m = re.match(r'---\s*\n(.*?)\n---', head, re.S)
+        e = m and re.search(r'^effort:\s*["\']?(\w+)', m.group(1), re.M)
+        if e:
+            return e.group(1).lower()
+    return ''
+
+
+def on_agent(data, sid):
+    """Before the Agent tool starts a subagent. A running subagent keeps the effort it starts with: a later
+    change to the session's level doesn't reach it, and no hook or interface changes one agent's level. So the
+    level is picked here, from the agent's brief, the way a prompt's is. Any agent but a fork gets it in its own
+    call (`effort` in the tool input, which Claude Code honors from a hook's updatedInput). A fork ignores that
+    and starts at the session's level, so for a fork that needs more, the session is raised first."""
+    ti = data.get('tool_input') or {}
+    typ = ti.get('subagent_type') or 'general-purpose'
+    desc = re.sub(r'\s+', ' ', ti.get('description') or '')[:80]
+    st = peek()
+    x = st.get('sessions', {}).get(sid, {}) if sid else {}
+    who = sid or (data.get('session_id') or '')[:8]
+    if st.get('paused') or x.get('manual'):
+        return None
+    if typ != 'fork' and (ti.get('effort') or agent_def_effort(typ, data.get('cwd'))):
+        log(f'agent  {who} {typ} kept {ti.get("effort") or agent_def_effort(typ, data.get("cwd"))}'
+            f' - {"set in the call" if ti.get("effort") else "set by its definition"} | {desc}')
+        return None
+    current = (data.get('effort') or {}).get('level') or x.get('level', '')
+    t0 = time.time()
+    try:
+        level, answer = judge(AGENT_ASK.format(typ=typ, desc=desc or '(none)', brief=(ti.get('prompt') or '')[:4000]))
+    except Exception as e:  # never block the agent
+        log(f'error  {who} agent judge failed: {e!r} | {desc}')
+        return None
+    secs = time.time() - t0
+    if answer == AT_LIMIT or not level:
+        if answer != AT_LIMIT:
+            log(f'error  {who} agent answer unreadable {answer!r} | {desc}')
+        return None
+    reason = answer.split(' - ', 1)[-1]
+    if typ != 'fork':
+        log(f'agent  {who} {typ} ->{level} ({secs:.1f}s) {level} - {reason} | {desc}')
+        return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'updatedInput': dict(ti, effort=level)}}
+    up = current in LEVELS and LEVELS.index(level) > LEVELS.index(current)
+    if not (sid and up):
+        log(f'agent  {who} fork at {current or "?"} ({secs:.1f}s) {level} - {reason} | {desc}')
+        return None
+    if by_hand(sid, desc):
+        return None
+    status, text, rid = send(sid, level)
+    if 200 <= status < 300:
+        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid,
+                 reason=f'A fork needs it: {reason}')
+        time.sleep(1.5)  # let the change reach the session before the fork starts and takes its level
+        log(f'agent  {who} fork {current}->{level} ({secs:.1f}s) {level} - {reason} | {desc}')
+    else:
+        log(f'error  {sid} send {level} for a fork failed {status} {text[:120]} | {desc}')
+    return None
+
+
+def set_level(sid, level, by='window'):
+    """An effort pick in the Kit window, or from the phone (`by`, for the log; KitActions in the app runs it): the
+    person sets this session's level, so it goes to Manual, and the level goes out the way the hook sends its own (the
+    change id is kept, so the check never reads it as a pick in the app). Exit codes: 0 ok, 1 the send failed, 2 not a
+    level."""
     if level not in LEVELS:
         print('Not a level: %s. One of %s.' % (level, ', '.join(LEVELS)), file=sys.stderr)
         return 2
@@ -1187,23 +1547,36 @@ def set_level(sid, level):
         with state() as s:
             x = s['sessions'].setdefault(sid, {})
             x.update(level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid, manual=True)
-        log(f'manual {sid} set to {level} in the Kit window; leaving this session alone')
+        log(f'manual {sid} set to {level} ({by}){" (dry: nothing sent)" if DRY else ""}; leaving this session alone')
         return 0
-    log(f'error  {sid} send {level} from the Kit window failed {status} {text[:120]}')
+    log(f'error  {sid} send {level} ({by}) failed {status} {text[:120]}')
     return 1
 
 
 def main():
-    if len(sys.argv) == 4 and sys.argv[1] == '--set':
-        sys.exit(set_level(sys.argv[2], sys.argv[3]))
+    if sys.argv[1:2] == ['--set']:  # effort-hook.py --set <cse_id> <level> [--by window|phone]
+        rest, by = sys.argv[2:], 'window'
+        if '--by' in rest:
+            i = rest.index('--by')
+            by = rest[i + 1] if i + 1 < len(rest) else ''
+            del rest[i:i + 2]
+        if len(rest) != 2 or by not in ('window', 'phone'):
+            print('Usage: effort-hook.py --set <cse_id> <level> [--by window|phone]', file=sys.stderr)
+            sys.exit(2)
+        sys.exit(set_level(rest[0], rest[1], by))
     if sys.argv[1:] == ['--models']:
         list_models()
         return
     if sys.argv[1:] == ['--track']:
         track()
         return
+    if sys.argv[1:] == ['--list']:  # the short list only, every 10 seconds while the Kit window or menu is open
+        app_list()
+        return
+    if sys.argv[1:] == ['--archived']:  # the Archived page's list, on a Mac with no server
+        sys.exit(archived_now())
     if sys.argv[1:2] == ['--keep']:
-        keep(dry='--dry' in sys.argv)
+        keep(dry='--dry' in sys.argv, server_down='--server-down' in sys.argv)
         return
     if len(sys.argv) == 3 and sys.argv[1] == '--title':
         fetch_title(sys.argv[2])
@@ -1218,6 +1591,12 @@ def main():
         if rules:
             print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': '\n\n'.join(rules)}}))
     sid = session_id(data.get('transcript_path'))
+    if event == 'PreToolUse':  # a subagent is about to start; any session, Remote Control or not
+        limit_for(data.get('session_id'), data.get('transcript_path'), sid)
+        out = on_agent(data, sid)
+        if out:
+            print(json.dumps(out))
+        return
     if not sid:
         if event == 'UserPromptSubmit':
             log(f'skip   {data.get("session_id", "")[:8]} not a Remote Control session')

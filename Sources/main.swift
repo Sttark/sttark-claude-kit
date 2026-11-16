@@ -1,5 +1,7 @@
 import AppKit
 
+// uninstall.sh: unlink this Mac from Kit on your phone and drop its key, then quit, with no menu bar app
+if CommandLine.arguments.contains("--phone-unlink") { PhoneLink.unlinkAndQuit() }
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 Migrate.beforeStart()

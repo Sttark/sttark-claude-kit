@@ -9,6 +9,8 @@
 # When an update arrives, or the server still runs from the old place, it swaps in the new copy (written next to
 # the old one, then renamed over it) and restarts the server. Restarting ends any open session, so it only
 # happens between 2 and 5 AM, and only when no session is working. Pass --now to skip the time window.
+# STABLE, LABEL, PLIST, STATE, LOG, NEWEST (the Claude Code to copy) and SCREEN_NAME point it at a test copy
+# (tools/server-health-test.swift).
 set -u
 STABLE=${STABLE:-$HOME/.local/share/claude/stable/claude}
 LABEL=${LABEL:-com.sttark.claude-rc}
@@ -17,7 +19,7 @@ STATE=${STATE:-$HOME/Library/Application Support/SttarkClaudeKit/state.json}
 LOG=${LOG:-$HOME/Library/Logs/sttark-claude-kit.log}
 log() { print -r -- "$(date '+%F %T') stable $*" >> $LOG }
 
-newest=$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null)
+newest=${NEWEST:-$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null)}
 [[ -x $newest ]] || exit 0
 mkdir -p ${STABLE:h}
 
@@ -55,9 +57,28 @@ if (( need_move )); then
   /usr/bin/sed -i '' "s#$HOME/.local/bin/claude#$STABLE#g" "$PLIST" && log "server now starts from $STABLE"
 fi
 
-# Restart: end the server and everything under it (screen outlives the LaunchAgent), then load it again.
-kill_tree() { for c in $(pgrep -P $1); do kill_tree $c; done; kill $1 2>/dev/null }
-pid=$(launchctl print "gui/$UID/$LABEL" 2>/dev/null | awk '$1 == "pid" {print $3; exit}')
-[[ -n $pid ]] && kill_tree $pid
+# Restart: unload the server, end every copy of it the Kit started and wait until they are gone, then load it again.
+# A `claude rc` can outlive its screen, and one that still runs keeps the folder: the new one then can't register it
+# ("already served by another Claude Code on this device") and stops, again and again. The Kit's copies have its
+# marker (STTARK_KIT_SERVER) or the server screen's STY in their environment; a person's own `claude rc` has neither.
+SCREEN_NAME=${SCREEN_NAME:-claude-rc}
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null
+for s in $(screen -ls | awk -v re="^[0-9]+[.]$SCREEN_NAME\$" '$1 ~ re {print $1}'); do screen -S $s -X quit; done
+copies() {
+  ps -axww -o pid=,command= | awk '{n = split($2, p, "/"); if (p[n] == "claude" && ($3 == "rc" || $3 == "remote-control")) print $1}' |
+    while read -r p; do
+      ps -wwE -o command= -p $p 2>/dev/null | grep -qE " (STTARK_KIT_SERVER=$LABEL|STY=[0-9]+[.]$SCREEN_NAME)( |\$)" && print $p
+    done
+}
+tree() { print $1; for c in $(pgrep -P $1); do tree $c; done }
+pids=($(for p in $(copies); do tree $p; done))
+if (( ${#pids} )); then
+  kill -TERM $pids 2>/dev/null
+  for i in {1..40}; do   # up to 20 seconds to stop, then killed
+    left=(); for p in $pids; do kill -0 $p 2>/dev/null && left+=($p); done
+    (( ${#left} )) || break
+    sleep 0.5
+  done
+  (( ${#left} )) && kill -KILL $left 2>/dev/null
+fi
 launchctl bootstrap "gui/$UID" "$PLIST" && log "server restarted on ${newest:t}"

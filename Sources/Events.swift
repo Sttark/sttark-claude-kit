@@ -5,7 +5,7 @@ import SwiftUI
 /// never shown as raw lines: each line becomes one sentence about one session, under the session's name.
 struct KitEvent: Identifiable, Equatable {
     enum Kind: String, CaseIterable {
-        case effort, limit, restart, name, wait, update, check, app, problem
+        case effort, limit, restart, name, wait, phone, update, check, app, problem
         var title: String {
             switch self {
             case .effort: return "Effort and permissions"
@@ -13,6 +13,7 @@ struct KitEvent: Identifiable, Equatable {
             case .restart: return "Sessions started again"
             case .name: return "Session names"
             case .wait: return "Waits and messages"
+            case .phone: return "Kit on your phone"
             case .update: return "Updates"
             case .check: return "Reply checks"
             case .app: return "The Kit"
@@ -26,6 +27,7 @@ struct KitEvent: Identifiable, Equatable {
             case .restart: return "arrow.clockwise.circle"
             case .name: return "tag"
             case .wait: return "hourglass"
+            case .phone: return "iphone"
             case .update: return "arrow.down.circle"
             case .check: return "checkmark.seal"
             case .app: return "menubar.rectangle"
@@ -114,17 +116,20 @@ enum Events {
         return fold(raw)
     }
 
-    /// Problems that happen again fold into one row wherever they fall (with how many times, since when, and the
-    /// last time); anything else folds with the same event just before it, or within a minute.
+    /// Problems that happen again in a day fold into one row for that day wherever they fall (with how many times that
+    /// day, since when, and the last time), so the count under Today is today's; anything else folds with the same
+    /// event just before it, or within a minute.
     static func fold(_ events: [KitEvent]) -> [KitEvent] {
         var out: [KitEvent] = []
         var at: [String: Int] = [:]
+        let day = DateFormatter(); day.dateFormat = "yyyy-MM-dd"
         for e in events {
-            if let i = at[e.key], e.level != .info || e.first.timeIntervalSince(out[i].last) < 60 || i == out.count - 1 {
+            let k = e.level != .info ? e.key + "|" + day.string(from: e.first) : e.key
+            if let i = at[k], e.level != .info || e.first.timeIntervalSince(out[i].last) < 60 || i == out.count - 1 {
                 out[i].count += 1; out[i].last = e.last; continue
             }
             out.append(e)
-            at[e.key] = out.count - 1
+            at[k] = out.count - 1
         }
         return out.sorted { $0.last > $1.last }
     }
@@ -176,6 +181,20 @@ enum Events {
 
     // MARK: one line of the Kit's log
 
+    /// No raw ids in what a person reads: a session id becomes the session's name, an email thread id goes.
+    static func scrub(_ s: String, _ names: Names) -> String {
+        guard s.contains("cse_") || s.contains("session_") || s.contains("claude://") || s.contains("thread ") else { return s }
+        var out = s
+        out = out.replacingOccurrences(of: #"claude://code/"#, with: "", options: .regularExpression)
+        while let r = out.range(of: #"(cse|session)_[A-Za-z0-9]{6,}"#, options: .regularExpression) {
+            let n = names.resolve(String(out[r])).name
+            out.replaceSubrange(r, with: n.map { "\u{201C}\($0)\u{201D}" } ?? "a session")
+        }
+        out = out.replacingOccurrences(of: #"email thread [0-9a-f]{10,}"#, with: "an email thread", options: .regularExpression)
+        out = out.replacingOccurrences(of: #"thread [0-9a-f]{10,}"#, with: "a thread", options: .regularExpression)
+        return out
+    }
+
     static func kitLine(_ line: String, _ names: Names) -> KitEvent? {
         guard line.count > 20, let t = stamp.date(from: String(line.prefix(19))) else { return nil }
         let body = line.dropFirst(20)
@@ -218,6 +237,10 @@ enum Events {
                     e.kind = .problem; e.level = .warn
                     e.text = "Could not read the session list from Claude" + (http(rest).map { ": " + $0 } ?? "")
                     e.detail = ["The Kit tries again in a minute."]
+                } else if rest.hasPrefix("the server is not connected") {
+                    e.kind = .restart; e.level = .warn
+                    e.text = "Sessions on the server wait until it connects"
+                    e.detail = ["A session can't start on a server that is not connected. The Kit starts them again when it connects."]
                 } else { e.text = rest.prefix(1).uppercased() + rest.dropFirst() }
                 return e
             }
@@ -257,6 +280,31 @@ enum Events {
             e.text = main.contains("left at") ? "Effort is on Manual, left at " + level(main.split(separator: " ").last ?? "") : "Effort set by hand"
             e.routine = true
             promptDetail(prompt)
+        case "agent":   // a subagent's effort, picked when it starts (effort-hook.py on_agent)
+            e.kind = .effort
+            let (main, reason, desc) = split(rest)
+            let w = main.split(separator: " ")
+            if let id = w.first, id.hasPrefix("cse_") { who(id) }
+            let typ = w.count > 1 ? String(w[1]) : "agent"
+            let what = desc.isEmpty ? (typ == "fork" ? "A fork" : "An agent") : (typ == "fork" ? "Fork" : "Agent") + " \u{201C}\(desc)\u{201D}"
+            let tail = w.count > 2 ? String(w[2]) : ""
+            if tail == "kept" {
+                e.text = "\(what) keeps \(level(w.count > 3 ? w[3] : "")) effort"; e.routine = true
+                if !reason.isEmpty { e.detail.append(reason.prefix(1).uppercased() + reason.dropFirst() + ".") }
+            } else if typ == "fork", tail.contains("->") {
+                let p = tail.split(separator: "-", omittingEmptySubsequences: false)
+                let to = level(p.last?.dropFirst() ?? "")
+                e.text = "Effort raised from \(level(p.first ?? "")) to \(to) so \(what.prefix(1).lowercased() + what.dropFirst()) starts at \(to)"
+                e.detail.append("A fork starts at the session's level and keeps it.")
+                if !reason.isEmpty { e.detail.append("Why: " + reason) }
+            } else if typ == "fork" {
+                e.text = "\(what) starts at \(level(w.count > 3 ? w[3] : "")) effort, the session's level"; e.routine = true
+                if !reason.isEmpty { e.detail.append("It needs: " + reason) }
+            } else {
+                e.text = "\(what) set to \(level(tail.replacingOccurrences(of: "->", with: ""))) effort"
+                if !reason.isEmpty { e.detail.append("Why: " + reason) }
+                e.detail.append("Agent type: \(typ). It keeps this level until it finishes.")
+            }
         case "reopen":
             e.kind = .effort
             who(first)
@@ -324,7 +372,8 @@ enum Events {
                 if let r = x.range(of: #" \((Bash|menu|typed|command|[A-Za-z]+)\)$"#, options: .regularExpression) {
                     let src = x[r].dropFirst(2).dropLast()
                     x = String(x[..<r.lowerBound])
-                    e.detail.append(["menu": "From the menu or the window.", "typed": "Typed in the session.", "command": "From the claude-limit-mode command."][String(src)]
+                    e.detail.append(["menu": "From the menu or the window.", "window": "From the Kit window.", "phone": "From the phone.",
+                                     "typed": "Typed in the session.", "command": "From the claude-limit-mode command."][String(src)]
                                     ?? "At its next step (\(src)).")
                 }
                 return x
@@ -342,6 +391,10 @@ enum Events {
                 } else { e.text = "Held: " + why }
             case "wait":
                 return nil   // the hold's own wait, logged in the same second
+            case "reload":
+                if let id = aw.first { who(id) }
+                e.text = "The hold went on in the updated Kit"
+                e.routine = true
             case "resume":
                 if let id = aw.first { who(id) }
                 let why = after.drop { $0 != " " }.drop { $0 == " " }
@@ -395,6 +448,21 @@ enum Events {
                 if let by = what.range(of: ", by ", options: .backwards) {
                     e.text = "Waits for " + lower(what[..<by.lowerBound]); e.detail.append("Deadline: " + what[by.upperBound...] + ".")
                 } else { e.text = "Waits for " + lower(what) }
+            } else if main.contains(" from the archive") {   // claude-wait --unarchive: the window's Archived page, or the phone
+                e.kind = .restart
+                let from = main.contains("(phone)") ? "the phone" : "the Kit window"
+                if main.contains(" brought back from the archive") && !main.contains("not brought back") {
+                    e.text = "Brought back from the archive, on the same link"
+                    e.detail = ["Asked from \(from). It came back with its whole conversation."]
+                } else {
+                    e.kind = .problem; e.level = .warn
+                    e.text = main.contains("not archived now") ? "Not brought back: it is not archived now"
+                        : main.contains("not on this Mac") ? "Not brought back: its conversation is not on this Mac"
+                        : main.contains("was not back after") ? "Started from the archive, but the Claude app did not show it back"
+                        : "Did not come back from the archive"
+                    e.detail = ["Asked from \(from)."]
+                    if main.contains("not archived now") { e.level = .info; e.kind = .restart }
+                }
             } else if main.contains(" brought ") { e.text = "Brought back: the wait ended" }
             else if main.contains(" cancelled") { e.text = "Wait cancelled" }
             else if main.contains("checked:") {
@@ -428,9 +496,18 @@ enum Events {
             if rest.hasPrefix("started ") { e.text = "The Kit started (version \(words.last ?? ""))"; e.routine = true }
             else if rest.hasPrefix("update: downloading") || rest.hasPrefix("update: check") { e.kind = .update; e.routine = true; e.text = "Downloading the Kit update" + (words.count > 2 ? " " + words[2] : "") }
             else if rest.hasPrefix("update: installed") { e.kind = .update; e.text = "The Kit updated to \(words.count > 2 ? words[2].trimmingCharacters(in: CharacterSet(charactersIn: ",")) : "")" }
-            else if rest.hasPrefix("waiting notice: ") {
+            else if rest.hasPrefix("menu"), let r = rest.range(of: "claude://code/") {
+                who(Substring(rest[r.upperBound...].split(separator: " ").first ?? ""))
+                e.text = "Opened in the Claude app"; e.detail.append("From the menu bar menu.")
+            } else if rest.hasPrefix("waiting notice: ") {
                 let q = String(rest.dropFirst(16)); e.name = q; e.session = names.cseByName[q]
                 e.kind = .wait; e.text = "Notice: it has waited on you for 10 minutes"
+            } else if rest.hasPrefix("waiting notice skipped: ") {
+                // "waiting notice skipped: Order page login: it sent a Reach me by message in the last 30 min"
+                let body = rest.dropFirst(24)
+                let q = body.range(of: ": it sent").map { String(body[..<$0.lowerBound]) } ?? String(body)
+                e.name = q; e.session = names.cseByName[q]
+                e.kind = .wait; e.text = "No reminder: it sent you a Reach me by message in the last 30 minutes"
             } else if rest.hasPrefix("window:") || tag == "window" || rest.hasPrefix("what's new") {
                 e.routine = true
                 e.text = tag == "window" ? rest.replacingOccurrences(of: "Claude window: ", with: "Claude window in Chrome ") : rest.prefix(1).uppercased() + rest.dropFirst()
@@ -438,8 +515,133 @@ enum Events {
             } else if rest.contains("fail") || rest.contains("error") || rest.contains("can't") {
                 e.kind = .problem; e.level = .warn; e.text = rest.prefix(1).uppercased() + rest.dropFirst()
             } else { e.text = rest.prefix(1).uppercased() + rest.dropFirst() }
+        case "server":   // the Remote Control server: ServerHealth and Server.autoStart
+            e.kind = .app
+            let r = rest.prefix(1).uppercased() + rest.dropFirst()
+            if rest.hasPrefix("not connected: ") || rest.hasPrefix("not started: ") {
+                e.kind = .problem; e.level = .warn
+                e.text = "Remote Control server " + rest
+            } else if rest.hasPrefix("connected: ") {
+                e.text = "Remote Control server connected"
+                e.detail.append(r.replacingOccurrences(of: "Connected: in", with: "In") + ".")
+            } else if rest.hasPrefix("answered yes: ") {
+                e.text = "The server asked a question, so the Kit answered yes"
+                e.detail.append("It asked to " + rest.dropFirst(14) + ".")
+            } else if rest.hasPrefix("answered same-dir: ") {
+                e.text = "The server asked which spawn mode to use, so the Kit chose same-dir"
+                e.detail.append("Every session starts in the server's folder. Claude Code keeps this answer for the folder.")
+            } else if rest.hasPrefix("ended ") {
+                e.kind = .problem; e.level = .warn
+                let n = words.count > 1 ? String(words[1]) : ""
+                e.text = "Ended \(n) old \(n == "1" ? "copy" : "copies") of the Remote Control server"
+                e.detail.append("Earlier starts left them running. They kept the folder, so the server could not connect. The Kit ends only its own copies, never a server you started yourself.")
+            } else if rest.hasPrefix("stopped, ") {
+                e.kind = .restart; e.level = .warn
+                e.text = "Remote Control server stopped, and macOS started it again"
+            } else if rest.hasPrefix("start command updated") {
+                e.text = "Remote Control server: start command updated"; e.routine = true
+                e.detail.append("It gives --spawn same-dir when Claude Code has that option. It takes effect when the server starts next.")
+            } else if rest.hasPrefix("started again: ") {
+                e.kind = .restart; e.level = .warn
+                e.text = "Remote Control server started again"
+                e.detail.append("Why: " + rest.dropFirst(15) + ".")
+            } else { e.text = "Remote Control server: " + rest }
+        case "phone":   // Kit on your phone (PhoneLink.swift): the link, the socket, and each action from the phone
+            e.kind = .phone
+            let host = PhoneLink.shown
+            if rest.hasPrefix("action "), let by = rest.range(of: " by ") {
+                // "action set_level cse_01Abc by name@sttark.com: ok: Effort is High now. Auto is off for this session."
+                let head = rest[rest.index(rest.startIndex, offsetBy: 7)..<by.lowerBound].split(separator: " ")
+                let tail = rest[by.upperBound...]
+                let parts = tail.components(separatedBy: ": ")
+                let asker = parts.first ?? "", reason = parts.count > 1 ? parts[1] : "", said = parts.count > 2 ? parts[2...].joined(separator: ": ") : ""
+                if head.count > 1, head[1] != "-" { who(head[1]) }
+                e.text = "From the phone: " + (said.isEmpty ? "the Kit did not run it" : said)
+                let asked = ["bring_back": "Bring it back now", "stop_waits": "Stop waiting", "set_level": "an effort level",
+                             "set_auto": "Auto effort", "set_limit": "At the usage limit", "unarchive": "Bring it back, from Archived"][String(head.first ?? "")]
+                e.detail = ["Asked by \(asker)" + (asked.map { ", with \($0)" } ?? "") + "."]
+                if reason == "bad" { e.level = .warn }
+            } else if rest.hasPrefix("linked to ") {
+                e.text = "This Mac is linked to your phone"
+                e.detail = ["Signed in as \(rest.dropFirst(10)). Its sessions show at \(host)."]
+            } else if rest.hasPrefix("link page opened") {
+                e.text = "Link page opened in your browser"
+                let parts = rest.components(separatedBy: ", ")
+                e.detail = parts.dropFirst().map { p in p.hasPrefix("code ") ? "This Mac's code: \(p.dropFirst(5))." : p.hasPrefix("until ") ? "It works until \(p.dropFirst(6))." : p }
+            } else if rest.hasPrefix("link page ended") {
+                e.text = "The link page ended before this Mac was linked"
+                e.detail = ["Click Link this Mac… in Settings to try again."]
+            } else if rest.hasPrefix("link: ") {
+                e.kind = .problem; e.level = .warn
+                e.text = rest.hasPrefix("link: no key") ? "This Mac could not make its key for Kit on your phone" : "Could not get a link page from \(host)"
+                if let c = rest.range(of: ": ", options: .backwards) { e.detail = ["Why: " + rest[c.upperBound...] + "."] }
+            } else if rest.hasPrefix("connected") {
+                e.text = "Connected to \(host)"; e.routine = true
+                if let a = rest.range(of: " after ") { e.detail = ["It connected " + rest[a.lowerBound...].dropFirst() + "."] }
+            } else if rest.hasPrefix("not connected: ") {
+                let why = rest.dropFirst(15).components(separatedBy: "; ").first ?? ""
+                e.text = "Not connected to \(host): \(why)"
+                e.detail = [rest.contains("in a minute") ? "The Kit tries again in a minute."
+                            : "The Kit tries again by itself: at once when the Mac wakes or the network changes, else after 1, 2, 4 … 60 seconds."]
+            } else if rest.hasPrefix("removed from your phone") {
+                e.level = .warn
+                e.text = "Removed from your phone"
+                e.detail = ["The Kit dropped this Mac's key and does not link it again by itself. To link it again, click Link this Mac… in Settings."]
+            } else if rest.hasPrefix("refused (4403)") {
+                e.level = .warn
+                e.text = "Not on the Sttark roster, so \(host) does not take this Mac"
+                e.detail = ["The Kit tries again each hour."]
+            } else if rest.hasPrefix("this Mac's key is gone") {
+                e.level = .warn
+                e.text = "This Mac's key for Kit on your phone is gone, so it is not linked now"
+                e.detail = ["To link it again, click Link this Mac… in Settings."]
+            } else if rest.hasPrefix("turned off") {
+                e.text = "Kit on your phone turned off"
+                if let c = rest.range(of: ": ") { e.detail = [rest[c.upperBound...].prefix(1).uppercased() + rest[c.upperBound...].dropFirst() + "."] }
+            } else if rest.hasPrefix("bye: ") {
+                e.routine = true
+                let why = rest.dropFirst(5)
+                e.text = why == "sleep" ? "Told \(host) that this Mac sleeps" : why == "update" ? "Told \(host) that the Kit updates" : "Told \(host) that the Kit quits"
+            } else if rest.hasPrefix("notice: ") {
+                e.text = "Notice: use the Kit on your phone"
+            } else if rest.hasPrefix("reminder to your phone: ") {
+                let q = String(rest.dropFirst(24)); e.name = q; e.session = names.cseByName[q]
+                e.text = "Reminder to your phone: it has waited on you for 10 minutes"
+                e.detail = ["You were away from this Mac, so the reminder went to your phone, not to this Mac."]
+            } else if rest.hasPrefix("reminder did not go to your phone") {
+                e.level = .warn
+                if let c = rest.range(of: "instead: ") { let q = String(rest[c.upperBound...]); e.name = q; e.session = names.cseByName[q] }
+                e.text = "The reminder did not reach \(host), so this Mac showed it"
+            } else if rest.hasPrefix("phones that get notices: ") {
+                e.routine = true
+                let n = Int(rest.dropFirst(25)) ?? 0
+                e.text = n == 0 ? "No phone gets Needs you notices now" : n == 1 ? "1 phone gets Needs you notices" : "\(n) phones get Needs you notices"
+            } else if rest.hasPrefix("dry: ") {
+                e.routine = true
+                e.text = "Dry run: " + rest.dropFirst(5)
+            } else if rest.contains("refused") || rest.contains("cannot") || rest.contains("no id") {
+                e.level = .warn
+                e.text = rest.prefix(1).uppercased() + rest.dropFirst()
+            } else {
+                e.text = rest.prefix(1).uppercased() + rest.dropFirst()
+            }
         case "log":
             e.kind = .app; e.routine = true; e.text = "Old log lines removed"
+        case "usage":   // Usage by session (usage-scan.py): the first read of the records, a model with no price, a failed read
+            e.kind = .app
+            if rest.hasPrefix("first scan: ") {
+                e.text = "Read the sessions' records for the Usage page: " + rest.dropFirst(12)
+            } else if rest.hasPrefix("no price for ") {
+                e.level = .warn
+                let model = rest.dropFirst(13).split(separator: " ").first.map(String.init) ?? "a model"
+                e.text = "No price for \(model) in the Kit: on the Usage page its use counts at the price of its family"
+            } else if rest.hasPrefix("scan failed") {
+                e.level = .warn
+                e.text = "Could not read the sessions' records for the Usage page"
+                e.detail.append(String(rest.prefix(300)))
+            } else {
+                e.text = "Usage page: " + rest.prefix(160)
+            }
         case "error":
             e.kind = .problem; e.level = .error
             if first.hasPrefix("cse_") { who(first) }
@@ -456,6 +658,8 @@ enum Events {
             e.text = tag.prefix(1).uppercased() + tag.dropFirst() + ": " + rest.prefix(160)
         }
         if e.text.isEmpty { return nil }
+        e.text = scrub(e.text, names)
+        e.detail = e.detail.map { scrub($0, names) }
         if e.level == .info && (rest.contains(" failed") || rest.hasPrefix("can't")) && e.kind != .effort { e.level = .warn }
         return e
     }

@@ -1,0 +1,200 @@
+# Deploys Kit on your phone (the phone/ server) to https://kit.sttark.com, its
+# own nginx site on the sttark-building Linode, next to Building and HVAC. On
+# each push to main that changes the server, and by hand (Actions >
+# phone-deploy > Run workflow).
+# Changes here never make a Mac release (release.yml builds only from the Mac app's files).
+#
+# The runner tests the server, copies in the licensed fonts from Sttark/sttark-docs,
+# builds it for the root of its site (an empty BASE_PATH), keeps only its
+# production modules, and packs server.mjs, dist/, package.json and
+# node_modules. It sends the pack and the VAULT_* secrets over SSH to the kit
+# user's forced command on the box, /usr/local/bin/kit-deploy (Sttark/building,
+# ansible roles/kit). Whatever this job asks for, the box runs that script and
+# nothing else. It refuses a pack not built for the root, unpacks it to
+# releases/<sha>, writes the env file (mode 600), moves the current link,
+# restarts claude-kit, checks /healthz, and goes back to the last release when
+# the check fails, so this job's result is the deploy's result. Then the job
+# asks the public address for /healthz and fails unless it answers with this
+# commit. The box sets NODE_ENV, HOST, PORT, KIT_DB and APP_ORIGIN
+# (https://kit.sttark.com) itself.
+#
+# Until the box is set up, the repository variable KIT_DEPLOY_READY is not
+# 'true' and the job skips with a notice. It never fails for that: a failed run
+# on main emails its author. How the box gets ready: Sttark/building,
+# ansible/README.md, "Kit on this box".
+#
+# Secrets, in this repo's production environment (Settings > Environments >
+# production), which admits only main, so a workflow edited on a branch cannot
+# read them:
+#   DEPLOY_SSH_KEY              the key that can only run kit-deploy; its public
+#                               half is kit_deploy_keys in Sttark/building
+#   VAULT_GOOGLE_CLIENT_ID      the shared Workspace sign-in client
+#   VAULT_GOOGLE_CLIENT_SECRET
+#   VAULT_ORG_SYNC_TOKEN        the Kit's own read-only Workrouter org-sync key
+#   VAULT_VAPID_PUBLIC_KEY      the Web Push key pair
+#   VAULT_VAPID_PRIVATE_KEY
+# A missing VAULT_* secret goes out empty, with a warning that names it.
+# And the repository secret STTARK_DOCS_DEPLOY_KEY, the read-only deploy key for
+# Sttark/sttark-docs, where the fonts are (the page check uses it too).
+name: phone-deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'phone/**'
+      - '!phone/DESIGN.md'
+      - '!phone/schema/**'
+      - '!phone/fixtures/**'
+      - '!phone/asyncapi.yaml'
+      - '.github/workflows/phone-deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: phone-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # sttark-building, and its own host key, so a different box answering on
+  # this address is refused (the same line as hvac_automation's deploy).
+  DEPLOY_HOST: 45.33.102.173
+  DEPLOY_HOST_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINOnWYkEYeWDbLTJST67wb4dEBrC5xUfhjIvdssZiWzR
+  # Where people reach the Kit, and the path it is built for: empty, the root
+  # of its own site. kit-deploy on the box refuses a pack built for a path.
+  KIT_URL: https://kit.sttark.com
+  KIT_BASE_PATH: ''
+
+jobs:
+  not-ready:
+    name: Skipped
+    if: vars.KIT_DEPLOY_READY != 'true' || github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say why
+        env:
+          READY: ${{ vars.KIT_DEPLOY_READY }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$READY" != true ]; then
+            echo "::notice title=Phone deploy skipped::$KIT_URL is not set up yet. When it is (Sttark/building ansible/README.md, \"Kit on this box\"), set the repository variable KIT_DEPLOY_READY to true."
+          else
+            echo "::notice title=Phone deploy skipped::Only main deploys; this run is on $REF."
+          fi
+
+  deploy:
+    if: vars.KIT_DEPLOY_READY == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    defaults:
+      run:
+        working-directory: phone
+    steps:
+      - uses: actions/checkout@v4
+      # The box runs Node 24 (Sttark/building roles/node); a native module
+      # built here must match it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: phone/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+
+      # Founders Grotesk is licensed to Sttark and this repo is public, so the
+      # files come from Sttark/sttark-docs, as in the page check
+      # (page-check.yml), and npm run fonts fails without them.
+      - name: Fonts from sttark-docs
+        working-directory: .
+        env:
+          DEPLOY_KEY: ${{ secrets.STTARK_DOCS_DEPLOY_KEY }}
+        run: |
+          test -n "$DEPLOY_KEY" || { echo "::error::The STTARK_DOCS_DEPLOY_KEY secret is not set; the deploy needs the fonts from Sttark/sttark-docs"; exit 1; }
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/sttark-docs
+          docs="$RUNNER_TEMP/sttark-docs"
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sttark-docs -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone -q --filter=blob:none --sparse --branch main git@github.com:Sttark/sttark-docs.git "$docs"
+          git -C "$docs" sparse-checkout set --no-cone 'app/src/styles/fonts/'
+          rm -f ~/.ssh/sttark-docs
+          echo "STTARK_FONTS_DIR=$docs/app/src/styles/fonts" >> "$GITHUB_ENV"
+      - run: npm run fonts
+
+      - name: Build for ${{ env.KIT_URL }}
+        env:
+          BASE_PATH: ${{ env.KIT_BASE_PATH }}
+        run: |
+          npm run build
+          built=$(node -p 'JSON.parse(require("fs").readFileSync("dist/kit-build.json", "utf8")).base')
+          [ "$built" = "$KIT_BASE_PATH" ] || { echo "::error::the build is for BASE_PATH \"$built\", not \"$KIT_BASE_PATH\""; exit 1; }
+      - name: Keep only the production modules
+        run: npm prune --omit=dev --no-audit --no-fund
+
+      - name: Pack
+        run: |
+          for f in server.mjs dist package.json node_modules; do
+            test -e "$f" || { echo "::error::phone/$f is missing; the pack needs server.mjs, dist/, package.json and node_modules"; exit 1; }
+          done
+          mkdir -p "$RUNNER_TEMP/deploy/app"
+          cp -R server.mjs dist package.json node_modules "$RUNNER_TEMP/deploy/app/"
+          du -sh "$RUNNER_TEMP/deploy/app"
+
+      # The env lines go in the pack, never in the log: names only below.
+      - name: Env file from the secrets
+        env:
+          VAULT_GOOGLE_CLIENT_ID: ${{ secrets.VAULT_GOOGLE_CLIENT_ID }}
+          VAULT_GOOGLE_CLIENT_SECRET: ${{ secrets.VAULT_GOOGLE_CLIENT_SECRET }}
+          VAULT_ORG_SYNC_TOKEN: ${{ secrets.VAULT_ORG_SYNC_TOKEN }}
+          VAULT_VAPID_PUBLIC_KEY: ${{ secrets.VAULT_VAPID_PUBLIC_KEY }}
+          VAULT_VAPID_PRIVATE_KEY: ${{ secrets.VAULT_VAPID_PRIVATE_KEY }}
+        run: |
+          umask 077
+          out="$RUNNER_TEMP/deploy/env"
+          : > "$out"
+          missing=()
+          for name in VAULT_GOOGLE_CLIENT_ID VAULT_GOOGLE_CLIENT_SECRET VAULT_ORG_SYNC_TOKEN VAULT_VAPID_PUBLIC_KEY VAULT_VAPID_PRIVATE_KEY; do
+            value=${!name}
+            case "$value" in *$'\n'*|*$'\r'*) echo "::error::$name has a line break; set it again as one line"; exit 1 ;; esac
+            [ -n "$value" ] || missing+=("$name")
+            printf '%s=%s\n' "$name" "$value" >> "$out"
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::warning title=Empty secrets::${missing[*]} not set in the production environment; the server gets them empty."
+          fi
+
+      - name: Deploy key
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          test -n "$SSH_KEY" || { echo "::error::DEPLOY_SSH_KEY is not set in the production environment"; exit 1; }
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy
+          printf '%s %s\n' "$DEPLOY_HOST" "$DEPLOY_HOST_KEY" > ~/.ssh/known_hosts
+
+      - name: kit-deploy
+        run: |
+          tar -C "$RUNNER_TEMP/deploy" -czf - app env \
+            | ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes \
+                -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o StrictHostKeyChecking=yes \
+                "kit@$DEPLOY_HOST" "deploy $GITHUB_SHA"
+
+      # kit-deploy checked the server on the box; this checks the way people
+      # reach it, through nginx and TLS, and that it runs this commit.
+      - name: The live address answers with this commit
+        run: |
+          for _ in $(seq 10); do
+            sha=$(curl -fsS --max-time 10 "$KIT_URL/healthz" | jq -r '.sha // empty' 2>/dev/null || true)
+            [ "$sha" = "$GITHUB_SHA" ] && { echo "$KIT_URL/healthz answers with $sha"; exit 0; }
+            sleep 3
+          done
+          echo "::error::$KIT_URL/healthz does not answer with $GITHUB_SHA (last answer: ${sha:-none})"
+          exit 1
+
+      - name: Remove the keys and the pack from the runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/deploy" "$RUNNER_TEMP/sttark-docs" ~/.ssh/deploy ~/.ssh/sttark-docs

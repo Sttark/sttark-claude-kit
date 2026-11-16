@@ -1,0 +1,109 @@
+{
+  "v": 1,
+  "at": 1794525120,
+  "mac": {
+    "name": "Mac mini",
+    "kit": "1.139",
+    "tz": "America/New_York",
+    "account": "3f9a1c7db6bf8c04"
+  },
+  "flags": {
+    "paused": false,
+    "credits_all": false
+  },
+  "reach": [
+    "chat"
+  ],
+  "usage": {
+    "at": 1794525000,
+    "bars": [
+      {
+        "kind": "session",
+        "name": "5-hour limit",
+        "percent": 41,
+        "resets": 1794535920
+      },
+      {
+        "kind": "weekly_all",
+        "name": "Weekly",
+        "percent": 58,
+        "resets": 1794639600
+      }
+    ],
+    "reached": null
+  },
+  "rows": [
+    {
+      "id": "session_01SampleNozzleCheck",
+      "cse": "session_01SampleNozzleCheck",
+      "sid": null,
+      "group": "needs_you",
+      "title": "Nozzle check page",
+      "sub": "A question waits for you",
+      "sub_strong": null,
+      "sub_warn": null,
+      "late": false,
+      "time_at": 1794524820,
+      "url": "https://claude.ai/code/session_01SampleNozzleCheck",
+      "session": {
+        "level": "medium",
+        "manual": false,
+        "reason": "Page edits",
+        "needs_you": true,
+        "why": "It asks which head to test first",
+        "waiting_since": 1794524820,
+        "turn_at": null
+      },
+      "background": null,
+      "waits": [],
+      "hold": null,
+      "limit_mode": {
+        "mode": "follow",
+        "at": null
+      }
+    },
+    {
+      "id": "session_01SampleBinLabels",
+      "cse": "session_01SampleBinLabels",
+      "sid": null,
+      "group": "waiting",
+      "title": "Bin label sizes",
+      "sub": "At 9:00 AM",
+      "sub_strong": null,
+      "sub_warn": null,
+      "late": false,
+      "time_at": 1794561120,
+      "url": "https://claude.ai/code/session_01SampleBinLabels",
+      "session": {
+        "level": "low",
+        "manual": false,
+        "reason": "Small task",
+        "needs_you": false,
+        "why": null,
+        "waiting_since": null,
+        "turn_at": null
+      },
+      "background": null,
+      "waits": [
+        {
+          "id": "w05",
+          "kind": "at",
+          "what": "Check the label printer after the reload",
+          "from": null,
+          "why": "9 AM: the printer reloads overnight",
+          "by": 1794561120,
+          "checks": "The clock",
+          "failing": false,
+          "failing_since": null
+        }
+      ],
+      "hold": null,
+      "limit_mode": {
+        "mode": "follow",
+        "at": null
+      }
+    }
+  ],
+  "archived_rev": null,
+  "archived_count": 0
+}

@@ -1,0 +1,56 @@
+[
+  {
+    "event": "hello",
+    "success": true,
+    "payload": {
+      "visible": true
+    }
+  },
+  {
+    "event": "visible",
+    "success": true,
+    "payload": {
+      "visible": false
+    }
+  },
+  {
+    "event": "open_archived",
+    "success": true,
+    "payload": {}
+  },
+  {
+    "event": "open_usage",
+    "success": true,
+    "payload": {
+      "period": "30d"
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0006",
+      "mac": "mac_7Hq2Lx9Kp4",
+      "act": "unarchive",
+      "args": {
+        "cse": "session_01SampleWeeklyPlan"
+      },
+      "basis": 1794587400
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0002",
+      "mac": "mac_7Hq2Lx9Kp4",
+      "act": "stop_waits",
+      "args": {
+        "waits": [
+          "w03"
+        ]
+      },
+      "basis": 1794587400
+    }
+  }
+]

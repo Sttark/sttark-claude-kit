@@ -1,11 +1,14 @@
 // Draws the README's pictures with the app's own code, from made-up sessions in a temporary folder. Nothing from
 // this Mac's own state:
-//   docs/menu.png             the menu: what needs you, the count in each group, Open Sttark Claude Kit
+//   docs/menu.png             the menu: what needs you, one row for each other group, one group's submenu open
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
+//   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
+//   docs/window-usage.png     the window's Usage page, 7 days, the biggest session selected with its days and models
 //   docs/window-settings.png  the window's Settings page
+//   docs/settings-phone.png   the Settings page's Phone box in each of its states (Kit on your phone)
 //   docs/window-news.png      the window's What's new page
 //   docs/window-events.png    the window's Events page, newest first, from sample log lines
-//   docs/whats-new.png        the What's new sheet over the window, with this repo's notes
+//   docs/whats-new.png        the What's new sheet over the window, with this repo's newest notes (at most 4)
 // and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
 // The window and the sheet are real windows, put off the screen and captured with screencapture, so they look as
@@ -56,13 +59,42 @@ import SwiftUI
         let facts = Sample.facts
         let c = Controller()
         let menu = NSMenu()
-        c.build(menu, facts, Inbox.snapshot())
-        Draw.png(menu.items, hot: nil, menuBar: true, to: "docs/menu.png")
+        let snap = Inbox.snapshot()
+        c.build(menu, facts, snap)
+        // the menu with one group's submenu open, as it shows when you point at the group
+        let heldRow = menu.items.firstIndex { $0.submenu != nil && $0.image?.accessibilityDescription == Inbox.Group.held.title }
+        for look in [false, true] where !look || dark != nil {
+            Draw.dark = look
+            Draw.png(menu.items, hot: heldRow, menuBar: true, to: (look ? dark! : "docs") + "/menu.png")
+        }
+        // the What's new note's picture: the same menu with fewer sessions, so it fits the note's frame
+        var small = snap
+        let keep = Set(snap.rows(.needs).prefix(1).map(\.id))
+        small.rows = snap.rows.filter { $0.group != .needs || keep.contains($0.id) }.filter { $0.group != .idle && $0.group != .local }
+            .map { var r = $0; r.subWarn = false; return r }
+        let noteMenu = NSMenu()
+        var noteFacts = facts
+        noteFacts.whatsNewUnseen = 1
+        c.build(noteMenu, noteFacts, small)
+        for look in [false, true] {
+            Draw.dark = look
+            Draw.png(noteMenu.items, hot: nil, menuBar: false, to: "whats-new/menu-groups" + (look ? "-dark" : "") + ".png")
+        }
+        Draw.dark = false
 
         let model = KitModel()
         model.fixedFacts = facts
         model.reload()
         model.reloadFacts()
+        model.phone = Sample.phone[2].1   // Settings shows Kit on your phone linked
+        for look in [false, true] where !look || dark != nil {
+            Shot.phoneStates(dark: look, to: (look ? dark! : "docs") + "/settings-phone.png")
+        }
+        // the What's new note's picture: the Phone box at the new address with no phone that gets notices yet, as a
+        // linked Mac shows it after the move until the person turns notices on again
+        for look in [false, true] {
+            Shot.phoneBox(Sample.phone[3].1, dark: look, to: "whats-new/kit-new-address" + (look ? "-dark" : "") + ".png")
+        }
         model.selected = model.snap.rows.first { $0.wait?.kind == "email-reply" }?.id
         let w = Shot.window(model)
         for look in [false, true] where !look || dark != nil {
@@ -70,9 +102,51 @@ import SwiftUI
             w.appearance = NSAppearance(named: look ? .darkAqua : .aqua)
             model.page = .sessions
             Shot.capture(w, to: folder + "/window-sessions.png")
+            model.page = .archived
+            model.reload()
+            model.archivedSelected = model.archived.items.first?.id
+            let arch = "/tmp/kit-shot-\(getpid())-archived.png"
+            Shot.capture(w, to: arch)
+            try? FileManager.default.removeItem(atPath: folder + "/window-archived.png")
+            try? FileManager.default.copyItem(atPath: arch, toPath: folder + "/window-archived.png")
+            print("wrote \(folder)/window-archived.png")
+            // the archived note's picture: the selected session with Open and Bring it back
+            Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
+                      to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
+            model.page = .usage
+            model.usageData = SessionUsage.read()
+            model.setUsagePeriod(.week)
+            model.usageSelected = model.usageReport.lines.first?.id
+            let usage = "/tmp/kit-shot-\(getpid())-usage.png"
+            Shot.capture(w, to: usage)
+            try? FileManager.default.removeItem(atPath: folder + "/window-usage.png")
+            try? FileManager.default.copyItem(atPath: usage, toPath: folder + "/window-usage.png")
+            print("wrote \(folder)/window-usage.png")
+            // the usage note's picture: the period, the legend and the biggest sessions, at the note's size
+            let r = model.usageReport
+            let uw = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            uw.appearance = w.appearance
+            uw.isReleasedWhenClosed = false
+            uw.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                Segments(options: [("today", "Today"), ("7d", "7 days"), ("30d", "30 days"), ("custom", "Custom")], value: "7d") { _ in }
+                    .padding(.bottom, 12)
+                UsageLegend().padding(.horizontal, 10).padding(.bottom, 4)
+                ForEach(Array(r.lines.prefix(3).enumerated()), id: \.element.id) { i, l in
+                    if i > 1 { Hairline().padding(.horizontal, 10) } else if i > 0 { Color.clear.frame(height: 1) }
+                    UsageRow(line: l, share: r.share(l.usd), top: r.lines.first?.usd ?? 1, selected: i == 0, multiDay: true)
+                }
+                Spacer(minLength: 0)
+            }.padding(14).frame(width: 440, height: 280).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            uw.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            Shot.capture(uw, to: "whats-new/usage-by-session" + (look ? "-dark" : "") + ".png")
+            uw.close()
+            ShotWindow.key = true   // Settings as the person sees it while using it: an on switch in its accent color
             model.page = .settings
+            Shot.redraw(w)
             Shot.capture(w, to: folder + "/window-settings.png")
+            ShotWindow.key = false
             model.page = .news
+            Shot.redraw(w)
             Shot.capture(w, to: folder + "/window-news.png")
             model.page = .events
             model.readEvents()
@@ -97,6 +171,23 @@ import SwiftUI
             Shot.capture(rows, to: "whats-new/events-page" + (look ? "-dark" : "") + ".png")
             rows.close()
             model.openEvent = nil
+            // the subagent-effort note's picture: the agent rows alone
+            let agents = model.events.filter { $0.text.hasPrefix("Agent \u{201C}") || $0.text.contains(" so fork ") }
+            let ar = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            ar.appearance = w.appearance
+            ar.isReleasedWhenClosed = false
+            model.openEvent = agents.last?.id
+            ar.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(agents.prefix(3))) { e in
+                    EventRow(model: model, e: e, open: model.openEvent == e.id)
+                    Hairline()
+                }
+                Spacer(minLength: 0)
+            }.padding(12).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            ar.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            Shot.capture(ar, to: "whats-new/subagent-effort" + (look ? "-dark" : "") + ".png")
+            ar.close()
+            model.openEvent = nil
             // the kit-window note's picture: the top of the session list, at the window's narrowest
             model.page = .sessions
             let f = w.frame
@@ -106,10 +197,14 @@ import SwiftUI
             Shot.capture(w, to: full)
             Shot.crop(full, NSRect(x: 226, y: 60, width: 392, height: 252),
                       to: "whats-new/kit-window" + (look ? "-dark" : "") + ".png")
+            // the sessions-at-once note's picture: the page's heading and its first groups
+            Shot.crop(full, NSRect(x: 226, y: 0, width: 390, height: 280),
+                      to: "whats-new/sessions-at-once" + (look ? "-dark" : "") + ".png")
             w.setFrame(f, display: true)
-            // the What's new sheet, as the menu's What's new item opens it, over the window
+            // the What's new sheet, as the menu's What's new item opens it, over the window: the newest notes, at most 4
+            // as WhatsNew.forSheet gives them, so the sheet fits the window with its title and buttons
             model.page = .sessions
-            model.sheet = WhatsNew.all
+            model.sheet = Array(WhatsNew.all.prefix(4))
             w.orderFrontRegardless()
             RunLoop.main.run(until: Date().addingTimeInterval(1.5))
             Shot.capture(w, to: folder + "/whats-new.png", wait: 0.2)
@@ -133,9 +228,54 @@ import SwiftUI
         w.close()
     }
 
+    /// The Phone box in Settings in each of its states, one under the other with a caption each, at the width of the
+    /// Settings page's column: docs/settings-phone.png.
+    static func phoneStates(dark: Bool, to path: String) {
+        let view = VStack(alignment: .leading, spacing: 16) {
+            ForEach(Sample.phone, id: \.0) { caption, s in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(caption).font(K.font(12, true)).foregroundColor(K.steel).padding(.leading, 2)
+                    Box { PhoneRow(status: s, link: {}, toggle: {}) }
+                }
+            }
+        }
+        .padding(20).frame(width: 480).background(K.card).font(K.font(13)).foregroundColor(K.ink)
+        shoot(view, dark: dark, to: path)
+    }
+
+    /// One state of the Phone box, alone, 440 points wide: a What's new note's picture.
+    static func phoneBox(_ s: PhoneLink.Status, dark: Bool, to path: String) {
+        let view = Box { PhoneRow(status: s, link: {}, toggle: {}) }
+            .padding(16).frame(width: 440).background(K.card).font(K.font(13)).foregroundColor(K.ink)
+        shoot(view, dark: dark, to: path)
+    }
+
+    /// A view in a window of its own, off the screen, captured at its fitting size; switches as they really are.
+    static func shoot<V: View>(_ view: V, dark: Bool, to path: String) {
+        let host = NSHostingView(rootView: view)
+        let size = host.fittingSize
+        let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        w.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        w.isReleasedWhenClosed = false
+        w.contentView = host
+        w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+        ShotWindow.key = true   // each switch on or off as it really is: on in its accent color, as in the key window
+        redraw(w)
+        capture(w, to: path)
+        ShotWindow.key = false
+        w.close()
+    }
+
+    /// Every view of the window draws again, so a change of ShotWindow.key shows in the next capture.
+    static func redraw(_ w: NSWindow) {
+        func all(_ v: NSView) { v.needsDisplay = true; v.subviews.forEach(all) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        if let v = w.contentView { all(v) }
+    }
+
     /// The window as the app makes it, off the screen.
     static func window(_ model: KitModel) -> NSWindow {
-        let w = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 760),
+        let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 760),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
@@ -197,6 +337,19 @@ enum Sample {
         return f.string(from: d)
     }
 
+    /// Kit on your phone in each state Settings shows, with the words for the picture's captions.
+    static var phone: [(String, PhoneLink.Status)] {
+        [("Not linked", PhoneLink.Status(stage: .notLinked)),
+         ("Linking: the link page is open in the browser", PhoneLink.Status(stage: .linking, code: "KXRT")),
+         ("Linked", PhoneLink.Status(stage: .linked, email: "name@sttark.com", connected: true, lastSent: at(11, 30), phones: 1)),
+         ("Linked, no phone gets notices yet", PhoneLink.Status(stage: .linked, email: "name@sttark.com", connected: true, lastSent: at(11, 30), phones: 0)),
+         ("Linked, the network down", PhoneLink.Status(stage: .linked, email: "name@sttark.com", lastSent: at(11, 2), problem: "no network")),
+         ("Removed on the phone", PhoneLink.Status(stage: .removed)),
+         ("Not on the roster", PhoneLink.Status(stage: .refused, email: "name@sttark.com",
+                                                problem: PhoneLink.notOnRoster)),
+         ("Off", PhoneLink.Status(stage: .off))]
+    }
+
     static var facts: MenuFacts {
         var f = MenuFacts(version: "1.140", serverInstalled: true,
                           serverFolder: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("src").path,
@@ -222,6 +375,9 @@ enum Sample {
             (1450, "wake   cse_01Sample7 \"Site map plan\" stopped, not archived; sent high to start it"),
             (300, "change cse_01Sample9 ->low (1.9s) low - A simple rename across a few files | Rename the report columns to match the new names"),
             (190, "name   sid-sample-9 -> \"Rename report columns\" (2.0s) | Rename the report columns to match the new names"),
+            (62, "agent  cse_01Sample4 Explore ->low (1.9s) low - A short file search. | Find the Events page code"),
+            (61, "agent  cse_01Sample4 general-purpose ->xhigh (2.2s) xhigh - A new page design with judgment calls. | Design the event rows"),
+            (60, "agent  cse_01Sample4 fork low->high (2.0s) high - Code changes across a few files. | Build the filters"),
             (52, "change cse_01Sample3 medium->low (2.1s) low - Routine edit with a clear plan. | Fix the typo on the exterior lighting page"),
             (41, "wait   07f324 cse_01Sample5 \"HVAC updates\" set: a reply from the controls supplier, by Mon 9:00 AM | they answer overnight"),
             (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a full app window. | Add an event viewer to the Kit"),
@@ -318,6 +474,60 @@ enum Sample {
              "last": now - 3 * 3600, "transcript": "/sample/9a3d4b8c.jsonl", "model": "claude-opus-5-5", "pid": pid, "busy": false, "pending": false],
         ]]
         try! JSONSerialization.data(withJSONObject: local).write(to: dir.appendingPathComponent("local-sessions.json"))
+        // archived sessions this Mac can bring back, as effort-hook.py archived() writes them; the Laminator quote
+        // has a Kit wait, so the page leaves it out (it shows under Waiting on someone else)
+        func archived(_ n: Int, _ title: String, _ folder: String, _ when: Date, _ doing: String) -> [String: Any] {
+            ["cse": "cse_01Sample\(n)", "title": title, "folder": NSHomeDirectory() + folder, "transcript": "/sample/arch-\(n).jsonl",
+             "archived_at": when.timeIntervalSince1970, "url": "https://claude.ai/code/session_01Sample\(n)", "doing": doing]
+        }
+        let arch: [String: Any] = ["at": now - 40, "rev": "sample", "items": [
+            archived(20, "Bin label printer", "/src/labels", at(10, 5), "Sent the new label size to the printer; the test print fits the bin."),
+            archived(10, "Laminator quote", "/src/purchasing", at(9, 50), "Waits for the supplier's reply."),
+            archived(21, "Supplier deposit", "/src/purchasing", at(9, 20), "Drafted the reply with the new ship date; it waits in Gmail."),
+            archived(22, "Door relay fix", "/src/building", at(16, 40, daysAhead: -1), "Merged the relay timing fix; the door unlocks in 2 seconds."),
+            archived(23, "Press color notes", "/src/docs", at(14, 10, daysAhead: -1), "Added the new profile names to the color chapter."),
+            archived(24, "Fan blade test", "/src/tile-fan", at(15, 30, daysAhead: -3), "Printed the test blade; the cap fits the motor."),
+            archived(25, "Weekly plan", "/Documents/plans", at(8, 45, daysAhead: -3), ""),
+        ]]
+        try! JSONSerialization.data(withJSONObject: arch).write(to: dir.appendingPathComponent("archived.json"))
+        // Usage by session: what usage-scan.py writes, for made-up sessions over the last 30 days
+        let days = (0..<30).map { SessionUsage.day(Date(), plus: $0 - 29) }
+        // name, kind, Remote Control id, minutes since last active, its use a day in dollars, its agents' part, agents a day
+        let made: [(String, String, String?, Double, Double, Double, Int)] = [
+            ("Site map plan", "session", "cse_01Sample7", 27, 126, 0.82, 11), ("Sttark Claude Kit", "session", "cse_01Sample4", 3, 122, 0.95, 8),
+            ("HVAC updates", "session", "cse_01Sample5", 9, 38, 0.81, 4), ("Press color", "session", "cse_01Sample6", 4, 33, 0.91, 4),
+            ("Order page login", "session", "cse_01Sample1", 22, 17, 0.82, 3), ("Inventory photo cleanup", "session", "cse_01Sample8", 50, 16, 0.85, 3),
+            ("Laminator quote", "session", "cse_01Sample10", 300, 15, 0.36, 2), ("Powder watch", "session", "cse_01Sample12", 1500, 13, 0.78, 1),
+            ("Usage report retry", "session", "cse_01Sample11", 2900, 11, 0.70, 1), ("Bin label printer", "session", "cse_01Sample20", 95, 9, 0.85, 1),
+            ("Door relay fix", "session", "cse_01Sample22", 1100, 8, 0.48, 1), ("Bin label sizes", "local", nil, 35, 7, 0, 0),
+            ("Exterior lighting", "session", "cse_01Sample3", 8, 6, 0.30, 1), ("Label press manual", "session", "cse_01Sample2", 41, 5, 0.40, 1),
+            ("Sttark Claude Kit checks", "kit", nil, 60, 1.2, 0, 0), ("Rename report columns", "session", "cse_01Sample9", 190, 1.1, 0.2, 0),
+            ("Runs in temporary folders", "temp", nil, 4000, 0.9, 0, 0)]
+        var cells: [[Any]] = [], agentRows: [[Any]] = []
+        for (i, x) in made.enumerated() {
+            for d in 0..<30 {
+                // a few busy days, some quiet ones, the same on every run
+                let f = [1.0, 0.2, 0.0, 1.6, 0.7, 0.0, 2.3, 1.2, 0.4, 0.9][(d * 7 + i * 3) % 10]
+                guard f > 0 else { continue }
+                let usd = x.4 * f
+                let opus = usd * (i % 3 == 0 ? 0.79 : 0.92), other = usd - opus
+                for (m, v) in [(0, opus), (i % 3 == 0 ? 1 : 2, other)] where v > 0 {
+                    cells.append([i, d, m, v * (1 - x.5), v * x.5, v * (1 - x.5) * 2.4e6, v * x.5 * 2.4e6])
+                }
+                if x.6 > 0 { agentRows.append([i, d, max(1, Int(Double(x.6) * f))]) }
+            }
+        }
+        let byKey: [[String: Any]] = made.enumerated().map { i, x in
+            ["key": x.2.map { "cse:" + $0 } ?? (x.1 == "local" ? "sid:5f1c2e7a-sample-local-1" : x.1), "kind": x.1, "cse": x.2 as Any? ?? NSNull(),
+             "title": x.0, "last": now - x.3 * 60]
+        }
+        let usageList: [String: Any] = [
+            "v": 1, "at": now - 20, "keep_days": 45, "days": days,
+            "models": [["id": "claude-opus-5-5", "name": "Opus 5.5", "priced": true], ["id": "claude-fable-5-2", "name": "Fable 5.2", "priced": true],
+                       ["id": "claude-haiku-5-5", "name": "Haiku 5.5", "priced": true]],
+            "sessions": byKey, "rows": cells, "agents": agentRows, "unpriced": [String: Any]()]
+        try? FileManager.default.createDirectory(at: dir.appendingPathComponent("usage"), withIntermediateDirectories: true)
+        try! JSONSerialization.data(withJSONObject: usageList).write(to: dir.appendingPathComponent("usage/by-session.json"))
     }
 }
 
@@ -325,8 +535,13 @@ enum Sample {
 /// indentation, separators, a submenu arrow, and the highlighted row with its submenu open beside it.
 enum Draw {
     static let rowH: CGFloat = 24, sepH: CGFloat = 11, inset: CGFloat = 5, checkW: CGFloat = 22, indentW: CGFloat = 14
-    static let panelFill = NSColor(white: 0.975, alpha: 1)
-    static let beige = NSColor(red: 0.973, green: 0.961, blue: 0.949, alpha: 1)   // brand Beige-Light
+    /// Draw in dark mode: the menu's own dark look, on the brand's dark paper.
+    static var dark = false
+    static var panelFill: NSColor { dark ? NSColor(white: 0.17, alpha: 1) : NSColor(white: 0.975, alpha: 1) }
+    static var beige: NSColor { dark ? Tokens.hex(0x121417) : NSColor(red: 0.973, green: 0.961, blue: 0.949, alpha: 1) }   // brand Beige-Light, or the dark paper
+    static var edge: NSColor { dark ? NSColor.white.withAlphaComponent(0.14) : NSColor.black.withAlphaComponent(0.12) }
+    static var hair: NSColor { dark ? NSColor.white.withAlphaComponent(0.12) : NSColor.black.withAlphaComponent(0.1) }
+    static let imageW: CGFloat = 22
 
     static func height(_ i: NSMenuItem) -> CGFloat {
         if i.isSeparatorItem { return sepH }
@@ -337,7 +552,7 @@ enum Draw {
     static func textWidth(_ i: NSMenuItem) -> CGFloat {
         guard let t = i.attributedTitle else { return 0 }
         let tabbed = t.string.contains("\t")
-        return (tabbed ? Controller.tab : ceil(t.size().width)) + CGFloat(i.indentationLevel) * indentW
+        return (tabbed ? Controller.tab : ceil(t.size().width)) + CGFloat(i.indentationLevel) * indentW + (i.image != nil ? imageW : 0)
     }
 
     static func panelSize(_ items: [NSMenuItem]) -> NSSize {
@@ -360,7 +575,7 @@ enum Draw {
         panelFill.setFill()
         NSBezierPath(roundedRect: r, xRadius: 10, yRadius: 10).fill()
         NSGraphicsContext.restoreGraphicsState()
-        NSColor.black.withAlphaComponent(0.12).setStroke()
+        edge.setStroke()
         NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10).stroke()
 
         var y = origin.y + 5
@@ -370,7 +585,7 @@ enum Draw {
             let row = NSRect(x: r.minX + inset, y: y, width: r.width - 2 * inset, height: h)
             rects.append(row)
             if i.isSeparatorItem {
-                NSColor.black.withAlphaComponent(0.1).setFill()
+                hair.setFill()
                 NSRect(x: r.minX + 14, y: y + 5, width: r.width - 28, height: 1).fill()
             } else {
                 let isHot = n == hot
@@ -392,7 +607,18 @@ enum Draw {
                     }
                 }
                 let th = t.size().height
-                let x = row.minX + 6 + checkW + CGFloat(i.indentationLevel) * indentW
+                var x = row.minX + 6 + checkW + CGFloat(i.indentationLevel) * indentW
+                if let img = i.image {   // the item's image, before its title, as macOS draws it: a template one in the text's color
+                    let drawn = img.isTemplate ? NSImage(size: img.size, flipped: false) { rect in
+                        img.draw(in: rect)
+                        ink.set()
+                        rect.fill(using: .sourceAtop)
+                        return true
+                    } : img
+                    drawn.draw(in: NSRect(x: x, y: y + (h - img.size.height) / 2, width: img.size.width, height: img.size.height),
+                               from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                    x += imageW
+                }
                 t.draw(with: NSRect(x: x, y: y + (h - th) / 2, width: textWidth(i) + 4, height: th + 2),
                        options: [.usesLineFragmentOrigin])
                 if i.submenu != nil {
@@ -405,7 +631,7 @@ enum Draw {
                         .foregroundColor: NSColor.secondaryLabelColor])
                     let bw = bt.size().width + 16, bh: CGFloat = 19
                     let br = NSRect(x: row.maxX - 8 - bw, y: y + (h - bh) / 2, width: bw, height: bh)
-                    NSColor.black.withAlphaComponent(0.1).setFill()
+                    hair.setFill()
                     NSBezierPath(roundedRect: br, xRadius: bh / 2, yRadius: bh / 2).fill()
                     bt.draw(at: NSPoint(x: br.minX + 8, y: br.minY + (bh - bt.size().height) / 2))
                 }
@@ -441,18 +667,18 @@ enum Draw {
         base.cgContext.scaleBy(x: 1, y: -1)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: base.cgContext, flipped: true)
-        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+        NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
             beige.setFill()
             NSRect(x: 0, y: 0, width: w, height: h).fill()
             if menuBar {   // the menu bar, with the gauge as the app draws it
-                NSColor(white: 0.93, alpha: 1).setFill()
+                NSColor(white: dark ? 0.12 : 0.93, alpha: 1).setFill()
                 NSRect(x: 0, y: 0, width: w, height: 30).fill()
-                NSColor.black.withAlphaComponent(0.1).setFill()
+                hair.setFill()
                 NSBezierPath(roundedRect: NSRect(x: 24, y: 4, width: 34, height: 22), xRadius: 5, yRadius: 5).fill()
                 let g = GaugeIcon.image("xhigh")
                 let tinted = NSImage(size: g.size, flipped: false) { rect in
                     g.draw(in: rect)
-                    NSColor.black.set()
+                    (dark ? NSColor.white : NSColor.black).set()
                     rect.fill(using: .sourceAtop)
                     return true
                 }
@@ -466,4 +692,13 @@ enum Draw {
         try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
         print("wrote \(path) (\(Int(w))×\(Int(h)) pt)")
     }
+}
+
+/// The tool's windows. AppKit draws a control in its accent color (an on switch, a checked box) only in the key window
+/// of the active app, and gray in any other window, where an on switch reads as off. The tool never activates the app,
+/// since nothing may come to the front, so while `key` is set its window says it has the key window's look (AppKit's own
+/// `hasKeyAppearance`, which the controls ask when they draw) and they draw as the person sees them in use.
+final class ShotWindow: NSWindow {
+    static var key = false
+    @objc(hasKeyAppearance) func keyLook() -> Bool { ShotWindow.key }
 }

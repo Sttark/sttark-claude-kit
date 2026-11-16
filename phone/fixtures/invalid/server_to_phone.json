@@ -1,0 +1,72 @@
+[
+  {
+    "why": "a Mac state the contract does not know",
+    "value": {
+      "event": "macs",
+      "success": true,
+      "payload": {
+        "macs": [
+          {
+            "id": "m",
+            "name": "n",
+            "state": "maybe",
+            "last_seen": null,
+            "kit": "1.0"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "why": "usage with no Mac",
+    "value": {
+      "event": "usage",
+      "success": true,
+      "payload": {
+        "list": {
+          "v": 1,
+          "period": "7d",
+          "from": "2026-11-07",
+          "to": "2026-11-13",
+          "at": 1794587400,
+          "total": {
+            "sessions": 18,
+            "tokens": 8100000000,
+            "agent_share": 77.3,
+            "usd": 3106.2
+          },
+          "rows": [
+            {
+              "title": "Site map plan",
+              "cse": "session_01SampleSiteMap",
+              "share": 28.3,
+              "agent_share": 23.2,
+              "last_active": 1794585780,
+              "agents": 75
+            },
+            {
+              "title": "Sttark Claude Kit",
+              "cse": "session_01SampleKitDesign",
+              "share": 27.2,
+              "agent_share": 25.8,
+              "last_active": 1794587220,
+              "agents": 51
+            },
+            {
+              "title": "HVAC updates",
+              "cse": "session_01SampleHvacUpdates",
+              "share": 8.5,
+              "agent_share": 6.9,
+              "last_active": 1794586800,
+              "agents": 26
+            }
+          ],
+          "more": {
+            "sessions": 15,
+            "share": 36.0
+          }
+        }
+      }
+    }
+  }
+]

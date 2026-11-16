@@ -15,6 +15,8 @@ struct MenuFacts {
     var claudeFound = true
     var serverElsewhere = false
     var serverInstalled = false
+    /// The server's state in plain words for Settings, and whether it needs attention.
+    var serverState: (String, Bool)? = nil
     var serverFolder: String? = nil
     var bypass = false
     var chromeApprover = false
@@ -22,6 +24,7 @@ struct MenuFacts {
     var chromeWindow = false
     var chromeWindowClosed = false
     var fileLinks = false
+    var desktopDefault = false
     var names = false
     var profile = false
     var profileSettingUp = false
@@ -53,12 +56,16 @@ struct MenuFacts {
         f.serverElsewhere = Server.otherRunning
         f.serverInstalled = Server.installed
         f.serverFolder = Server.folder
+        f.serverState = Server.installed ? ServerHealth.settingsText
+            : (Server.lastSkip.isEmpty || Server.lastSkip == "already on" || Server.lastSkip == "turned off in Settings" || Server.lastSkip.hasPrefix("a server set up")) ? nil
+            : ("Not started: " + Server.lastSkip + ". The Kit tries again by itself.", true)
         f.bypass = Bypass.on
         f.chromeApprover = ChromeApprover.on
         f.needsAccessibility = ChromeApprover.needsAccessibility
         f.chromeWindow = ChromeWindow.on
         f.chromeWindowClosed = f.chromeWindow && ChromeWindow.chromeRunning && !ChromeWindow.exists
         f.fileLinks = FileLinks.on
+        f.desktopDefault = DesktopDefault.on
         f.names = Names.on
         f.profile = ProfileSync.on
         f.profileSettingUp = ProfileSync.settingUp
@@ -66,7 +73,7 @@ struct MenuFacts {
         f.workingRules = WorkingRules.on
         f.orchestrator = Orchestrator.on
         f.reach = Reach.settings()
-        f.whatsNew = WhatsNew.all.count
+        f.whatsNew = WhatsNew.shown.count
         f.whatsNewUnseen = WhatsNew.unseen.count
         f.paused = State.paused
         f.creditsAll = Limit.creditsAll
@@ -113,6 +120,8 @@ final class Controller: NSObject, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { Login.check() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 40) { Server.autoStart() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Server.autoStart() }
+        ServerHealth.start()
+        DesktopDefault.start()
         Waiting.watchFront()
         Waiting.refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
@@ -121,6 +130,12 @@ final class Controller: NSObject, NSMenuDelegate {
         Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in KitDefaults.applyBypassSettings() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waits.check() }
+        // the Archived page's list: keep() writes it where the server runs; with no server, read it every 10 minutes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { Archived.refresh(olderThan: 540) }
+        Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in Archived.refresh(olderThan: 540) }
+        // Usage by session: read the sessions' records once in the background, so the page opens at once; each later
+        // read takes only what they gained
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120) { SessionUsage.refresh(olderThan: 3600) }
         LocalSessions.scan()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in LocalSessions.scan() }
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Login.check() }
@@ -128,6 +143,29 @@ final class Controller: NSObject, NSMenuDelegate {
         WhatsNew.start(changed: { [weak self] in self?.refreshIcon(); KitWindow.shared.model.unseen = WhatsNew.unseen.count })
         refreshIcon()
         Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refreshIcon() }
+        // a change on disk shows at once: the icon, the open menu and the window (Sync.swift); the Claude app's list is
+        // read every 10 seconds while the person looks, here or on a phone page (PhoneLink.watching)
+        Sync.watching = { [weak self] in self?.menuOpen == true || KitWindow.shared.window?.isVisible == true || PhoneLink.watching }
+        NotificationCenter.default.addObserver(forName: .kitStateChanged, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.refreshIcon()
+            if self.menuOpen, let menu = self.item.menu { self.rebuildOpen(menu) }
+        }
+        Sync.start()
+        // Kit on your phone: the link and the socket; Settings shows its state as it changes
+        PhoneLink.changed = { KitWindow.shared.model.phone = $0 }
+        PhoneLink.start()
+        KitWindow.shared.model.phone = PhoneLink.status
+    }
+
+    /// The open menu again, only when what it shows changed, so it doesn't flicker on a write that changed nothing.
+    private var shown = ""
+    func rebuildOpen(_ menu: NSMenu) {
+        let snap = Inbox.snapshot()
+        let sig = snap.rows.map { "\($0.id)|\($0.group.rawValue)|\($0.title)|\($0.timeLabel)" }.joined(separator: ";")
+        guard sig != shown else { return }
+        shown = sig
+        build(menu, MenuFacts.current(updater), snap)
     }
 
     /// A gauge showing the level of the session used last; a pause sign when auto effort is off. A dot while a
@@ -153,7 +191,11 @@ final class Controller: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         menuOpen = true
         updater.check()
-        build(menu)
+        let snap = Inbox.snapshot()
+        shown = snap.rows.map { "\($0.id)|\($0.group.rawValue)|\($0.title)|\($0.timeLabel)" }.joined(separator: ";")
+        build(menu, MenuFacts.current(updater), snap)
+        // the Claude app's list now, unless it was read in the last 3 seconds; the menu updates when it changes
+        Sync.readList(minGap: 3)
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -164,23 +206,19 @@ final class Controller: NSObject, NSMenuDelegate {
 
     func build(_ menu: NSMenu, _ f: MenuFacts) { build(menu, f, Inbox.snapshot()) }
 
-    /// A short glance: what needs the person, the count in each group, and the way into the window, where every
-    /// session and every setting is.
+    /// A short glance: the sessions that need the person, one row for each other group with its sessions in a
+    /// submenu, and the way into the window, where every session and every setting is.
     func build(_ menu: NSMenu, _ f: MenuFacts, _ snap: Inbox.Snapshot) {
         menu.removeAllItems()
-        menu.addItem(caption("Sttark Claude Kit \(f.version)"))
-        if !Updater.enabled {
-            menu.addItem(caption("Orchestrator branch: updates off"))
-        } else if f.installing {
-            menu.addItem(caption("Updating…"))
-        } else if let v = f.available {
+        // what to do now goes first; the version goes at the bottom
+        if Updater.enabled, !f.installing, let v = f.available {
             let u = action("Update to \(v)", #selector(update))
-            u.attributedTitle = NSAttributedString(string: "Update to \(v)", attributes: [.font: font(14, true)])
+            u.attributedTitle = NSAttributedString(string: "Update to \(v)", attributes: [.font: font(14, true), .foregroundColor: NSColor.labelColor])
             menu.addItem(u)
         }
         if let warn = f.loginWarning {
             let l = action(warn, #selector(signIn))
-            l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true)])
+            l.attributedTitle = NSAttributedString(string: warn, attributes: [.font: font(14, true), .foregroundColor: NSColor.labelColor])
             l.toolTip = f.loginTip
             menu.addItem(l)
         }
@@ -188,38 +226,24 @@ final class Controller: NSObject, NSMenuDelegate {
             menu.addItem(action("Needs Accessibility permission…", #selector(openAccessibility)))
         }
         if !f.claudeFound { menu.addItem(caption("Claude Code isn't installed at ~/.local/bin/claude.")) }
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
 
-        menu.addItem(.separator())
         if snap.rows.isEmpty {
             menu.addItem(caption("No sessions in the last 12 hours"))
         }
-        // the most urgent first: what needs you, then what holds at the limit, each row opens the window at it
-        for g in [Inbox.Group.needs, .held, .working, .waits] {
+        // the most urgent first; only Needs you lists its sessions here, every other group opens them in a submenu
+        for g in Controller.menuGroups {
             let rows = snap.rows(g)
             guard !rows.isEmpty else { continue }
-            let head = action("", #selector(openGroup(_:)))
-            head.attributedTitle = row(g.title, "\(rows.count)", bold: true, tagBold: true)
-            head.representedObject = rows.first?.id
-            head.toolTip = "Opens Sttark Claude Kit at \(g.title.lowercased())."
-            menu.addItem(head)
-            if g == .waits {  // a wait whose check fails shows, so it never fails silently
-                for r in rows where r.subWarn {
-                    let i = action("", #selector(openRow(_:)))
-                    i.attributedTitle = row(r.title, "check failing", tagBold: true)
-                    i.representedObject = r.id
-                    i.toolTip = (r.waits.first { !$0.failing.isEmpty }?.failing ?? "") + ". Click to see it in Sttark Claude Kit."
-                    menu.addItem(i)
-                }
-            }
-            guard g == .needs || g == .held else { continue }
-            for r in rows.prefix(g == .needs ? 5 : 3) {
-                let i = action("", #selector(openRow(_:)))
-                i.attributedTitle = row(r.title, r.time, tagBold: r.late)
-                i.representedObject = r.id
-                i.toolTip = r.sub + ". Click to see it in Sttark Claude Kit."
+            menu.addItem(groupRow(g, rows))
+            guard g == .needs else { continue }
+            for r in rows.prefix(5) {
+                let i = sessionRow(r)
+                i.image = Controller.spacer   // its name starts under the group's name, one step in
+                i.indentationLevel = 1
                 menu.addItem(i)
             }
-            if rows.count > (g == .needs ? 5 : 3) { menu.addItem(caption("and \(rows.count - (g == .needs ? 5 : 3)) more")) }
+            if rows.count > 5 { menu.addItem(caption("and \(rows.count - 5) more", indent: 1)) }
         }
 
         menu.addItem(.separator())
@@ -233,13 +257,108 @@ final class Controller: NSObject, NSMenuDelegate {
         news.isEnabled = f.whatsNew > 0
         menu.addItem(news)
         menu.addItem(.separator())
+        menu.addItem(caption("Sttark Claude Kit \(f.version)" + (f.installing ? " · updating…" : "")))
+        if !Updater.enabled { menu.addItem(caption("Orchestrator branch: updates off")) }
         menu.addItem(action("Quit", #selector(quit), key: "q"))
+    }
+
+    /// The menu's groups, most urgent first.
+    static let menuGroups: [Inbox.Group] = [.needs, .held, .working, .waits, .local, .idle]
+
+    /// The most sessions a group's submenu lists; the window has the rest.
+    static let submenuRows = 25
+
+    /// One row for a group: its icon, its name and its count. Needs you opens the window at its first session;
+    /// every other group has its sessions in a submenu.
+    func groupRow(_ g: Inbox.Group, _ rows: [Inbox.Row]) -> NSMenuItem {
+        let i = action("", #selector(openGroup(_:)))
+        let t = NSMutableAttributedString(string: g.title, attributes: [.font: font(14), .foregroundColor: NSColor.labelColor])
+        t.append(NSAttributedString(string: " (\(rows.count))", attributes: [.font: font(14), .foregroundColor: NSColor.secondaryLabelColor]))
+        // a wait whose check fails shows on the group's row, so it never fails silently
+        let failing = g == .waits ? rows.filter(\.subWarn).count : 0
+        if failing > 0 {
+            t.append(NSAttributedString(string: " · \(failing) check\(failing == 1 ? "" : "s") failing",
+                                        attributes: [.font: font(14, true), .foregroundColor: Tokens.warnText]))
+        }
+        i.attributedTitle = t
+        i.image = Controller.groupIcon(g)
+        i.representedObject = rows.first?.id
+        i.toolTip = g == .needs ? "Opens Sttark Claude Kit at what needs you." : nil
+        if g != .needs {
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            for r in rows.prefix(Controller.submenuRows) { sub.addItem(sessionRow(r)) }
+            if rows.count > Controller.submenuRows {
+                let more = action("\(rows.count - Controller.submenuRows) more in Sttark Claude Kit", #selector(openGroup(_:)))
+                more.attributedTitle = NSAttributedString(string: more.title, attributes: [.font: font(14), .foregroundColor: NSColor.secondaryLabelColor])
+                more.representedObject = rows[Controller.submenuRows].id
+                sub.addItem(more)
+            }
+            i.submenu = sub
+        }
+        return i
+    }
+
+    /// One session: its name, then what its time is ("waiting 15 min", "continues Sat 2:00 AM") in steel. A wait
+    /// whose check fails says so instead. Click it to open the session in the Claude app (the window when it has no link).
+    func sessionRow(_ r: Inbox.Row, width: CGFloat = 360) -> NSMenuItem {
+        let i = action("", #selector(openSession(_:)))
+        let warn = r.group == .waits && r.subWarn
+        let tail = warn ? "check failing" : r.timeLabel
+        let right = NSAttributedString(string: tail.isEmpty ? "" : " · " + tail,
+                                       attributes: [.font: font(14, r.late || warn),
+                                                    .foregroundColor: warn ? Tokens.warnText : NSColor.secondaryLabelColor])
+        let t = NSMutableAttributedString(string: fit(r.title, font(14), width - right.size().width),
+                                          attributes: [.font: font(14), .foregroundColor: NSColor.labelColor])
+        t.append(right)
+        i.attributedTitle = t
+        let rc = r.session?.id ?? r.wait?.cse ?? r.hold?.cse ?? ""
+        i.representedObject = [r.id, rc, r.url]
+        let inApp = Waiting.appLink(id: rc, url: r.url) != nil
+        i.toolTip = (warn ? (r.waits.first { !$0.failing.isEmpty }?.failing ?? r.sub) : r.sub)
+            + (inApp ? ". Click to open it in the Claude app." : ". Click to see it in Sttark Claude Kit.")
+        return i
+    }
+
+    /// An empty image as wide as a group's icon, so a session under Needs you lines up with the group's name.
+    static let spacer = NSImage(size: NSSize(width: 18, height: 16), flipped: false) { _ in true }
+
+    /// The group's icon, the one the window shows. Needs you keeps the attention mark, as in the window; the others
+    /// follow the menu's text color, so they stay readable on the highlighted row and in light and dark.
+    static func groupIcon(_ g: Inbox.Group) -> NSImage? {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        guard let sym = NSImage(systemSymbolName: g.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
+        let img = NSImage(size: NSSize(width: 18, height: 16), flipped: false) { r in
+            let s = sym.size
+            let rect = NSRect(x: (r.width - s.width) / 2, y: (r.height - s.height) / 2, width: s.width, height: s.height)
+            sym.draw(in: rect)
+            if g == .needs {
+                Tokens.warnMark.set()
+                rect.fill(using: .sourceAtop)
+            }
+            return true
+        }
+        img.isTemplate = g != .needs
+        img.accessibilityDescription = g.title
+        return img
     }
 
     // MARK: the window
 
     @objc func openWindow() { KitWindow.shared.show(.sessions, controller: self) }
     @objc func openRow(_ sender: NSMenuItem) { KitWindow.shared.show(.sessions, select: sender.representedObject as? String, controller: self) }
+    /// A session row: opens the session in the Claude desktop app, as the window's Open button does. A session the app
+    /// can't open (no Remote Control link) opens in the window instead.
+    @objc func openSession(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? [String] else { return openRow(sender) }
+        let (id, rc, url) = (p[0], p[1], p[2])
+        if let app = Waiting.appLink(id: rc, url: url) {
+            note("menu   open \(app.absoluteString)")
+            NSWorkspace.shared.open(app)
+        } else {
+            KitWindow.shared.show(.sessions, select: id, controller: self)
+        }
+    }
     @objc func openGroup(_ sender: NSMenuItem) { openRow(sender) }
 
     // MARK: rows
@@ -248,22 +367,6 @@ final class Controller: NSObject, NSMenuDelegate {
     func font(_ size: CGFloat, _ semibold: Bool = false) -> NSFont {
         let f = NSFont(name: "Helvetica Neue", size: size) ?? .systemFont(ofSize: size)
         return semibold ? NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask).withSize(size) : f
-    }
-
-    /// A row: the name in ink on the left, a short tag in steel on the right. The name is cut to fit, so every tag
-    /// lines up in one column. No color for levels or holds: the guide keeps an app's own meaning colors few and
-    /// never green for data, and the words already say it.
-    func row(_ title: String, _ tag: String, dim: Bool = false, bold: Bool = false, tagBold: Bool = true) -> NSAttributedString {
-        let right = NSAttributedString(string: tag, attributes: [.font: font(14, tagBold), .foregroundColor: NSColor.secondaryLabelColor])
-        let t = NSMutableAttributedString(string: fit(title, font(14, bold), Controller.tab - right.size().width - 20),
-                                          attributes: [.font: font(14, bold),
-                                                       .foregroundColor: dim ? NSColor.secondaryLabelColor : NSColor.labelColor])
-        t.append(NSAttributedString(string: "\t"))
-        t.append(right)
-        let para = NSMutableParagraphStyle()
-        para.tabStops = [NSTextTab(textAlignment: .right, location: Controller.tab)]
-        t.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: t.length))
-        return t
     }
 
     /// The text, cut with "…" to fit the width.
@@ -288,7 +391,7 @@ final class Controller: NSObject, NSMenuDelegate {
 
     func action(_ title: String, _ sel: Selector, key: String = "", enabled: Bool = true) -> NSMenuItem {
         let i = NSMenuItem(title: title, action: sel, keyEquivalent: key)
-        i.attributedTitle = NSAttributedString(string: title, attributes: [.font: font(14)])
+        i.attributedTitle = NSAttributedString(string: title, attributes: [.font: font(14), .foregroundColor: NSColor.labelColor])
         i.target = self
         i.isEnabled = enabled
         return i
@@ -326,6 +429,7 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleChromeWindow() { ChromeWindow.set(!ChromeWindow.on) }
     @objc func openChromeWindow() { ChromeWindow.open() }
 
+    @objc func toggleDesktopDefault() { let on = !DesktopDefault.on; KitDefaults.chose(DesktopDefault.id, on: on); if on { DesktopDefault.now() } }
     @objc func toggleFileLinks() { let on = !FileLinks.on; FileLinks.set(on); KitDefaults.chose("fileLinks", on: on) }
     @objc func toggleNames() { let on = !Names.on; Names.set(on); KitDefaults.chose("names", on: on) }
     @objc func toggleWorkingRules() { WorkingRules.set(!WorkingRules.on) }
@@ -374,6 +478,11 @@ final class Controller: NSObject, NSMenuDelegate {
         guard code == 0, !path.isEmpty else { note("day log: could not get the path (exit \(code))"); return }
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
+
+    /// Kit on your phone in Settings: off unlinks this Mac and records the choice; on lets the person link it.
+    @objc func toggleKitPhone() { PhoneLink.set(!PhoneLink.on) }
+    /// Link this Mac… in Settings: opens the link page in the browser, from the person's click.
+    @objc func linkPhone() { PhoneLink.link() }
 
     /// The window's Events page: what the Kit did, in plain words, newest first.
     @objc func openLog() { KitWindow.shared.show(.events, controller: self) }

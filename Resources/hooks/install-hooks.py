@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Add the effort hook to Claude Code's settings (~/.claude/settings.json), or
-take it out with --remove. Run by the Sttark Claude Kit app on every launch, so a
+take it out with --remove: on each prompt, after each step (in the background), and before the Agent tool starts
+a subagent (PreToolUse, matcher Agent|Task), to pick that agent's level. Run by the Sttark Claude Kit app on every launch, so a
 hook that went missing comes back.
 
 --names on|off adds or removes the session naming hook ("Name sessions
@@ -14,13 +15,16 @@ The usage limit hook (limit-hook.py) also goes in with the effort hook, with a s
 UserPromptSubmit entry (--hold, 8-day limit) for sessions that hold at their own percentage, and the claude-limit-wait and
 claude-limit-mode links in ~/.local/bin; the menu's "Use credits at the usage limit" switch and each
 session's own setting are settings it reads, not hook changes.
+The browser guard (browser-guard.py) also goes in with the effort hook, always: a PreToolUse entry for Bash and the
+Claude in Chrome and Control Chrome tools, and a UserPromptSubmit entry for the person's opt-in. It reads the
+"Claude window in Chrome" switch itself on each call, since a session keeps the hooks it started with.
 --orchestrator on|off sets the "Orchestrator" switch (off by default, kept as "orchestrator" in the
 app's state.json) and copies the orchestrator skills and agents into ~/.claude/skills and ~/.claude/agents,
 or takes them out. Every run without a switch brings the copies in line with the switch; --remove takes
 them out. Only copies this script made are replaced or removed (listed in orchestrator-installed.json);
 a skill or agent of the same name that someone put there by hand is left alone.
 The inline guard hooks (inline-guard.py: PreToolUse, PostToolUse and UserPromptSubmit) go in only while the
-Orchestrator switch is on, and come out when it is off and with --remove. So does the subagent rules hook
+Orchestrator switch is on, and come out when it is off and with --remove (--status calls them "inline"). So does the subagent rules hook
 (subagent-rules-hook.py: SubagentStart), which gives subagents the worker rules, and the page-check guard
 (ui-check-guard.py: SubagentStop, matcher implementer), which blocks an implementer once when it changed
 UI files and reports no page-check output. So does the browser lock (browser-lock.py: PreToolUse with a
@@ -48,6 +52,7 @@ import fcntl, json, os, shutil, sys, time
 SETTINGS = os.path.expanduser('~/.claude/settings.json')
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'effort-hook.py')
 COMMAND = f'"{HOOK}"'
+AGENT_MATCHER = 'Agent|Task'
 BYPASS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bypass-hook.sh')
 
 
@@ -255,30 +260,30 @@ def sync_orchestrator(on):
     return word
 
 
-GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inline-guard.py')
+INLINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inline-guard.py')
 # Matchers (regex, anchored): Python starts only for the tools the guard acts on. UserPromptSubmit has none.
-GUARD_LOOKUPS = 'Read|Grep|Glob|Bash|WebFetch|WebSearch'
-GUARD_MATCH = {
-    'PreToolUse': f'^({GUARD_LOOKUPS}|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|mcp__.*)$',
-    'PostToolUse': f'^({GUARD_LOOKUPS}|mcp__.*)$',
+INLINE_LOOKUPS = 'Read|Grep|Glob|Bash|WebFetch|WebSearch'
+INLINE_MATCH = {
+    'PreToolUse': f'^({INLINE_LOOKUPS}|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|mcp__.*)$',
+    'PostToolUse': f'^({INLINE_LOOKUPS}|mcp__.*)$',
 }
 
 
-def is_guard(cmd):
+def is_inline(cmd):
     return 'inline-guard.py' in cmd
 
 
-def set_guard(hooks, on):
+def set_inline(hooks, on):
     """The inline guard: with the Orchestrator switch on, the main agent gives worker jobs to subagents."""
     for event in ('PreToolUse', 'PostToolUse', 'UserPromptSubmit'):
         groups = hooks.get(event, [])
         for g in groups:
-            g['hooks'] = [h for h in g.get('hooks', []) if not is_guard(h.get('command', ''))]
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_inline(h.get('command', ''))]
         groups = [g for g in groups if g.get('hooks')]
         if on:
-            group = {'hooks': [{'type': 'command', 'command': f'"{GUARD}"', 'timeout': 10}]}
-            if event in GUARD_MATCH:
-                group = {'matcher': GUARD_MATCH[event], **group}
+            group = {'hooks': [{'type': 'command', 'command': f'"{INLINE}"', 'timeout': 10}]}
+            if event in INLINE_MATCH:
+                group = {'matcher': INLINE_MATCH[event], **group}
             groups.append(group)
         if groups:
             hooks[event] = groups
@@ -496,6 +501,35 @@ def same_tree(a, b):
     return files(a) == files(b)
 
 
+GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser-guard.py')
+GUARD_MATCHER = 'Bash|Monitor|mcp__claude-in-chrome__.*|mcp__Control_Chrome__.*'
+
+
+def is_guard(cmd):
+    return 'browser-guard.py' in cmd
+
+
+def set_guard(hooks, on):
+    """Before Bash and the Claude in Chrome and Control Chrome tools: stop steps that open or bring forward the
+    person's own Chrome while "Claude window in Chrome" is on, and give each agent's commands the agent's id, so
+    claude-window gives each agent its own window. On every message: the person's opt-in. When an agent stops:
+    its window goes back to the spare ones."""
+    for event in ('PreToolUse', 'UserPromptSubmit', 'SubagentStop'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_guard(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            g = {'hooks': [{'type': 'command', 'command': f'"{GUARD}"', 'timeout': 15 if event == 'SubagentStop' else 10}]}
+            if event == 'PreToolUse':
+                g = dict(matcher=GUARD_MATCHER, **g)
+            groups.append(g)
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
 def set_links(on):
     """claude-limit-wait and claude-limit-mode (links to limit-hook.py), claude-notify (notify.py), claude-wait (wait.py) and
     claude-migrate (migrate.py) in ~/.local/bin, next to claude. Removed on --remove, only when they point at this kit's copy."""
@@ -598,14 +632,16 @@ def main():
     s = load()
     if '--status' in sys.argv:
         print(json.dumps({'effort': has(s, 'UserPromptSubmit', ours),
+                          'agent_effort': has(s, 'PreToolUse', ours),
                           'bypass': has(s, 'PermissionRequest', is_bypass),
                           'profile': has(s, 'UserPromptSubmit', is_profile),
                           'names': has(s, 'UserPromptSubmit', is_names),
                           'rules': has(s, 'UserPromptSubmit', is_rules),
                           'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
                           'limit': has(s, 'PreToolUse', is_limit),
+                          'guard': has(s, 'PreToolUse', is_guard) and has(s, 'UserPromptSubmit', is_guard),
                           'orchestrator': orchestrator_on(),
-                          'guard': has(s, 'PreToolUse', is_guard),
+                          'inline': has(s, 'PreToolUse', is_inline),
                           'subrules': has(s, 'SubagentStart', is_subrules),
                           'uicheck': has(s, 'SubagentStop', is_uicheck),
                           'browser': has(s, 'PreToolUse', is_browser) and has(s, 'SubagentStop', is_browser),
@@ -622,7 +658,7 @@ def main():
         set_orchestrator_state(on)
         word = sync_orchestrator(on)
         before = json.dumps(s, sort_keys=True)
-        set_guard(s.setdefault('hooks', {}), on)
+        set_inline(s.setdefault('hooks', {}), on)
         set_subrules(s['hooks'], on)
         set_uicheck(s['hooks'], on)
         set_browser(s['hooks'], on)
@@ -705,7 +741,8 @@ def main():
         print(word)
     set_rules(hooks, not remove)
     set_limit(hooks, not remove)
-    set_guard(hooks, orchestrator_on() and not remove)
+    set_guard(hooks, not remove)
+    set_inline(hooks, orchestrator_on() and not remove)
     set_subrules(hooks, orchestrator_on() and not remove)
     set_uicheck(hooks, orchestrator_on() and not remove)
     set_browser(hooks, orchestrator_on() and not remove)
@@ -716,15 +753,16 @@ def main():
     set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     set_rc_startup(s, not remove)
-    for event in ('UserPromptSubmit', 'PostToolUse'):
+    for event in ('UserPromptSubmit', 'PostToolUse', 'PreToolUse'):
         groups = hooks.get(event, [])
         for g in groups:  # drop every copy, old paths included
             g['hooks'] = [h for h in g.get('hooks', []) if not ours(h.get('command', ''))]
         groups = [g for g in groups if g.get('hooks')]
         if not remove:
             h = {'type': 'command', 'command': COMMAND}
-            h.update({'timeout': 40} if event == 'UserPromptSubmit' else {'async': True})
-            groups.append({'hooks': [h]})
+            h.update({'async': True} if event == 'PostToolUse' else {'timeout': 40})
+            # PreToolUse: before a subagent starts, to pick its effort (Agent; Task is its older name)
+            groups.append({'matcher': AGENT_MATCHER, 'hooks': [h]} if event == 'PreToolUse' else {'hooks': [h]})
         if groups:
             hooks[event] = groups
         else:
