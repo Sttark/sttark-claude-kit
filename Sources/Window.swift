@@ -186,6 +186,14 @@ final class KitModel: ObservableObject {
     @Published var usageSelected: String?
     @Published var usageAll = false
     @Published var usageReading = false
+    /// The ⓘ notes that are open, by key (InfoButton and InfoNote).
+    @Published var openNotes: Set<String> = []
+
+    /// Whether the ⓘ note `key` is open, for an InfoButton and its InfoNote.
+    func note(_ key: String) -> Binding<Bool> {
+        Binding(get: { self.openNotes.contains(key) },
+                set: { if $0 { self.openNotes.insert(key) } else { self.openNotes.remove(key) } })
+    }
     weak var controller: Controller?
     /// A test draws the window from made-up facts and never runs a command.
     var fixedFacts: MenuFacts?

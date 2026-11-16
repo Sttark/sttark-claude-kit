@@ -70,8 +70,12 @@ export type ChangeRecord = { at: number; mac: string; cse: string; act: string; 
 
 /** Usage by session (schema/usage.v1.json): each session's share of the
  *  person's use on one Mac in one period, in percent, and the part its
- *  agents did. A share is never a percent of the usage limit. */
-export type UsageRow = { title: string; cse: string | null; share: number; agent_share: number; last_active: number | null; agents: number };
+ *  agents did. A share is never a percent of the usage limit. human_hours,
+ *  the human work estimate, comes only from a Kit that knows it. */
+export type UsageRow = { title: string; cse: string | null; share: number; agent_share: number; last_active: number | null; agents: number; human_hours?: number };
+/** A kind of work and its factor: the hours a person needs for each hour
+ *  Claude was at work on it. */
+export type WorkFactor = { name: string; x: number };
 export type UsageList = {
   v: 1;
   /** today, 7d, 30d, or a range of days: 2026-11-01..2026-11-10. */
@@ -80,11 +84,13 @@ export type UsageList = {
   to: string;
   /** When the Mac made it. */
   at: number;
-  total: { sessions: number; tokens: number; agent_share: number; usd: number };
+  total: { sessions: number; tokens: number; agent_share: number; usd: number; human_hours?: number };
   /** The biggest share first; at most 100. */
   rows: UsageRow[];
   /** The sessions after the first 100, together. */
-  more: { sessions: number; share: number };
+  more: { sessions: number; share: number; human_hours?: number };
+  /** The factors human_hours uses, for the note. */
+  factors?: WorkFactor[];
 };
 
 /** What the Usage tab's By session list shows: the period picked (Custom

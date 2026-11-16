@@ -320,6 +320,11 @@ import Foundation
               && int(wrows.first?["last_active"]) == fixtureNow - 1620)
         let tot = obj(week["total"])
         check("usage: the totals", int(tot["sessions"]) == 5 && (tot["usd"] as? Double ?? 0) > 0 && obj(week["more"])["sessions"] as? Int == 0)
+        // 7 days of: the site map 1.5 h software x 12 + 0.5 h design x 5, HVAC 0.75 h design x 5, Bin label sizes 0.25 h small x 2:
+        // 173.25 h, sent as 173.3
+        check("usage: human work, the total's and each row's, rounded to 0.1 h", (tot["human_hours"] as? Double) == 173.3
+              && (wrows.first?["human_hours"] as? Double) == 7 * 20.5 && (obj(week["more"])["human_hours"] as? Double) == 0
+              && list(week["factors"]).map { $0["name"] as? String ?? "" } == ["Software", "Design", "Browser and admin", "Small or mixed"])
         let today = Phone.usage(period: "today", now: fixedNow) ?? [:], month = Phone.usage(period: "30d", now: fixedNow) ?? [:]
         let custom = Phone.usage(period: SessionUsage.day(fixedNow, plus: -20) + ".." + SessionUsage.day(fixedNow, plus: -10), now: fixedNow) ?? [:]
         built.append(contentsOf: [("usage.today", today), ("usage.30d", month), ("usage.custom", custom)])
@@ -611,7 +616,7 @@ enum Sample {
             ["key": "kit", "kind": "kit", "cse": NSNull(), "title": "Sttark Claude Kit checks", "last": now.timeIntervalSince1970 - 3600],
             ["key": "runs:ReportBot", "kind": "runs", "cse": NSNull(), "title": "Runs with no name in ReportBot", "last": now.timeIntervalSince1970 - 900],
         ]
-        var rows: [[Any]] = [], agents: [[Any]] = []
+        var rows: [[Any]] = [], agents: [[Any]] = [], work: [[Any]] = []
         for d in 0..<30 {
             rows.append([0, d, 0, 2.0, 9.0, 1.0e6, 4.0e6])
             rows.append([1, d, 1, 1.5, 1.0, 5.0e5, 3.0e5])
@@ -619,6 +624,8 @@ enum Sample {
             rows.append([3, d, 2, 0.05, 0.0, 9.0e4, 0])
             rows.append([4, d, 2, 0.02, 0.0, 4.0e4, 0])
             agents.append([0, d, 3])
+            // [session, day, kind, seconds at work]: the site map is software and some design, HVAC design, the rest small
+            work.append([0, d, 0, 5400]); work.append([0, d, 1, 1800]); work.append([1, d, 1, 2700]); work.append([2, d, 3, 900])
         }
         for i in 0..<many {
             sessions.append(["key": "cse:cse_01PhoneMany\(i)", "kind": "session", "cse": "cse_01PhoneMany\(i)", "title": "Small session \(i)",
@@ -628,7 +635,10 @@ enum Sample {
         let j: [String: Any] = ["v": 1, "at": now.timeIntervalSince1970, "keep_days": 45, "days": days,
                                 "models": [["id": "claude-opus-5-5", "name": "Opus 5.5", "priced": true], ["id": "claude-sonnet-5-5", "name": "Sonnet 5.5", "priced": true],
                                            ["id": "claude-haiku-5-5", "name": "Haiku 5.5", "priced": true]],
-                                "sessions": sessions, "rows": rows, "agents": agents, "unpriced": [String: Any]()]
+                                "sessions": sessions, "rows": rows, "agents": agents, "unpriced": [String: Any](),
+                                "kinds": [["id": "software", "name": "Software", "x": 12], ["id": "design", "name": "Design", "x": 5],
+                                          ["id": "admin", "name": "Browser and admin", "x": 2.5], ["id": "small", "name": "Small or mixed", "x": 2]],
+                                "work": work]
         try? FileManager.default.createDirectory(at: kit.appendingPathComponent("usage"), withIntermediateDirectories: true)
         try? JSONSerialization.data(withJSONObject: j).write(to: kit.appendingPathComponent("usage/by-session.json"))
     }

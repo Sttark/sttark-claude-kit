@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 /// The window's Usage page: each session's share of the person's use in the period picked in the header (Today, 7
-/// days, 30 days or Custom), the biggest first, and the selected session on the right: its share split between the
-/// session and its agents, its tokens, the agents it started, its use at API prices, a bar for each day and its models.
+/// days, 30 days or Custom), the biggest first, with what the same work takes people (human work, an estimate), and the
+/// selected session on the right: its share split between the session and its agents, its tokens, the agents it
+/// started, its use at API prices, its time at work and its human work, a bar for each day and its models.
 /// No folder or path shows. The data colors are the brand's blue for the session and a tint of it for its agents,
 /// with a legend; never green, which means the main action and "you are here".
 struct UsagePage: View {
@@ -82,17 +83,34 @@ struct UsagePage: View {
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(K.infoBorder))
     }
 
-    /// "72 sessions · 8.1 billion tokens · agents did 80% · worth $3,106 at API prices", and the legend.
+    /// "72 sessions · 8.1 billion tokens · agents did 80% · worth $3,106 at API prices", what the same work takes
+    /// people ("Human work ≈ 1 person for 4.7 months · ≈ 20 people full time over these 7 days", with its ⓘ), and the
+    /// legend.
     func totals(_ r: SessionUsage.Report) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             (Text("\(r.lines.count)").font(K.font(12.5, true)) + Text(r.lines.count == 1 ? " session · " : " sessions · ")
              + Text(SessionUsage.tokens(r.tokens) + " tokens · agents did ") + Text(SessionUsage.percent(r.share(r.agents))).font(K.font(12.5, true))
              + Text(" · worth " + SessionUsage.dollars(r.usd) + " at API prices"))
                 .font(K.font(12.5)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+            if r.human > 0 { human(r) }
             UsageLegend()
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 6)
+    }
+
+    /// "Human work ≈ 1 person for 4.7 months · ≈ 20 people full time over these 7 days", its ⓘ, and the note it opens.
+    func human(_ r: SessionUsage.Report) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                (Text("Human work ").foregroundColor(K.steel) + Text("≈ " + SessionUsage.personWords(r.human)).font(K.font(13, true))
+                 + Text(" · ").foregroundColor(K.steel)
+                 + Text(SessionUsage.peopleWords(r.human, model.usagePeriod, from: r.from, to: r.to)).font(K.font(13, true)))
+                    .font(K.font(13)).foregroundColor(K.ink).fixedSize(horizontal: false, vertical: true)
+                InfoButton(open: model.note("usage-human"), label: "How human work is estimated")
+            }
+            InfoNote(text: SessionUsage.humanNote(model.usageData.kinds), open: model.note("usage-human"))
+        }
     }
 
     @ViewBuilder func more(_ r: SessionUsage.Report) -> some View {
@@ -121,6 +139,46 @@ struct UsagePage: View {
         }
         .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 8)
+    }
+}
+
+/// An ⓘ beside what it explains. It opens its note in place under it (InfoNote), which pushes what is below down;
+/// the note closes from its own X or a second click on the ⓘ. Never a tooltip: nothing important hides behind hover.
+struct InfoButton: View {
+    @Binding var open: Bool
+    let label: String
+    var body: some View {
+        Button { open.toggle() } label: {
+            Image(systemName: open ? "info.circle.fill" : "info.circle").font(.system(size: 14 * K.zoom)).foregroundColor(K.infoMark)
+                .frame(width: K.z(20), height: K.z(20)).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityValue(open ? "open" : "closed")
+    }
+}
+
+/// The note an InfoButton opens, in place, with its own X.
+struct InfoNote: View {
+    let text: String
+    @Binding var open: Bool
+    var body: some View {
+        if open {
+            HStack(alignment: .top, spacing: 8) {
+                Text(text).font(K.font(12.5)).foregroundColor(K.ink).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                Spacer(minLength: 0)
+                Button { open = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 11 * K.zoom, weight: .semibold)).foregroundColor(K.steel)
+                        .frame(width: K.z(20), height: K.z(20)).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(K.infoSoft, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(K.infoBorder))
+        }
     }
 }
 
@@ -201,6 +259,7 @@ struct UsageRow: View {
         if line.session.kind == "local" { parts.append("only on this Mac") }
         if let last = line.session.last { parts.append("last active " + SessionUsage.lastWords(last)) }
         if line.started > 0 { parts.append("\(line.started) agent\(line.started == 1 ? "" : "s")") }
+        if line.human > 0 { parts.append("≈ " + SessionUsage.personWords(line.human)) }
         return parts.joined(separator: " · ")
     }
 }
@@ -231,8 +290,10 @@ struct UsageDetail: View {
                 UsageLegend(own: SessionUsage.percent(line.own / max(line.usd, 1e-12)), agents: SessionUsage.percent(line.agents / max(line.usd, 1e-12)))
                     .padding(.top, 8)
                 FactsBox(pairs: [("Tokens", SessionUsage.tokens(line.tokens)), ("Agents", "\(line.started) started"),
-                                 ("At API prices", SessionUsage.dollars(line.usd))])
+                                 ("At API prices", SessionUsage.dollars(line.usd))]
+                         + (line.active > 0 ? [("At work", SessionUsage.hoursWords(line.active) + ", waits left out")] : []))
                     .padding(.top, 14)
+                if line.human > 0 { human }
                 if report.from != report.to { days }
                 models
             }
@@ -266,6 +327,30 @@ struct UsageDetail: View {
         default: kind = ""
         }
         return [kind, last].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// What the session's work takes people: one person's time, people full time in the period, and its human hours
+    /// by kind of work, with the ⓘ that says how it is estimated.
+    var human: some View {
+        let kinds = model.usageData.kinds
+        let byKind = line.humanByKind.filter { $0.value >= 0.05 && kinds.indices.contains($0.key) }.sorted { $0.value > $1.value }
+        let total = "≈ " + SessionUsage.hoursWords(line.human)
+        // one kind: "≈ 261 h of software work"; more: "≈ 261 h of work: software 200 h, design 61 h"
+        let split = byKind.count == 1 ? total + " of " + kinds[byKind[0].key].name.lowercased() + " work"
+            : total + " of work" + (byKind.isEmpty ? "" : ": " + byKind.map { kinds[$0.key].name.lowercased() + " " + SessionUsage.hoursWords($0.value) }.joined(separator: ", "))
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text("Human work").font(K.font(13, true))
+                InfoButton(open: model.note("usage-human-session"), label: "How human work is estimated")
+                Spacer()
+            }
+            InfoNote(text: SessionUsage.humanNote(kinds), open: model.note("usage-human-session")).padding(.vertical, 3)
+            Text("≈ " + SessionUsage.personWords(line.human)).font(K.font(17, true)).fixedSize(horizontal: false, vertical: true)
+            Text(SessionUsage.peopleWords(line.human, model.usagePeriod, from: report.from, to: report.to))
+                .font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
+            Text(split).font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 18)
     }
 
     /// A bar for each day of the period, the session's own use at the foot and its agents' above it.

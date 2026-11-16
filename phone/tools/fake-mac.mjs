@@ -331,7 +331,14 @@ export class FakeMac {
       }
     }
     const agents = Math.round(rows.reduce((a, r) => a + r.agent_share, 0) * 10) / 10;
-    return { ...this.usage, period, from, to, at: now, rows, total: { ...this.usage.total, sessions: rows.length, agent_share: Math.min(100, agents) } };
+    const total = { ...this.usage.total, sessions: rows.length, agent_share: Math.min(100, agents) };
+    // The fixture's human work is for 7 days: each period gets its part of it.
+    if (total.human_hours !== undefined) {
+      const k = (Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1) / 7;
+      for (const r of rows) if (r.human_hours !== undefined) r.human_hours = Math.round(r.human_hours * k * 10) / 10;
+      total.human_hours = Math.round(rows.reduce((a, r) => a + (r.human_hours ?? 0), 0) * 10) / 10;
+    }
+    return { ...this.usage, period, from, to, at: now, rows, total };
   }
 
   onWantUsage(period) {

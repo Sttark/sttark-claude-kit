@@ -42,6 +42,7 @@ import {
   type Wait,
 } from './model.ts';
 import { clock, dayKey, dayLabel, dayWords, span, until, when, whenFull } from './time.ts';
+import { humanNote, peopleWords, personWords } from './human.ts';
 
 export type View =
   | { page: 'sessions' }
@@ -548,7 +549,9 @@ function meters(k: Kit, b: ReturnType<typeof usageBlocks>[number]): string {
 // part its agents did (schema/usage.v1.json), under the limits. A share is
 // never a percent of the limit, and the note says so. The session's part is
 // the info blue and its agents' a lighter tint of it (never green, which
-// means "do this" and "you are here"). No folder or path anywhere.
+// means "do this" and "you are here"). No folder or path anywhere. A Kit
+// that sends it adds the human work estimate (view/human.ts): a line under
+// the totals with its ⓘ, and the end of each row's line.
 
 const PICKS: [UsagePick, string][] = [
   ['today', 'Today'],
@@ -596,10 +599,15 @@ function rangeForm(k: Kit, u: UsageView): string {
   );
 }
 
+/** Words joined with " · ", each part kept whole when the line wraps. */
+const parts = (words: string[]) => words.map((w, i) => `<span>${esc(w)}${i < words.length - 1 ? ' ·' : ''}</span>`).join(' ');
+
 function usageRow(k: Kit, r: UsageRow, top: number, tz: string): string {
-  const meta = [r.last_active ? `last active ${when(r.last_active, k.now, tz)}` : '', r.agents ? `${r.agents} ${r.agents === 1 ? 'agent' : 'agents'}` : '']
-    .filter(Boolean)
-    .join(' · ');
+  const meta = [
+    r.last_active ? `last active ${when(r.last_active, k.now, tz)}` : '',
+    r.agents ? `${r.agents} ${r.agents === 1 ? 'agent' : 'agents'}` : '',
+    r.human_hours && r.human_hours > 0 ? `≈ ${personWords(r.human_hours)}` : '',
+  ].filter(Boolean);
   const own = Math.max(0, r.share - r.agent_share);
   const ag = Math.min(r.share, r.agent_share);
   const width = Math.max(1, Math.min(100, (r.share / top) * 100));
@@ -611,8 +619,21 @@ function usageRow(k: Kit, r: UsageRow, top: number, tz: string): string {
     `</div>`;
   return (
     `<li><div class="bys-main"><div class="bys-top"><span class="name">${esc(r.title)}</span><b class="bys-pct">${pct1(r.share)}</b></div>` +
-    (meta ? `<div class="sub">${esc(meta)}</div>` : '') +
+    (meta.length ? `<div class="sub bys-meta">${parts(meta)}</div>` : '') +
     `${bar}</div>${r.cse ? openLink(sessionLink(r.cse), '', false) : '<span class="open-none" aria-hidden="true"></span>'}</li>`
+  );
+}
+
+/** The human work estimate under the totals, with its ⓘ: only from a Kit
+ *  that sends it, and only when there was work. Each Mac has its own. */
+function humanLine(ui: Ui, mac: MacInfo, list: UsageList, live: boolean): string {
+  const h = list.total.human_hours ?? 0;
+  if (!(h > 0)) return '';
+  const key = `human-${mac.id}`;
+  return (
+    `<div class="bys-human${live ? '' : ' stale'}"><p><span>Human work ≈ <b>${esc(personWords(h))}</b> ·</span> <span>${esc(peopleWords(h, list.from, list.to, list.period))}</span></p>` +
+    `${infoBtn(ui, key, 'About human work')}</div>` +
+    noteHtml(ui, key, humanNote(list.factors))
   );
 }
 
@@ -638,6 +659,7 @@ function macUsage(k: Kit, ui: Ui, u: UsageView, mac: MacInfo, list: UsageList | 
   if (!list.rows.length) return `${html}<p class="quiet">No use in this period.</p>`;
   const t = list.total;
   html += `<p class="bys-tot">${t.sessions} ${t.sessions === 1 ? 'session' : 'sessions'} · ${tokensWords(t.tokens)} tokens · agents did <b>${pct0(t.agent_share)}</b> · worth ${usd(t.usd)} at API prices</p>`;
+  html += humanLine(ui, mac, list, live);
   const top = list.rows[0].share || 1;
   const shown = u.all ? list.rows : list.rows.slice(0, USAGE_SHOWN);
   html += `<div${live ? '' : ' class="stale"'}><ul class="bys-rows">${shown.map((r) => usageRow(k, r, top, tz)).join('')}</ul></div>`;

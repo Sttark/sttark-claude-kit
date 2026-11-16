@@ -8,7 +8,8 @@
     "sessions": 18,
     "tokens": 8100000000,
     "agent_share": 77.3,
-    "usd": 3106.2
+    "usd": 3106.2,
+    "human_hours": 809.4
   },
   "rows": [
     {
@@ -17,7 +18,8 @@
       "share": 28.3,
       "agent_share": 23.2,
       "last_active": 1794585780,
-      "agents": 75
+      "agents": 75,
+      "human_hours": 236.0
     },
     {
       "title": "Sttark Claude Kit",
@@ -25,7 +27,8 @@
       "share": 27.2,
       "agent_share": 25.8,
       "last_active": 1794587220,
-      "agents": 51
+      "agents": 51,
+      "human_hours": 296.6
     },
     {
       "title": "HVAC updates",
@@ -33,7 +36,8 @@
       "share": 8.5,
       "agent_share": 6.9,
       "last_active": 1794586800,
-      "agents": 26
+      "agents": 26,
+      "human_hours": 64.0
     },
     {
       "title": "Press color",
@@ -41,7 +45,8 @@
       "share": 7.4,
       "agent_share": 6.7,
       "last_active": 1794586560,
-      "agents": 25
+      "agents": 25,
+      "human_hours": 58.5
     },
     {
       "title": "Order page login",
@@ -49,7 +54,8 @@
       "share": 3.7,
       "agent_share": 3.2,
       "last_active": 1794586080,
-      "agents": 20
+      "agents": 20,
+      "human_hours": 42.0
     },
     {
       "title": "Inventory photo cleanup",
@@ -57,7 +63,8 @@
       "share": 3.6,
       "agent_share": 3.1,
       "last_active": 1794328200,
-      "agents": 22
+      "agents": 22,
+      "human_hours": 18.5
     },
     {
       "title": "Laminator quote",
@@ -65,7 +72,8 @@
       "share": 3.3,
       "agent_share": 1.2,
       "last_active": 1794414600,
-      "agents": 13
+      "agents": 13,
+      "human_hours": 12.0
     },
     {
       "title": "Powder watch",
@@ -73,7 +81,8 @@
       "share": 2.9,
       "agent_share": 2.2,
       "last_active": 1794241800,
-      "agents": 7
+      "agents": 7,
+      "human_hours": 9.5
     },
     {
       "title": "Usage report retry",
@@ -81,7 +90,8 @@
       "share": 2.4,
       "agent_share": 1.8,
       "last_active": 1794501000,
-      "agents": 5
+      "agents": 5,
+      "human_hours": 21.0
     },
     {
       "title": "Weekly plan",
@@ -89,7 +99,8 @@
       "share": 2.1,
       "agent_share": 1.0,
       "last_active": 1794155400,
-      "agents": 4
+      "agents": 4,
+      "human_hours": 16.0
     },
     {
       "title": "Door Pi cutover",
@@ -97,7 +108,8 @@
       "share": 1.9,
       "agent_share": 0.9,
       "last_active": 1794414600,
-      "agents": 3
+      "agents": 3,
+      "human_hours": 14.5
     },
     {
       "title": "Bin label sizes",
@@ -105,7 +117,8 @@
       "share": 1.6,
       "agent_share": 0,
       "last_active": 1794069000,
-      "agents": 0
+      "agents": 0,
+      "human_hours": 6.0
     },
     {
       "title": "Laminator RFQ",
@@ -113,7 +126,8 @@
       "share": 1.4,
       "agent_share": 0.4,
       "last_active": 1794328200,
-      "agents": 2
+      "agents": 2,
+      "human_hours": 3.5
     },
     {
       "title": "Tile fan print",
@@ -121,7 +135,8 @@
       "share": 1.2,
       "agent_share": 0.6,
       "last_active": 1794241800,
-      "agents": 2
+      "agents": 2,
+      "human_hours": 7.5
     },
     {
       "title": "Sttark Claude Kit checks",
@@ -129,7 +144,8 @@
       "share": 1.0,
       "agent_share": 0,
       "last_active": 1794583800,
-      "agents": 0
+      "agents": 0,
+      "human_hours": 0
     },
     {
       "title": "Blinds Wi-Fi watchdog",
@@ -137,7 +153,8 @@
       "share": 0.9,
       "agent_share": 0.3,
       "last_active": 1794069000,
-      "agents": 1
+      "agents": 1,
+      "human_hours": 2.5
     },
     {
       "title": "Runs with no name in ReportBot",
@@ -145,7 +162,8 @@
       "share": 0.8,
       "agent_share": 0,
       "last_active": 1794580200,
-      "agents": 0
+      "agents": 0,
+      "human_hours": 0.3
     },
     {
       "title": "Runs in temporary folders",
@@ -153,11 +171,31 @@
       "share": 1.8,
       "agent_share": 0,
       "last_active": 1794582000,
-      "agents": 0
+      "agents": 0,
+      "human_hours": 1.0
     }
   ],
   "more": {
     "sessions": 0,
-    "share": 0
-  }
+    "share": 0,
+    "human_hours": 0
+  },
+  "factors": [
+    {
+      "name": "Software",
+      "x": 12
+    },
+    {
+      "name": "Design",
+      "x": 5
+    },
+    {
+      "name": "Browser and admin",
+      "x": 2.5
+    },
+    {
+      "name": "Small or mixed",
+      "x": 2
+    }
+  ]
 }

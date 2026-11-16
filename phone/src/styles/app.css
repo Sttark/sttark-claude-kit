@@ -1278,6 +1278,32 @@ main > div > h1.page-title,
 .bys-tot b {
   color: var(--ink);
 }
+/* The human work estimate: in ink at body size, so it reads at a glance,
+   with its ⓘ at the right. Each part stays whole when the line wraps (it
+   wraps inside only when it is wider than the line). */
+.bys-human {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.bys-human p {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 24px;
+}
+.bys-human p > span,
+.bys-meta > span {
+  display: inline-block;
+}
+.bys-human.stale p {
+  color: var(--steel);
+}
+.bys-meta {
+  white-space: normal;
+}
 .bys-rows {
   list-style: none;
   margin: 8px 0 0;
