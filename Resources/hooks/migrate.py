@@ -241,7 +241,7 @@ def launch(x):
     in (that turns transcript saving off). Returns the screen's name."""
     cid = x['id']
     name = 'kit-' + cid[:8]
-    subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'], capture_output=True)
+    effort.quit_screen(name)  # every copy: `screen -S <name>` acts on none when two have the name
     stable = os.path.expanduser('~/.local/share/claude/stable/claude')
     claude = stable if os.access(stable, os.X_OK) else effort.CLAUDE
     home = os.path.expanduser('~')
@@ -345,7 +345,7 @@ def move(x, by):
             name = launch(x)
             new = wait_link(x, name, len(ids))
             if not new:
-                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'], capture_output=True)
+                effort.quit_screen(name)
                 log(f'{short(x["id"])} "{x["title"]}" did not get a Remote Control link in 90 s ({by})')
                 return 1, f'"{x["title"]}" did not get a Remote Control link. It stays on this Mac only; try again.'
         register(x, new)

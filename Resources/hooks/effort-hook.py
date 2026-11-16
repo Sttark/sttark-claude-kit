@@ -801,11 +801,28 @@ def all_chats(pages=5):
     return out
 
 
+def screen_ids(name):
+    """Every screen with this exact name, as <pid>.<name>. `screen -S <name>` acts on none of them when two have the
+    name ("There are several suitable screens"), so a second copy of a chat could never be quit by its name."""
+    try:
+        out = subprocess.run(['/usr/bin/screen', '-ls'], capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return []
+    return re.findall(r'^\s*(\d+\.' + re.escape(name) + r')\s', out, re.M)
+
+
+def quit_screen(name):
+    """Quit every screen with this name: the Kit's copy of a chat, and any second copy of it."""
+    for sid in screen_ids(name):
+        subprocess.run(['/usr/bin/screen', '-S', sid, '-X', 'quit'], capture_output=True)
+
+
 def start_alone(transcript, model=''):
     """Start a saved conversation as a chat of its own with Remote Control, in a screen so it needs no Terminal
     window. The first time it gets a new link; after that, starting it again reattaches the same link.
     A clean environment, so nothing from the app or a Claude session leaks in (that turns transcript saving off).
-    `model`: the model it ran on, for a session moved from this Mac only (migrate.py), which the server never ran."""
+    `model`: the model it ran on, for a session moved from this Mac only (migrate.py), which the server never ran.
+    A screen of the same name that still runs is quit first, so the chat runs in one copy."""
     cwd = ''
     with open(transcript) as f:
         for line in f:
@@ -817,6 +834,7 @@ def start_alone(transcript, model=''):
     env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
            'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
            'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
+    quit_screen('kit-' + cid[:8])
     subprocess.run(['/usr/bin/screen', '-dmS', 'kit-' + cid[:8], '/bin/zsh', '-lc',
                     f"cd '{cwd or home}' && exec '{claude}' --resume {cid} --remote-control --permission-mode bypassPermissions"
                     + (f" --model '{model}'" if re.fullmatch(r'[\w.\[\]-]+', model or '') else '')],
@@ -825,26 +843,29 @@ def start_alone(transcript, model=''):
 
 
 def stood_down(name):
-    """Whether the chat in screen `name` was taken over elsewhere: Claude Code printed code 4090 and its status
-    line reads /rc failed. It stays open but answers nothing."""
+    """Whether the chat in screen `name` (any copy of it) was taken over elsewhere: Claude Code printed code 4090
+    and its status line reads /rc failed. It stays open but answers nothing."""
     import tempfile
-    fd, path = tempfile.mkstemp(prefix='kit-screen-')
-    os.close(fd)
-    text = ''
-    try:
-        subprocess.run(['/usr/bin/screen', '-S', name, '-p', '0', '-X', 'hardcopy', '-h', path], timeout=10)
-        for _ in range(25):  # screen writes the copy a moment after the command returns
-            time.sleep(0.2)
-            with open(path, 'rb') as f:
-                text = f.read().decode('utf-8', 'replace')
-            if text:
-                break
-    except Exception:
-        return False
-    finally:
-        os.unlink(path)
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-    return 'standing down (code 4090)' in ' '.join(text.split()) and bool(lines) and lines[-1].endswith('/rc failed')
+    for sid in screen_ids(name):
+        fd, path = tempfile.mkstemp(prefix='kit-screen-')
+        os.close(fd)
+        text = ''
+        try:
+            subprocess.run(['/usr/bin/screen', '-S', sid, '-p', '0', '-X', 'hardcopy', '-h', path], timeout=10)
+            for _ in range(25):  # screen writes the copy a moment after the command returns
+                time.sleep(0.2)
+                with open(path, 'rb') as f:
+                    text = f.read().decode('utf-8', 'replace')
+                if text:
+                    break
+        except Exception:
+            continue
+        finally:
+            os.unlink(path)
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        if 'standing down (code 4090)' in ' '.join(text.split()) and bool(lines) and lines[-1].endswith('/rc failed'):
+            return True
+    return False
 
 
 def chat_events(sid, pages=5):
@@ -1143,8 +1164,8 @@ def archived_now():
     return 0
 
 
-def keep(dry=False):
-    """Every minute, from the app: keep every chat on this Mac running unless it's archived, in one copy.
+def keep(dry=False, server_down=False):
+    """Every 15 seconds, from the app: keep every chat on this Mac running unless it's archived, in one copy.
     A Mac restart ends every chat, and the server only starts a chat again when something reaches it. Each stopped
     chat gets its own effort level sent to it again, which makes the server start it on the same link with its
     whole conversation, and shows nothing in the chat.
@@ -1156,7 +1177,10 @@ def keep(dry=False):
     over elsewhere (code 4090), that copy is quit and the chat is dropped from `alone`. A taken-over copy stays
     open doing nothing, and while it lives, reminders for the chat are sent in a form only it reads, so they're lost.
     The server's environment (the place the Claude app lists for this Mac) is learned from the chats it runs,
-    and remembered for after a restart."""
+    and remembered for after a restart.
+    `server_down`: the Kit's own server is not connected (it starts, waits on a question, or fails), which the app
+    knows from its screen. A `claude rc` process is there, but a wake can't reach it, and after two wakes every chat
+    on it was started on its own, so each ran twice once the server came back. Its chats wait for it instead."""
     import fcntl
     lock = open(os.path.join(os.path.dirname(STATE), 'keep.lock'), 'w')
     try:  # one at a time: starting a chat can take longer than the gap between checks
@@ -1192,7 +1216,7 @@ def keep(dry=False):
                 print(f'would hand over {sid} "{title}" to the server' + (f' and quit {name}' if up else ''))
             else:
                 if up:
-                    subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                    quit_screen(name)
                 log(f'handover {sid} "{title}" the server runs it now' + (f'; quit its own copy ({name})' if up else ''))
             alone.pop(sid)
             continue
@@ -1200,13 +1224,13 @@ def keep(dry=False):
             if dry:
                 print(f'would quit {name}: {sid} "{title}" was taken over elsewhere (code 4090)')
             else:
-                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                quit_screen(name)
                 log(f'standdown {sid} "{title}" its own copy was taken over elsewhere (code 4090); quit {name}')
             alone.pop(sid)
             continue
         if status.get(sid) not in ('active', 'archived') or (up and status.get(sid) == 'archived' and now - a.get('at', 0) > 120):
             if not dry:
-                subprocess.run(['/usr/bin/screen', '-S', name, '-X', 'quit'])
+                quit_screen(name)
                 log(f'keep   {sid} "{title}" archived or deleted in the Claude app; stopped it')
             alone.pop(sid)
             continue
@@ -1241,6 +1265,14 @@ def keep(dry=False):
 
     mine = [c for c in chats if c.get('environment_id') in envs and c.get('environment_kind') == 'bridge']
     stopped = [c for c in mine if c.get('status') == 'active' and c['id'] not in running and c['id'] not in alone]
+    held = bool(k.get('held')) and server_down  # logged once for each time the server is down
+    if server_down:  # they wait for the server: no wake (it can't reach it) and no start on its own (a second copy)
+        if dry and stopped:
+            print(f'would wait for the server: {len(stopped)} session(s) on it')
+        elif stopped and not held:
+            log(f'keep   the server is not connected: {len(stopped)} session(s) on it wait until it connects, and none starts on its own')
+            held = True
+        stopped = []
     room = KEEP_MAX - sum(1 for c in mine if c['id'] in running) - len(alone)
     for c in sorted(stopped, key=lambda c: c.get('last_event_at') or '', reverse=True)[:max(room, 0)]:
         sid, w = c['id'], woke.get(c['id'], {})
@@ -1277,7 +1309,7 @@ def keep(dry=False):
             woke.pop(sid)
     if not dry:
         with state() as s:
-            s['keep'] = {'envs': sorted(envs), 'woke': woke, 'alone': alone}
+            s['keep'] = {'envs': sorted(envs), 'woke': woke, 'alone': alone, **({'held': True} if held else {})}
         lock.close()  # the Archived page's list, from the same read, after keep.lock is free: its first scan can take a while
         try:
             archived(chats)
@@ -1542,7 +1574,7 @@ def main():
     if sys.argv[1:] == ['--archived']:  # the Archived page's list, on a Mac with no server
         sys.exit(archived_now())
     if sys.argv[1:2] == ['--keep']:
-        keep(dry='--dry' in sys.argv)
+        keep(dry='--dry' in sys.argv, server_down='--server-down' in sys.argv)
         return
     if len(sys.argv) == 3 and sys.argv[1] == '--title':
         fetch_title(sys.argv[2])

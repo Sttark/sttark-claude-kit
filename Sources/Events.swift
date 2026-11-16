@@ -234,6 +234,10 @@ enum Events {
                     e.kind = .problem; e.level = .warn
                     e.text = "Could not read the session list from Claude" + (http(rest).map { ": " + $0 } ?? "")
                     e.detail = ["The Kit tries again in a minute."]
+                } else if rest.hasPrefix("the server is not connected") {
+                    e.kind = .restart; e.level = .warn
+                    e.text = "Sessions on the server wait until it connects"
+                    e.detail = ["A session can't start on a server that is not connected. The Kit starts them again when it connects."]
                 } else { e.text = rest.prefix(1).uppercased() + rest.dropFirst() }
                 return e
             }
@@ -520,6 +524,20 @@ enum Events {
             } else if rest.hasPrefix("answered yes: ") {
                 e.text = "The server asked a question, so the Kit answered yes"
                 e.detail.append("It asked to " + rest.dropFirst(14) + ".")
+            } else if rest.hasPrefix("answered same-dir: ") {
+                e.text = "The server asked which spawn mode to use, so the Kit chose same-dir"
+                e.detail.append("Every session starts in the server's folder. Claude Code keeps this answer for the folder.")
+            } else if rest.hasPrefix("ended ") {
+                e.kind = .problem; e.level = .warn
+                let n = words.count > 1 ? String(words[1]) : ""
+                e.text = "Ended \(n) old \(n == "1" ? "copy" : "copies") of the Remote Control server"
+                e.detail.append("Earlier starts left them running. They kept the folder, so the server could not connect. The Kit ends only its own copies, never a server you started yourself.")
+            } else if rest.hasPrefix("stopped, ") {
+                e.kind = .restart; e.level = .warn
+                e.text = "Remote Control server stopped, and macOS started it again"
+            } else if rest.hasPrefix("start command updated") {
+                e.text = "Remote Control server: start command updated"; e.routine = true
+                e.detail.append("It gives --spawn same-dir when Claude Code has that option. It takes effect when the server starts next.")
             } else if rest.hasPrefix("started again: ") {
                 e.kind = .restart; e.level = .warn
                 e.text = "Remote Control server started again"
