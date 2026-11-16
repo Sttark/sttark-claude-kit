@@ -1,6 +1,6 @@
 # Design decisions
 
-Where Sttark Claude Kit departs from the Sttark Brand and App Guidelines' Apps chapters: the native Mac app (the guide is written for web apps), and its phone pages, the web app in `phone/` at building.sttark.com/kit. Each entry: the part, the rule, the decision and why.
+Where Sttark Claude Kit departs from the Sttark Brand and App Guidelines' Apps chapters: the native Mac app (the guide is written for web apps), and its phone pages, the web app in `phone/` at kit.sttark.com. Each entry: the part, the rule, the decision and why.
 
 | Part | Rule (chapter, section) | Decision | Why |
 |---|---|---|---|

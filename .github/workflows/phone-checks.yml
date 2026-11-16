@@ -1,4 +1,4 @@
-# Kit on your phone (phone/, the server at building.sttark.com/kit): on each pull
+# Kit on your phone (phone/, the server at kit.sttark.com): on each pull
 # request and push to main that changes it, the tests and the build; then
 # the shared Sttark page check (every page at 390 and 1280 px, light and
 # dark) and, on pull requests, the AI review against the Sttark Brand and

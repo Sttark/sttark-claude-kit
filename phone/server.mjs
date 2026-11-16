@@ -1,7 +1,7 @@
 // Production entry: `node server.mjs`, run in a folder that holds this file,
 // dist/, package.json and the production node_modules. One HTTP server on
 // HOST (default 127.0.0.1) and PORT (default 4350), behind nginx, which
-// holds the certificate (Building's, for building.sttark.com/kit):
+// holds the certificate (kit.sttark.com's own site):
 //
 //   1. a built file from dist/client (styles, scripts, fonts, icons);
 //   2. else Astro's pages and routes (dist/server/entry.mjs, the node

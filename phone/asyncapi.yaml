@@ -3,7 +3,7 @@ info:
   title: Sttark Claude Kit phone server
   version: 1.0.0
   description: |
-    The two WebSockets of Kit on your phone (building.sttark.com/kit). A Mac's Kit opens /mac and keeps it open (the Mac is behind NAT, so
+    The two WebSockets of Kit on your phone (kit.sttark.com). A Mac's Kit opens /mac and keeps it open (the Mac is behind NAT, so
     it dials out). A phone page opens /live while it is open. Every message is {event, success, payload};
     success is true except on an error message and on a result whose reason is not ok. The message schemas
     are in schema/messages.v1.json, which references schema/snapshot.v1.json and schema/archived.v1.json.
@@ -11,14 +11,13 @@ info:
     This file is written from the server's side: send is a message the server sends, receive is one it takes.
     Why each message exists, and what never leaves the Mac: phone/DESIGN.md.
     Linking a Mac comes first, over HTTP, not a socket: POST /api/mac/link and GET /api/mac/link/<poll>, in
-    schema/link.v1.json. Every path here and there is under the site's BASE_PATH ("/kit" at building.sttark.com/kit,
-    "" at an origin of its own such as kit.sttark.com).
+    schema/link.v1.json. Every path here and there is under the site's BASE_PATH ("" at an origin of its own, as
+    kit.sttark.com; "/kit" on another origin's path, as at building.sttark.com/kit, where it started).
 servers:
   production:
-    host: building.sttark.com
-    pathname: /kit
+    host: kit.sttark.com
     protocol: wss
-    description: On the sttark-building Linode, behind Building's nginx with TLS, which passes /kit/ to it.
+    description: On the sttark-building Linode, behind its own nginx site with TLS, which passes every path to it.
   local:
     host: localhost:4350
     protocol: ws

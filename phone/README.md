@@ -1,12 +1,13 @@
 # Kit on your phone: the server
 
-The web app at **building.sttark.com/kit**: a person's Sttark Claude Kit
-sessions on their phone. It is an Astro server with a SQLite database, run
-on the sttark-building Linode behind Building's nginx, which passes `/kit/`
+The web app at **kit.sttark.com**: a person's Sttark Claude Kit sessions on
+their phone. It is an Astro server with a SQLite database, run on the
+sttark-building Linode behind its own nginx site, which passes every path
 to it. The design is in `DESIGN.md` beside this file, and the messages
 between the server, the Kit on each Mac and the phone pages are in
-`asyncapi.yaml` and `schema/`. It can move to kit.sttark.com later by
-changing `APP_ORIGIN` and `BASE_PATH` only (Environment, below).
+`asyncapi.yaml` and `schema/`. It started at building.sttark.com/kit; the
+code serves either way, by `APP_ORIGIN` and `BASE_PATH` only (Environment,
+below).
 
 What it serves (under `BASE_PATH`, Environment below):
 
@@ -138,18 +139,18 @@ so the roster sync, the daily job and the sockets start at once. nginx
 passes `/` and, with the Upgrade headers, `/mac` and `/live` to it (under
 `BASE_PATH`, as they came), with `Host`, `X-Forwarded-Proto` and
 `X-Real-IP` (or `X-Forwarded-For`): the link page compares the browser's
-address with the Mac's, and an address it cannot know shows the code. On
-building.sttark.com it passes only the sign-in cookie, `sttark_kit_session`,
-never Building's (Sttark/building ansible, "Kit on this box"): a new cookie
-needs a change there too. A restart (`SIGTERM`) closes every socket with
-1012 first, so each Kit and page connects again at once.
+address with the Mac's, and an address it cannot know shows the code. The
+site is kit.sttark.com's own (Sttark/building ansible, "Kit on this box").
+A restart (`SIGTERM`) closes every socket with 1012 first, so each Kit and
+page connects again at once.
 
 **Deploy.** `../.github/workflows/phone-deploy.yml`, on each change under
 `phone/` on main and by hand: the tests, `npm run fonts` with the fonts from
-Sttark/sttark-docs, `npm run build` with `BASE_PATH=/kit`, then the pack to
-the box's `kit-deploy`, which sets `APP_ORIGIN` (`https://building.sttark.com`),
-refuses a pack built for another path, restarts and checks `/kit/healthz`;
-the workflow then checks the public `/kit/healthz` for its commit.
+Sttark/sttark-docs, `npm run build` with an empty `BASE_PATH`, then the pack
+to the box's `kit-deploy`, which sets `APP_ORIGIN` (`https://kit.sttark.com`),
+refuses a pack built for a path, restarts and checks `/healthz`; the
+workflow then checks the public `https://kit.sttark.com/healthz` for its
+commit.
 
 **Sockets.** `server.mjs` passes every upgrade request to the handler set
 with `onUpgrade()` (`src/lib/upgrade.ts`) and refuses it while none is set;
@@ -283,18 +284,27 @@ sender is `src/lib/push.ts`.
   as it draws; a push sets it while the app is closed.
 - **Sign out** on a phone ends its subscription; **Sign out everywhere** all
   of the person's. The person's Macs hear the new count either way.
+- **A subscription belongs to its address** (`APP_ORIGIN` and `BASE_PATH`,
+  kept with it as `site`): its service worker is that address's. When the
+  Kit moves (as from building.sttark.com/kit to kit.sttark.com), no page at
+  the new address can turn the old one off, and a phone with notices on at
+  both would get each notice twice. So at start the server ends every
+  subscription made at another address (one with no `site` was made at the
+  first address), each with a record by `server start`, and the person's
+  Macs hear the new count. The person adds Claude Kit to the Home Screen
+  again from the new address and turns notices on there.
 
 ## Environment
 
 | Variable | Needed | What |
 |---|---|---|
-| `APP_ORIGIN` | production | The site's origin: `https://building.sttark.com` (with a `BASE_PATH` of `/kit`), which the box's `kit-deploy` sets; `https://kit.sttark.com` if it moves there. Google returns to it (with `BASE_PATH`); the link page's address and QR code start with it; a form post and a `/live` socket must come from it; an `https` origin makes the sign-in cookie secure. Default `http://localhost:4350` |
+| `APP_ORIGIN` | production | The site's origin: `https://kit.sttark.com`, which the box's `kit-deploy` sets. Google returns to it (with `BASE_PATH`); the link page's address and QR code start with it; a form post and a `/live` socket must come from it; an `https` origin makes the sign-in cookie secure; a phone's notices belong to it with `BASE_PATH` (Needs you notices, above). Default `http://localhost:4350` |
 | `VAULT_GOOGLE_CLIENT_ID`, `VAULT_GOOGLE_CLIENT_SECRET` | production | The shared Sttark Workspace sign-in client. Unset, Sign in with Google says it is not set up |
 | `VAULT_ORG_SYNC_TOKEN` | production | The Kit's own read-only Workrouter org-sync key (`sk_org_...`), for the hourly roster. Unset, the roster stays as stored |
 | `VAULT_VAPID_PUBLIC_KEY`, `VAULT_VAPID_PRIVATE_KEY` | production | The Web Push key pair (P-256, base64url, as `web-push` makes it). Unset (or not a P-256 pair), Menu says notices are not set up and nothing is sent. A local run makes its own and keeps it in the database. A new pair ends every phone's subscription, so it is made once and kept: `node -e "import('web-push').then(w=>{const k=w.generateVAPIDKeys();process.stdout.write(k.publicKey+' '+k.privateKey)})"` piped into `gh secret set`, never shown |
 | `KIT_DB` | production | The database file, default `data/kit.db` (made with its folder) |
 | `HOST`, `PORT` | optional | Where `server.mjs` listens, default `127.0.0.1` and `4350` |
-| `BASE_PATH` | build only | The path the site lives under: `/kit` at `building.sttark.com/kit` (the deploy builds with it), empty at its own origin such as `kit.sttark.com` (the default). Set when building (and for `npm run dev`); the build writes it to `dist/kit-build.json`, and every link, file, cookie and socket path starts with it (`src/lib/paths.ts`). Google returns to `APP_ORIGIN` + `BASE_PATH` + `/auth/callback`, and nginx passes the path as it came |
+| `BASE_PATH` | build only | The path the site lives under: empty at its own origin, `kit.sttark.com` (the default, and what the deploy builds with); `/kit` for a path on another origin, as at `building.sttark.com/kit`, where it started. Set when building (and for `npm run dev`); the build writes it to `dist/kit-build.json`, and every link, file, cookie and socket path starts with it (`src/lib/paths.ts`). Google returns to `APP_ORIGIN` + `BASE_PATH` + `/auth/callback`, and nginx passes the path as it came |
 | `WORKROUTER_URL` | optional | Workrouter's base URL, default `https://www.sttark.com` |
 | `DEV_FAKE_USER` | local only | Signs everyone in as this address. Ignored when `NODE_ENV` is `production` |
 | `STTARK_FONTS_DIR` | build only | A folder with the font files (Fonts, below) |
@@ -347,7 +357,7 @@ each kind of row is kept:
 | `macs` | Linked Macs and their public keys | For good; a removed Mac keeps its row, with when, why (`phone`, `mac`, `roster`, `quiet`) and by whom. A Mac not heard from in 90 days is removed by the daily job |
 | `links` | Link pages waiting for a sign-in (hashes of their tokens) | 1 day |
 | `snapshots`, `archived` | The last snapshot and archived list each Mac sent | Replaced each time; deleted when the Mac is removed |
-| `push_subs` | Web Push subscriptions, one per phone: its person, the sign-in it was made under, its keys, notices on or off, when that last changed, and the kind of device | Until sign-out, or the push service says it is gone |
+| `push_subs` | Web Push subscriptions, one per phone: its person, the sign-in it was made under, its keys, notices on or off, when that last changed, the kind of device, and the address it was made at | Until sign-out, the push service says it is gone, or the server starts at another address |
 | `pushes_sent` | Needs you pushes sent | 2 days |
 | `records` | Every change, with who made it | **1 year** |
 
@@ -391,7 +401,8 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   no keys in production, a bad pair, a local run's own pair; a phone turning
   notices on and off with a record each, only its own person, a renewed
   subscription keeping its choice, a phone that moves to another person,
-  Sign out and Sign out everywhere; what is not a browser subscription and
+  Sign out and Sign out everywhere; a subscription made at another address
+  ended at start, with a record; what is not a browser subscription and
   a push service the Kit does not send to; every skip rule (no phone,
   notices off, a visible page, sent already, two Macs at once, a new reply
   sends again, not set up); the push itself decrypted, its VAPID claims,

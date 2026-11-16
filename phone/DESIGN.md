@@ -4,7 +4,7 @@ How the Kit's phone web app works: where its server runs, how a Mac and a phone 
 
 The contract is in this folder and is the source of truth for every message: `asyncapi.yaml` (both sockets), `schema/` (JSON Schemas that refuse unknown fields), and `fixtures/` (sample messages, and cases that must fail; `fixtures/from-mac/` is made by the Mac's own builder, `tools/phone-test.swift`). `node phone/schema/check.mjs` checks them; `.github/workflows/phone-contract.yml` runs it on each change. Change the schema, a fixture and this note in the same pull request.
 
-![How the data moves: phone, building.sttark.com/kit, your Mac](design.png)
+![How the data moves: phone, kit.sttark.com, your Mac](design.png)
 
 ## The answer in short
 
@@ -12,7 +12,7 @@ The contract is in this folder and is the source of truth for every message: `as
 |---|---|
 | Repo | Sttark/sttark-claude-kit, new folder `phone/` (server and pages), next to the Mac code it mirrors |
 | Host | The sttark-building Linode (2 GB, 45.33.102.173), as its own app, like HVAC |
-| URL | `https://building.sttark.com/kit` (kit.sttark.com later: `APP_ORIGIN` and `BASE_PATH` only) |
+| URL | `https://kit.sttark.com`, its own origin (it started at `building.sttark.com/kit`) |
 | Phone sign-in | Google, verified @sttark.com, checked on the server, on the Workrouter roster |
 | Mac sign-in | Each Mac makes its own key. One browser sign-in links it to the person. No typed secret |
 | Mac to server | One WebSocket the Mac opens and keeps (`/mac`), so NAT and any network work |
@@ -27,30 +27,27 @@ The contract is in this folder and is the source of truth for every message: `as
 
 **Host.** The sttark-building Linode. It already runs nginx, certbot, Node 24, SQLite apps and a second app from another repo (HVAC, on its own ports, with its own deploy key). The Kit server is small: about 60 to 100 MB of memory, no build on the box.
 
-**URL.** `https://building.sttark.com/kit`: a path on Building's origin, which needs no DNS change and no new certificate. Building's nginx passes `/kit/` to the Kit as it came, so the Kit is built with `BASE_PATH=/kit` and runs with `APP_ORIGIN=https://building.sttark.com`. kit.sttark.com can come later by changing `APP_ORIGIN` and `BASE_PATH` only (plus a DNS record and an nginx site on the box); the server's code does not change.
+**URL.** `https://kit.sttark.com`: its own origin, with an A record to the box and its own nginx site and certificate. The site passes every path to the Kit as it came, so the Kit is built with an empty `BASE_PATH` and runs with `APP_ORIGIN=https://kit.sttark.com`. A Home Screen app, its service worker, its push permission and its sign-in cookie belong to an origin, so on its own origin they are the Kit's alone, with no work: its manifest's `id`, `start_url` and `scope` are `/`, its service worker is `/sw.js` with the scope `/`, and its cookie has the path `/`.
 
-**One origin, two sites kept apart.** A Home Screen app, its service worker, its push permission and its sign-in cookie belong to an origin, so the Kit keeps to its path:
-- Its sign-in cookie has the path `/kit`, and nginx passes the Kit only that cookie, never Building's.
-- Its manifest (`/kit/site.webmanifest`) has `id`, `start_url` and `scope` `/kit/`, so its Home Screen app is a different app from Building. Its service worker is `/kit/sw.js` with the scope `/kit/`, answers no request, and opens or moves only its own pages. nginx drops `Service-Worker-Allowed` and `Clear-Site-Data` from the Kit, so it cannot reach past `/kit/` or clear Building's cookies.
-- No Building page lives under `/kit/` (`kit` is a reserved location slug there), and Building has no service worker.
-- What they share: the push permission (one per origin; each has its own subscription), and the Light, Auto or Dark choice (`sttark-theme`), which is the same person's choice in both.
+**Where it started.** At `https://building.sttark.com/kit`, a path on Building's origin, which needed no DNS change and no new certificate: built with `BASE_PATH=/kit`, its cookie, manifest and service worker kept under `/kit/`, and nginx passing it only its own cookie. The move to kit.sttark.com changed `APP_ORIGIN` and `BASE_PATH` only, plus the DNS record, the site and the redirect URI; the server's code did not change, except that a phone's notices now end when the address they were turned on at is not the server's (section 5). Each Mac keeps its link: the server, its database and each Mac's key are the same, and only the Kit's address changed. A Home Screen app saved from the old address does not work any more: the person adds Claude Kit again from kit.sttark.com and turns notices on there. Then building.sttark.com has no `/kit` at all.
 
 **What it needs from people.**
-- The redirect URI `https://building.sttark.com/kit/auth/callback` on the shared Workspace sign-in client (Google Cloud project `frontier-account`, the client docs.sttark.com and www.sttark.com use). Its id and secret then go into the Kit repo's production environment.
+- The redirect URI `https://kit.sttark.com/auth/callback` (and the origin `https://kit.sttark.com`) on the shared Workspace sign-in client (Google Cloud project `frontier-account`, the client docs.sttark.com and www.sttark.com use). Its id and secret then go into the Kit repo's production environment.
+- The A record `kit.sttark.com` to the box (DNSimple, account 89129).
 - A Workrouter org-sync key (`sk_org_...`) for the Kit, from Workrouter's admin API keys page.
 - No new box and no money. If Building, HVAC and the Kit together run the 2 GB box short, a resize to 4 GB is about $12 a month more.
 
 **Set up on the box by Building's ansible** (Sttark/building, flag `kit_on_this_box: true`, as `hvac_on_this_box` works; its `ansible/README.md`, "Kit on this box"):
 - user `kit`; `/srv/claude-kit` (code) and `/srv/claude-kit-data/kit.db` (data);
 - systemd unit `claude-kit` on `127.0.0.1:4350`, with `EnvironmentFile=/srv/claude-kit/env`;
-- in Building's own nginx server block: `/kit` to `/kit/`, `/kit/` to 4350, `/kit/mac` and `/kit/live` with the Upgrade headers and `proxy_read_timeout 3600s`; no site or certificate of its own;
+- its own nginx site for `kit.sttark.com`: every path to 4350 as it came, `/mac` and `/live` with the Upgrade headers and `proxy_read_timeout 3600s`; its own certificate;
 - `/usr/local/bin/kit-deploy` (owned by root), the `kit` user's `authorized_keys` line with `command="/usr/local/bin/kit-deploy"`, and one sudoers line for `systemctl restart claude-kit`;
 - the nightly backup also writes `kit-<time>.db.age`, as it does for HVAC.
 
-**Deploy.** `.github/workflows/phone-deploy.yml` in the Kit repo, on a push to `main` under `phone/` and by hand. The runner tests, copies in the fonts from Sttark/sttark-docs (`npm run fonts`), builds with `BASE_PATH=/kit`, packs the built app and its production modules, and writes the env file from the secrets without printing it. It sends the pack over SSH to the forced command. `kit-deploy` refuses a pack built for another path, unpacks to `releases/<sha>`, writes the env file (mode 600, with the box's own `NODE_ENV`, `HOST`, `PORT`, `KIT_DB` and `APP_ORIGIN`), moves the `current` link, restarts, checks `/kit/healthz`, and goes back to the last release when the check fails. Then the workflow asks the public `/kit/healthz` for its commit.
+**Deploy.** `.github/workflows/phone-deploy.yml` in the Kit repo, on a push to `main` under `phone/` and by hand. The runner tests, copies in the fonts from Sttark/sttark-docs (`npm run fonts`), builds with an empty `BASE_PATH`, packs the built app and its production modules, and writes the env file from the secrets without printing it. It sends the pack over SSH to the forced command. `kit-deploy` refuses a pack built for a path, unpacks to `releases/<sha>`, writes the env file (mode 600, with the box's own `NODE_ENV`, `HOST`, `PORT`, `KIT_DB` and `APP_ORIGIN`), moves the `current` link, restarts, checks `/healthz`, and goes back to the last release when the check fails. Then the workflow asks the public `https://kit.sttark.com/healthz` for its commit.
 
 **Looked at and left out.**
-- `kit.sttark.com`, its own origin: keeps the Kit's Home Screen app, service worker, push permission and cookie apart from Building with no work, but needs a DNS record that is not coming soon. The move later is `APP_ORIGIN` and `BASE_PATH`.
+- `building.sttark.com/kit`, a path on Building's origin: where it started, because it needed no DNS record. It shared Building's origin, so its cookie, service worker and Home Screen app had to be kept under `/kit/` by hand, and they shared one push permission. It moved to kit.sttark.com once the DNS record could be made.
 - `*.eng.sttark.com` (the Machine Broker's proxy): its Google sign-in gate blocks the Mac's socket and the phone's cookie-less icon and manifest fetches.
 - The Machine Broker as the Mac's transport: one shared key for all devices, which a public app cannot carry. It is made for plant machines.
 - docs.sttark.com's box: a document platform on MariaDB; nothing to share.
@@ -66,7 +63,7 @@ The contract is in this folder and is the source of truth for every message: `as
 3. The click opens the link page. Google sign-in comes first, with the Claude Code login as the account hint when it is a @sttark.com address. The server checks a verified @sttark.com account on the roster.
 4. The page says "Link MacBook Pro to your account?" with one green **Link** button. When the browser is not on the same public address as the Mac that asked, the page also shows the code and asks the person to check that the Kit shows the same code.
 5. **Link** saves the Mac's public key to the person, and records the change. The Kit sees the answer (it polls every 2 seconds) and connects.
-6. The page then says "Linked. On your phone, open building.sttark.com/kit", with a QR code.
+6. The page then says "Linked. On your phone, open kit.sttark.com", with a QR code.
 
 **Each connection.** The server sends a random challenge. The Mac signs the UTF-8 text "kit-mac-v1", its Mac id and the challenge, one per line with no newline at the end (ECDSA P-256 with SHA-256; DER or the 64-byte r and s). The server checks the signature with the saved key, that the Mac is not removed and that its person is on the roster. Otherwise it closes with code 4401 (removed, unknown or a wrong signature) or 4403 (not on the roster); 4400 when no valid auth comes in 15 seconds, and 4409 when a newer connection of the same Mac takes over. A copy of the server's database cannot pose as a Mac, because the server holds only public keys. This follows the door controllers: the device's own key, saved when it is admitted.
 
@@ -117,7 +114,7 @@ Some labels are short lines the Kit or Claude wrote about the work. They are not
 
 ## 4. Actions from the phone
 
-**Transport.** The Mac is behind NAT, so it opens the socket: `wss://building.sttark.com/kit/mac`, with `URLSessionWebSocketTask` (built into macOS, no new dependency). After a drop it connects again: at once on wake or a network change, else after 1, 2, 4 ... 60 seconds. The Engineering Handbook asks for WebSocket between backend and UI, with an AsyncAPI file and messages shaped `{event, success, payload}`. `phone/asyncapi.yaml` describes both sockets.
+**Transport.** The Mac is behind NAT, so it opens the socket: `wss://kit.sttark.com/mac`, with `URLSessionWebSocketTask` (built into macOS, no new dependency). After a drop it connects again: at once on wake or a network change, else after 1, 2, 4 ... 60 seconds. The Engineering Handbook asks for WebSocket between backend and UI, with an AsyncAPI file and messages shaped `{event, success, payload}`. `phone/asyncapi.yaml` describes both sockets.
 
 **The same code the window runs.** New `Sources/Actions.swift`: one function per action, each with an origin (`window` or `phone`), each returning a result with before and after. The window's buttons change to call them. The phone calls the same ones.
 
@@ -172,6 +169,8 @@ The Mac always sends a new snapshot after, so the phone draws the truth.
 6. A visible phone page gets no push. The page already shows it.
 7. Each push has the tag `needs-<cse>`, so a newer one replaces the old one. The server keeps the person, session and waiting time for 2 days, so a reconnect or two Macs never send it twice.
 8. Notices can be turned off per phone in Menu.
+
+A subscription belongs to the address it was made at (its service worker is that address's). When the Kit moves, no page at the new address can turn the old one off, and a phone with notices on at both would get each notice twice. So at start the server ends each subscription made at another address, with a record, and the person turns notices on again at the new address.
 
 ## 6. Several Macs, sign out, a Mac that is away
 
@@ -240,7 +239,7 @@ No session secret (sign-ins are random ids in the database) and no Mac secret (e
 | `phone/`, `.github/workflows/phone-deploy.yml`, `phone-checks.yml` | The server, its pages, `asyncapi.yaml`, tests, page check and app review |
 
 **The switch.** Settings, new box **Phone**, after Reach me by:
-- **Kit on your phone**. On, not linked: "Link this Mac with your Sttark sign-in to see your sessions on your phone." and **Link this Mac...**. On and linked: "Your sessions show at building.sttark.com/kit, signed in as name@sttark.com. Last sent 11:30 AM." Off: "Nothing goes to building.sttark.com/kit."
+- **Kit on your phone**. On, not linked: "Link this Mac with your Sttark sign-in to see your sessions on your phone." and **Link this Mac...**. On and linked: "Your sessions show at kit.sttark.com, signed in as name@sttark.com. Last sent 11:30 AM." Off: "Nothing goes to kit.sttark.com."
 - One line: "Needs you notices go to your phone when you are away from this Mac."
 
 On by default, the Kit's rule: `KitDefaults` turns `phone` on at the first start after the update. It sends nothing until a person links the Mac, and linking shows its own notice once. Turning it off records `turnedOff`, and the Kit never turns it on again.
@@ -294,7 +293,7 @@ Sizes: S is about half a day, M about one day, L two to three days.
 
 ## 10. Needs a person
 
-1. A frontier-account Google Cloud project owner: add `https://building.sttark.com/kit/auth/callback` to the shared Workspace sign-in client, and give its id and secret to the Kit repo's production environment.
+1. A frontier-account Google Cloud project owner: add `https://kit.sttark.com/auth/callback` to the shared Workspace sign-in client, and give its id and secret to the Kit repo's production environment.
 2. A Workrouter admin: an org-sync key for the Kit.
 3. A Kit repo admin: make the `production` environment, set `DEPLOY_SSH_KEY` and the VAPID keys, and put the VAPID break-glass copy in Secret Manager.
 4. Building's owners: review the `kit_on_this_box` pull request and run `site.yml`.

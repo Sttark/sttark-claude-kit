@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { db, resetDbForTests } from '../src/lib/db.ts';
 import { events } from '../src/lib/events.ts';
 import {
-  allowedEndpoint, deviceOf, noticesOf, noticesOfSignIn, payloadOf, phonesFor, pushKey, remind, setNotices, settings, startPush, subscribe, vapid, validPair,
+  allowedEndpoint, deviceOf, endOtherAddresses, noticesOf, noticesOfSignIn, payloadOf, phonesFor, pushKey, remind, setNotices, settings, startPush, subscribe, vapid, validPair,
   type Remind,
 } from '../src/lib/push.ts';
 import { expireOld } from '../src/lib/expiry.ts';
@@ -174,6 +174,42 @@ describe('subscriptions', () => {
     expect(phonesFor(ADA.email)).toBe(0);
     expect(heardOf).toHaveBeenCalledTimes(2);
     events.off('push-subs-changed', heardOf);
+  });
+
+  it('notices turned on at another address end at start, with a record each; the Macs hear the new count', () => {
+    const site = (endpoint: string) => (db().prepare('SELECT site FROM push_subs WHERE endpoint = ?').get(endpoint) as { site: string | null } | undefined)?.site;
+    const here = sink.subscription('here');
+    subscribe(ADA, 'signin-1', here, IPHONE);
+    expect(site(here.endpoint)).toBe('localhost:4350');
+    // Two made before the server kept an address (at the Kit's first one), and one at another address.
+    const old = (endpoint: string, email: string, device: string, at: string | null) =>
+      db().prepare('INSERT INTO push_subs (endpoint, email, web_session, p256dh, auth, notices, created_at, device, site) VALUES (?, ?, NULL, ?, ?, 1, ?, ?, ?)')
+        .run(endpoint, email, here.keys.p256dh, here.keys.auth, now() - 3600, device, at);
+    old(sink.subscription('ada-old').endpoint, ADA.email, 'Android phone', null);
+    old(sink.subscription('bix-old').endpoint, BIX.email, 'iPhone', null);
+    old(sink.subscription('bix-other').endpoint, BIX.email, 'iPhone', 'building.sttark.com/kit');
+    expect([phonesFor(ADA.email), phonesFor(BIX.email)]).toEqual([2, 2]);
+    const heardOf = vi.fn();
+    events.on('push-subs-changed', heardOf);
+    expect(endOtherAddresses()).toBe(3);
+    expect(endOtherAddresses()).toBe(0);
+    events.off('push-subs-changed', heardOf);
+    expect([phonesFor(ADA.email), phonesFor(BIX.email)]).toEqual([1, 0]);
+    expect(noticesOf(ADA.email, here.endpoint)).toMatchObject({ known: true, on: true });
+    expect(heardOf.mock.calls.map((c) => c[0].email).sort()).toEqual([ADA.email, BIX.email]);
+    expect(records().slice(1)).toEqual([
+      { who: 'server start', action: 'notices', before: '{"notices":true,"device":"Android phone","site":null}', after: '{"notices":false,"why":"moved","site":"localhost:4350"}', result: 'ok',
+        words: 'Stopped Needs you notices for Android phone: they were turned on at the Kit\'s first address, and the Kit is at localhost:4350 now. Turn them on again there.' },
+      { who: 'server start', action: 'notices', before: '{"notices":true,"device":"iPhone","site":null}', after: '{"notices":false,"why":"moved","site":"localhost:4350"}', result: 'ok',
+        words: 'Stopped Needs you notices for iPhone: they were turned on at the Kit\'s first address, and the Kit is at localhost:4350 now. Turn them on again there.' },
+      { who: 'server start', action: 'notices', before: '{"notices":true,"device":"iPhone","site":"building.sttark.com/kit"}', after: '{"notices":false,"why":"moved","site":"localhost:4350"}', result: 'ok',
+        words: 'Stopped Needs you notices for iPhone: they were turned on at building.sttark.com/kit, and the Kit is at localhost:4350 now. Turn them on again there.' },
+    ]);
+    // The server at a new address: the phone that turned notices on here must turn them on again there.
+    vi.stubEnv('APP_ORIGIN', 'https://kit.sttark.com');
+    expect(endOtherAddresses()).toBe(1);
+    expect(phonesFor(ADA.email)).toBe(0);
+    expect(records().at(-1)).toMatchObject({ words: 'Stopped Needs you notices for iPhone: they were turned on at localhost:4350, and the Kit is at kit.sttark.com now. Turn them on again there.' });
   });
 
   it('the device from its browser', () => {

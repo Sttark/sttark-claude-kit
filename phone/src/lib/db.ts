@@ -147,6 +147,10 @@ const ADDED_COLUMNS: [table: string, column: string, decl: string][] = [
   // device it is ("iPhone"), for Menu and the records (lib/push.ts).
   ['push_subs', 'changed_at', 'INTEGER'],
   ['push_subs', 'device', 'TEXT'],
+  // The address the phone turned notices on at (siteName(): kit.sttark.com),
+  // whose service worker gets them. None: before the server kept it, at the
+  // Kit's first address (lib/push.ts, endOtherAddresses).
+  ['push_subs', 'site', 'TEXT'],
 ];
 
 let handle: Database.Database | undefined;
