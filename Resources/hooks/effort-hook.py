@@ -22,7 +22,7 @@ Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log. STTARK_EFFORT_DRY=1 sends no effort change
 to any session: --set still writes Manual and the level, and logs.
 """
-import calendar, fcntl, glob, importlib.util, json, os, re, subprocess, sys, time, uuid
+import calendar, fcntl, glob, importlib.util, json, os, re, shlex, subprocess, sys, time, uuid
 from contextlib import contextmanager
 
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
@@ -31,6 +31,8 @@ STATE = os.path.join(os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/L
 CLAUDE_LOG = os.path.expanduser('~/Library/Logs/Claude/main.log')  # the Claude app's log: which session is open in it
 FRONT = os.path.join(os.path.dirname(STATE), 'claude-front.json')  # when the Claude app was in front, from the menu bar app
 CLAUDE = os.path.expanduser('~/.local/bin/claude')
+CLAUDE_JSON = os.environ.get('STTARK_CLAUDE_JSON') or os.path.expanduser('~/.claude.json')  # Claude Code's own settings file
+CHAT_CLAUDE = os.environ.get('STTARK_CHAT_CLAUDE', '')  # tests: a stand-in for the Claude Code a chat starts with
 DEFAULT_MODEL = 'sonnet'  # Claude Code's alias for the newest Sonnet, the best judge in the model test
 LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 CHECKPOINTS = (10, 25, 50)  # tool calls into a turn when the level is checked again
@@ -816,53 +818,160 @@ def quit_screen(name):
         subprocess.run(['/usr/bin/screen', '-S', sid, '-X', 'quit'], capture_output=True)
 
 
-def start_alone(transcript, model=''):
-    """Start a saved conversation as a chat of its own with Remote Control, in a screen so it needs no Terminal
-    window. The first time it gets a new link; after that, starting it again reattaches the same link.
-    A clean environment, so nothing from the app or a Claude session leaks in (that turns transcript saving off).
-    `model`: the model it ran on, for a session moved from this Mac only (migrate.py), which the server never ran.
-    A screen of the same name that still runs is quit first, so the chat runs in one copy."""
-    cwd = ''
-    with open(transcript) as f:
-        for line in f:
-            cwd = (json.loads(line).get('cwd') if '"cwd"' in line else '') or cwd
-    cid = os.path.basename(transcript)[:-len('.jsonl')]
-    stable = os.path.expanduser('~/.local/share/claude/stable/claude')
-    claude = stable if os.access(stable, os.X_OK) else CLAUDE
+TRUST_LOCK_WAIT = 2  # seconds to wait for Claude Code's lock on its settings file before writing without it
+
+
+def trust_folder(cwd):
+    """Mark a chat's folder as trusted in Claude Code (projects[<folder>].hasTrustDialogAccepted in ~/.claude.json),
+    as a yes to its question "Quick safety check: Is this a project you created or one you trust?" would. Claude Code
+    asks it in a folder it has no trust for, and nobody can answer it in the hidden screen a chat starts in, so the
+    chat would never connect. Only the chat's own folder, where the person already worked, and never the home
+    folder, whose trust Claude Code keeps for one session only. Many Claude processes rewrite the file, so it is
+    read, changed and written at once, right before the start: under Claude Code's own lock on it (the folder
+    ~/.claude.json.lock, which a Claude process holds for a moment at a time), with every other key as it was,
+    through a temp file that replaces it. True when the folder is trusted now. Never raises: a start goes on."""
+    if not cwd or not os.path.isdir(cwd) or os.path.realpath(cwd) == os.path.realpath(os.path.expanduser('~')):
+        return False
+    try:  # most starts: trusted already, so no lock and no write
+        with open(CLAUDE_JSON) as f:
+            if ((json.load(f).get('projects') or {}).get(cwd) or {}).get('hasTrustDialogAccepted') is True:
+                return True
+    except Exception:
+        pass  # read again below, under the lock, which logs why it fails
+    lock, held, end = CLAUDE_JSON + '.lock', False, time.time() + TRUST_LOCK_WAIT
+    while True:
+        try:
+            os.mkdir(lock)
+            held = True
+            break
+        except FileExistsError:
+            try:  # a Claude process touches its lock every 5 s while it holds it, so an older one was left behind
+                stale = time.time() - os.stat(lock).st_mtime > 10
+            except OSError:
+                stale = False  # let go just now: try again
+            if stale or time.time() > end:
+                break
+            time.sleep(0.05)
+        except OSError:
+            break
+    target = os.path.realpath(CLAUDE_JSON)  # a link to the file stays a link
+    tmp = f'{target}.kit-{os.getpid()}.tmp'
+    try:
+        with open(target) as f:
+            d = json.load(f)
+        p = d.setdefault('projects', {}).setdefault(cwd, {})
+        if p.get('hasTrustDialogAccepted') is True:
+            return True
+        p['hasTrustDialogAccepted'] = True
+        with open(tmp, 'w') as f:
+            json.dump(d, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, os.stat(target).st_mode & 0o777)
+        os.replace(tmp, target)
+        log(f'trust  {cwd} trusted in Claude Code, so a chat that ran there starts without its safety question')
+        return True
+    except Exception as e:
+        log(f'trust  {cwd} could not be marked trusted in Claude Code: {e!r}'[:300])
+        return False
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        if held:
+            try:
+                os.rmdir(lock)
+            except OSError:
+                pass
+
+
+def start_screen(cid, cwd, model='', first=''):
+    """Start saved conversation `cid` with Remote Control in a screen named kit-<first 8 of cid>, so it needs no
+    Terminal window: the one way the Kit starts a chat by itself (start_alone() here, migrate.py, and wait.py's
+    bring_back()). In its folder `cwd` (the home folder when that is gone), which trust_folder() marks trusted
+    first, and in a clean environment, so nothing from the app or a Claude session leaks in (that turns transcript
+    saving off). A screen of the same name that still runs is quit first, so the chat runs in one copy.
+    `model`: the model it ran on, for a chat the server never ran. `first`: a file whose text is its first message.
+    Returns the screen's name."""
+    name = 'kit-' + cid[:8]
     home = os.path.expanduser('~')
+    folder = cwd if cwd and os.path.isdir(cwd) else home
+    stable = os.path.expanduser('~/.local/share/claude/stable/claude')
+    claude = CHAT_CLAUDE or (stable if os.access(stable, os.X_OK) else CLAUDE)
     env = {'HOME': home, 'USER': os.environ.get('USER', ''), 'LOGNAME': os.environ.get('USER', ''),
            'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
            'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
-    quit_screen('kit-' + cid[:8])
-    subprocess.run(['/usr/bin/screen', '-dmS', 'kit-' + cid[:8], '/bin/zsh', '-lc',
-                    f"cd '{cwd or home}' && exec '{claude}' --resume {cid} --remote-control --permission-mode bypassPermissions"
-                    + (f" --model '{model}'" if re.fullmatch(r'[\w.\[\]-]+', model or '') else '')],
-                   env=env)
+    cmd = (f'cd {shlex.quote(folder)} && exec {shlex.quote(claude)} --resume {shlex.quote(cid)} --remote-control '
+           '--permission-mode bypassPermissions'
+           + (f' --model {shlex.quote(model)}' if re.fullmatch(r'[\w.\[\]-]+', model or '') else '')
+           + (f' "$(cat {shlex.quote(first)})"' if first else ''))
+    quit_screen(name)  # every copy: `screen -S <name>` acts on none when two have the name
+    if folder == cwd:
+        trust_folder(cwd)
+    subprocess.run(['/usr/bin/screen', '-dmS', name, '/bin/zsh', '-lc', cmd], env=env, stdin=subprocess.DEVNULL,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # the app reads its callers' output to the end
+    return name
+
+
+def chat_folder(transcript):
+    """The folder a saved conversation last ran in (its newest `cwd`); '' when it has none."""
+    cwd = ''
+    with open(transcript) as f:
+        for line in f:
+            if '"cwd"' in line:
+                try:
+                    cwd = json.loads(line).get('cwd') or cwd
+                except ValueError:
+                    pass
+    return cwd
+
+
+def start_alone(transcript, model=''):
+    """Start a saved conversation as a chat of its own with Remote Control (start_screen()), in the folder it last
+    ran in. The first time it gets a new link; after that, starting it again reattaches the same link.
+    `model`: the model it ran on, for a session moved from this Mac only (migrate.py), which the server never ran."""
+    cid = os.path.basename(transcript)[:-len('.jsonl')]
+    start_screen(cid, chat_folder(transcript), model)
     return cid
+
+
+def screen_text(sid):
+    """What screen `sid` (<pid>.<name>, from screen_ids()) shows, with its scrollback; '' when it can't be read."""
+    import tempfile
+    fd, path = tempfile.mkstemp(prefix='kit-screen-')
+    os.close(fd)
+    text = ''
+    try:
+        subprocess.run(['/usr/bin/screen', '-S', sid, '-p', '0', '-X', 'hardcopy', '-h', path], timeout=10)
+        for _ in range(25):  # screen writes the copy a moment after the command returns
+            time.sleep(0.2)
+            with open(path, 'rb') as f:
+                text = f.read().decode('utf-8', 'replace')
+            if text:
+                break
+    except Exception:
+        pass
+    finally:
+        os.unlink(path)
+    return text
 
 
 def stood_down(name):
     """Whether the chat in screen `name` (any copy of it) was taken over elsewhere: Claude Code printed code 4090
     and its status line reads /rc failed. It stays open but answers nothing."""
-    import tempfile
     for sid in screen_ids(name):
-        fd, path = tempfile.mkstemp(prefix='kit-screen-')
-        os.close(fd)
-        text = ''
-        try:
-            subprocess.run(['/usr/bin/screen', '-S', sid, '-p', '0', '-X', 'hardcopy', '-h', path], timeout=10)
-            for _ in range(25):  # screen writes the copy a moment after the command returns
-                time.sleep(0.2)
-                with open(path, 'rb') as f:
-                    text = f.read().decode('utf-8', 'replace')
-                if text:
-                    break
-        except Exception:
-            continue
-        finally:
-            os.unlink(path)
+        text = screen_text(sid)
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         if 'standing down (code 4090)' in ' '.join(text.split()) and bool(lines) and lines[-1].endswith('/rc failed'):
+            return True
+    return False
+
+
+def asks_trust(name):
+    """Whether the chat in screen `name` (any copy of it) waits at Claude Code's question whether to trust its
+    folder ("Quick safety check: ... Yes, I trust this folder"), which nobody answers in a screen."""
+    for sid in screen_ids(name):
+        text = ' '.join(screen_text(sid).split()).lower()
+        if 'quick safety check' in text or 'trust this folder' in text:
             return True
     return False
 
@@ -900,7 +1009,7 @@ def waiting_since_reply(events):
 def point_at(transcript, sid, seq):
     """Tell a saved conversation which link to reconnect to, and from where. Claude Code reads the last such line
     when it's started with --remote-control: it reattaches that link, unarchiving it if needed."""
-    with open(os.path.expanduser('~/.claude.json')) as f:
+    with open(CLAUDE_JSON) as f:
         acct = json.load(f).get('oauthAccount') or {}
     cid = os.path.basename(transcript)[:-len('.jsonl')]
     with open(transcript, 'a') as f:
@@ -914,9 +1023,12 @@ def links(transcript):
         return [json.loads(l)['bridgeSessionId'] for l in f if '"type":"bridge-session"' in l]
 
 
-def new_link(transcript, wait=90, after=0):
+LINK_WAIT = 90  # seconds a chat started on its own has to record its link
+
+
+def new_link(transcript, wait=None, after=0):
     """The link a chat started with start_alone records in its transcript, once it has one (past the first `after`)."""
-    for _ in range(wait // 3):
+    for _ in range(max(1, (wait or LINK_WAIT) // 3)):
         ids = links(transcript)
         if len(ids) > after:
             return ids[-1]
@@ -960,7 +1072,10 @@ def move(c, seq):
         log(f'reattach {sid} "{title}" the server won\'t start it (unarchived), so it runs on its own on the same link, from {seq}')
         return {'id': sid, 'transcript': transcript, 'title': title}
     if not new:
-        log(f'keep   {sid} "{title}" won\'t start, and starting it on a new link didn\'t work either')
+        name = 'kit-' + os.path.basename(transcript)[:8]
+        why = (f' - it waits in {name} at Claude Code\'s question whether to trust {chat_folder(transcript) or "its folder"}'
+               if asks_trust(name) else '')  # after " - ", the Events page shows it as the reason
+        log(f'keep   {sid} "{title}" won\'t start, and starting it on a new link didn\'t work either{why}')
         return None
     try:
         moved = move_routines(sid, new)

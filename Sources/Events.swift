@@ -328,6 +328,17 @@ enum Events {
             case "handover": e.text = "The server runs it again, so the Kit closed its own copy"
             default: e.text = "Taken over in another place, so the Kit closed its own copy"; e.level = .warn
             }
+        case "trust":   // effort-hook.py trust_folder(): a session's folder trusted in Claude Code before the Kit starts it there
+            e.kind = .restart
+            if let r = rest.range(of: " could not be marked trusted") {
+                e.text = "Could not trust a session's folder in Claude Code"; e.level = .warn
+                e.detail = ["Folder: " + rest[..<r.lowerBound],
+                            "Claude Code can ask whether to trust it, and in the Kit's screen nobody can answer, so the session does not start."]
+            } else {
+                e.text = "Trusted a session's folder in Claude Code"; e.routine = true
+                e.detail = ["Folder: " + (rest.range(of: " trusted in Claude Code").map { rest[..<$0.lowerBound] } ?? Substring(rest)),
+                            "The session ran there before. Now it starts there without Claude Code's trust question."]
+            }
         case "migrate":   // Move a session to Remote Control (migrate.py)
             e.kind = .restart
             if let r = rest.range(of: #"as (cse_\w+)"#, options: .regularExpression) { who(rest[r].dropFirst(3)) }
