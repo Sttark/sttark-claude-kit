@@ -13,7 +13,7 @@ notify.py in its dry mode (nothing is sent; no model is called; no session is to
   at its usage limit is skipped; the switch off stops them; a check-in is not the session's own message (no
   reach_sent, no "notify" line); STTARK_CHECKIN_DRY sends nothing; wait.py --check runs them.
 Run from the repo root: /usr/bin/python3 tools/checkin-test.py"""
-import importlib.util, json, os, stat, subprocess, sys, tempfile, time
+import importlib.util, json, os, re, stat, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = os.path.join(ROOT, 'Resources', 'hooks')
@@ -363,6 +363,15 @@ r = subprocess.run([sys.executable, os.path.join(HOOKS, 'wait.py'), '--check'], 
 check('wait.py --check runs them; a dry run writes the note and sends nothing: %r' % r.stdout[-200:],
       'would send for cse_01QuietOne000003 "Quiet one": Long job q2, working 20 min' in r.stdout
       and any('"Quiet one" would send (dry) | Long job q2, working 20 min | It finished' in l for l in log_lines()))
+fresh_agent(Q, 'q3', time.time())
+os.remove(c.FILE)
+env = dict(os.environ, STTARK_WAIT_DRY='1', STTARK_LIMIT_TEST=USAGE, STTARK_MAIL_KEYS=os.path.join(d, 'keys.json'))
+env.pop('STTARK_CHECKIN_MODEL')
+n_in = len(inputs())
+r = subprocess.run([sys.executable, os.path.join(HOOKS, 'wait.py'), '--check'], capture_output=True, text=True, env=env, timeout=120)
+check('another part\'s test run (STTARK_WAIT_DRY) makes no model call: the note is the step count: %r' % r.stdout[-160:],
+      len(inputs()) == n_in and re.search(r'It made \d+ steps? since it started\.', r.stdout)
+      and any('no summary (a test run of another part: no model call)' in l for l in log_lines()))
 r = subprocess.run([sys.executable, os.path.join(HOOKS, 'checkin.py'), '--list'], capture_output=True, text=True, timeout=60)
 check('--list says what runs and when the next one is due: %r' % r.stdout[:200],
       'Progress check-ins are on.' in r.stdout and 'agent "Long job q2"' in r.stdout)

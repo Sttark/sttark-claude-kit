@@ -33,6 +33,7 @@ reading each record; a session leaves it when its work ends.
 
 Logged with lines starting "checkin". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
 STTARK_CHECKIN_DRY=1 (or STTARK_WAIT_DRY, or STTARK_NOTIFY_DRY) writes each message and prints it, and sends nothing;
+with only STTARK_WAIT_DRY or STTARK_NOTIFY_DRY (another part's test run) the note is the step count, with no model call;
 STTARK_CHECKIN_MODEL is a command that stands in for the Haiku call (tests): the work on its input, the note on its
 output.
 """
@@ -45,6 +46,8 @@ FILE = os.path.join(KIT, 'checkins.json')
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 DRY = any(os.environ.get(k) for k in ('STTARK_CHECKIN_DRY', 'STTARK_WAIT_DRY', 'STTARK_NOTIFY_DRY'))
 STUB = os.environ.get('STTARK_CHECKIN_MODEL', '')
+# a test run of another part (a wait's or a message's) makes no model call here: only a check-in's own dry run does
+NO_MODEL = bool(os.environ.get('STTARK_WAIT_DRY') or os.environ.get('STTARK_NOTIFY_DRY')) and not os.environ.get('STTARK_CHECKIN_DRY')
 EVERY = 900            # seconds: the first check-in at this much work, then one each this long while it runs
 ACTIVE = 86400         # a session with no prompt or step of its own for this long is not looked at
 FRESH = 180            # the minute check's view of a session's turn counts while it is this new
@@ -349,6 +352,8 @@ def summary(text):
     other side calls; STTARK_CHECKIN_MODEL stands in for it in tests."""
     env = {k: v for k, v in os.environ.items() if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
     env['EFFORT_JUDGE'] = '1'
+    if NO_MODEL and not STUB:
+        raise RuntimeError('a test run of another part: no model call')
     cmd = [STUB] if STUB else [CLAUDE, '-p', '--model', MODEL, '--effort', 'low', '--no-session-persistence',
                                '--strict-mcp-config', '--tools', '', '--settings', '{"disableAllHooks":true}',
                                '--system-prompt', ASK]
@@ -369,7 +374,9 @@ def plain(parts, first):
     if not steps:
         last = next((p['last'] for p in parts if p.get('last')), '')
         return 'It made no new steps %s.%s' % (when, (' Its last step: ' + last + '.') if last else '')
-    return 'It made %d steps %s%s.' % (steps, when, ', and %d of them failed' % failed if failed else '')
+    return 'It made %d step%s %s%s.' % (steps, '' if steps == 1 else 's', when,
+                                        ', and %d of them failed' % failed if failed > 1 or (failed and steps > 1)
+                                        else ', and it failed' if failed else '')
 
 
 def subject(work, age):
