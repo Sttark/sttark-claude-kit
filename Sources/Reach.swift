@@ -257,6 +257,8 @@ enum Waits {
         var setAt: Date? = nil
         /// The session's Remote Control id and link, and a link to what it watches (a pull request).
         var cse = ""
+        /// The folder the session runs in (a full path; it stays on this Mac).
+        var folder = ""
         var sessionURL = ""
         var url = ""
         /// Why its last check failed, and since when; empty while its checks work.
@@ -293,6 +295,7 @@ enum Waits {
             x.failingSince = Limit.num(w["failing_since"]).map { Date(timeIntervalSince1970: $0) }
             x.setAt = Limit.num(w["set_at"]).map { Date(timeIntervalSince1970: $0) }
             x.cse = w["cse"] as? String ?? ""
+            x.folder = w["cwd"] as? String ?? ""
             x.sessionURL = w["session_url"] as? String ?? ""
             x.url = w["url"] as? String ?? ""
             return x

@@ -439,10 +439,13 @@ function archivedList(k: Kit, ui: Ui): string {
   // not have yet: the server asks it when this tab opens.
   const waiting = k.macs.filter((m) => isLive(m) && !k.archived[m.id] && (k.snaps[m.id]?.archived_count ?? 0) > 0);
   const note = waiting.length ? `<p class="quiet">Getting the list from ${esc(waiting.map((m) => m.name).join(' and '))}...</p>` : '';
-  if (!all.length) return note + (waiting.length ? '' : emptyHtml('archive', 'No archived sessions', 'Sessions you archive in the Claude app show here.'));
   const q = ui.q.trim().toLowerCase();
+  // A session that waits on someone else is under Sessions, archived or
+  // not, so it is never in this list; a search finds it there too.
+  const waits = q ? waitMatches(k, q) : '';
+  if (!all.length && !waits) return note + (waiting.length ? '' : emptyHtml('archive', 'No archived sessions', 'Sessions you archive in the Claude app show here.'));
   const list = q ? all.filter((a) => a.item.title.toLowerCase().includes(q) || a.item.folder.toLowerCase().includes(q)) : all;
-  if (!list.length) return note + emptyHtml('search', `No archived session matches “${ui.q.trim()}”`, 'Search looks at names and folders.');
+  if (!list.length && !waits) return note + emptyHtml('search', `No archived session matches “${ui.q.trim()}”`, 'Search looks at names and folders, and at the sessions that wait on someone else.');
   const days: { key: string; label: string; rows: typeof list }[] = [];
   for (const a of list) {
     const t = a.item.archived_at;
@@ -467,7 +470,24 @@ function archivedList(k: Kit, ui: Ui): string {
             .join('') +
           `</ul></section>`,
       )
-      .join('')
+      .join('') +
+    waits
+  );
+}
+
+/** The sessions under Waiting on someone else that a search matches (name,
+ *  or what each wait is for), as their own group. A row opens the session's
+ *  page under Sessions, where it is. */
+function waitMatches(k: Kit, q: string): string {
+  const g = GROUPS.find((x) => x.key === 'waiting')!;
+  const rows = rowsOf(k, k.macs).filter(
+    (p) => p.row.group === 'waiting' && [p.row.title, p.row.sub, ...p.row.waits.map((w) => w.what)].some((t) => t.toLowerCase().includes(q)),
+  );
+  if (!rows.length) return '';
+  return (
+    `<section class="grp" aria-label="${esc(g.label)}"><h2 class="grp-h ${g.key}">${ic(g.icon)}${esc(g.label)} <span class="n">${rows.length}</span><span class="col">${esc(g.col)}</span></h2>` +
+    `<p class="quiet">These are under Sessions. Tap one to see it there.</p>` +
+    `<ul class="rows">${rows.map((p) => sessionRow(k, p, 'sessions', !isLive(p.mac))).join('')}</ul></section>`
   );
 }
 

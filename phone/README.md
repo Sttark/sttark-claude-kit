@@ -15,7 +15,7 @@ What it serves (under `BASE_PATH`, Environment below):
 |---|---|
 | `/` | **Sessions**, the first of three tabs: the four groups (Needs you first), Macs away, the usage strip. `?q=` searches the names; `?find=1` shows the search field |
 | `/s/<cse>` | **One session**: what it does, Open in Claude, its waits (Stop, Bring it back now, Stop waiting), effort and Auto, At the usage limit, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
-| `/archived` | **Archived**, grouped by day; `?q=` searches names and folders |
+| `/archived` | **Archived**, grouped by day; `?q=` searches names and folders, and also finds the sessions under Waiting on someone else, in their own group (a row opens it under Sessions) |
 | `/archived/<cse>` | One archived session, with **Bring it back** |
 | `/usage` | **Usage**: the 5-hour and weekly limits, the sessions held at them, the Use credits setting, and **By session** (The pages, below): `?p=today`, `7d` (the default), `30d` or `custom` with `from` and `to` (days, `2026-11-02`); `?all=1` shows every row |
 | `/mac/<id>` | One Mac's sessions; for a Mac that is away, its last list "As of" its time, in gray, with no buttons |
