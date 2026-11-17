@@ -96,7 +96,11 @@ class Google(BaseHTTPRequestHandler):
         base = '/gmail/v1/users/me/messages'
         if u.path == base:
             g['queries'].append(q['q'])
-            return self.answer({'messages': [{'id': m['id'], 'threadId': m['thread_id']} for m in search(q['q'], ME)]})
+            hits, start, n = search(q['q'], ME), int(q.get('pageToken') or 0), int(q.get('maxResults') or 100)
+            body = {'messages': [{'id': m['id'], 'threadId': m['thread_id']} for m in hits[start:start + n]]}
+            if start + n < len(hits):
+                body['nextPageToken'] = str(start + n)
+            return self.answer(body)
         m = [x for x in MAIL if u.path == base + '/' + x['id']][0]
         headers = [{'name': 'From', 'value': m['from']}, {'name': 'To', 'value': ME}, {'name': 'Subject', 'value': m['subject']},
                    {'name': 'Date', 'value': rfc(m['at'])}]
@@ -175,7 +179,7 @@ def person(text, at):
 def write(path, lines, mode='w'):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, mode) as f:
-        f.write(''.join(json.dumps(x) + '\n' for x in lines))
+        f.write(''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in lines))
 
 
 WR = 'mcp__claude_ai_Sttark_Workrouter__'
@@ -195,7 +199,7 @@ new_read = use(WR + 'gmail_read_message', {'message_id': 'newmsg'}, T0 + 80,
                            'subject': 'Offer on the lot', 'date': rfc(T0 - 3600)}))
 comment = use(WR + 'asana_add_comment', {'task_gid': '1200000000000001', 'text': 'Can you check the survey?'}, T0 + 90,
               '{"comment_added":true}')
-chat = use('mcp__claude_ai_Google_Chat__send_message', {'space': 'spaces/AAAAtest01', 'text': 'Is the press ready for the new die?'},
+chat = use('mcp__claude_ai_Google_Chat__send_message', {'space': 'spaces/AAAAtest01', 'text': 'Is the press ready – for the new die?'},
            T0 + 100, '{"name":"spaces/AAAAtest01/messages/m1"}')
 only_at = use('Bash', {'command': 'claude-wait at "+2d" --why "Thu 5 PM: check for the utility reply"'}, T0 + 400,
               'Wait aaa111 set: the time Thu 5:00 PM. The Kit watches it now.')
@@ -269,9 +273,25 @@ check('then the whole line is read', ('asana', '1200000000000099') in {(k['k'], 
 wf = watch.wait_facts('claude-wait email-reply 1a1e60af2112d6ff --from alex@kingsample.example --by "+1d" --why "x"; '
                       'claude-wait email-reply --query "from:(water.example OR ops@pipes.example)" --by +2d --why "y"',
                       'Wait abc123 set: a reply\nWait def456 set: new mail', T0, ME, own)
+wf2 = watch.wait_facts('claude-wait email-reply 1a1e60af2112d6ff --from sam@contsample.example \\\n  --by "+1d" --why "two\nlines"',
+                       'Wait abc124 set: a reply', T0, ME, own)
+check('a claude-wait that goes on over lines', ('addr', 'sam@contsample.example') in {(k['k'], k['v']) for k in wf2})
 check('an email reply wait: its thread, its sender and the domains of its search',
       {('thread', '1a1e60af2112d6ff'), ('addr', 'alex@kingsample.example'), ('domain', 'water.example'),
        ('domain', 'pipes.example'), ('wait', 'email-reply')} <= {(k['k'], k['v']) for k in wf})
+
+AG2 = os.path.join(PROJ, 'site', 'subagents', 'agent-cookie.jsonl')
+write(AG2, person('Look at the shop', T0 + 280)
+      + use('Bash', {'command': 'claude-window go https://www.shopx.example/contact-us; claude-window text | head -40'}, T0 + 281,
+            'Contact\nhttps://www.shopx.example/contact-us\nThank you for contacting us! Our team will contact you soon.\nhttps://www.linkedin.com/company/shopx')
+      + use('Bash', {'command': 'claude-window js \'document.querySelector("#accept").click(); "ok"\''}, T0 + 282, 'ok')
+      + use('Bash', {'command': 'claude-window js \'document.querySelector("button[type=submit]").click()\'; claude-window text | head'}, T0 + 283,
+            'Thank you for contacting us! Our team will contact you soon.\nhttps://www.linkedin.com/company/shopx'))
+e3 = {'files': {}, 'keys': []}
+watch.refresh(e3, TP1, NOW, ME, own)
+k3 = {(k['k'], k['v']) for k in e3['keys']}
+check('no form from a contact page\'s own words before the click, a cookie button, or a link in the page\'s text',
+      ('domain', 'shopx.example') not in k3 and ('domain', 'linkedin.com') not in k3 and ('domain', 'utilitysample.example') in k3)
 
 # --- a mailbox this Mac reads itself: no model ------------------------------------------------------------------------
 json.dump({ME: '1//rt'}, open(KEYS, 'w'))
@@ -285,6 +305,10 @@ mail('m-team2', 'throther', 'Pat <pat@sample.example>', 'Lunch?', NOW - 340, 'Pi
 mail('m-ali', 'thrali', 'Alibaba <credit@notice.alibaba.com>', 'Your order has been updated by the supplier (321)', NOW - 420, 'Order')
 mail('m-ali2', 'thrali2', 'Alibaba <service@alibaba.com>', 'Factory-direct machines, made for you', NOW - 410, 'Sale')
 mail('m-early', 'threarly', 'Pat <pat@banksample.example>', 'Rates', T0 - 7200, 'Old mail from before the draft')
+mail('m-quoted', 'thrquoted', 'Sam <help@utilitysample.example>', 'Re: meter', NOW - 200,
+     'We checked the meter, and the water line is ready to connect today. Call us to set a time.')
+write(TP1, person('[Sttark Claude Kit] A wait you handed to the Kit has ended. Sam replied: "Re: meter" (We checked the meter, '
+                  'and the water line is ready to connect today. Call us to set a time.)', T0 + 470), 'a')
 # the session already read the ticket mail: its id is in its records
 write(TP1, use(WR + 'gmail_search', {'query': 'from:utilitysample.example'}, T0 + 460, json.dumps({'emails': [{'id': 'm-ack'}]})), 'a')
 out = io.StringIO()
@@ -294,12 +318,13 @@ said = out.getvalue()
 check('the form\'s answer, a ticket notice from a no-reply sender, and the reply in the draft\'s thread bring the '
       'session back, with one prompt', set(picked.get(CSE1, {})) == {'m-ans', 'm-ticket', 'm-alex', 'm-team', 'm-ali'}
       and said.count('would wake Site purchase') == 1)
-check('a newsletter from the domain, mail before the watch, mail it already read, and a colleague\'s mail in another '
-      'thread, or a messenger platform\'s sales mail: nothing',
-      not any(x in json.dumps(picked) for x in ('m-auto', 'm-early', 'm-ack', 'm-team2', 'm-ali2')))
-check('the read: one search for the mailbox, with every session\'s terms, after the oldest open wait',
-      len(g['queries']) == 1 and 'from:utilitysample.example' in g['queries'][0] and 'from:kingsample.example' in g['queries'][0]
-      and 'subject:"Closing for Unit 4"' in g['queries'][0] and 'after:%d' % (T0 + 400) in g['queries'][0])
+check('a newsletter from the domain, mail before the watch, mail it already read (by id, or quoted in a wait\'s '
+      'prompt), a colleague\'s mail in another thread, or a messenger platform\'s sales mail: nothing',
+      not any(x in json.dumps(picked) for x in ('m-auto', 'm-early', 'm-ack', 'm-quoted', 'm-team2', 'm-ali2')))
+check('the read: one search for the mailbox with every session\'s terms, after the oldest open wait, and one for '
+      'Asana\'s notices', len(g['queries']) == 2 and 'from:utilitysample.example' in g['queries'][0]
+      and 'from:kingsample.example' in g['queries'][0] and 'subject:"Closing for Unit 4"' in g['queries'][0]
+      and 'after:%d' % (T0 + 400) in g['queries'][0] and g['queries'][1] == 'after:%d from:no-reply@asana.com' % (T0 + 400))
 W = watch.peek()
 check('the floor: the oldest open wait for a session with one, the watch\'s start for one with none',
       W['sessions'][CSE1]['floor'] == T0 + 400 and W['sessions'][CSE2]['floor'] == NOW)
@@ -312,6 +337,15 @@ check('the next read: only what is new, and never a message twice', set(picked.g
       and 'after:%d' % (NOW - watch.OVERLAP) in g['queries'][-1])
 check('one message, one session: a reply in a thread goes to the session of that thread, not to the newer form',
       set(picked.get(CSE2, {})) == {'m-water'})
+mail('m-dup', 'thrwater000001', 'Ops <ops@utilitysample.example>', 'Re: Water', NOW + 250, 'Same mail')
+watch.mark_told(CSE1, ['m-dup'])
+with contextlib.redirect_stdout(io.StringIO()):
+    picked = watch.check(wait, NOW + 700)
+check('a message one session got never goes to another', 'm-dup' not in json.dumps(picked))
+for i in range(130):
+    mail('m-bulk%03d' % i, 'thrbulk%d' % i, 'News <news@bulksample.example>', 'Deal %d' % i, NOW - 5000 + i, 'x')
+check('a search reads more than one page', len(load('mail').search(ME, 'after:0 -from:me {from:bulksample.example}', 100, 5)) == 130)
+MAIL[:] = [m for m in MAIL if not m['id'].startswith('m-bulk')]
 p = watch.prompt_for(CSE1, W['sessions'][CSE1], [dict(MAIL[1], kind='mail', box=ME, why='you sent a web form on utilitysample.example')], wait)
 check('the prompt: what came, why it counts, how to read it, the question, and the open waits',
       p.startswith('[Sttark Claude Kit] New messages came in that may concern this session') and 'claude-mail read %s m-ans' % ME in p
@@ -344,7 +378,9 @@ def answers(skip=''):
         else:
             a[args['space_id'][:40]] = {'messages': [
                 {'name': 'spaces/AAAAtest01/messages/m9', 'sender': 'users/1', 'text': 'Yes, the press is ready now.', 'createTime': iso(NOW - 300)},
-                {'name': 'spaces/AAAAtest01/messages/m8', 'sender': 'users/2', 'text': 'Is the press ready for the new die?', 'createTime': iso(NOW - 350)}]}
+                {'name': 'spaces/AAAAtest01/messages/m8', 'sender': 'users/2', 'text': 'Is the press ready – for the new die?', 'createTime': iso(NOW - 350)},
+                {'name': 'spaces/AAAAtest01/messages/m7', 'sender': 'users/2', 'text': 'Ok, thanks!', 'createTime': iso(NOW - 340)},
+                {'name': 'spaces/AAAAtest01/messages/m6', 'sender': 'users/3', 'text': 'Ok, thanks!', 'createTime': iso(NOW - 330)}]}
     json.dump(a, open(os.path.join(d, 'answers.json'), 'w'))
     os.environ['FAKE_SKIP'] = skip
 
@@ -369,8 +405,11 @@ check('one Haiku run for every session: gmail_search with include_body, and one 
       and '"include_body": true' in prompts and 'gchat_search_messages {"space_id": "spaces/AAAAtest01"' in prompts)
 check('the form\'s answer through Workrouter, an Asana notice for its task (the id in the notice), a Chat reply',
       {'m-ans', 'm-asana', 'spaces/AAAAtest01/messages/m9'} <= set(picked.get(CSE1, {})))
-check('an Asana notice for another task, and the session\'s own Chat post: nothing',
-      'm-asana2' not in json.dumps(picked) and 'messages/m8' not in json.dumps(picked))
+check('an Asana notice for another task, the session\'s own Chat post (with a non-ASCII dash), and the person\'s '
+      'other posts: nothing', 'm-asana2' not in json.dumps(picked) and 'messages/m8' not in json.dumps(picked)
+      and 'messages/m7' not in json.dumps(picked))
+check('a short reply from someone else counts, also when the same words are in the records',
+      'spaces/AAAAtest01/messages/m6' in picked.get(CSE1, {}))
 W = watch.peek()
 check('the read is recorded as through Workrouter', W['boxes'][ME].get('via') == 'model' and W['chat'].get('read_at') == NOON)
 fresh()
@@ -447,6 +486,9 @@ q = {'kind': 'email-reply', 'id': 'bbb222', 'cse': CSE1, 'target': '', 'query': 
 wait._direct.clear()
 happened, what = wait.check_email_reply(q)
 check('a wait never ends on a message the watch brought the session back for', not happened)
+q2 = dict(q, id='ccc333', cse=CSE2, query='from:(utilitysample.example)')
+happened, what = wait.check_email_reply(q2)
+check('a wait that ends keeps every message it found, for the watch to skip', happened and set(q2.get('found_ids') or []) >= {'m-d2', 'm-d1'})
 watch.mark_told(CSE2, ['m-new'])
 check('and the watch skips a message a wait brought its session back for', 'm-new' in watch.told(CSE2))
 

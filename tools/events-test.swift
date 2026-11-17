@@ -158,8 +158,8 @@ import Foundation
               && n?.detail.first?.contains("the phone") == true, "one that could not come back says why")
         // The reply watch (watch.py): a session brought back for new messages, a read, a failed read, and the working
         // rules' reply wait check.
-        let wb = Events.kitLine(f.string(from: Date()) + " watch  cse_01AAAtest1 \"Press color\" brought back for 1 new message: Sam <help@utility.example> \"[Ticket 1] Contact Us\"", names)
-        check(wb?.name == "Press color" && wb?.kind == .restart && wb?.text == "Brought back: new messages came in from someone it contacted"
+        let wb = Events.kitLine(f.string(from: Date()) + " watch  cse_01AAAtes \"Press color\" brought back for 1 new message: Sam <help@utility.example> \"[Ticket 1] Contact Us\"", names)
+        check(wb?.name == "Press color" && wb?.session == "cse_01AAAtest1" && wb?.kind == .restart && wb?.text == "Brought back: new messages came in from someone it contacted"
               && wb?.detail.first?.contains("help@utility.example") == true, "a session the reply watch brought back, with what came")
         let wr = Events.kitLine(f.string(from: Date()) + " watch  person@sample.example read (Haiku through Workrouter): 4 new messages, 0 for a session", names)
         check(wr?.kind == .check && wr?.routine == true && wr?.text == "Reply watch read person@sample.example: 4 new messages, 0 for a session",

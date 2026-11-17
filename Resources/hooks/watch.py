@@ -27,7 +27,7 @@ session comes back the way a wait brings it back, with the messages and one ques
 Logged with lines starting "watch". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
 STTARK_WAIT_DRY=1 reads and decides, prints what it would bring back, and brings nothing back.
 """
-import calendar, email.utils, glob, importlib.util, json, mmap, os, re, shlex, sys, time, urllib.parse
+import calendar, email.utils, glob, html, importlib.util, json, mmap, os, re, shlex, sys, time, urllib.parse
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 KIT = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
@@ -92,8 +92,10 @@ def me():
 
 def stamp(text):
     """A transcript's ISO time (2026-11-17T18:40:12.508Z) as a Unix time; 0 when there is none."""
+    if not isinstance(text, str):
+        return 0
     try:
-        return calendar.timegm(time.strptime((text or '')[:19], '%Y-%m-%dT%H:%M:%S'))
+        return calendar.timegm(time.strptime(text[:19], '%Y-%m-%dT%H:%M:%S'))
     except ValueError:
         return 0
 
@@ -101,7 +103,7 @@ def stamp(text):
 def mail_time(text):
     try:
         return email.utils.parsedate_to_datetime(text).timestamp()
-    except (TypeError, ValueError, IndexError):
+    except (TypeError, ValueError, IndexError, AttributeError):
         return 0
 
 
@@ -281,6 +283,8 @@ def scan_lines(lines, st, me_, own):
             e = json.loads(raw)
         except ValueError:
             continue
+        if not isinstance(e, dict):
+            continue
         msg = e.get('message')
         ts = stamp(e.get('timestamp'))
         for b in (msg.get('content') or []) if isinstance(msg, dict) and isinstance(msg.get('content'), list) else []:
@@ -368,26 +372,36 @@ def facts(name, inp, text, err, at, st, me_, own):
     return []
 
 
+def tokens(cmd):
+    """A shell command's words, with ; && || | & and each unquoted line end as words of their own. A line that ends in
+    a backslash goes on, and a quoted word keeps its line ends. None when it does not parse (a here-document)."""
+    try:
+        lex = shlex.shlex(cmd.replace('\\\n', ' '), posix=True, punctuation_chars=';&|\n')
+        lex.whitespace = ' \t\r'
+        lex.whitespace_split = True
+        return list(lex)
+    except ValueError:
+        return None
+
+
 def segments(cmd, word):
-    """The arguments of each `word ...` command in a shell command line: [[arg, ...], ...]."""
+    """The arguments of each `word ...` command in a shell command: [[arg, ...], ...]. A command that does not parse
+    whole is read line by line."""
+    toks = tokens(cmd)
+    if toks is None:
+        toks = []
+        for line in cmd.splitlines():
+            if word in line:
+                toks += (tokens(line) or []) + ['\n']
     out = []
-    for line in cmd.splitlines():
-        if word not in line:
-            continue
-        try:
-            lex = shlex.shlex(line, posix=True, punctuation_chars=';&|')
-            lex.whitespace_split = True
-            toks = list(lex)
-        except ValueError:
-            continue
-        for i, t in enumerate(toks):
-            if t.endswith(word):
-                args = []
-                for x in toks[i + 1:]:
-                    if x in (';', '&&', '||', '|', '&'):
-                        break
-                    args.append(x)
-                out.append(args)
+    for i, t in enumerate(toks):
+        if t.endswith(word):
+            args = []
+            for x in toks[i + 1:]:
+                if x and not x.strip(';&|\n'):  # a separator (an empty quoted word is not one)
+                    break
+                args.append(x)
+            out.append(args)
     return out
 
 
@@ -436,11 +450,16 @@ def window_facts(cmd, text, at, st, me_, own):
     out = []
     page = st.get('page', '')
     for u in re.findall(r'claude-window\s+go\s+["\']?(https?://[^\s"\']+)', cmd):
+        if u != page:
+            st.pop('before', None)  # a new page: what it says before a click starts again
         page = u
         note_site(st, u)
     for line in (text or '').splitlines():
         line = line.strip()
-        if URL_LINE.match(line):
+        # the address `go` and `url` print: on the same site (a redirect, the page after a send) or a form service,
+        # never a link the page's text shows
+        if URL_LINE.match(line) and (not page or site(host_of(line)) in (site(host_of(page)),) or
+                                     site(host_of(line)) in FORM_HOSTS):
             page = line
             note_site(st, line)
     for p in re.findall(r'parentURL=([^&"\s]+)', text or ''):
@@ -448,39 +467,43 @@ def window_facts(cmd, text, at, st, me_, own):
     st['page'] = page
     h = host_of(page)
     s = site(h)
-    js = 'claude-window js' in cmd
+    codes = [a[1] for a in segments(cmd, 'claude-window') if len(a) > 1 and a[0] == 'js']
+    js = ' '.join(codes) if codes and '$(' not in ''.join(codes) else (cmd if 'claude-window js' in cmd else '')
     typed = [a for a in addrs(cmd) if site(a) in own] if js else []
     if typed:
         st['typed'] = [st.get('site', ''), typed[-1]]
-    clicked = js and bool(CLICK.search(cmd)) and bool(SEND.search(cmd))
+    clicked = bool(js) and bool(CLICK.search(js)) and bool(SEND.search(js))
     if clicked and h.endswith('chat.google.com') or (clicked and h == 'mail.google.com' and '/chat' in page):
         m = CHAT_SPACE.search(page)
-        if m and re.search(r'(?i)send', cmd):
+        if m and re.search(r'(?i)send', js):
             out.append(key('chat', 'spaces/' + m.group(1), at, '', 'post'))
         return out
     if clicked and h == 'mail.google.com':
-        if re.search(r'(?i)\bsend\b', cmd):
+        if re.search(r'(?i)\bsend\b', js):
             for a in addrs(cmd):
                 if a != me_ and site(a) != 'google.com':
                     out += mail_keys(a, at, me_, 'email', own)
         return out
-    if clicked and s in MESSENGERS and re.search(r'(?i)send', cmd):
+    if clicked and s in MESSENGERS and re.search(r'(?i)send', js):
         out.append(key('domain', s, at, '*', 'messenger'))
         return out
+    done = {m.group(0).lower() for m in DONE.finditer(text or '')}
     armed = st.get('armed')
     if clicked and not NOT_FORM.search(cmd) and s and s not in own and s not in NOT_SITES:
         armed = st['armed'] = {'n': 4}
-    if armed:
-        target = st.get('site', '') if s in FORM_HOSTS or not s else s
-        if DONE.search(text or '') and target and target not in own and target not in NOT_SITES:
-            t = st.get('typed') or ['', '']
-            box = t[1] if t[1] and t[0] in ('', target) else me_
-            out.append(key('domain', target, at, box, 'form'))
+    if not armed:
+        st['before'] = sorted(set(st.get('before') or []) | done)[-20:]  # what the page said before any click
+        return out
+    target = st.get('site', '') if s in FORM_HOSTS or not s else s
+    if done - set(st.get('before') or []) and target and target not in own and target not in NOT_SITES:
+        t = st.get('typed') or ['', '']
+        box = t[1] if t[1] and t[0] in ('', target) else me_
+        out.append(key('domain', target, at, box, 'form'))
+        st.pop('armed', None)
+    else:
+        armed['n'] = armed.get('n', 4) - 1
+        if armed['n'] <= 0:
             st.pop('armed', None)
-        else:
-            armed['n'] = armed.get('n', 4) - 1
-            if armed['n'] <= 0:
-                st.pop('armed', None)
     return out
 
 
@@ -558,7 +581,17 @@ def watched(W, wm, now, me_, own):
             e['files'] = {}
         e.update(transcript=tp, title=i.get('title') or e.get('title', ''), url=i.get('url') or e.get('url', ''),
                  last=last)
-        refresh(e, tp, now, me_, own)
+        try:
+            refresh(e, tp, now, me_, own)
+        except Exception as x:  # one session's odd record never stops the watch of the others
+            if now - e.get('failed_said', 0) >= 3600:
+                log('%s "%s" records could not be read: %s: %s' % (cse[:12], e.get('title', ''), type(x).__name__,
+                                                                    str(x)[:160]))
+                e['failed_said'] = now
+        for w in mine:  # a thread that only a wait names: the subject the wait's check read, to search by
+            for k in e['keys']:
+                if k['k'] == 'thread' and k['v'] == w.get('target') and w.get('subject') and not k.get('subject'):
+                    k['subject'] = w['subject']
         e['floor'] = min([e['start']] + [w.get('set_at') or now for w in mine])
         out[cse] = e
     for cse in [c for c in S if c not in out and c not in info]:
@@ -597,8 +630,13 @@ def terms_for(keys):
 
 
 def queries(keys, since):
-    t = terms_for(keys)
-    return ['after:%d -from:me {%s}' % (since, ' '.join(t[i:i + MAX_TERMS])) for i in range(0, len(t), MAX_TERMS)]
+    """The searches for a mailbox: its terms, MAX_TERMS a search; Asana's notices in a search of their own, since
+    they come for every task the person follows and would crowd the others out of a page."""
+    t = [x for x in terms_for(keys) if x != 'from:no-reply@asana.com']
+    out = ['after:%d -from:me {%s}' % (since, ' '.join(t[i:i + MAX_TERMS])) for i in range(0, len(t), MAX_TERMS)]
+    if any(k['k'] == 'asana' for k in keys):
+        out.append('after:%d from:no-reply@asana.com' % since)
+    return out
 
 
 GID = re.compile(r'app\.asana\.com/\S*?/task/(\d+)|app\.asana\.com/0/\d+/(\d+)')
@@ -609,11 +647,17 @@ def asana_gid(text):
     return (m.group(1) or m.group(2)) if m else ''
 
 
+PAGES = 5           # pages of a search read at most (100 messages each with no model, 20 through Workrouter: 10)
+
+
 def read_direct(box, qs, mail):
     """Every message that matches the searches, from a mailbox this Mac reads itself (claude-mail): no model."""
     out = {}
     for q in qs:
-        for x in mail.search(box, q, 100):
+        got = mail.search(box, q, 100, PAGES)
+        if len(got) >= 100 * PAGES:
+            log('%s: a search found more than %d messages; the older ones are not read' % (box, len(got)))
+        for x in got:
             if 'asana.com' in sender(x['from']):
                 try:
                     x['gid'] = asana_gid(mail.read(box, x['id']).get('text'))
@@ -629,7 +673,7 @@ def run_model(calls, wm):
     tools = sorted({WR + t for t, _ in calls})
     lines = ['Make each of these tool calls exactly once, with exactly these arguments. Make no other call. When a '
              'gmail_search result has a next_page_token, call gmail_search again with the same arguments and '
-             'page_token set to it, at most 3 more times for that search. Then reply "done".']
+             'page_token set to it, at most %d more times for that search. Then reply "done".' % (PAGES * 2 - 1)]
     for i, (t, a) in enumerate(calls, 1):
         lines.append('%d. %s%s %s' % (i, WR, t, json.dumps(a, ensure_ascii=False)))
     final, made, why = wm.haiku_calls('\n'.join(lines), tools, timeout=240)
@@ -699,14 +743,31 @@ def best_chat(msg, sess):
 
 
 def seen(e, msg, cache):
-    """Whether the session has the message in its records already: it read it, or was told."""
+    """Whether the session has the message in its records already: it read it (its id, or a Chat post's name, is
+    there), or was told; or the start of a mail's text is there (a wait's prompt quoted it, or the session read it
+    in the browser, where no id shows)."""
     if msg['id'] in (e.get('told') or []):
         return True
     needles = [msg['id'].encode()] if msg['id'] else []
-    if msg.get('kind') == 'chat':
-        first = re.sub(r'\s+', ' ', msg.get('text') or '').strip()[:40]
-        if len(first) >= 12 and '"' not in first and '\\' not in first:
-            needles.append(json.dumps(first)[1:-1].encode())
+    snip = re.sub(r'\s+', ' ', msg.get('snippet') or '').strip()
+    for t in {snip, html.unescape(snip)} if msg.get('kind') == 'mail' else ():
+        t = t[:50].strip()
+        if len(t) >= 40:
+            needles += [json.dumps(t, ensure_ascii=a)[1:-1].encode('utf-8') for a in (False, True)]
+    return found_in(e, list(dict.fromkeys(needles)), cache)
+
+
+def own_post(e, msg, cache):
+    """Whether a Chat post is one the session wrote itself (sent in the browser, so it comes back as the person's):
+    its text is in the session's records. Only a long text counts, so a short answer ("Sounds good") never does."""
+    first = re.sub(r'\s+', ' ', msg.get('text') or '').strip()[:40]
+    if len(first) < 30 or '"' in first or '\\' in first:
+        return False
+    return found_in(e, list({json.dumps(first, ensure_ascii=a)[1:-1].encode('utf-8') for a in (False, True)}), cache)
+
+
+def found_in(e, needles, cache):
+    """Whether any of the byte strings is in the session's records (its transcript and its agents')."""
     for n in needles:
         for p in files_of(e['transcript']):
             k = (p, n)
@@ -808,7 +869,12 @@ def check(wm=None, now=None):
             b['said_at'] = now
             log('%s: the Kit cannot read this mailbox, so replies to it wait for the deadlines. To read it: '
                 'claude-mail sign-in %s' % (box, box))
-    spaces = sorted({k['v'] for e in sess.values() for k in e['keys'] if k['k'] == 'chat'})[:MAX_SPACES]
+    newest = {}
+    for e in sess.values():
+        for k in e['keys']:
+            if k['k'] == 'chat':
+                newest[k['v']] = max(newest.get(k['v'], 0), k['at'])
+    spaces = sorted(newest, key=lambda x: -newest[x])[:MAX_SPACES]  # the spaces posted in last, if there are many
     chat = W.setdefault('chat', {})
     if spaces and now - chat.get('read_at', 0) >= MODEL_EVERY and now - chat.get('tried_at', 0) >= 600 and 7 <= hour < 21:
         csince = chat.get('read_at', 0) - OVERLAP if chat.get('read_at') else \
@@ -831,6 +897,8 @@ def check(wm=None, now=None):
             if i not in got:
                 ok_boxes[target] = False
                 continue
+            if t == 'gmail_search' and got[i] and loads(got[i][-1]).get('next_page_token'):
+                log('%s: a search found more than %d messages; the older ones are not read' % (target, 20 * len(got[i])))
             for text in got[i]:
                 r = loads(text)
                 if t == 'gmail_search':
@@ -846,16 +914,27 @@ def check(wm=None, now=None):
                 fail(rec, target, RuntimeError(why or 'Haiku did not make the call'), now)
     save(W)  # what was read, and when, before anything that could fail: a read is never made again for nothing
     picked = {}
+    taken = set()  # a message one session got (or was told about) never goes to another
+    for x in (W.get('sessions') or {}).values():
+        taken.update(x.get('told') or [])
+        taken.update(m.get('id') for m in x.get('pending') or [])
     for box, m in found:
         try:
-            if not m.get('id') or not m.get('at'):
+            if not m.get('id') or not m.get('at') or m['id'] in taken:
                 continue
+            if m['kind'] == 'chat' and chat.get('me') and m.get('from') == chat['me']:
+                continue  # the person's own post
             b = best_chat(m, sess) if m['kind'] == 'chat' else best_session(m, box, sess, me_)
             if not b:
                 continue
             e = sess[b[2]]
-            if seen(e, m, cache) or any(x.get('id') == m['id'] for x in e.get('pending') or []):
+            if m['kind'] == 'chat' and own_post(e, m, cache):
+                if m.get('from'):
+                    chat['me'] = m['from']  # its sender is the person: their other posts never count either
                 continue
+            if seen(e, m, cache):
+                continue
+            taken.add(m['id'])
             m.update(box=box if m['kind'] == 'mail' else '', why=why_of(b[3]))
             picked.setdefault(b[2], {})[m['id']] = m
         except Exception as x:  # one odd message never stops the others
@@ -1032,9 +1111,17 @@ def turn_facts(tp, me_=None, own=None):
             e = json.loads(raw)
         except ValueError:
             continue
-        if person_prompt(e):
+        if isinstance(e, dict) and person_prompt(e):
             start, begin = stamp(e.get('timestamp')), i + 1
             break
+    if not start:  # no message of the person in the tail: the work since the tail's first time
+        for raw in lines[1:]:
+            m = re.search(rb'"timestamp":\s*"([^"]+)"', raw[:4000])
+            if m:
+                start = stamp(m.group(1).decode('utf-8', 'replace'))
+                break
+    if not start:
+        return [], 0
     out = scan_lines([l + b'\n' for l in lines[begin:] if l], {}, me_, own)
     for p in files_of(tp)[1:]:
         try:

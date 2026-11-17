@@ -500,8 +500,7 @@ enum Events {
             }
         case "watch":   // the reply watch (watch.py), and the working rules' reply wait check
             e.kind = .wait
-            if first.hasPrefix("cse_") { who(first) }
-            named(rest)
+            named(rest)   // the session's name in quotes; its id in the line is cut short, as in a wait line
             let after = rest.firstIndex(of: ":").map { String(rest[rest.index(after: $0)...]).trimmingCharacters(in: .whitespaces) } ?? ""
             if rest.contains(" brought back for ") {
                 e.kind = .restart

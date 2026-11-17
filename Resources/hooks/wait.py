@@ -354,6 +354,7 @@ def check_mailbox(w, box):
         return False, 'no new mail yet'
     e = found[0]
     w['found'] = {'id': e['id'], 'thread_id': e['thread_id']}
+    w['found_ids'] = [x['id'] for x in found]
     return True, '%s wrote%s: "%s" (%s)%s' % (e['from'] or 'someone', ' to ' + box if w.get('mailbox') else '',
                                              e['subject'], e['snippet'][:160],
                                              ', and %d more new' % (len(found) - 1) if len(found) > 1 else '')
@@ -424,6 +425,7 @@ def check_email_reply(w):
         return False, 'no reply yet' + (' (%d new message%s, none a reply)' % (n, '' if n == 1 else 's') if n else '')
     e = found[0]
     w['found'] = {'id': e.get('id', ''), 'thread_id': e.get('thread_id', '')}
+    w['found_ids'] = [x.get('id', '') for x in found]
     return True, '%s replied: "%s" (%s)' % (e.get('from', 'someone'), e.get('subject', ''), (e.get('snippet') or '')[:160])
 
 
@@ -483,6 +485,8 @@ def prompt_for(w, what, late):
         box, f = mailbox(w), w.get('found') or {}
         lines.append('The Kit reads %s itself: %sclaude-mail search %s "<Gmail search>" finds more.'
                      % (box, 'claude-mail read %s %s prints the message; ' % (box, f['id']) if f.get('id') else '', box))
+    elif w['kind'] == 'email-reply' and (w.get('found') or {}).get('id'):
+        lines.append("Read the message in full with Workrouter's gmail_read_message, message_id %s." % w['found']['id'])
     others = [x for k, x in (peek().get('waits') or {}).items()
               if k != w['id'] and w.get('cse') and x.get('cse') == w['cse'] and x.get('stage') != 'back']
     if others:
@@ -702,6 +706,9 @@ def check(only=None, by=None):
         happened, what, late = False, '', False
         if only:
             happened, what = True, 'The person asked to bring it back now'
+        elif w.get('ready'):  # it happened, and its session was in a turn: bring it back now, with no new check
+            happened, what, late = True, w['ready'].get('what', ''), w['ready'].get('late', False)
+            w['found'], w['found_ids'] = w['ready'].get('found') or {}, w['ready'].get('found_ids') or []
         elif w['kind'] == 'at':
             happened, what = now >= w['at'], 'The time you set came (%s)' % clock(w['at'])
         elif due(w, now):
@@ -747,8 +754,13 @@ def check(only=None, by=None):
             ok = bring_back(w, prompt_for(w, what, late))
         except RuntimeError as e:
             if str(e) == 'busy':
-                log('%s its session is in a turn; %s' % (wid, 'the wait stays open%s' % (' (%s)' % by if by else '')
-                                                          if only else 'trying again in a minute'))
+                if not w.get('ready'):
+                    log('%s its session is in a turn; %s' % (wid, 'the wait stays open%s' % (' (%s)' % by if by else '')
+                                                              if only else 'trying again in a minute'))
+                if not only:  # what it found, kept: the next minute brings it back with no new check (no model call)
+                    upd['ready'] = {'what': what, 'late': late, 'found': w.get('found') or {},
+                                    'found_ids': w.get('found_ids') or []}
+                    change(save)
                 result = 'busy'
                 continue
             ok = False
@@ -761,17 +773,18 @@ def check(only=None, by=None):
             upd.update(stage='back', back_at=time.time(), what=what, late=late)
             change(save)
             result = 'brought'
-            if (w.get('found') or {}).get('id'):  # the reply watch never brings it back for the same message
-                try:
-                    load('watch').mark_told(w.get('cse'), [w['found']['id']])
-                except Exception:
-                    pass
         else:
             w['stage'] = 'out'
             fallback(w, what, late)
             log('%s sent the message from the Kit; the session did not come back' % wid)
             change(lambda s: (s.get('waits') or {}).pop(wid, None))
             result = 'sent'
+        ids = w.get('found_ids') or [(w.get('found') or {}).get('id')]
+        if any(ids):  # the reply watch never brings it back, or messages the person, for the same messages
+            try:
+                load('watch').mark_told(w.get('cse'), ids)
+            except Exception:
+                pass
     if not only:
         try:  # the reply watch: answers that no wait names (watch.py), in the same minute and under the same lock
             load('watch').check(Self())

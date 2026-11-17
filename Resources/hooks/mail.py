@@ -211,12 +211,21 @@ def brief(m):
 HEADERS = '&'.join('metadataHeaders=' + n for n in ('From', 'To', 'Subject', 'Date'))
 
 
-def search(box, q, n=20):
-    """The messages that match a Gmail search, newest first, each as brief() says."""
+def search(box, q, n=20, pages=1):
+    """The messages that match a Gmail search, newest first, each as brief() says: n a page, up to `pages` pages."""
     t = access(box)
-    found = call(API + '/messages?' + urllib.parse.urlencode({'q': q, 'maxResults': max(1, min(n, 100))}), bearer=t)
-    return [brief(call(API + '/messages/%s?format=metadata&%s' % (urllib.parse.quote(m['id']), HEADERS), bearer=t))
-            for m in found.get('messages') or []]
+    out, token = [], None
+    for _ in range(max(1, pages)):
+        ask = {'q': q, 'maxResults': max(1, min(n, 100))}
+        if token:
+            ask['pageToken'] = token
+        found = call(API + '/messages?' + urllib.parse.urlencode(ask), bearer=t)
+        out += [brief(call(API + '/messages/%s?format=metadata&%s' % (urllib.parse.quote(m['id']), HEADERS), bearer=t))
+                for m in found.get('messages') or []]
+        token = found.get('nextPageToken')
+        if not token:
+            break
+    return out
 
 
 def thread(box, tid):
