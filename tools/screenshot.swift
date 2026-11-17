@@ -12,8 +12,8 @@
 //   docs/whats-new.png        the What's new sheet over the window, with this repo's newest notes (at most 4)
 // and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
-// The window and the sheet are real windows, put off the screen and captured with screencapture, so they look as
-// they do on this Mac; nothing shows on the screen and nothing comes to the front.
+// The window and the sheet are real windows, kept off every screen and drawn by their own views, so they look as
+// they do on this Mac; nothing shows on the screen and nothing comes to the front (see ShotWindow).
 // The times are drawn in a time zone where it is late morning, so the sample times read the same on every run.
 // Run from the repo root:
 //   swiftc -parse-as-library -o /tmp/shot tools/screenshot.swift $(ls Sources/*.swift | grep -v main.swift) && /tmp/shot
@@ -43,6 +43,7 @@ import SwiftUI
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         app.finishLaunching()
+        ShotWindow.watch()
         app.appearance = NSAppearance(named: .aqua)
         let dark = ProcessInfo.processInfo.environment["STTARK_SHOT_DARK"]
 
@@ -130,7 +131,7 @@ import SwiftUI
             print("wrote \(folder)/window-usage.png")
             // the usage note's picture: the period, the legend and the biggest sessions, at the note's size
             let r = model.usageReport
-            let uw = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            let uw = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
             uw.appearance = w.appearance
             uw.isReleasedWhenClosed = false
             uw.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
@@ -143,12 +144,12 @@ import SwiftUI
                 }
                 Spacer(minLength: 0)
             }.padding(14).frame(width: 440, height: 280).background(K.card).font(K.font(13)).foregroundColor(K.ink))
-            uw.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            uw.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
             Shot.capture(uw, to: "whats-new/usage-by-session" + (look ? "-dark" : "") + ".png")
             uw.close()
             // the human work note's picture: the totals with the human work line and its ⓘ note open, and the biggest rows
             model.openNotes = ["usage-human"]
-            let hw = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            let hw = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
             hw.appearance = w.appearance
             hw.isReleasedWhenClosed = false
             hw.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
@@ -159,7 +160,7 @@ import SwiftUI
                 }
                 Spacer(minLength: 0)
             }.padding(14).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
-            hw.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            hw.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
             Shot.capture(hw, to: "whats-new/human-work" + (look ? "-dark" : "") + ".png")
             hw.close()
             model.openNotes = []
@@ -179,7 +180,7 @@ import SwiftUI
             Shot.capture(w, to: folder + "/window-events.png")
             model.openEvent = nil
             // the events note's picture: the newest rows alone, at the note's size
-            let rows = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            let rows = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
             rows.appearance = w.appearance
             rows.isReleasedWhenClosed = false
             model.openEvent = model.events.first { $0.count > 1 }?.id
@@ -190,13 +191,13 @@ import SwiftUI
                 }
                 Spacer(minLength: 0)
             }.padding(12).frame(width: 440, height: 280).background(K.card).font(K.font(13)).foregroundColor(K.ink))
-            rows.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            rows.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
             Shot.capture(rows, to: "whats-new/events-page" + (look ? "-dark" : "") + ".png")
             rows.close()
             model.openEvent = nil
             // the subagent-effort note's picture: the agent rows alone
             let agents = model.events.filter { $0.text.hasPrefix("Agent \u{201C}") || $0.text.contains(" so fork ") }
-            let ar = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            let ar = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
             ar.appearance = w.appearance
             ar.isReleasedWhenClosed = false
             model.openEvent = agents.last?.id
@@ -207,7 +208,7 @@ import SwiftUI
                 }
                 Spacer(minLength: 0)
             }.padding(12).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
-            ar.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            ar.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
             Shot.capture(ar, to: "whats-new/subagent-effort" + (look ? "-dark" : "") + ".png")
             ar.close()
             model.openEvent = nil
@@ -215,7 +216,7 @@ import SwiftUI
             model.page = .sessions
             let f = w.frame
             w.setContentSize(NSSize(width: 960, height: 760))
-            w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+            w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
             let full = "/tmp/kit-shot-\(getpid())-narrow.png"
             Shot.capture(w, to: full)
             Shot.crop(full, NSRect(x: 226, y: 60, width: 392, height: 252),
@@ -224,12 +225,15 @@ import SwiftUI
             Shot.crop(full, NSRect(x: 226, y: 0, width: 390, height: 280),
                       to: "whats-new/sessions-at-once" + (look ? "-dark" : "") + ".png")
             w.setFrame(f, display: true)
+            ShotWindow.check("the window's size again")
             // the What's new sheet, as the menu's What's new item opens it, over the window: the newest notes, at most 4
             // as WhatsNew.forSheet gives them, so the sheet fits the window with its title and buttons
             model.page = .sessions
             model.sheet = Array(WhatsNew.all.prefix(4))
             w.orderFrontRegardless()
+            ShotWindow.check("the sheet")
             RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+            ShotWindow.check("the sheet")
             Shot.capture(w, to: folder + "/whats-new.png", wait: 0.2)
             model.sheet = []
             RunLoop.main.run(until: Date().addingTimeInterval(1))
@@ -277,11 +281,11 @@ import SwiftUI
     static func shoot<V: View>(_ view: V, dark: Bool, to path: String) {
         let host = NSHostingView(rootView: view)
         let size = host.fittingSize
-        let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)
+        let w = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: size.width, height: size.height), styleMask: [.borderless], backing: .buffered, defer: false)
         w.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         w.isReleasedWhenClosed = false
         w.contentView = host
-        w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+        w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
         ShotWindow.key = true   // each switch on or off as it really is: on in its accent color, as in the key window
         redraw(w)
         capture(w, to: path)
@@ -298,13 +302,13 @@ import SwiftUI
 
     /// The window as the app makes it, off the screen.
     static func window(_ model: KitModel) -> NSWindow {
-        let w = ShotWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 760),
+        let w = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 1180, height: 760),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
         w.contentView = NSHostingView(rootView: KitRoot(model: model))
-        w.setFrameOrigin(NSPoint(x: -9000, y: 0))
+        w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
         return w
     }
 
@@ -320,28 +324,52 @@ import SwiftUI
         print("wrote \(out)")
     }
 
-    /// Shows the window off the screen, lets it draw, and captures it with its own pixels.
+    /// Shows the window off the screen, lets it draw, and draws it and its sheet into a 2x PNG in this process. The
+    /// window server draws no window that is off every screen, so screencapture and ScreenCaptureKit can't capture it.
     static func capture(_ w: NSWindow, to path: String, wait: TimeInterval = 1.2) {
+        ShotWindow.check(path + ", before")
         if w.sheetParent == nil { w.orderFrontRegardless() }
+        ShotWindow.check(path)
         RunLoop.main.run(until: Date().addingTimeInterval(wait))
-        let t = Process()
-        t.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        t.arguments = ["-x", "-o", "-l\(w.windowNumber)", path]
-        try! t.run()
-        t.waitUntilExit()
-        if !FileManager.default.fileExists(atPath: path) || t.terminationStatus != 0 { cache(w, to: path) }
+        ShotWindow.check(path)
+        render(w, to: path)
         print("wrote \(path)")
     }
 
-    /// When screencapture can't (the screen is locked): the window's views drawn into a 2x bitmap.
-    static func cache(_ w: NSWindow, to path: String) {
-        guard let v = w.contentView else { return }
+    /// One window's whole frame (its title bar's buttons too) drawn at 2x.
+    static func image(_ w: NSWindow) -> CGImage? {
+        guard let v = w.contentView?.superview ?? w.contentView else { return nil }
         let size = v.bounds.size
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                    bytesPerRow: 0, bitsPerPixel: 0)!
         rep.size = size
         v.cacheDisplay(in: v.bounds, to: rep)
+        return rep.cgImage
+    }
+
+    /// The window and its sheet, with the window server's round corners.
+    static func render(_ w: NSWindow, to path: String) {
+        guard let base = image(w) else { return }
+        let size = w.frame.size, s: CGFloat = 2
+        let ctx = CGContext(data: nil, width: base.width, height: base.height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.scaleBy(x: s, y: s)
+        // the corners as the window server draws them: a window's and a sheet's
+        func corners(_ r: CGRect, _ radius: CGFloat) {
+            ctx.addPath(RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: r).cgPath)
+            ctx.clip()
+        }
+        ctx.saveGState()
+        if w.styleMask.contains(.titled) { corners(CGRect(origin: .zero, size: size), 16) }
+        ctx.draw(base, in: CGRect(origin: .zero, size: size))
+        if let sheet = w.attachedSheet, let img = image(sheet) {
+            let r = sheet.frame.offsetBy(dx: -w.frame.minX, dy: -w.frame.minY)
+            corners(r, 26)
+            ctx.draw(img, in: r)
+        }
+        ctx.restoreGState()
+        let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
         try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     }
 }
@@ -728,7 +756,57 @@ enum Draw {
 /// of the active app, and gray in any other window, where an on switch reads as off. The tool never activates the app,
 /// since nothing may come to the front, so while `key` is set its window says it has the key window's look (AppKit's own
 /// `hasKeyAppearance`, which the controls ask when they draw) and they draw as the person sees them in use.
+///
+/// They stay off every screen. AppKit moves a titled window back onto a screen when it is ordered front, resized or
+/// moved (`constrainFrameRect(_:to:)`), and slides a window onto a screen when a sheet opens on it. So the window's
+/// own frame wins over the first, and any frame on a screen goes left of every screen before it is set; `check` stops
+/// the tool if a window of it is ever on a screen. STTARK_SHOT_FRAMES=1 prints the frames.
 final class ShotWindow: NSWindow {
     static var key = false
+    static let log = ProcessInfo.processInfo.environment["STTARK_SHOT_FRAMES"] != nil
     @objc(hasKeyAppearance) func keyLook() -> Bool { ShotWindow.key }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        if Self.log {
+            let moved = super.constrainFrameRect(frameRect, to: screen)
+            if moved != frameRect { print("frame kept: AppKit would move \(frameRect) to \(moved)") }
+        }
+        return frameRect
+    }
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) { super.setFrame(Self.off(frameRect), display: flag) }
+    override func setFrame(_ frameRect: NSRect, display flag: Bool, animate: Bool) {
+        super.setFrame(Self.off(frameRect), display: flag, animate: false)
+    }
+    override func setFrameOrigin(_ point: NSPoint) { super.setFrameOrigin(Self.off(NSRect(origin: point, size: frame.size)).origin) }
+    override func setFrameTopLeftPoint(_ point: NSPoint) {
+        super.setFrameOrigin(Self.off(NSRect(x: point.x, y: point.y - frame.height, width: frame.width, height: frame.height)).origin)
+    }
+
+    /// The frame, moved left of every screen when it would be on one.
+    static func off(_ r: NSRect) -> NSRect {
+        guard NSScreen.screens.contains(where: { $0.frame.intersects(r) }) else { return r }
+        if log { print("frame kept off: \(r) asked") }
+        return NSRect(x: away, y: r.minY, width: r.width, height: r.height)
+    }
+
+    /// An x left of every screen, with room for the widest window.
+    static var away: CGFloat { min(-9000, (NSScreen.screens.map(\.frame.minX).min() ?? 0) - 4000) }
+
+    /// Checks each move of any window of the tool, the sheets too, as it occurs.
+    static func watch() {
+        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: nil, queue: nil) { _ in
+            MainActor.assumeIsolated { check("a move") }
+        }
+    }
+
+    /// Every window of the tool that shows, the sheets too, is off every screen; else the tool stops at once.
+    static func check(_ when: String) {
+        let screens = NSScreen.screens.map(\.frame)
+        for w in NSApp.windows where w.isVisible {
+            if log { print("frame \(when): \(type(of: w)) \(w.frame) screens \(screens)") }
+            if screens.contains(where: { $0.intersects(w.frame) }) {
+                FileHandle.standardError.write("stopped: a window is on a screen at \(w.frame) (\(when))\n".data(using: .utf8)!)
+                exit(1)
+            }
+        }
+    }
 }

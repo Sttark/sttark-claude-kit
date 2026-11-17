@@ -64,6 +64,36 @@ func savePNG(_ img: CGImage, _ path: String) {
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
 }
 
+/// The tool's window, kept off every screen. AppKit moves a titled window back onto a screen when it is ordered front,
+/// resized or moved (`constrainFrameRect(_:to:)`), so its own frame wins, and any frame on a screen goes left of every
+/// screen before it is set. `check` stops the tool if a window of it is ever on a screen. As ShotWindow in screenshot.swift.
+final class OffWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) { super.setFrame(Self.off(frameRect), display: flag) }
+    override func setFrame(_ frameRect: NSRect, display flag: Bool, animate: Bool) {
+        super.setFrame(Self.off(frameRect), display: flag, animate: false)
+    }
+    override func setFrameOrigin(_ point: NSPoint) { super.setFrameOrigin(Self.off(NSRect(origin: point, size: frame.size)).origin) }
+    override func setFrameTopLeftPoint(_ point: NSPoint) {
+        super.setFrameOrigin(Self.off(NSRect(x: point.x, y: point.y - frame.height, width: frame.width, height: frame.height)).origin)
+    }
+    static func off(_ r: NSRect) -> NSRect {
+        NSScreen.screens.contains(where: { $0.frame.intersects(r) }) ? NSRect(x: away, y: r.minY, width: r.width, height: r.height) : r
+    }
+    /// An x left of every screen, with room for the widest window.
+    static var away: CGFloat { min(-9000, (NSScreen.screens.map(\.frame.minX).min() ?? 0) - 4000) }
+    static func check() {
+        let screens = NSScreen.screens.map(\.frame)
+        for w in NSApp.windows where w.isVisible && screens.contains(where: { $0.intersects(w.frame) }) {
+            FileHandle.standardError.write("stopped: a window is on a screen at \(w.frame)\n".data(using: .utf8)!)
+            exit(1)
+        }
+        if ProcessInfo.processInfo.environment["STTARK_SHOT_FRAMES"] != nil {
+            print("frames:", NSApp.windows.filter(\.isVisible).map(\.frame), "screens:", screens)
+        }
+    }
+}
+
 struct Shot { let t: Double; let img: CGImage; let frame: Int; let d: Double; let dark: Bool }
 
 /// A grid of captures with their times and frame numbers.
@@ -131,11 +161,14 @@ func sheet(_ shots: [Shot], title: String, cols: Int, cell: CGFloat, to path: St
         let model = KitModel()
         model.reload()
         model.page = .news
-        let w = NSWindow(contentRect: NSRect(x: -9000, y: 0, width: 1180, height: 1500),
-                         styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let w = OffWindow(contentRect: NSRect(x: OffWindow.away, y: 0, width: 1180, height: 1500),
+                          styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         w.titleVisibility = .hidden; w.titlebarAppearsTransparent = true; w.isReleasedWhenClosed = false
         w.contentView = NSHostingView(rootView: KitRoot(model: model))
-        w.setFrame(NSRect(x: -9000, y: 0, width: 1180, height: 1500), display: true)
+        w.setFrame(NSRect(x: OffWindow.away, y: 0, width: 1180, height: 1500), display: true)
+        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: nil, queue: nil) { _ in
+            MainActor.assumeIsolated { OffWindow.check() }
+        }
         // the window's own refresh: every 3 seconds
         let tick = Timer(timeInterval: 3, repeats: true) { _ in MainActor.assumeIsolated { model.reload() } }
         if ProcessInfo.processInfo.environment["NO_TICK"] == nil { RunLoop.main.add(tick, forMode: .common) }
@@ -148,7 +181,9 @@ func sheet(_ shots: [Shot], title: String, cols: Int, cell: CGFloat, to path: St
                 model.big = nil
                 RunLoop.main.run(until: Date().addingTimeInterval(0.3))
                 if big { model.big = targets[0] }
+                OffWindow.check()
                 w.orderFrontRegardless()
+                OffWindow.check()
                 RunLoop.main.run(until: Date().addingTimeInterval(0.25))
                 let start = Date()
                 var shots: [String: [Shot]] = [:]
@@ -163,6 +198,7 @@ func sheet(_ shots: [Shot], title: String, cols: Int, cell: CGFloat, to path: St
                         w.appearance = NSAppearance(named: switched ? .aqua : .darkAqua); switched = true
                         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
                     }
+                    OffWindow.check()
                     let isDark = w.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                     for n in targets {
                         let vs = views(w.contentView!, label: n.alt)
