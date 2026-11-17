@@ -82,6 +82,28 @@ import Foundation
         check(sev.contains { $0.kind == .restart && $0.level == .warn && $0.text == "Sessions on the server wait until it connects" },
               "sessions that wait for the server read in plain words")
 
+        // Only the person archives: the Kit's own lines say it stopped sessions without archiving them, and why it ran one on its own
+        let noArchive = [
+            at(5) + " halt   the Mac shuts down: ended 3 Claude Code process(es) of 3 chat(s) the Kit runs, so none is archived",
+            at(4) + " reattach cse_01AAAtest2 \"Bird deterrent\" the server won't start it (2 wakes did not start it), so it runs on its own on the same link, from 113",
+            at(3) + " reattach cse_01AAAtest3 \"Facility map\" the server won't start it (it was archived, then unarchived), so it runs on its own on the same link, from 9",
+            at(2) + " keep   cse_01AAAtest4 \"Rivian claims\" archived or deleted in the Claude app while it was stopped; left it so",
+            at(1) + " move   cse_01AAAtest5 \"JetFly\" the server won't start it (2 wakes did not start it), so it runs on its own as cse_01AAAtest6; 0 Routine(s) moved, old entry renamed \"(old link)\" and left in the list",
+        ]
+        let klog = dir.appendingPathComponent("kept.log")
+        try! (noArchive.joined(separator: "\n") + "\n").write(to: klog, atomically: true, encoding: .utf8)
+        let kev = Events.read(kitLog: klog, bypassLog: dir.appendingPathComponent("none.log"), names: names)
+        check(kev.contains { $0.routine && $0.text == "The Mac shuts down, so the Kit stopped its sessions without archiving them" },
+              "the halt before a shutdown is a routine row that says nothing was archived")
+        check(kev.first { $0.name == "Bird deterrent" }?.text == "The server did not start it, so the Kit started it on the same link",
+              "a session the server did not start after wakes is not called unarchived")
+        check(kev.first { $0.name == "Facility map" }?.text == "Unarchived, so the Kit started it on the same link",
+              "an unarchived session still reads as unarchived")
+        check(kev.first { $0.name == "Rivian claims" }?.text == "Archived in the Claude app while it was stopped, so the Kit left it archived",
+              "a session archived while stopped is left archived")
+        check(kev.first { $0.name == "JetFly" }?.text == "Moved to a new link; the old entry stays in your list",
+              "a move leaves the old entry in the list")
+
         // A session started on its own: its folder trusted in Claude Code first, and a start that waits at the trust question
         let trust = [
             at(4) + " trust  /Users/x/src/airpark home trusted in Claude Code, so a chat that ran there starts without its safety question",

@@ -22,7 +22,7 @@ Every decision is logged to ~/Library/Logs/sttark-claude-kit.log.
 STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log. STTARK_EFFORT_DRY=1 sends no effort change
 to any session: --set still writes Manual and the level, and logs.
 """
-import calendar, fcntl, glob, importlib.util, json, os, re, shlex, subprocess, sys, time, uuid
+import calendar, fcntl, glob, importlib.util, json, os, re, shlex, signal, subprocess, sys, time, uuid
 from contextlib import contextmanager
 
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
@@ -766,6 +766,7 @@ KEEP_MAX = 30  # chats kept running at once; a `claude rc` server takes 32 by de
 KEEP_RETRY = 180  # seconds before waking the same chat again
 KEEP_MOVE = 2  # wakes that bring no process before the chat is started on its own (an unarchived one goes right away); also the wakes a chat that ran on its own gets after a restart before it is started on its own again
 KEEP_PAUSE = 1800  # after a chat can't be started either way, seconds before trying again
+KEEP_HALT = 180  # seconds after halt_copies() (the Mac shuts down) in which keep() starts and wakes nothing
 TRIGGERS = 'https://api.anthropic.com/v1/code/triggers'
 
 
@@ -812,10 +813,121 @@ def screen_ids(name):
     return re.findall(r'^\s*(\d+\.' + re.escape(name) + r')\s', out, re.M)
 
 
+def ps_rows():
+    """[(pid, parent pid, command)] of every process."""
+    out = subprocess.run(['ps', '-axww', '-o', 'pid=,ppid=,command='], capture_output=True, text=True).stdout
+    rows = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            rows.append((int(parts[0]), int(parts[1]), parts[2] if len(parts) > 2 else ''))
+    return rows
+
+
+def is_claude(command):
+    """Whether a process is Claude Code: its program is named claude, or is one of its version files."""
+    prog = (command.split() or [''])[0]
+    return os.path.basename(prog) == 'claude' or '/claude/versions/' in prog
+
+
+def end_copy(pids, rows=None):
+    """End the Claude Code processes `pids` (and what runs under them) without letting any archive its chat. Claude
+    Code archives a Remote Control chat when it ends on its own (a hang-up, SIGTERM, /exit), and only the person
+    archives a session. SIGKILL runs none of its exit steps, so the chat stays in the person's list as it is; every
+    Claude Code process in the tree gets it first. The rest (its tools and MCP servers) gets SIGTERM after, so they
+    end cleanly. Returns the pids that got SIGKILL."""
+    rows = rows if rows is not None else ps_rows()
+    kids, cmd = {}, {}
+    for pid, ppid, command in rows:
+        kids.setdefault(ppid, []).append(pid)
+        cmd[pid] = command
+    tree, todo = [], list(pids)
+    while todo:
+        p = todo.pop(0)
+        if p in tree or p <= 1 or p == os.getpid():
+            continue
+        tree.append(p)
+        todo += kids.get(p, [])
+    killed = [p for p in tree if p in pids or is_claude(cmd.get(p, ''))]
+    for sig, group in ((signal.SIGKILL, killed), (signal.SIGTERM, [p for p in tree if p not in killed])):
+        for p in group:
+            try:
+                os.kill(p, sig)
+            except OSError:
+                pass
+    return killed
+
+
+def gone(pids, wait=5):
+    """Wait up to `wait` seconds for `pids` to end (a zombie counts as ended); True when all did."""
+    for _ in range(int(wait * 4) + 1):
+        out = subprocess.run(['ps', '-o', 'pid=,stat=', '-p', ','.join(map(str, pids))], capture_output=True,
+                             text=True).stdout if pids else ''
+        if not [l for l in out.splitlines() if l.split()[1:2] and not l.split()[1].startswith('Z')]:
+            return True
+        time.sleep(0.25)
+    return False
+
+
 def quit_screen(name):
-    """Quit every screen with this name: the Kit's copy of a chat, and any second copy of it."""
-    for sid in screen_ids(name):
+    """Quit every screen with this name: the Kit's copy of a chat, and any second copy of it. The chat's Claude Code
+    is ended first with end_copy(), so the chat is never archived: the hang-up a screen sends as it quits would make
+    Claude Code archive it."""
+    ids = screen_ids(name)
+    if not ids:
+        return
+    rows = ps_rows()
+    killed = []
+    for sid in ids:
+        spid = int(sid.split('.', 1)[0])
+        killed += end_copy([pid for pid, ppid, _ in rows if ppid == spid], rows)  # its window's process and below
+    gone(killed)
+    for sid in ids:
         subprocess.run(['/usr/bin/screen', '-S', sid, '-X', 'quit'], capture_output=True)
+
+
+def end_server_copy(sid, wait=10):
+    """End the copy of chat `sid` that this Mac's Remote Control server runs (its child with `--sdk-url
+    .../sessions/<sid>`, or `--session-id <sid>`), without archiving the chat: with end_copy(). The server counts
+    the copy as failed, not completed, and archives only completed ones. True when none runs now."""
+    rows = ps_rows()
+    pat = re.compile(r'(--sdk-url \S+/v1/code/sessions/|--session-id )' + re.escape(sid) + r'(\s|$)')
+    pids = [pid for pid, _, command in rows if is_claude(command) and pat.search(command)]
+    return gone(end_copy(pids, rows), wait) if pids else True
+
+
+def halt_copies(prefix='kit-'):
+    """effort-hook.py --halt-copies: the Mac shuts down, restarts or logs out (the app calls it on its power-off
+    notice). The system would end each Kit copy of a chat (screens kit-*) with SIGTERM, and Claude Code would then
+    archive the chat; end_copy() ends them first, so each stays in the person's list. keep() starts them again
+    after the restart, on the same link. Each one the Kit runs is marked `halted`, so keep() knows an archive
+    after this was the person's. `prefix`: the screens' names start with it (a test passes its own)."""
+    try:
+        out = subprocess.run(['/usr/bin/screen', '-ls'], capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        out = ''
+    screens = {int(pid): name for pid, name in re.findall(r'^\s*(\d+)\.(' + re.escape(prefix) + r'\S*)\s', out, re.M)}
+    halt = os.path.join(os.path.dirname(STATE), 'halt')
+    with open(halt, 'w'):  # keep() starts nothing while the Mac shuts down: a copy started now would get its SIGTERM
+        pass
+    rows = ps_rows()
+    killed = end_copy([pid for pid, ppid, _ in rows if ppid in screens], rows) if screens else []
+    now, names = time.time(), set(screens.values())
+    lock = open(os.path.join(os.path.dirname(STATE), 'keep.lock'), 'w')
+    for _ in range(20):  # a keep() that runs now would write its own copy of `alone` over the marks
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError:
+            time.sleep(0.25)
+    with state() as s:
+        for a in (s.get('keep') or {}).get('alone', {}).values():
+            if 'kit-' + os.path.basename(a.get('transcript') or '')[:8] in names:
+                a['halted'] = now
+    lock.close()
+    log(f'halt   the Mac shuts down: ended {len(killed)} Claude Code process(es) of {len(screens)} chat(s) the Kit '
+        'runs, so none is archived')
+    return 0
 
 
 TRUST_LOCK_WAIT = 2  # seconds to wait for Claude Code's lock on its settings file before writing without it
@@ -1054,11 +1166,12 @@ def move_routines(old, new):
     return moved
 
 
-def move(c, seq):
-    """A chat the server won't start (it was archived, then unarchived) starts as a chat of its own with its whole
-    conversation, on the same link, picking up at `seq` so messages sent while it was stopped are answered.
+def move(c, seq, why='it was archived, then unarchived'):
+    """A chat the server won't start (`why`: it was archived, then unarchived, or wakes did not start it) starts as
+    a chat of its own with its whole conversation, on the same link, picking up at `seq` so messages sent while it
+    was stopped are answered.
     If Claude Code can't reattach the link it makes a new one: then its Routines follow it, and the old entry is
-    archived so the app lists it once."""
+    renamed "<title> (old link)". It is never archived: only the person archives a session."""
     sid, title = c['id'], c.get('title', '')
     transcript = peek().get('sessions', {}).get(sid, {}).get('transcript', '')
     if not os.path.exists(transcript):
@@ -1069,7 +1182,7 @@ def move(c, seq):
     start_alone(transcript)
     new = new_link(transcript, after=before)
     if new == sid:
-        log(f'reattach {sid} "{title}" the server won\'t start it (unarchived), so it runs on its own on the same link, from {seq}')
+        log(f'reattach {sid} "{title}" the server won\'t start it ({why}), so it runs on its own on the same link, from {seq}')
         return {'id': sid, 'transcript': transcript, 'title': title}
     if not new:
         name = 'kit-' + os.path.basename(transcript)[:8]
@@ -1079,12 +1192,12 @@ def move(c, seq):
         return None
     try:
         moved = move_routines(sid, new)
-        api('POST', f'https://api.anthropic.com/v1/code/sessions/{sid}/archive', {})
+        sse().rename(sid, f'{title} (old link)'[:200])
     except Exception as e:
-        log(f'keep   {sid} "{title}" moved to {new}, but its Routines or archiving failed: {e!r}'[:300])
+        log(f'keep   {sid} "{title}" moved to {new}, but moving its Routines or renaming the old entry failed: {e!r}'[:300])
         return {'id': new, 'transcript': transcript, 'title': title}
-    log(f'move   {sid} "{title}" the server won\'t start it (unarchived), so it runs on its own as {new}; '
-        f'{moved} Routine(s) moved, old entry archived')
+    log(f'move   {sid} "{title}" the server won\'t start it ({why}), so it runs on its own as {new}; '
+        f'{moved} Routine(s) moved, old entry renamed "(old link)" and left in the list')
     return {'id': new, 'transcript': transcript, 'title': title}
 
 
@@ -1301,6 +1414,11 @@ def keep(dry=False, server_down=False):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         return
+    try:  # the Mac shuts down (halt_copies()): a copy started or woken now would get the system's SIGTERM
+        if time.time() - os.path.getmtime(os.path.join(os.path.dirname(STATE), 'halt')) < KEEP_HALT:
+            return
+    except OSError:
+        pass
     ps = processes()
     running = server_chats(ps)
     if running is None:
@@ -1317,9 +1435,11 @@ def keep(dry=False, server_down=False):
     now, woke, alone = time.time(), k.get('woke', {}), k.get('alone', {})
     status = {c['id']: c.get('status') for c in chats}
 
-    # chats running on their own. Stopping one (a restart) archives it, and starting it again brings it back on
-    # the same link, so a stopped one is started again even when it shows as archived. Archived while it's still
-    # running means the person archived it: it's stopped and forgotten.
+    # chats running on their own. The Kit ends a copy with end_copy(), which never archives the chat, and before
+    # the Mac shuts down it ends them all that way (halt_copies(), which marks them `halted`). Only the person
+    # archives: archived while it's still running, or while it was halted, means the person archived it, so it's
+    # stopped and forgotten. A copy that ended any other way (a forced shutdown, a crash) may have archived the
+    # chat as it ended, so that one is started again even when it shows as archived: the same link comes back.
     by_id = {c['id']: c for c in chats}
     for sid, a in list(alone.items()):
         cid = os.path.basename(a['transcript'])[:-len('.jsonl')]
@@ -1342,10 +1462,12 @@ def keep(dry=False, server_down=False):
                 log(f'standdown {sid} "{title}" its own copy was taken over elsewhere (code 4090); quit {name}')
             alone.pop(sid)
             continue
-        if status.get(sid) not in ('active', 'archived') or (up and status.get(sid) == 'archived' and now - a.get('at', 0) > 120):
+        if status.get(sid) not in ('active', 'archived') or (status.get(sid) == 'archived' and (
+                (up and now - a.get('at', 0) > 120) or (not up and a.get('halted')))):
             if not dry:
                 quit_screen(name)
-                log(f'keep   {sid} "{title}" archived or deleted in the Claude app; stopped it')
+                log(f'keep   {sid} "{title}" archived or deleted in the Claude app'
+                    + ('; stopped it' if up else ' while it was stopped; left it so'))
             alone.pop(sid)
             continue
         if up or now - a.get('at', 0) < KEEP_RETRY:
@@ -1373,6 +1495,7 @@ def keep(dry=False, server_down=False):
             log(f'keep   {sid} couldn\'t read where it left off: {e!r}'[:200])
         start_alone(a['transcript'], a.get('model', ''))
         a.update(at=now, tries=0)
+        a.pop('halted', None)
         log(f'start  {sid} "{title}" ran on its own, had stopped, and '
             + ('it was moved from this Mac only, so the server doesn\'t run it' if a.get('own') else f'{KEEP_MOVE} wakes didn\'t start it')
             + '; started it on its own again')
@@ -1401,7 +1524,7 @@ def keep(dry=False, server_down=False):
             if dry:
                 print(f'would start {sid} "{c.get("title", "")}" on its own, from {seq}')
                 continue
-            a = move(c, seq)
+            a = move(c, seq, 'it was archived, then unarchived' if was_archived else f'{KEEP_MOVE} wakes did not start it')
             if a:
                 new = a.pop('id')
                 alone[new] = dict(a, at=now)
@@ -1687,6 +1810,8 @@ def main():
         return
     if sys.argv[1:] == ['--archived']:  # the Archived page's list, on a Mac with no server
         sys.exit(archived_now())
+    if sys.argv[1:] == ['--halt-copies']:  # the Mac shuts down, restarts or logs out
+        sys.exit(halt_copies())
     if sys.argv[1:2] == ['--keep']:
         keep(dry='--dry' in sys.argv, server_down='--server-down' in sys.argv)
         return
