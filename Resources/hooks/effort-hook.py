@@ -996,12 +996,30 @@ def trust_folder(cwd):
                 pass
 
 
+CONNECTOR_HOLD = 8  # seconds a chat the Kit starts waits before its first turn, so Claude's connectors are in it
+
+
+def connector_hold():
+    """The --settings a chat the Kit starts gets: a SessionStart hook, for that copy only, that holds its first turn
+    CONNECTOR_HOLD seconds. Claude Code reads the person's claude.ai connectors (Workrouter, Google Chat, GitHub ...)
+    from the API after it starts, and runs a first message on its command line (or the messages that wait for the
+    chat) at once, before that list is in: that turn had no connector tools, and Claude Code told the model they were
+    removed and not to search for them, so a chat brought back for new mail said its mail tool was offline. Claude
+    Code waits for SessionStart hooks before the first turn and reads the list meanwhile (in about half a second;
+    a connector still connecting then shows as connecting, and ToolSearch waits for it). `startup|resume` only, so
+    a /compact or /clear later holds nothing."""
+    return json.dumps({'hooks': {'SessionStart': [{'matcher': 'startup|resume', 'hooks': [
+        {'type': 'command', 'command': f'/bin/sleep {CONNECTOR_HOLD}', 'timeout': CONNECTOR_HOLD + 30}]}]}},
+        separators=(',', ':'))
+
+
 def start_screen(cid, cwd, model='', first=''):
     """Start saved conversation `cid` with Remote Control in a screen named kit-<first 8 of cid>, so it needs no
     Terminal window: the one way the Kit starts a chat by itself (start_alone() here, migrate.py, and wait.py's
     bring_back()). In its folder `cwd` (the home folder when that is gone), which trust_folder() marks trusted
     first, and in a clean environment, so nothing from the app or a Claude session leaks in (that turns transcript
-    saving off). A screen of the same name that still runs is quit first, so the chat runs in one copy.
+    saving off). Its first turn waits for Claude's connectors (connector_hold()). A screen of the same name that
+    still runs is quit first, so the chat runs in one copy.
     `model`: the model it ran on, for a chat the server never ran. `first`: a file whose text is its first message.
     Returns the screen's name."""
     name = 'kit-' + cid[:8]
@@ -1013,7 +1031,7 @@ def start_screen(cid, cwd, model='', first=''):
            'SHELL': '/bin/zsh', 'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
            'PATH': f'{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'}
     cmd = (f'cd {shlex.quote(folder)} && exec {shlex.quote(claude)} --resume {shlex.quote(cid)} --remote-control '
-           '--permission-mode bypassPermissions'
+           f'--permission-mode bypassPermissions --settings {shlex.quote(connector_hold())}'
            + (f' --model {shlex.quote(model)}' if re.fullmatch(r'[\w.\[\]-]+', model or '') else '')
            + (f' "$(cat {shlex.quote(first)})"' if first else ''))
     quit_screen(name)  # every copy: `screen -S <name>` acts on none when two have the name
