@@ -15,7 +15,10 @@ made-up sessions and transcripts, a JSON file for the Keychain (STTARK_MAIL_KEYS
 - delivery: a session in a turn is tried again; one that read the message by itself is not brought back; one the
   Kit started moments ago (a wait brought it back) waits for that turn; a wait never ends on a message the watch
   brought the session back for, and the watch skips one a wait ended on;
-- the Stop check: a web form or a draft with only a time wait is noted, with the command to set; a reply wait is not.
+- the Stop check: a web form or a draft with only a time wait is noted, with the command to set; a reply wait is not;
+- only a command the shell runs counts: claude-window or claude-wait named in a here-document (an agent that edits a
+  test), in quotes or in a commit message is no contact and no wait; one run by a variable set to its path, with
+  code from a file the same command writes, is.
 Run from the repo root: /usr/bin/python3 tools/watch-test.py"""
 import base64, contextlib, importlib.util, io, json, os, re, stat, sys, tempfile, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -529,5 +532,36 @@ check('the working rules\' Stop check notes it for the next prompt, with no mode
       'kingsample.example' in note and 'claude-wait email-reply' in note)
 rules.reply_wait_check({'session_id': 'sid-4', 'transcript_path': TP4})
 check('once: the next end of turn of the same work adds no second note', len(json.load(open(rules.NOTES))['sid-4']) == 1)
+
+# --- only what the shell runs: text that names claude-window or claude-wait is no contact and no wait -----------------
+SEND = ('claude-window go "https://message.alibaba.com/message/messenger.htm"; '
+        'claude-window js \'document.querySelector("[aria-label=Send]").click(); "sent"\'')
+TP6 = os.path.join(PROJ, 'kitwork.jsonl')
+write(TP6, person('Make the watch better', NOW - 100))
+write(os.path.join(PROJ, 'kitwork', 'subagents', 'agent-k.jsonl'), person('Add a test', NOW - 95)
+      + use('Bash', {'command': "cd kit && python3 - <<'EOF'\ns = open('tools/t.py').read()\ns += %r\n"
+                                "open('tools/t.py', 'w').write(s)\nEOF\npython3 tools/t.py" % SEND}, NOW - 90, 'all passed')
+      + use('Bash', {'command': 'echo "%s" >> notes.txt; git commit -qm \'Test: %s\'; grep -n "claude-window go" tools/t.py'
+                                % (SEND.replace('"', '\\"'), SEND.replace("'", '')), 'cwd': '/tmp'}, NOW - 85,
+            '12: ' + SEND + '\nhttps://message.alibaba.com/message/messenger.htm')
+      + use('Bash', {'command': "cd kit && python3 - <<'EOF'\ns = open('wait.py').read().replace('claude-wait at <time>', "
+                                "'claude-wait at <time> --why <line>')\nEOF\npython3 tools/wait-test.py"}, NOW - 80,
+            'Wait abc123 set: the time Thu 5:00 PM.\nall passed'))
+e6 = {'files': {}, 'keys': []}
+watch.refresh(e6, TP6, NOW, ME, own)
+check('an agent that only writes claude-window into a test, an echo or a commit message: no contact for the watch',
+      e6['keys'] == [])
+check('nor for the Stop check, and a test that prints "Wait ... set" is no wait',
+      watch.turn_facts(TP6, ME, own)[0] == [] and watch.missing_wait(TP6, 'sid-6', {}) == [])
+rules.reply_wait_check({'session_id': 'sid-6', 'transcript_path': TP6})
+check('so the working rules\' Stop check notes nothing', 'sid-6' not in json.load(open(rules.NOTES)))
+TP7 = os.path.join(PROJ, 'msgr2.jsonl')
+write(TP7, person('Ask the supplier', NOW - 100) + use('Bash', {'command': (
+    'CW="$HOME/Library/Application Support/SttarkClaudeKit/hooks/claude-window.sh"; "$CW" go '
+    '"https://message.alibaba.com/message/messenger.htm" >/dev/null\ncat > /tmp/send.js <<\'EOF\'\n'
+    'document.querySelector("[aria-label=Send]").click(); "sent"\nEOF\ntimeout 60 "$CW" js "$(cat /tmp/send.js)"')},
+    NOW - 90, 'sent'))
+check('a real send by a variable set to claude-window\'s path, with its code in a file the command writes, counts',
+      [m['v'] for m in watch.missing_wait(TP7, 'sid-7', {})] == ['alibaba.com'])
 print('%d failed' % fails if fails else 'all passed')
 sys.exit(1 if fails else 0)

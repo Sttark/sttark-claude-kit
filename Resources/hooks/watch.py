@@ -6,8 +6,9 @@ when the session set no wait for it. wait.py --check runs it every minute; there
 What it watches comes from facts in the session's own records (its transcript and its agents'), with no model: the
 addresses and domains it emailed or drafted to, the Gmail threads it drafted or read in, the domains of web forms
 it sent through claude-window, the platform of a supplier messenger it sent on, the Asana tasks it commented on or
-made, the Chat spaces it posted in, and what its email reply waits name. A session is watched while it has an open
-wait, and for WATCH_DAYS after its last turn; a contact older than KEY_DAYS is not watched.
+made, the Chat spaces it posted in, and what its email reply waits name. Only a claude-window or claude-wait that the
+shell runs counts, never text that names one (runs()). A session is watched while it has an open wait, and for
+WATCH_DAYS after its last turn; a contact older than KEY_DAYS is not watched.
 
 How it reads, for every session at once, in as few reads as it can: a mailbox this Mac signed in to (claude-mail)
 with one Gmail search every 5 minutes, at any hour, with no model; the person's own mailbox with no sign-in, and
@@ -27,7 +28,7 @@ session comes back the way a wait brings it back, with the messages and one ques
 Logged with lines starting "watch". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
 STTARK_WAIT_DRY=1 reads and decides, prints what it would bring back, and brings nothing back.
 """
-import calendar, email.utils, glob, html, importlib.util, json, mmap, os, re, shlex, sys, time, urllib.parse
+import calendar, email.utils, glob, html, importlib.util, json, mmap, os, re, sys, time, urllib.parse
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 KIT = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
@@ -372,36 +373,144 @@ def facts(name, inp, text, err, at, st, me_, own):
     return []
 
 
-def tokens(cmd):
-    """A shell command's words, with ; && || | & and each unquoted line end as words of their own. A line that ends in
-    a backslash goes on, and a quoted word keeps its line ends. None when it does not parse (a here-document)."""
-    try:
-        lex = shlex.shlex(cmd.replace('\\\n', ' '), posix=True, punctuation_chars=';&|\n')
-        lex.whitespace = ' \t\r'
-        lex.whitespace_split = True
-        return list(lex)
-    except ValueError:
-        return None
+HEREDOC = re.compile(r"<<-?[ \t]*\\?(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+# Words before the command word: assignments go too. timeout and the like take a time (a number) first.
+PREFIX = {'sudo', 'env', 'nohup', 'exec', 'command', 'time', 'then', 'do', 'else', 'elif', 'if', 'while', 'until', '!',
+          '{', 'caffeinate', 'timeout', 'gtimeout'}
+SHELLS = {'sh', 'bash', 'zsh', 'dash'}
+OPTION = re.compile(r'-\S*|\d+(?:\.\d+)?[smhd]?')  # an option or a time after a prefix word
 
 
-def segments(cmd, word):
-    """The arguments of each `word ...` command in a shell command: [[arg, ...], ...]. A command that does not parse
-    whole is read line by line."""
-    toks = tokens(cmd)
-    if toks is None:
-        toks = []
-        for line in cmd.splitlines():
-            if word in line:
-                toks += (tokens(line) or []) + ['\n']
-    out = []
-    for i, t in enumerate(toks):
-        if t.endswith(word):
-            args = []
-            for x in toks[i + 1:]:
-                if x and not x.strip(';&|\n'):  # a separator (an empty quoted word is not one)
+def commands(cmd, depth=0):
+    """The simple commands the shell runs in a command line: [[word, ...], ...], with the quotes taken off. Also those
+    in $( ) and ` `. Never text in quotes, a comment, or the text of a here-document (what a command reads: a file it
+    writes, a script it gives to python). A word keeps a $( ) in it as text."""
+    out, ws, docs, n, i = [], [], [], len(cmd), 0
+    cur = None
+
+    def word():
+        nonlocal cur
+        if cur is not None:
+            ws.append(cur)
+        cur = None
+
+    def end():
+        word()
+        if ws:
+            out.append(ws[:])
+        del ws[:]
+
+    def sub(j):
+        """Where the $( ) or ` ` that starts at j ends, and the commands in it."""
+        if cmd[j] == '`':
+            k = cmd.find('`', j + 1)
+            k = n if k < 0 else k
+            return k + 1, (commands(cmd[j + 1:k], depth + 1) if depth < 4 else [])
+        k, level, q = j + 2, 1, ''
+        while k < n and level:
+            ch = cmd[k]
+            if q:
+                if ch == q:
+                    q = ''
+                elif ch == '\\' and q == '"':
+                    k += 1
+            elif ch in '\'"':
+                q = ch
+            elif ch == '\\':
+                k += 1
+            elif ch == '(':
+                level += 1
+            elif ch == ')':
+                level -= 1
+            k += 1
+        return k, (commands(cmd[j + 2:k - 1], depth + 1) if depth < 4 else [])
+
+    while i < n:
+        c = cmd[i]
+        if c == '\\':
+            if cmd[i + 1:i + 2] != '\n':
+                cur = (cur or '') + cmd[i + 1:i + 2]
+            i += 2
+        elif c == "'":
+            k = cmd.find("'", i + 1)
+            k = n if k < 0 else k
+            cur, i = (cur or '') + cmd[i + 1:k], k + 1
+        elif c == '"':
+            k, text = i + 1, ''
+            while k < n and cmd[k] != '"':
+                if cmd[k] == '\\' and k + 1 < n:
+                    text += '' if cmd[k + 1] == '\n' else cmd[k + 1] if cmd[k + 1] in '"\\$`' else cmd[k:k + 2]
+                    k += 2
+                elif cmd.startswith('$(', k) or cmd[k] == '`':
+                    e, inner = sub(k)
+                    out += inner
+                    text, k = text + cmd[k:e], e
+                else:
+                    text, k = text + cmd[k], k + 1
+            cur, i = (cur or '') + text, k + 1
+        elif cmd.startswith('$(', i) or c == '`':
+            e, inner = sub(i)
+            out += inner
+            cur, i = (cur or '') + cmd[i:e], e
+        elif c == '#' and cur is None:
+            k = cmd.find('\n', i)
+            i = n if k < 0 else k
+        elif cmd.startswith('<<<', i):  # a here-string: a word, not a here-document
+            cur, i = (cur or '') + '<<<', i + 3
+        elif cmd.startswith('<<', i) and HEREDOC.match(cmd, i):
+            m = HEREDOC.match(cmd, i)
+            word()
+            docs.append(m.group(2))
+            i = m.end()
+        elif c == '\n':
+            end()
+            i += 1
+            for d in docs:  # each here-document's text: the lines up to its end word
+                while i < n:
+                    k = cmd.find('\n', i)
+                    k = n if k < 0 else k
+                    line, i = cmd[i:k], k + 1
+                    if line.strip() == d:
+                        break
+            docs = []
+        elif c in ' \t\r':
+            word()
+            i += 1
+        elif c in ';&|()':
+            end()
+            i += 1
+        else:
+            cur, i = (cur or '') + c, i + 1
+    end()
+    return out
+
+
+def runs(cmd, name, depth=0):
+    """The arguments of each `name ...` the shell really runs in a command: [[arg, ...], ...]. Also in $( ), ` ` and
+    bash -c '...', and by its path (name.sh too) or a variable the command set to its path ("$CW" go ...). A command
+    that only names it, in quotes, a comment or a here-document's text (a test, a script, a file it writes), does not
+    run it, so its URLs, clicks and addresses are no contact."""
+    out, values = [], {}
+    for ws in commands(cmd):
+        i = 0
+        while i < len(ws):
+            m = re.match(r'([A-Za-z_][A-Za-z0-9_]*)=', ws[i])
+            if m:
+                values[m.group(1)] = ws[i][m.end():]
+            elif ws[i] not in PREFIX and not (i and ws[i - 1] in PREFIX and OPTION.fullmatch(ws[i])):
+                break
+            i += 1
+        if i >= len(ws):
+            continue
+        v = re.fullmatch(r'\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?', ws[i])
+        prog = os.path.basename(values.get(v.group(1), '') if v else ws[i])
+        if prog in (name, name + '.sh'):
+            out.append(ws[i + 1:])
+        elif prog in SHELLS and depth < 2:
+            for j in range(i + 1, len(ws) - 1):
+                if ws[j].startswith('-') and not ws[j].startswith('--') and 'c' in ws[j]:
+                    out += runs(ws[j + 1], name, depth + 1)
                     break
-                args.append(x)
-            out.append(args)
     return out
 
 
@@ -415,7 +524,7 @@ def wait_facts(cmd, text, at, me_, own):
     out = []
     if not re.search(r'Wait [0-9a-f]{6} set:', text or ''):
         return out
-    for args in segments(cmd, 'claude-wait'):
+    for args in runs(cmd, 'claude-wait'):
         if not args or args[0] not in ('pr', 'at', 'email-reply', 'check-script', 'check-prompt'):
             continue
         out.append(key('wait', args[0], at, how='set'))
@@ -448,8 +557,11 @@ def window_facts(cmd, text, at, st, me_, own):
     """claude-window commands: the page each is on, and a send on it: a web form that says it got the message, a
     Google Chat post, a mail sent in Gmail, a supplier's messenger."""
     out = []
+    cw = runs(cmd, 'claude-window')
+    if not cw:
+        return out  # the command only names claude-window (a test, a script, a file it writes): no page, no send
     page = st.get('page', '')
-    for u in re.findall(r'claude-window\s+go\s+["\']?(https?://[^\s"\']+)', cmd):
+    for u in [a[1] for a in cw if len(a) > 1 and a[0] == 'go' and re.match(r'https?://', a[1])]:
         if u != page:
             st.pop('before', None)  # a new page: what it says before a click starts again
         page = u
@@ -467,8 +579,9 @@ def window_facts(cmd, text, at, st, me_, own):
     st['page'] = page
     h = host_of(page)
     s = site(h)
-    codes = [a[1] for a in segments(cmd, 'claude-window') if len(a) > 1 and a[0] == 'js']
-    js = ' '.join(codes) if codes and '$(' not in ''.join(codes) else (cmd if 'claude-window js' in cmd else '')
+    codes = [a[1] for a in cw if len(a) > 1 and a[0] == 'js']
+    # code the shell fills in ("$(cat x.js)", "$J"): the code is elsewhere in the command, often in a file it writes
+    js = ' '.join(codes) if not any(re.search(r'\$[({A-Za-z_]|`', c) for c in codes) else cmd
     typed = [a for a in addrs(cmd) if site(a) in own] if js else []
     if typed:
         st['typed'] = [st.get('site', ''), typed[-1]]
