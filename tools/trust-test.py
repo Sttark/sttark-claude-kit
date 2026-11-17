@@ -3,8 +3,9 @@
 folder and log, a copy of ~/.claude.json (STTARK_CLAUDE_JSON) and a stand-in for Claude Code (STTARK_CHAT_CLAUDE)
 that, like Claude Code, waits at its question "Quick safety check: Is this a project you created or one you trust?"
 in a folder with no trust, and records a link in the conversation when it has trust. The chats run in real screens
-with test names (kit-zz...), quit at the end. No model is called, no session is changed, and no real screen,
-server or ~/.claude.json is touched. Prints each case; exits 1 if any fails.
+with test names (kit-zz...), quit at the end. Each start also holds its first turn until Claude's connectors are
+in. No model is called, no session is changed, and no real screen, server or ~/.claude.json is touched. Prints
+each case; exits 1 if any fails.
 Run: /usr/bin/python3 tools/trust-test.py"""
 import importlib.util, json, os, shutil, stat, subprocess, tempfile, threading, time
 
@@ -97,6 +98,20 @@ def runs(cid):
         return [r for r in map(json.loads, open(RUNS)) if r['cid'] == cid]
     except OSError:
         return []
+
+
+def holds(run):
+    """Whether a start gives Claude Code, for that copy only, the SessionStart hook that holds its first turn until
+    Claude's connectors are in (connector_hold()): at a start and a resume, never at a /compact or /clear."""
+    args = run.get('args') or []
+    try:
+        hooks = json.loads(args[args.index('--settings') + 1])['hooks']
+        (group,) = hooks['SessionStart']
+        (hook,) = group['hooks']
+    except (ValueError, IndexError, KeyError, TypeError):
+        return False
+    return (list(hooks) == ['SessionStart'] and group.get('matcher') == 'startup|resume' and hook.get('type') == 'command'
+            and hook.get('command') == f'/bin/sleep {eh.CONNECTOR_HOLD}' and hook.get('timeout', 0) > eh.CONNECTOR_HOLD)
 
 
 def chat(letter, cwd):
@@ -202,7 +217,8 @@ try:
     run = (runs(cid) or [{}])[-1]
     check('keep: Claude Code runs in the chat\'s folder, with Remote Control and Bypass permissions',
           run.get('cwd') == h and run.get('args') == ['--resume', cid, '--remote-control', '--permission-mode',
-                                                       'bypassPermissions'], run)
+                                                       'bypassPermissions', '--settings', eh.connector_hold()], run)
+    check('keep: its first turn waits for Claude\'s connectors', holds(run), run.get('args'))
     check('keep: the log says reattach', any(f'reattach {sid} "Trust test A"' in l for l in log_lines()))
     check('keep: the chat runs in one screen', len(eh.screen_ids('kit-' + cid[:8])) == 1)
 
@@ -233,6 +249,7 @@ try:
     check('migrate: the move starts in the session\'s folder, trusted first, and gets its link',
           name == 'kit-' + cid[:8] and mg.wait_link(x, name, 1, wait=12) == 'cse_01TESTmoved' and trusted(j))
     run = (runs(cid) or [{}])[-1]
+    check('migrate: its first turn waits for Claude\'s connectors', holds(run), run.get('args'))
     check('migrate: with the model it ran on', run.get('cwd') == j and run.get('args', [])[-2:] == ['--model', 'claude-haiku-5-5'],
           run)
 
@@ -256,6 +273,7 @@ try:
     run = (runs(cid) or [{}])[-1]
     check('wait: the session comes back in its folder, trusted first', started and run.get('cwd') == k and trusted(k), run)
     check('wait: with its first message', run.get('args', [''])[-1] == 'The pull request merged. Go on.', run.get('args'))
+    check('wait: and that first message waits for Claude\'s connectors', holds(run), run.get('args'))
     check('wait: and the keep check knows it runs on its own', sid in (eh.peek().get('keep', {}).get('alone') or {}))
 finally:
     for n in screens:
