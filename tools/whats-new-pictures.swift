@@ -10,6 +10,7 @@
 //   whats-new/shared-mailbox-waits.png a still: one sign-in, a wait on a shared mailbox, the Kit's free reads
 //   whats-new/reply-watch.png         a still: what a session contacted, what the Kit watches, and the session back
 //   whats-new/parallel-agents.png     a still: one build divided into agents that run at once; new work gets a new agent
+//   whats-new/progress-check-ins.png  a still: a note every 15 minutes while an agent works, none at the end, and one note
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
 //   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
@@ -451,6 +452,48 @@ func parallelAgentsPicture() -> NSBitmapImageRep {
     }
 }
 
+// MARK: progress check-ins
+
+/// A still: an agent that works for an hour in the background, with a note at 15, 30 and 45 minutes and none when it
+/// ends; under it, the note at 45 minutes as an email shows it, with the links back to the session.
+func checkinsPicture() -> NSBitmapImageRep {
+    frame(280) {
+        text("An agent works for an hour in the background", 20, 16, size: 13, color: C.steel)
+        let x0: CGFloat = 36, x1 = W - 52, y: CGFloat = 70
+        C.line.setFill(); NSRect(x: x0, y: y - 1, width: x1 - x0, height: 2).fill()
+        let marks: [(CGFloat, String, String?, Bool)] = [(0, "Starts", nil, false), (15, "15 min", "Note", true),
+                                                         (30, "30 min", "Note", true), (45, "45 min", "Note", true),
+                                                         (60, "Ends", "No note", false)]
+        for (m, label, word, good) in marks {
+            let x = x0 + (x1 - x0) * m / 60
+            (good ? C.green : C.gray).setFill()
+            NSBezierPath(ovalIn: NSRect(x: x - 5, y: y - 5, width: 10, height: 10)).fill()
+            text(label, x - width(label, size: 12) / 2, y - 27, size: 12, color: C.steel)
+            if let word {
+                let w = width(word, size: 13, bold: true) + 30
+                if good { chip(word, right: x + w / 2, midY: y + 24, good: true) }
+                else { text(word, x - width(word, size: 13) / 2, y + 15, size: 13, color: C.steel) }
+            }
+        }
+        // the note at 45 minutes, as the email shows it
+        let r = NSRect(x: 20, y: 118, width: W - 40, height: 150)
+        card(r, radius: 8)
+        var ty = r.minY + 12
+        ty += text("Order page: Build the order form, working 45 min", r.minX + 14, ty, size: 14, bold: true, width: r.width - 28) + 6
+        ty += text("It finished the form and its checks, and the tests pass. Next it opens a pull request.",
+                   r.minX + 14, ty, size: 14, width: r.width - 28) + 10
+        var bx = r.minX + 14
+        for (i, b) in ["Open on phone", "Open on computer"].enumerated() {
+            let w = width(b, size: 13, bold: true) + 24
+            let br = NSRect(x: bx, y: ty, width: w, height: 28)
+            if i == 0 { card(br, fill: C.green, border: C.green, radius: 5); text(b, br.minX + 12, br.minY + 6, size: 13, bold: true, color: .white) }
+            else { card(br, fill: C.card, border: C.ink, radius: 5); text(b, br.minX + 12, br.minY + 6, size: 13, bold: true) }
+            bx += w + 8
+        }
+        text("From the session Order page", r.minX + 14, ty + 40, size: 13, color: C.steel)
+    }
+}
+
 func png(_ rep: NSBitmapImageRep, to path: String) {
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     print("wrote \(path)")
@@ -472,4 +515,5 @@ for dark in [false, true] {
     if wanted("shared-mailbox-waits") { png(mailboxPicture(), to: "whats-new/shared-mailbox-waits" + (dark ? "-dark.png" : ".png")) }
     if wanted("parallel-agents") { png(parallelAgentsPicture(), to: "whats-new/parallel-agents" + (dark ? "-dark.png" : ".png")) }
     if wanted("reply-watch") { png(replyWatchPicture(), to: "whats-new/reply-watch" + (dark ? "-dark.png" : ".png")) }
+    if wanted("progress-check-ins") { png(checkinsPicture(), to: "whats-new/progress-check-ins" + (dark ? "-dark.png" : ".png")) }
 }

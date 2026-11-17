@@ -25,6 +25,19 @@ import Foundation
         KitDefaults.chose("names", on: true)
         check("turned on again: the record is gone", !KitDefaults.turnedOff("names"))
         UserDefaults.standard.removeObject(forKey: KitDefaults.offKey)
+        // Progress check-ins: on unless turned off by hand; checkin.py reads the switch in the state file
+        check("check-ins: on with no record", Checkins.on)
+        Checkins.tellHooks()
+        check("check-ins: the state file says on", State.read()["checkins"] as? Bool == true)
+        Checkins.set(false)
+        check("check-ins off by hand: the record and the state file say so",
+              !Checkins.on && KitDefaults.turnedOff("checkins") && State.read()["checkins"] as? Bool == false)
+        Checkins.set(true)
+        check("check-ins on again: the record is gone", Checkins.on && State.read()["checkins"] as? Bool == true)
+        check("check-ins: Settings warns when no way checked can send them",
+              !Checkins.words(on: true, ways: ["email", "push"]).1 && Checkins.words(on: true, ways: ["push"]) == ("Claude app can't send them. Check another way above.", true)
+              && Checkins.words(on: true, ways: []) == ("Check a way above to get them.", true) && !Checkins.words(on: false, ways: []).1)
+        UserDefaults.standard.removeObject(forKey: KitDefaults.offKey)
 
         let settings = dir.appendingPathComponent(".claude/settings.json")
         try! #"{"agentPushNotifEnabled": false}"#.write(to: settings, atomically: true, encoding: .utf8)

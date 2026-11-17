@@ -27,7 +27,9 @@ clickable, so it goes through that page. With no page link, one "Open in Claude"
 The app's part (text, mac) goes through notify-queue/ in the Application Support folder: the app answers
 within a few seconds. Logged with lines starting "notify". A message that went at least one way is noted in
 reach_sent[<cse>] in the state file: for 30 minutes the Kit sends that session no Needs you reminder, on the phone or
-the Mac, since this message already told the person (phone/DESIGN.md section 5). STTARK_KIT_DIR and STTARK_KIT_LOG point it at a
+the Mac, since this message already told the person (phone/DESIGN.md section 5). The Kit's progress check-ins
+(checkin.py) go out through send() too, the same ways less the Claude app, but are not the session's own message: they
+are not noted in reach_sent and log as "checkin". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a
 test folder and log; STTARK_NOTIFY_DRY=1 does everything except send (the sealed email is checked instead).
 """
 import base64, fcntl, importlib.util, json, os, re, subprocess, sys, time, urllib.request, uuid
@@ -288,10 +290,12 @@ def by_app(ways, m, r):
     return res
 
 
-def send(subject, body, link='', ways=None, title=None, url=None, cse=''):
+def send(subject, body, link='', ways=None, title=None, url=None, cse='', quiet=False):
     """`url` is the session's claude.ai link and `cse` its Remote Control id. In the message, 'url' is the
     open_link page link (for a computer), 'web' the claude.ai link (for a phone), and 'cse' the id the Mac
-    notice opens directly."""
+    notice opens directly. `quiet`: a message from the Kit that is not the session's own (a progress check-in,
+    checkin.py), so no "notify" log line, which says the session told the person, and no reach_sent mark, which
+    holds back its Needs you reminder; the caller logs it."""
     r = settings()
     ways = [w for w in (ways or r['ways']) if w in WAYS]
     if title is None:
@@ -309,6 +313,8 @@ def send(subject, body, link='', ways=None, title=None, url=None, cse=''):
     app = [w for w in ways if w in ('text', 'mac')]
     if app:
         results.update(by_app(app, m, r))
+    if quiet:
+        return [(w, results[w]) for w in ways]
     for w in ways:
         ok, words = results[w]
         log('%s %s %s: %s | %s' % ((title or '-')[:40], w, 'ok' if ok else 'failed', words[:120], subject[:80]))

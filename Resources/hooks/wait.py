@@ -41,6 +41,7 @@ would be held. It is then one of the keep check's chats on their own (keep.alone
 (no link, or its conversation isn't on this Mac) gets the message straight from the Kit instead.
 After the waits, each minute, the reply watch (watch.py) brings a session back when an answer comes from someone
 it contacted, also when it set no wait for it; a wait never ends on a message the watch already brought it for.
+Then, with the wait lock free, the progress check-ins (checkin.py) tell the person how a session's long work goes.
 Logged with lines starting "wait". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
 STTARK_WAIT_DRY=1 checks and decides but brings nothing back and sends nothing.
 """
@@ -790,6 +791,13 @@ def check(only=None, by=None):
             load('watch').check(Self())
         except Exception as e:
             log('the reply watch failed: %s: %s' % (type(e).__name__, str(e)[:200]))
+        # the progress check-ins (checkin.py), after the wait lock is free: their summaries take a few seconds, and
+        # Bring it back now (--now) must never find the lock taken by them
+        lock.close()
+        try:
+            load('checkin').check()
+        except Exception as e:
+            log('the progress check-ins failed: %s: %s' % (type(e).__name__, str(e)[:200]))
     return result
 
 

@@ -232,6 +232,34 @@ enum Reach {
     }
 }
 
+/// Progress check-ins (Resources/hooks/checkin.py, run by wait.py --check each minute): while a session or its agents
+/// work 15 minutes or more, a short note every 15 minutes, the Reach me by ways less the Claude app. On unless the
+/// person turns it off in Settings ("checkins" in KitDefaults' turned-off record). The hook reads "checkins" in the
+/// state file, which the app writes at launch and at each change.
+enum Checkins {
+    static let id = "checkins"
+    static var on: Bool { !KitDefaults.turnedOff(id) }
+
+    static func tellHooks() {
+        let v = on
+        if State.read()["checkins"] as? Bool != v { State.change { $0["checkins"] = v } }
+    }
+
+    static func set(_ on: Bool) {
+        KitDefaults.chose(id, on: on)
+        tellHooks()
+    }
+
+    /// What the Settings row says under its name: what a check-in is, or why none can go out the ways checked.
+    static func words(on: Bool, ways: [String]) -> (String, Bool) {
+        let kit = ways.filter { $0 != "push" }
+        if !on { return ("A short note every 15 minutes while a session or its agents work.", false) }
+        if ways.isEmpty { return ("Check a way above to get them.", true) }
+        if kit.isEmpty { return ("Claude app can't send them. Check another way above.", true) }
+        return ("A short note every 15 minutes while a session or its agents work.", false)
+    }
+}
+
 /// Waits a session handed to the Kit with claude-wait (Resources/hooks/wait.py), so the person can archive the session.
 /// wait.py --check runs every minute and brings the session back when the thing happens or at its deadline.
 enum Waits {

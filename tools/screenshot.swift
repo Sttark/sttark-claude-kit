@@ -434,6 +434,7 @@ enum Sample {
             (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a full app window. | Add an event viewer to the Kit"),
             (21, "limit  hold   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM (Bash)"),
             (21, "limit  wait   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM, with no model calls until it ends"),
+            (16, "checkin cse_01Sample4 \"Sttark Claude Kit\" sent by Google Chat | Design the event rows and 1 more agent, working 45 min | It finished the event rows and the filters, and the build passes. Next it checks the rows in dark mode."),
             (12, "notify Sttark Claude Kit email ok: sent to you@example.com; it arrives in about a minute | HVAC updates: the supplier replied"),
             (9, "error  cse_01Sample8 judge failed: TimeoutExpired"),
             (6, "change cse_01Sample4 xhigh->high (2.4s) high - The layout is set; now the checks. | Make the rows plain words"),

@@ -1424,6 +1424,13 @@ struct SettingsPage: View {
             }
             .controlSize(K.control)
             .padding(.horizontal, 12).padding(.vertical, 9)
+            Hairline()
+            let (desc, warn) = Checkins.words(on: f.checkins, ways: f.reach.ways)
+            SettingRow(title: "Progress check-ins", desc: desc, warn: warn) {
+                Toggle("Progress check-ins", isOn: Binding(get: { f.checkins }, set: { _ in c?.toggleCheckins(); model.changed() }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            .help("What got done, what is next, and anything it is stuck on, the ways checked above. None for shorter work, and none when the work ends.")
         }
     }
 
