@@ -144,6 +144,7 @@ enum Phone {
         guard let wid = id(w.id), waitKinds.contains(w.kind) else { return nil }
         var safe = w
         safe.from = sender(w.from)   // also in how the Kit checks it: "Your email, for mail from supplier.com, …"
+        safe.mailbox = w.mailbox.isEmpty ? "" : "A shared mailbox"   // its address stays on the Mac
         let failing = !w.failing.isEmpty
         return ["id": wid, "kind": w.kind, "what": cut(what(w, raw)), "from": label(safe.from), "why": label(w.why),
                 "by": time(w.by), "checks": label(Inbox.checks(safe)), "failing": failing,

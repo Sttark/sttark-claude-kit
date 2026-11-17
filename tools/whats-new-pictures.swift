@@ -7,6 +7,7 @@
 //   whats-new/own-claude-windows.png  a still: two sessions, each with its own Claude window; agents have tabs in it
 //   whats-new/agent-windows.png       a still: a session and its agents, each with its own Claude window, and a spare one
 //   whats-new/server-on-by-itself.png a still: the Claude app's Code menu with Remote Control > src picked
+//   whats-new/shared-mailbox-waits.png a still: one sign-in, a wait on a shared mailbox, the Kit's free reads
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
 //   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
@@ -378,6 +379,30 @@ func serverPicture() -> NSBitmapImageRep {
     }
 }
 
+/// A wait on a shared mailbox: the one sign-in on each Mac, the wait, the Kit's own reads with no model, and the
+/// session that comes back. A still, so one PNG.
+func mailboxPicture() -> NSBitmapImageRep {
+    frame(280) {
+        text("A session waits for mail to a shared mailbox", 20, 16, size: 13, color: C.steel)
+        let rows: [(String, Bool, String, Bool)] = [
+            ("claude-mail sign-in team@…", true, "Once a Mac", false),
+            ("claude-wait email-reply --mailbox team@…", true, "Wait", false),
+            ("The Kit reads the mailbox every 5 min", false, "No model", true),
+            ("New mail comes", false, "Session back", true),
+        ]
+        let mono = NSFont(name: "Menlo", size: 12) ?? .monospacedSystemFont(ofSize: 12, weight: .regular)
+        for (i, r) in rows.enumerated() {
+            let rr = NSRect(x: 20, y: 40 + CGFloat(i) * 48, width: W - 40, height: 40)
+            card(rr)
+            let a = NSAttributedString(string: r.0, attributes: [.font: r.1 ? mono : font(14), .foregroundColor: C.ink])
+            a.draw(at: NSPoint(x: rr.minX + 14, y: rr.midY - a.size().height / 2))
+            chip(r.2, right: rr.maxX - 10, midY: rr.midY, good: r.3)
+        }
+        text("Open the sign-in link on this Mac, select the mailbox and click Allow.", 20, 234,
+             size: 14, bold: true, width: W - 40)
+    }
+}
+
 func png(_ rep: NSBitmapImageRep, to path: String) {
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     print("wrote \(path)")
@@ -396,4 +421,5 @@ for dark in [false, true] {
     if wanted("own-claude-windows") { png(ownWindowsPicture(), to: "whats-new/own-claude-windows" + (dark ? "-dark.png" : ".png")) }
     if wanted("agent-windows") { png(agentWindowsPicture(), to: "whats-new/agent-windows" + (dark ? "-dark.png" : ".png")) }
     if wanted("browser-guard") { png(browserGuardPicture(), to: "whats-new/browser-guard" + (dark ? "-dark.png" : ".png")) }
+    if wanted("shared-mailbox-waits") { png(mailboxPicture(), to: "whats-new/shared-mailbox-waits" + (dark ? "-dark.png" : ".png")) }
 }

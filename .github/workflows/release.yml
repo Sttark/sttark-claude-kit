@@ -31,6 +31,13 @@ jobs:
             || openssl pkcs12 -in $RUNNER_TEMP/sign.p12 -nokeys -passin env:P12_PASSWORD -out $RUNNER_TEMP/cert.pem
           sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain $RUNNER_TEMP/cert.pem
           security find-identity -v -p codesigning
+      - name: The mail client's secret
+        env:
+          SECRET: ${{ secrets.GOOGLE_MAIL_CLIENT_SECRET }}
+        run: |
+          # claude-mail's Google sign-in needs it (Resources/hooks/mail.py); it stays out of this public repo's files
+          [[ -n "$SECRET" ]] || { echo "The repo secret GOOGLE_MAIL_CLIENT_SECRET is not set"; exit 1; }
+          printf "# Written by the release build from the repo secret GOOGLE_MAIL_CLIENT_SECRET; never committed.\nCLIENT_SECRET = '%s'\n" "$SECRET" > Resources/hooks/mail-client.py
       - name: Build
         run: ./build.sh
       - name: Check the signature

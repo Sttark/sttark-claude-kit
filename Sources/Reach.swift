@@ -246,6 +246,12 @@ enum Waits {
         var kind = ""
         var target = ""
         var from = ""
+        /// An email reply's mailbox when it is not the person's own (a shared one), its Gmail search, and how the Kit
+        /// read it last: "mail" (directly, claude-mail), "model" (a Haiku run through Workrouter) or "sign-in" (it
+        /// can't read that mailbox until someone signs in on this Mac).
+        var mailbox = ""
+        var query = ""
+        var via = ""
         /// Seconds between checks the session asked for (0: the Kit's own pace), and when it was set.
         var every: Double = 0
         var setAt: Date? = nil
@@ -279,6 +285,9 @@ enum Waits {
             x.kind = kind
             x.target = target
             x.from = w["from"] as? String ?? ""
+            x.mailbox = w["mailbox"] as? String ?? ""
+            x.query = w["query"] as? String ?? ""
+            x.via = w["via"] as? String ?? ""
             x.every = Limit.num(w["every"]) ?? 0
             x.failing = w["failing"] as? String ?? ""
             x.failingSince = Limit.num(w["failing_since"]).map { Date(timeIntervalSince1970: $0) }
