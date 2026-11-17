@@ -268,7 +268,7 @@ check('the second check-in at 31 minutes, for both agents: %r' % (second[0][0] i
 latest = [x for x in inputs()[n_in:] if 'Build the docs pages' in x]
 check('it reads only what the records gained since the last one, and the new agent from its start',
       len(latest) == 1 and 'NEWSTEP one' in latest[0] and 'NEWSTEP two' in latest[0] and 'OLDSTEP' not in latest[0]
-      and 'YTASK' in latest[0] and 'YSTEP one' in latest[0] and 'the last 15 min' in latest[0])
+      and 'YTASK' in latest[0] and 'YSTEP one' in latest[0] and 'since the last note' in latest[0])
 check('the turn\'s second one reads only its new step',
       any('TURNSTEP two' in x and 'TURNSTEP one' not in x for x in inputs()[n_in:]))
 
@@ -293,13 +293,13 @@ n_sent = len(SENT)
 state(T4 + 60)
 c.check(now=T4 + 60)
 check('no message when the work ends, and the run is not over after one minute',
-      len(SENT) == n_sent and runs()[CSE[A]].get('start') and not any('work ended' in l for l in log_lines()))
+      len(SENT) == n_sent and runs()[CSE[A]].get('start') and not any('"Docs site" work ended' in l for l in log_lines()))
 state(T4 + 60 + c.GAP)
 c.check(now=T4 + 60 + c.GAP)
 check('5 minutes with no work end the run, with no message; the end is logged with how many went',
       len(SENT) == n_sent and not runs()[CSE[A]].get('start') and runs()[CSE[A]].get('sent') == T4
-      and any(l.startswith('checkin cse_01DocsSite000001 "Docs site" work ended after 47 min; 3 check-ins sent') for l in log_lines())
-      and any(l.startswith('checkin cse_01LongTurn000005 "Long turn" work ended after 47 min; 2 check-ins sent') for l in log_lines()))
+      and any(l.startswith('checkin cse_01DocsSite000001 "Docs site" work ended after 46 min; 3 check-ins sent') for l in log_lines())
+      and any(l.startswith('checkin cse_01LongTurn000005 "Long turn" work ended after 32 min; 2 check-ins sent') for l in log_lines()))
 
 # --- the ways ----------------------------------------------------------------------------------------------------------
 def fresh_agent(tp, aid, now):
@@ -308,6 +308,9 @@ def fresh_agent(tp, aid, now):
 
 T5 = T4 + 3600
 fresh_agent(B, 'b2', T5)
+state(T5 - 16 * 60)
+c.check(now=T5 - 16 * 60)
+check('work first seen counts from then, at most 2 minutes back', runs()[CSE[B]]['start'] == T5 - 18 * 60)
 state(T5, ways=('push',))
 n_sent = len(SENT)
 c.check(now=T5)
@@ -330,15 +333,22 @@ n_in = len(inputs())
 state(T6)
 c.check(now=T6)
 check('no new steps: no model call, and the note says so: %r' % SENT[-1][1],
-      len(inputs()) == n_in and SENT[-1][1] == 'It made no new steps in the last 15 min. Its last step: ran: step of b2.')
-T7 = T6 + 15 * 60
+      len(inputs()) == n_in and SENT[-1][1] == 'It made no new steps since the last note. Its last step: ran: step of b2.')
+T6b = T6 + 15 * 60
+os.utime(os.path.join(B[:-6], 'subagents', 'agent-b2.jsonl'), (T6b - 60, T6b - 60))
+n_sent = len(SENT)
+state(T6b)
+c.check(now=T6b)
+check('no new steps again: no second note saying the same, logged once',
+      len(SENT) == n_sent and sum('skipped: no new steps' in l for l in log_lines()) == 1)
+T7 = T6b + 15 * 60
 write(os.path.join(B[:-6], 'subagents', 'agent-b2.jsonl'), use('more', T7 - 300) + use('again', T7 - 200, err=True))
 os.utime(os.path.join(B[:-6], 'subagents', 'agent-b2.jsonl'), (T7 - 60, T7 - 60))
 os.environ['FAKE_FAIL'] = '1'
 state(T7)
 c.check(now=T7)
 os.environ.pop('FAKE_FAIL')
-check('a failed call: the count of steps instead: %r' % SENT[-1][1], SENT[-1][1] == 'It made 2 steps in the last 15 min, and 1 of them failed.')
+check('a failed call: the count of steps instead: %r' % SENT[-1][1], SENT[-1][1] == 'It made 2 steps since the last note, and 1 of them failed.')
 check('and the log says why', any('no summary (exit 1: overloaded)' in l for l in log_lines()))
 
 # --- the switch off ----------------------------------------------------------------------------------------------------
@@ -364,10 +374,16 @@ L2 = agent(L, 'l2', 'Draw the new pages', 'Draw them.', U - 2 * 60, U - 30, use(
 M1 = agent(M, 'm1', 'Fix the form', 'Fix the form.', U - 2 * 3600, U - 30,
            use('OLDM', U - 2 * 3600 + 60) + use('NEWM', U - 60))
 N1 = agent(N, 'n1', 'Write the guide', 'Write it.', U - 14 * 60, U - 30, use('NSTEP one', U - 13 * 60))
-C = c.read_json(c.FILE)   # a run that ended an hour ago for M; for P, agents ran 30 minutes and a note went at 20
+C = c.read_json(c.FILE)   # the records the minute check left a minute ago: K, L and N run; M's run ended an hour
+C['sessions'][CSE[K]] = {'start': U - 16 * 60, 'seen': U - 60}   # ago; for P, agents ran 30 minutes and a note went at 20
+C['sessions'][CSE[L]] = {'start': U - 10 * 60, 'seen': U - 60}
+C['sessions'][CSE[N]] = {'start': U - 14 * 60, 'seen': U - 60}
 C['sessions'][CSE[M]] = {'sent': U - 3600}
-C['sessions'][CSE[P]] = {'start': U - 30 * 60, 'sent': U - 20 * 60, 'n': 1, 'files': {}}
+C['sessions'][CSE[P]] = {'start': U - 30 * 60, 'seen': U - 60, 'sent': U - 20 * 60, 'n': 1, 'files': {}}
 c.save(C)
+O = session('old')   # an agent continued two days after its birth, in a session the check has no record of
+CSE[O], NAMES[O] = 'cse_01OldAgent0000013', 'Old agent'
+O1 = agent(O, 'o1', 'Old task', 'Do it.', U - 48 * 3600, U - 30, use('OLD STEP', U - 48 * 3600 + 60) + use('NEW STEP', U - 60))
 
 
 def at(now, k_turn=True, k_asked=U - 16 * 60, p_turn=True, live=()):
@@ -380,16 +396,20 @@ def at(now, k_turn=True, k_asked=U - 16 * 60, p_turn=True, live=()):
     return {m[5]: m for m in SENT[before:]}
 
 
-got = at(U, live=(L1, L2, M1, N1))
+got = at(U, live=(L1, L2, M1, N1, O1))
 check('a long turn: a note at 16 minutes after the prompt', list(got) == [CSE[K]] and got[CSE[K]][0] == 'Long build: Working 16 min')
 check('an agent continued after its run ended counts from now, not from its start 2 hours ago',
       CSE[M] not in got and runs()[CSE[M]]['start'] == U - 120)
 check('the short turn after the agents (quiet for 20 minutes) brings no note', CSE[P] not in got)
+check('an old agent first seen counts from now, not from its birth two days ago', CSE[O] not in got
+      and runs()[CSE[O]]['start'] == U - 120)
 got = at(U + 60, k_turn=False, live=(L1, L2, M1, N1))
-check('a minute in which the turn does not show ends nothing', not got.get(CSE[K]) and runs()[CSE[K]].get('idle') == U + 60)
+check('a minute in which the turn does not show ends nothing', not got.get(CSE[K]) and runs()[CSE[K]].get('start') == U - 16 * 60
+      and runs()[CSE[K]].get('idle') == U + 60)
 check('the guide agent at 15 minutes', list(got) == [CSE[N]] and got[CSE[N]][0] == 'Between: Write the guide, working 15 min')
 got = at(U + 120, live=(L1, L2, M1, N1), p_turn=False)
-check('the turn shows again: the same run, no second note', CSE[K] not in got and not runs()[CSE[K]].get('idle'))
+check('the turn shows again: the same run, no second note', CSE[K] not in got and runs()[CSE[K]].get('start') == U - 16 * 60
+      and not runs()[CSE[K]].get('idle'))
 finish(L1)
 os.utime(L1, (U + 120, U + 120))
 N2 = agent(N, 'n2', 'Check one link', 'Check it.', U + 180, U + 480, use('N2STEP', U + 240), finished=True)
@@ -407,6 +427,27 @@ check('the continued agent at 17 minutes of its new run, with only its new steps
 got = at(U + 960, k_asked=U + 600, live=(L2, L3, M1, N1))
 check('an agent that started and stopped between two notes is in the next one',
       CSE[N] in got and any('N2STEP' in x and 'Check one link' in x for x in inputs() if 'Write the guide' in x))
+n_in = len(inputs())
+write(L2, use('LSTEP last', U + 990))
+os.utime(L2, (U + 1000, U + 1000))
+finish(L2)
+write(L3, use('LSTEP four', U + 1900))
+got = at(U + 1920, k_asked=U + 600, live=(L3, M1, N1))
+x = [i for i in inputs()[n_in:] if 'Check the new pages' in i]
+check('an agent that stopped since the last note: its last steps, once', CSE[L] in got and x and 'LSTEP four' in x[0]
+      and 'Draw the new pages' in x[0] and 'LSTEP last' in x[0] and 'LSTEP two' not in x[0])
+n_in = len(inputs())
+write(L3, use('LSTEP five', U + 2800))
+got = at(U + 2820, k_asked=U + 600, live=(L3, M1, N1))
+x = [i for i in inputs()[n_in:] if 'Check the new pages' in i]
+check('and not again in the next note', CSE[L] in got and x and 'LSTEP five' in x[0] and 'LSTEP last' not in x[0])
+V = U + 2820 + 40 * 60   # the Mac slept 40 minutes; the turn that runs now started a minute ago, with no prompt
+state(V, more={K: {'working': True, 'turn_at': V - 60, 'asked_at': U + 600}})
+before = len(SENT)
+c.check(now=V)
+check('a run the check did not see for 40 minutes ended; the work now is a new run, with no note at once',
+      len(SENT) == before and runs()[CSE[K]]['start'] == V - 60
+      and any('"Long build" work ended after' in l for l in log_lines()))
 
 # --- reading a record: from its place, back from the end at a whole line, another file at the same name -------------
 REC = os.path.join(d, 'record.jsonl')
@@ -446,6 +487,9 @@ check('the email\'s subject names the session once: %r, %r' % (once, seen.get('s
 # --- STTARK_CHECKIN_DRY, and wait.py --check runs the check-ins --------------------------------------------------------
 fresh_agent(Q, 'q2', time.time())
 state(time.time())
+C = c.read_json(c.FILE)
+C['sessions'][CSE[Q]] = {'start': time.time() - 20 * 60, 'seen': time.time() - 60}
+c.save(C)
 USAGE = os.path.join(d, 'usage.json')   # a stand-in for the usage read, and for the Keychain: nothing of this Mac's
 json.dump({'extra_usage': {'is_enabled': False}, 'limits': []}, open(USAGE, 'w'))
 json.dump({}, open(os.path.join(d, 'keys.json'), 'w'))

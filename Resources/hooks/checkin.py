@@ -8,22 +8,23 @@ running_agents(), the same count as the window's Claude working group: not a for
 and one quiet for 15 minutes only while it waits on a background task of its own), and the session's own turn, as the
 Kit's minute check of the session (effort-hook.py track()) or the Claude app's list last saw it.
 
-A run of work: from when the check first sees work in the session until it sees none for GAP (5 minutes), so a minute
-the check missed (a late read of the session, a hold) does not end it. It starts at the oldest piece of work when the
-check sees the session for the first time (the Kit just came on), else when the check sees the work.
+A run of work: from when the check sees work in the session (at most 2 minutes back; on the first check on a Mac, from
+the oldest piece of work) until it sees none for GAP (5 minutes), so a minute the check missed (a late read of the
+session) does not end it, or until the check did not see it at all for LOST (20 minutes: the Mac slept).
 
 When: one message a session, for all its work, once the person has heard nothing for EVERY (15 minutes) while the
-run goes on: EVERY after the later of the run's start, the person's last prompt in the session (asked_at, from the
-effort hook) and the last check-in. A turn alone counts only after it has run TURN_MIN, so the short turn in which
-the session reports its agents' results brings no note. None for shorter work, and none when the work ends: the
-session tells the person itself.
+run goes on: EVERY after the latest of the run's start, the person's last prompt in the session (asked_at, from the
+effort hook), the session's own Reach me by message (reach_sent) and the last check-in. A turn with no agent in the
+background counts only after it has run TURN_MIN, so the short turn in which the session reports its agents' results
+brings no note. None for shorter work, and none when the work ends: the session tells the person itself.
 
 What: one Haiku call (MODEL, through Claude Code with no tools and hooks off, as the Kit's other side calls) reads
 only what the session's record and its agents' records gained since the last check-in (the first one: since the run
 started), the agents that ran between two check-ins too, and writes 2 or 3 short sentences: what got done, what it
 does next, and what it is stuck on. The subject is the session's name, the oldest agent's description and how long
 the run has gone on; the message links to the session. No check-in while the session holds at its usage limit. With
-no new step, no call; when the call fails, the note gives the steps and how many failed.
+no new step, no call, and a second such check-in in a row is skipped; when the call fails, the note gives the steps
+and how many failed.
 
 How it goes out: notify.py send(), the ways claude-notify uses, less the Claude app, which only a session can send. A
 check-in is not the session's own message: it is not noted in reach_sent (a Needs you reminder still comes), and its
@@ -53,7 +54,8 @@ DRY = any(os.environ.get(k) for k in ('STTARK_KIT_DIR', 'STTARK_CHECKIN_DRY', 'S
 STUB = os.environ.get('STTARK_CHECKIN_MODEL', '')
 NO_MODEL = DRY and not os.environ.get('STTARK_CHECKIN_DRY')  # another part's test run: no model call
 EVERY = 900            # seconds the person hears nothing while work runs before a check-in
-GAP = 300              # seconds with no work that end a run
+GAP = 300              # seconds the check sees no work that end a run
+LOST = 1200            # seconds the check did not see a run at all (the Mac slept, the Kit was off) that end it
 TURN_MIN = 300         # a turn with no agent counts once it has run this long
 ACTIVE = 86400         # a session with no prompt or step of its own for this long is not looked at
 FRESH = 180            # the minute check's view of a session's turn counts while it is this new
@@ -171,7 +173,7 @@ def work_of(e, cse, x, st, now, tasks):
     turn = in_turn(cse, x, st, now)
     out = []
     for a in e.running_agents(tp, lambda: tasks().get(os.path.basename(tp)[:-len('.jsonl')], set()), now, foreground=turn):
-        out.append({'kind': 'agent', 'path': a['path'], 'what': a['what'], 'start': a['start']})
+        out.append({'kind': 'agent', 'path': a['path'], 'what': a['what'], 'start': a['start'], 'fg': a.get('fg', False)})
     if turn:
         out.append({'kind': 'turn', 'path': tp, 'what': '', 'start': min(x.get('turn_at') or now, now)})
     return sorted(out, key=lambda w: w['start'])
@@ -186,7 +188,7 @@ def candidates(st, now):
             continue
         if max(x.get('at') or 0, x.get('turn_at') or 0) < now - ACTIVE:
             continue
-        yield cse, x
+        yield cse, dict(x, cse=cse)
 
 
 # --- what it did ----------------------------------------------------------------------------------------------------
@@ -380,7 +382,7 @@ def summary(text):
 
 
 def plain(parts, window):
-    """The note with no model: what the records show."""
+    """The note with no model: what the records show. `window`: "since it started" or "since the last note"."""
     steps = sum(p['steps'] for p in parts)
     failed = sum(p['failed'] for p in parts)
     if not steps:
@@ -441,20 +443,21 @@ def parts_of(c, x, work, now):
             continue
         if p not in files and changed < floor:
             continue
-        entries, _ = new_entries(p, files.get(p), floor)
+        entries, place = new_entries(p, files.get(p), floor)
         lines, steps, failed, _ = digest(entries)
-        files.pop(p, None)
+        # its place is kept, so the next note does not read its last lines again
+        part = {'path': p, 'place': place, 'lines': lines, 'steps': steps, 'failed': failed, 'done': True}
         if lines:
             meta = read_json(p[:-len('.jsonl')] + '.meta.json')
-            out.append({'path': p, 'lines': lines, 'steps': steps, 'failed': failed, 'done': True,
-                        'head': 'Agent "%s", stopped since the last note:' % (meta.get('description') or 'unnamed')})
+            part['head'] = 'Agent "%s", stopped since the last note:' % (meta.get('description') or 'unnamed')
+        out.append(part)
     return out
 
 
 def model_input(title, age, parts, window):
     shown = parts[:PARTS]
     budget = DIGEST // max(1, len(shown))
-    lines = ['Session: %s' % title, 'It has worked %s. This note covers %s.' % (words(age), window), '']
+    lines = ['Session: %s' % title, 'It has worked %s. This note covers what it did %s.' % (words(age), window), '']
     for p in shown:
         lines.append(p['head'])
         if p.get('task'):
@@ -515,7 +518,7 @@ def check(now=None):
 
 def end_run(c):
     """A run of work ended: no message; the record keeps only when the last check-in went."""
-    for k in ('start', 'idle', 'n', 'files', 'said'):
+    for k in ('start', 'seen', 'idle', 'n', 'files', 'said', 'empty'):
         c.pop(k, None)
 
 
@@ -524,7 +527,9 @@ def run(now=None):
     st = read_json(STATE)
     if not on(st):
         return  # the records stay, so turning it on again sends no note sooner than one was due
+    first = not os.path.exists(FILE)  # the first check on this Mac: work that runs counts from its start
     C = read_json(FILE)
+    before = json.dumps(C, sort_keys=True)
     runs, errors = C.setdefault('sessions', {}), C.setdefault('errors', {})
     e = load('effort-hook')
     found = {}
@@ -548,48 +553,55 @@ def run(now=None):
         # the name, in quotes in the log lines (the Events page finds the session by it)
         title = (x.get('title') or (x.get('app') or {}).get('title') or 'Session ' + cse[-6:]).strip().replace('"', "'")
         c = runs.get(cse)
+        if c and c.get('start') and ((c.get('idle') and now - c['idle'] >= GAP) or now - c.get('seen', now) >= LOST):
+            # no work for GAP while the check ran, or the check did not see the run for LOST: it ended, with no message
+            if c.get('n'):
+                log('%s "%s" work ended after %s; %d check-in%s sent' % (
+                    cse, title, words(c.get('seen', c['start']) - c['start']), c['n'], '' if c['n'] == 1 else 's'))
+            end_run(c)
         if not work:
-            if c and c.get('start'):
-                if not c.get('idle'):
-                    c['idle'] = now  # a minute with no work: the run goes on unless none comes back for GAP
-                elif now - c['idle'] >= GAP:
-                    if c.get('n'):
-                        log('%s "%s" work ended after %s; %d check-in%s sent' % (
-                            cse, title, words(c['idle'] - c['start']), c['n'], '' if c['n'] == 1 else 's'))
-                    end_run(c)
+            if c and c.get('start') and not c.get('idle'):
+                c['idle'] = now  # the first minute with no work: a minute the check missed ends nothing
             continue
-        if c is None:  # seen for the first time: the run started with its oldest piece of work
-            c = runs[cse] = {'start': work[0]['start']}
-        elif not c.get('start'):  # new work after a run ended: it starts now (an agent that is continued keeps its old birth time)
-            c['start'] = min(now, max(work[0]['start'], now - 120))
+        if c is None:
+            c = runs[cse] = {}
+        if not c.get('start'):
+            # a new run: from when the check sees it (at most 2 minutes back, so an agent continued hours after its
+            # birth counts from now); only the first check after the Kit came on counts from the oldest piece of work
+            c['start'] = work[0]['start'] if first else min(now, max(work[0]['start'], now - 120))
+        c['seen'] = now
         c.pop('idle', None)
-        if not due(c, x, work, now):
+        if not due(c, x, st, work, now):
             continue
         try:
             send(c, cse, x, st, title, work, now)
         except Exception as w:
             log('%s "%s" error: %s: %s' % (cse, title, type(w).__name__, str(w)[:200]))
             c['sent'] = now  # tried: the next one in EVERY, not each minute
+        if not DRY:
+            save(C)  # at once: a check-in that went is never sent again because a later step failed
     for cse in [k for k in runs if k not in looked]:  # archived, quiet for a day, or gone from the state file
         runs.pop(cse)
     for cse in [k for k in errors if k not in looked]:
         errors.pop(cse)
-    if not DRY:
+    if not DRY and (first or json.dumps(C, sort_keys=True) != before):
         save(C)
 
 
-def quiet_since(c, x):
-    """Since when the person has heard nothing: the later of the run's start, their last prompt in the session and the
-    last check-in."""
-    return max(c['start'], x.get('asked_at') or 0, c.get('sent') or 0)
+def quiet_since(c, x, st, cse):
+    """Since when the person has heard nothing: the later of the run's start, their last prompt in the session, the
+    last check-in, and the last message the session sent them itself (claude-notify notes it in reach_sent)."""
+    told = (st.get('reach_sent') or {}).get(cse)
+    return max(c['start'], x.get('asked_at') or 0, c.get('sent') or 0, told if isinstance(told, (int, float)) else 0)
 
 
-def due(c, x, work, now):
-    """A check-in is due: the person has heard nothing for EVERY, and the work is an agent, or a turn that has run
-    TURN_MIN (not the short turn in which the session reports what its agents did)."""
-    if now - quiet_since(c, x) < EVERY:
+def due(c, x, st, work, now):
+    """A check-in is due: the person has heard nothing for EVERY, and the work is an agent in the background, or a turn
+    that has run TURN_MIN (not the short turn in which the session reports what its agents did, also when it waits
+    on an agent of its own)."""
+    if now - quiet_since(c, x, st, x.get('cse') or '') < EVERY:
         return False
-    return any(w['kind'] == 'agent' or now - w['start'] >= TURN_MIN for w in work)
+    return any((w['kind'] == 'agent' and not w.get('fg')) or now - w['start'] >= TURN_MIN for w in work)
 
 
 def send(c, cse, x, st, title, work, now):
@@ -613,27 +625,35 @@ def send(c, cse, x, st, title, work, now):
     if held:  # its work waits, and a summary would spend usage at the limit
         once(c, 'held', '%s "%s" skipped: it holds at the usage limit' % (cse, title))
         return
-    c.pop('said', None)
     age = now - c['start']
-    window = ('since it started' if not c.get('n') else 'in the last %s' % words(now - quiet_since(c, x)))
+    window = 'since it started' if not c.get('n') else 'since the last note'
     parts = parts_of(c, x, work, now)
+    if not any(p['lines'] for p in parts) and c.get('empty'):
+        # no new step again (an agent that waits on a long command, or one left behind): the last note said so, so
+        # this one is skipped, and the next comes when there is something new or after EVERY more
+        once(c, 'empty', '%s "%s" skipped: no new steps since the last check-in, which said so' % (cse, title))
+        for p in parts:
+            c['files'][p['path']] = p['place']
+        c['sent'] = now
+        return
+    c.pop('said', None)
     subj = subject(work, age)
     why = ''
     if any(p['lines'] for p in parts):
         try:
-            body = summary(model_input(title, age, parts, window))
+            body = summary(model_input(title, age, [p for p in parts if p['lines'] or not p.get('done')], window))
         except Exception as w:
             why = one_line(str(w), 120) or type(w).__name__
             body = plain(parts, window)
     else:
         body = plain(parts, window)  # nothing new to read: no model call
+    c['empty'] = not any(p['lines'] for p in parts)
     url = x.get('url') or (x.get('app') or {}).get('url') or ''
     # the subject starts with the session's name in every way (Google Chat and a text show only the subject first);
     # the log line, under the session's name already, keeps the rest
     res = n.send('%s: %s' % (title, subj), body, ways=ways, title=title, url=url, cse=cse, quiet=True)
     for p in parts:
-        if not p.get('done'):
-            c['files'][p['path']] = p['place']
+        c['files'][p['path']] = p['place']
     c['sent'], c['n'] = now, c.get('n', 0) + 1
     # the line: <session> "<name>" <status> | <subject> | <note>; the status is "sent by <ways>", then "; not by <way>
     # (<why>)" and "; no summary (<why>)" when they apply (the Events page reads it this way)
@@ -673,10 +693,10 @@ def listing(now=None):
         shown += 1
         c = dict(runs.get(cse) or {})
         c['start'] = c.get('start') or work[0]['start']
-        at = quiet_since(c, x) + EVERY
+        at = quiet_since(c, x, st, cse) + EVERY
         print('%s (%s): working %s; %s' % (x.get('title') or cse, cse, words(now - c['start']),
                                          'next check-in in %s' % words(at - now) if at > now else
-                                         'a check-in is due now' if due(c, x, work, now) else
+                                         'a check-in is due now' if due(c, x, st, work, now) else
                                          'no check-in while only a short turn runs'))
         for w in work:
             print('  - %s, %s' % ('the turn' if w['kind'] == 'turn' else 'agent "%s"' % (w['what'] or 'unnamed'), words(now - w['start'])))
@@ -690,7 +710,11 @@ def main():
         check()
         return 0
     if args == ['--list']:
-        listing()
+        try:
+            listing()
+        except Exception as x:
+            print('Could not list the work: %s: %s' % (type(x).__name__, x))
+            return 1
         return 0
     print(__doc__.split('\n\n')[-2])
     return 2

@@ -792,14 +792,17 @@ def check(only=None, by=None):
             load('watch').check(Self())
         except Exception as e:
             log('the reply watch failed: %s: %s' % (type(e).__name__, str(e)[:200]))
-        # the progress check-ins (checkin.py), in a process of their own and after the wait lock is free: their
-        # summaries take a few seconds, and the next minute's waits and Bring it back now (--now) never wait for them
-        lock.close()
-        try:
-            load('checkin').start()
-        except Exception as e:
-            log('the progress check-ins failed: %s: %s' % (type(e).__name__, str(e)[:200]))
+        lock.close()  # free for Bring it back now (--now) while the progress check-ins start (checkins())
     return result
+
+
+def checkins():
+    """After the minute check, also when it failed: the progress check-ins (checkin.py), in a process of their own,
+    so their summaries never hold up the next minute's waits."""
+    try:
+        load('checkin').start()
+    except Exception as e:
+        log('the progress check-ins failed: %s: %s' % (type(e).__name__, str(e)[:200]))
 
 
 class Self(object):
@@ -825,7 +828,10 @@ def main():
         print(__doc__.split('\n\n')[1])
         return 0
     if args[0] == '--check':
-        check()
+        try:
+            check()
+        finally:
+            checkins()
         return 0
     if args[0] == '--watching':
         return load('watch').listing()

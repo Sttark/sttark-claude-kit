@@ -608,7 +608,8 @@ def running_agents(tp, running, now=None, foreground=False):
             if not any(('"backgroundTaskId":"%s"' % t).encode() in text for t in running):
                 continue
         out.append({'id': n[:-len('.meta.json')], 'path': path, 'what': m.get('description') or '',
-                    'start': getattr(st, 'st_birthtime', st.st_mtime), 'changed': st.st_mtime})
+                    'start': getattr(st, 'st_birthtime', st.st_mtime), 'changed': st.st_mtime,
+                    'fg': m.get('requestShape') == 'foreground'})
     return sorted(out, key=lambda a: a['start'])
 
 
