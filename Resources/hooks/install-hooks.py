@@ -123,9 +123,10 @@ LIMIT_HOLD = 8 * 24 * 3600  # --hold: a session that holds at its own N% waits i
 NOTIFY = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'notify.py')
 WAIT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wait.py')
 MIGRATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'migrate.py')
+MAIL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mail.py')
 # commands in ~/.local/bin, next to claude, and the script each points at
 LINKS = {'claude-limit-wait': LIMIT, 'claude-limit-mode': LIMIT, 'claude-notify': NOTIFY, 'claude-wait': WAIT,
-         'claude-migrate': MIGRATE}
+         'claude-migrate': MIGRATE, 'claude-mail': MAIL}
 
 
 def is_limit(cmd):
@@ -182,8 +183,9 @@ def set_guard(hooks, on):
 
 
 def set_links(on):
-    """claude-limit-wait and claude-limit-mode (links to limit-hook.py), claude-notify (notify.py), claude-wait (wait.py) and
-    claude-migrate (migrate.py) in ~/.local/bin, next to claude. Removed on --remove, only when they point at this kit's copy."""
+    """claude-limit-wait and claude-limit-mode (links to limit-hook.py), claude-notify (notify.py), claude-wait (wait.py),
+    claude-migrate (migrate.py) and claude-mail (mail.py) in ~/.local/bin, next to claude. Removed on --remove, only
+    when they point at this kit's copy."""
     home_bin = os.path.expanduser('~/.local/bin')
     for name, script in LINKS.items():
         target = os.path.realpath(script)

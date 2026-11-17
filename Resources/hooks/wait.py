@@ -6,7 +6,11 @@ session goes on and tells the person through Reach me by (claude-notify).
 
     claude-wait pr <owner/repo#n> merged|closed --by <deadline> --why "<deadline and reason, one line>"
     claude-wait at <time> --why "<what to check then, one line>"
-    claude-wait email-reply <Gmail thread id> [--from <sender or domain>] --by <deadline> --why "<...>"
+    claude-wait email-reply <Gmail thread id> [--from <sender or domain>] [--mailbox <address>] --by <deadline> --why "<...>"
+    claude-wait email-reply --query "<Gmail search>" [--mailbox <address>] --by <deadline> --why "<...>"
+                                       any new message that matches the search. --mailbox watches a mailbox other
+                                       than your own, such as a shared team address; this Mac reads it after one
+                                       sign-in (claude-mail sign-in <address>), with no model call.
     claude-wait check-script <path> --every <10m|2h> --by <deadline> --why "<...>"   (exit 0 = it happened; free)
     claude-wait check-prompt "<yes/no question>" --every <30m> --by <deadline> --why "<...>"   (a Haiku call)
     --what "<what you watch for, in the person's words>"  (any wait; e.g. "New Star's reply about the laminator")
@@ -46,6 +50,7 @@ DRY = bool(os.environ.get('STTARK_WAIT_DRY'))
 PR_EVERY = 300      # seconds between reads of one pull request
 RETRY = 600         # seconds before trying again to bring back a session that didn't come back
 FALLBACK = 900      # seconds after bringing a session back with no claude-notify from it: the Kit sends a message
+MAIL_EVERY = 300    # seconds between reads of a mailbox the Kit reads directly (claude-mail): free, at any hour
 
 
 def load(name):
@@ -246,6 +251,18 @@ def haiku(prompt, tools, timeout=180):
     return final, results, why
 
 
+def due(w, now):
+    """Whether the wait's check runs now. An email reply on a mailbox this Mac reads itself costs nothing: every
+    MAIL_EVERY seconds (or its own --every), at any hour, as does one on a shared mailbox it can't read yet, which
+    fails until the sign-in. A check that costs a model call: model_due(). A pull request: every PR_EVERY; a check
+    script: at its own interval."""
+    if w['kind'] == 'email-reply' and (direct(mailbox(w)) or w.get('mailbox')):
+        return now - w.get('read_at', 0) >= max(w.get('every') or 0, MAIL_EVERY if direct(mailbox(w)) else 600)
+    if w['kind'] in ('email-reply', 'check-prompt'):
+        return model_due(w, now)
+    return now - w.get('read_at', 0) >= (PR_EVERY if w['kind'] == 'pr' else w.get('every') or 600)
+
+
 def model_due(w, now):
     """Whether a check that costs a model call may run now: between 7 AM and 9 PM, never while the session or the
     account is held at the usage limit, and less often as the wait gets older: its own interval (10 minutes when it
@@ -274,11 +291,74 @@ def me():
         return ''
 
 
+def mailbox(w):
+    """The mailbox an email reply wait watches: its --mailbox, else the person's own (their Claude login's address)."""
+    return w.get('mailbox') or me()
+
+
+_direct = {}
+
+
+def direct(box):
+    """Whether this Mac reads the mailbox itself (a claude-mail sign-in for it), with no model call."""
+    if box not in _direct:
+        try:
+            _direct[box] = load('mail').can_read(box)
+        except Exception:
+            _direct[box] = False
+    return _direct[box]
+
+
+def check_mailbox(w, box):
+    """(happened, words) for an email reply wait on a mailbox this Mac reads itself (mail.py, the Gmail API): a
+    message in the thread, from the sender given with --from, or that matches --query, newer than the wait and not
+    from the mailbox or the person. No model call."""
+    m = load('mail')
+    since = int(w['set_at'])
+    new = {}
+    if w.get('target'):
+        try:
+            msgs = m.thread(box, w['target'])
+        except m.GoogleError as e:
+            if e.code != 404 or w.get('from') or w.get('query'):
+                raise
+            raise RuntimeError('%s has no thread %s: give one of its own thread ids (claude-mail search %s '
+                               '"<Gmail search>" shows them)' % (box, w['target'], box))
+        if msgs and not w.get('subject'):
+            w['subject'] = re.sub(r'^((re|fwd?|aw):\s*)+', '', msgs[0]['subject'], flags=re.I)
+        new.update((x['id'], x) for x in msgs)
+    if w.get('from') or w.get('query'):
+        q = ' '.join(x for x in ('from:(%s)' % w['from'] if w.get('from') else '',
+                                 '(%s)' % w['query'] if w.get('query') else '', 'after:%d' % since, '-from:me') if x)
+        new.update((x['id'], x) for x in m.search(box, q, 20))
+    skip = [a for a in (box, me()) if a]
+    found = sorted((x for x in new.values() if x['at'] >= since and not any(a in x['from'].lower() for a in skip)),
+                   key=lambda x: -x['at'])
+    if not found:
+        return False, 'no new mail yet'
+    e = found[0]
+    w['found'] = {'id': e['id'], 'thread_id': e['thread_id']}
+    return True, '%s wrote%s: "%s" (%s)%s' % (e['from'] or 'someone', ' to ' + box if w.get('mailbox') else '',
+                                             e['subject'], e['snippet'][:160],
+                                             ', and %d more new' % (len(found) - 1) if len(found) > 1 else '')
+
+
 def check_email_reply(w):
-    """(happened, words) for an email reply wait: one Haiku run that calls Workrouter's gmail_search once. The
-    answer comes from the tool's own result, never from the model's words: a message in the thread (or from the
-    sender given with --from) that is newer than the wait and not from the person."""
-    if not w.get('subject') and not w.get('from'):
+    """(happened, words) for an email reply wait. A mailbox this Mac reads itself (claude-mail sign-in) is read
+    directly, with no model call (check_mailbox). Else, for the person's own mailbox: one Haiku run that calls
+    Workrouter's gmail_search once. The answer comes from the tool's own result, never from the model's words: a
+    message in the thread (or from the sender given with --from, or that matches --query) that is newer than the wait
+    and not from the person."""
+    box = mailbox(w)
+    if direct(box):
+        w['via'] = 'mail'
+        return check_mailbox(w, box)
+    if w.get('mailbox'):
+        w['via'] = 'sign-in'
+        raise RuntimeError('this Mac cannot read %s yet. Sign in to it once on this Mac: claude-mail sign-in %s '
+                           'prints the link' % (box, box))
+    w['via'] = 'model'
+    if not w.get('subject') and not w.get('from') and not w.get('query'):
         # the thread id is its first message's id: read it once for the subject to search by
         _, res, why = haiku('Call %sgmail_read_message exactly once with message_id %s and max_chars 100, then reply "done".'
                             % (WR, json.dumps(w['target'])), [WR + 'gmail_read_message'], timeout=120)
@@ -303,7 +383,8 @@ def check_email_reply(w):
                     w['subject'] = re.sub(r'^((re|fwd?|aw):\s*)+', '', e['subject'], flags=re.I)
             if not w.get('subject'):
                 raise RuntimeError('could not read the thread %s: %s' % (w['target'], why or why2 or 'no subject in the answer'))
-    q = 'after:%d' % int(w['set_at']) + (' from:%s' % w['from'] if w.get('from') else
+    q = 'after:%d' % int(w['set_at']) + (' (%s) -from:me' % w['query'] if w.get('query') else
+                                          ' from:%s' % w['from'] if w.get('from') else
                                           ' -from:me subject:(%s)' % re.sub(r'[^\w\s]', ' ', w['subject']).strip()[:120])
     _, results, why = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'
                             % (WR, json.dumps(q)), [WR + 'gmail_search'], timeout=120)
@@ -319,7 +400,7 @@ def check_email_reply(w):
             sender = (e.get('from') or '').lower()
             if me() and me() in sender:
                 continue
-            if e.get('thread_id') == w['target'] or (w.get('from') and w['from'].lower() in sender):
+            if w.get('query') or e.get('thread_id') == w['target'] or (w.get('from') and w['from'].lower() in sender):
                 found.append(e)
     if found is None:
         raise RuntimeError(why or 'gmail_search answered: %s' % re.sub(r'\s+', ' ', ' '.join(results))[:140])
@@ -373,6 +454,10 @@ def prompt_for(w, what, late):
                      'from the person does it (for an email, a follow-up draft, written by the rules for that '
                      'recipient), and ask in one line, for example "New Star has still not replied about the '
                      'laminator quote. Should I send the follow-up now?" Do not send anything before they answer.')
+    if w['kind'] == 'email-reply' and (w.get('mailbox') or w.get('via') == 'mail'):
+        box, f = mailbox(w), w.get('found') or {}
+        lines.append('The Kit reads %s itself: %sclaude-mail search %s "<Gmail search>" finds more.'
+                     % (box, 'claude-mail read %s %s prints the message; ' % (box, f['id']) if f.get('id') else '', box))
     others = [x for k, x in (peek().get('waits') or {}).items()
               if k != w['id'] and w.get('cse') and x.get('cse') == w['cse'] and x.get('stage') != 'back']
     if others:
@@ -392,7 +477,12 @@ def describe(w):
     if w['kind'] == 'pr':
         return 'pull request %s %s' % (w['target'], w['want'])
     if w['kind'] == 'email-reply':
-        return 'a reply on email thread %s' % w['target']
+        where = ' in %s' % w['mailbox'] if w.get('mailbox') else ''
+        if w.get('query'):
+            return 'new mail%s that matches: %s' % (where, w['query'])
+        if not w.get('target'):
+            return 'mail from %s%s' % (w.get('from', ''), where)
+        return 'a reply on email thread %s%s' % (w['target'], where)
     if w['kind'] == 'check-prompt':
         return 'yes to: %s' % w['target']
     if w['kind'] == 'check-script':
@@ -586,15 +676,18 @@ def check(only=None, by=None):
             happened, what = True, 'The person asked to bring it back now'
         elif w['kind'] == 'at':
             happened, what = now >= w['at'], 'The time you set came (%s)' % clock(w['at'])
-        elif (model_due(w, now) if w['kind'] in ('email-reply', 'check-prompt') else
-              now - w.get('read_at', 0) >= (PR_EVERY if w['kind'] == 'pr' else w.get('every') or 600)):
-            model = w['kind'] in ('email-reply', 'check-prompt')
+        elif due(w, now):
             try:
                 happened, what = CHECKS[w['kind']](w)
                 if w.get('failing'):
                     log('%s check works again (it failed since %s)' % (wid, clock(w.get('failing_since') or now)))
                     drop.update(('failing', 'failing_since', 'failures'))
-                if model:  # each model check says its answer, so the log shows the checks run
+                if w.get('via') == 'mail':  # a free read every 5 minutes: its first answer, a change, then hourly
+                    if happened or what != w.get('said') or now - w.get('said_at', 0) >= 3600:
+                        log('%s checked %s: %s%s' % (wid, mailbox(w), 'YES' if happened else 'NO',
+                                                     ', ' + what if what and not happened else ''))
+                        upd.update(said=what, said_at=now)
+                elif w['kind'] in ('email-reply', 'check-prompt'):  # each model check says its answer
                     log('%s checked: %s%s' % (wid, 'YES' if happened else 'NO', ', ' + what if what and not happened else ''))
                 if not happened:
                     what = ''
@@ -607,6 +700,8 @@ def check(only=None, by=None):
             upd['url'] = w.get('url', '')
             if w.get('subject'):
                 upd['subject'] = w['subject']
+            if w.get('via'):
+                upd['via'] = w['via']
         if not happened and w.get('by') and now >= w['by']:
             happened, late = True, True
             what = 'The deadline came: %s has not happened' % describe(w)
@@ -713,14 +808,25 @@ def main():
         return 0
     by, why, what = opt(args, '--by'), opt(args, '--why'), opt(args, '--what')
     sender, every = opt(args, '--from'), opt(args, '--every')
+    box, query = opt(args, '--mailbox'), opt(args, '--query')
     kind = args[0]
     try:
         if kind == 'pr' and len(args) >= 3 and re.fullmatch(r'[\w.-]+/[\w.-]+#\d+', args[1]) and args[2] in ('merged', 'closed'):
             w = {'kind': 'pr', 'target': args[1], 'want': args[2]}
-        elif kind == 'email-reply' and len(args) >= 2:
-            w = {'kind': 'email-reply', 'target': args[1]}
+        elif kind == 'email-reply' and (len(args) >= 2 or (query or '').strip() or sender):
+            w = {'kind': 'email-reply', 'target': args[1] if len(args) >= 2 else ''}
             if sender:
                 w['from'] = sender
+            if (query or '').strip():
+                w['query'] = query.strip()
+            if box is not None:
+                try:
+                    box = load('mail').address(box)
+                except ValueError as e:
+                    print('--mailbox: %s' % e, file=sys.stderr)
+                    return 2
+                if box != me():
+                    w['mailbox'] = box
         elif kind == 'check-prompt' and len(args) >= 2:
             w = {'kind': 'check-prompt', 'target': ' '.join(args[1:])}
         elif kind == 'check-script' and len(args) >= 2 and os.path.isfile(args[1]):
@@ -733,7 +839,9 @@ def main():
                   '       claude-wait check-prompt "<yes/no question>" --every <interval> --by <deadline> --why "<one line>"\n'
                   '       claude-wait pr <owner/repo#n> merged|closed --by <deadline> --why "<one line>"\n'
                   '       claude-wait at <time> --why "<one line>"\n'
-                  '       claude-wait email-reply <thread id> --by <deadline> --why "<one line>"', file=sys.stderr)
+                  '       claude-wait email-reply <thread id> [--from <sender>] [--mailbox <address>] --by <deadline> --why "<one line>"\n'
+                  '       claude-wait email-reply --query "<Gmail search>" [--mailbox <address>] --by <deadline> --why "<one line>"',
+                  file=sys.stderr)
             return 2
         if kind != 'at' and not by:
             print('--by is needed: pick the deadline from who you wait on, how urgent the work is and how long they '
@@ -755,12 +863,12 @@ def main():
     except ValueError as e:
         print('Not a time: %s' % e, file=sys.stderr)
         return 2
-    me = this_session()
+    ses = this_session()
     wid = uuid.uuid4().hex[:6]
     if (what or '').strip():
         w['what'] = what.strip()
-    w.update(id=wid, why=why.strip(), set_at=time.time(), cse=me['cse'], sid=me['sid'], transcript=me['transcript'],
-             cwd=me['cwd'], title=me['title'], session_url=me['url'])
+    w.update(id=wid, why=why.strip(), set_at=time.time(), cse=ses['cse'], sid=ses['sid'], transcript=ses['transcript'],
+             cwd=ses['cwd'], title=ses['title'], session_url=ses['url'])
     if w['kind'] == 'pr':
         w['url'] = 'https://github.com/%s/pull/%s' % tuple(w['target'].split('#'))
     if w['kind'] == 'check-script':  # the Kit keeps its own copy, so the wait outlasts the session's files
@@ -770,12 +878,20 @@ def main():
         with open(w['source']) as src, open(w['script'], 'w') as dst:
             dst.write(src.read())
         os.chmod(w['script'], 0o755)
+    if w['kind'] == 'email-reply':
+        w['via'] = 'mail' if direct(mailbox(w)) else 'sign-in' if w.get('mailbox') else 'model'
     change(lambda s: s.setdefault('waits', {}).__setitem__(wid, w))
-    log('%s %s "%s" set: %s, by %s | %s' % (wid, me['cse'][:12], me['title'], describe(w),
+    log('%s %s "%s" set: %s, by %s | %s' % (wid, ses['cse'][:12], ses['title'], describe(w),
                                            clock(w['by']) if w.get('by') else '-', w['why']))
     print('Wait %s set: %s%s. The Kit watches it now; it shows in the Kit menu under "sessions wait on someone '
           'else".' % (wid, describe(w), ', deadline ' + clock(w['by']) if w.get('by') else ''))
-    if not me['cse']:
+    if w.get('via') == 'mail':
+        print('The Kit reads %s itself every %d minutes, at any hour, with no model call.' % (mailbox(w), MAIL_EVERY // 60))
+    elif w.get('via') == 'sign-in':
+        print('This Mac cannot read %s yet, so the check fails until someone who can open that mailbox signs in once '
+              'on this Mac: run claude-mail sign-in %s and give the person the link it prints, to open on this Mac '
+              '(select %s, click Allow). The deadline still brings this session back.' % ((w['mailbox'],) * 3))
+    if not ses['cse']:
         print('This session has no Claude app link, so it can\'t come back by itself: the person gets the message.')
     else:
         print('End your turn with one handoff line for the person, for example: "I am watching for %s. If none by %s, '

@@ -72,7 +72,10 @@ split the ask into two rows.
 - Waits on others: before you end a turn that waits on someone or something outside the session (a pull request \
 someone else merges, a reply to an email, a check at a set time), hand the wait to Sttark Claude Kit with \
 claude-wait (claude-wait pr <owner/repo#n> merged --by <deadline> --what "<what you watch for>" --why "<line>"; \
-claude-wait email-reply <thread id> [--from <sender>] --by ... ; claude-wait at <time> --why ...; claude-wait \
+claude-wait email-reply <thread id> [--from <sender>] --by ... ; for mail to a shared mailbox, such as a team \
+address, claude-wait email-reply --query "<Gmail search>" --mailbox <address> --by ... (claude-mail search and \
+claude-mail read show that mailbox; if this Mac cannot read it yet, claude-mail sign-in <address> prints a link that \
+the person opens on this Mac); claude-wait at <time> --why ...; claude-wait \
 check-script <path> --every 10m --by ... for anything a small script can check with no model, such as an API value, a \
 page that changes or a tracking number, where exit 0 means it happened; claude-wait check-prompt "<yes/no question>" \
 --every 1h --by ... only when nothing free works, since each check is a Haiku call). Prefer pr, at and check-script. \

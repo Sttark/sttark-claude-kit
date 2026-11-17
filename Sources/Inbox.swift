@@ -334,7 +334,12 @@ enum Inbox {
         switch w.kind {
         case "pr": return "The pull request on GitHub, every 5 min"
         case "at": return "The clock"
-        case "email-reply": return "Your email" + (w.from.isEmpty ? "" : ", for mail from \(w.from)") + ", every \(every(modelGap)), 7 AM to 9 PM"
+        case "email-reply":
+            let box = w.mailbox.isEmpty ? "Your email" : w.mailbox
+            let only = !w.query.isEmpty ? ", for mail that matches its search" : w.from.isEmpty ? "" : ", for mail from \(w.from)"
+            if w.via == "mail" { return box + only + ", read directly, every \(every(max(w.every, 300)))" }
+            if !w.mailbox.isEmpty { return box + only + ", once this Mac signs in to it" }
+            return box + only + ", every \(every(modelGap)), 7 AM to 9 PM"
         case "check-prompt": return "A short Haiku check, every \(every(modelGap)), 7 AM to 9 PM"
         case "check-script": return "The session's own check script, every \(every(w.every > 0 ? w.every : 600))"
         default: return "Every minute"
