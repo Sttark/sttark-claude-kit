@@ -31,6 +31,7 @@ struct MenuFacts {
     var profileLast: String? = nil
     var workingRules = false
     var reach = Reach.Settings(ways: ["email"], email: "name@sttark.com", phone: "", chat: "")
+    var checkins = true
     /// What's new: how many notes there are, and how many this person hasn't seen.
     var whatsNew = 0
     var whatsNewUnseen = 0
@@ -71,6 +72,7 @@ struct MenuFacts {
         f.profileLast = ProfileSync.lastResult
         f.workingRules = WorkingRules.on
         f.reach = Reach.settings()
+        f.checkins = Checkins.on
         f.whatsNew = WhatsNew.shown.count
         f.whatsNewUnseen = WhatsNew.unseen.count
         f.paused = State.paused
@@ -99,6 +101,7 @@ final class Controller: NSObject, NSMenuDelegate {
         if ChromeApprover.on { ChromeApprover.copyHelper() }
         if ChromeWindow.on { ChromeWindow.installTool() }
         ChromeWindow.tellHooks()
+        Checkins.tellHooks()
         FileLinks.refresh()
         KitDefaults.apply()
         NotificationCenter.default.addObserver(forName: .init("kitOpenSettings"), object: nil, queue: .main) { [weak self] _ in
@@ -431,6 +434,7 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleFileLinks() { let on = !FileLinks.on; FileLinks.set(on); KitDefaults.chose("fileLinks", on: on) }
     @objc func toggleNames() { let on = !Names.on; Names.set(on); KitDefaults.chose("names", on: on) }
     @objc func toggleWorkingRules() { WorkingRules.set(!WorkingRules.on) }
+    @objc func toggleCheckins() { Checkins.set(!Checkins.on) }
 
     @objc func toggleProfile() {
         if ProfileSync.on { ProfileSync.stop(); KitDefaults.chose("profile", on: false); return }

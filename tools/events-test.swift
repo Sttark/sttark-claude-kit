@@ -170,6 +170,32 @@ import Foundation
         let wn = Events.kitLine(f.string(from: Date()) + " watch  f46255ef contacted utility.example (a web form) with no reply wait: noted for the next prompt", names)
         check(wn?.name == "Press color" && wn?.kind == .check && wn?.text == "Contacted someone and set no wait for the answer",
               "the reply wait check names the session")
+        // The progress check-ins (checkin.py): one row a check-in under its session, with the note in the detail; a way
+        // that failed, no way to send, a hold, a test run and the end of the work.
+        let cs = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" sent by Email, Google Chat | Build the color page, working 45 min | It finished the page and opened pull request 12. Next it checks the links.", names)
+        check(cs?.name == "Press color" && cs?.session == "cse_01AAAtest1" && cs?.kind == .wait && cs?.level == .info && cs?.routine == false
+              && cs?.text == "Progress check-in sent by Email, Google Chat: Build the color page, working 45 min"
+              && cs?.detail == ["\u{201C}It finished the page and opened pull request 12. Next it checks the links.\u{201D}"],
+              "a check-in that went: its ways and subject, the note in the detail")
+        let cw = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" sent by Email; not by Google Chat (the webhook did not take it: HTTP Error 404); no summary (exit 1: overloaded) | Working 20 min | It made 12 steps in the last 15 min.", names)
+        check(cw?.level == .warn && cw?.text == "Progress check-in sent by Email: Working 20 min"
+              && cw?.detail.contains("Not sent by Google Chat (the webhook did not take it: HTTP Error 404).") == true
+              && cw?.detail.contains { $0.hasPrefix("Haiku gave no summary (exit 1: overloaded)") } == true,
+              "a way that failed and a summary that failed show in the row")
+        let cn = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" not sent: no way is checked under Reach me by", names)
+        check(cn?.level == .warn && cn?.text == "Progress check-in not sent: no way is checked under Reach me by", "no way to send is a warning, with why")
+        let cf = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" not sent (Email: gh could not start the mail: HTTP 401) | Working 20 min | It made 3 steps.", names)
+        check(cf?.level == .warn && cf?.text == "Progress check-in not sent: Working 20 min"
+              && cf?.detail.first == "Email: gh could not start the mail: HTTP 401", "a check-in that went no way says why first")
+        let ch = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" skipped: it holds at the usage limit", names)
+        let cd = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" would send (dry) | Working 20 min | It made 3 steps.", names)
+        let ce = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" work ended after 1 hr 31 min; 6 check-ins sent", names)
+        check(ch?.routine == true && ch?.text == "Progress check-in skipped: it holds at the usage limit"
+              && cd?.routine == true && cd?.text == "Progress check-in written, not sent (test run): Working 20 min"
+              && ce?.routine == true && ce?.text == "Long work ended after 1 hr 31 min; 6 check-ins sent",
+              "a hold, a test run and the end of the work are routine rows")
+        let cx = Events.kitLine(f.string(from: Date()) + " checkin error: KeyError: 'sessions'", names)
+        check(cx?.kind == .problem && cx?.text == "A progress check-in failed", "an error is a problem")
 
         print(failed == 0 ? "all passed" : "\(failed) failed")
         exit(failed == 0 ? 0 : 1)

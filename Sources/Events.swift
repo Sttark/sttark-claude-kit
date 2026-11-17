@@ -534,6 +534,42 @@ enum Events {
             } else {
                 e.text = "Reply watch: " + rest.prefix(160)
             }
+        case "checkin":   // the progress check-ins (checkin.py): a note on a session's long work, the Reach me by ways
+            e.kind = .wait
+            if first.hasPrefix("cse_") { who(first) }
+            named(rest)
+            var after = rest
+            if let q = quoted(rest), let r = rest.range(of: "\"\(q)\" ") { after = String(rest[r.upperBound...]) }
+            // "<status> | <subject> | <note>"; the status is "sent by Email, Google Chat", then "; not by …" and
+            // "; no summary (…)" when they apply, or "would send (dry)", or "not sent (…)"
+            let fields = after.components(separatedBy: " | ")
+            let items = fields[0].components(separatedBy: "; ")
+            let subject = fields.count > 1 ? fields[1] : ""
+            let note = fields.count > 2 ? fields[2...].joined(separator: " | ") : ""
+            if !note.isEmpty { e.detail.append("\u{201C}" + note + "\u{201D}") }
+            for x in items.dropFirst() {
+                if x.hasPrefix("not by ") { e.level = .warn; e.detail.append("Not sent by " + x.dropFirst(7) + ".") }
+                else if x.hasPrefix("no summary") { e.detail.append("Haiku gave no summary" + x.dropFirst(10) + ", so the note gives the count of steps.") }
+            }
+            if items[0].hasPrefix("sent by ") {
+                e.text = "Progress check-in sent by " + items[0].dropFirst(8) + (subject.isEmpty ? "" : ": " + subject)
+            } else if items[0].hasPrefix("would send") {
+                e.routine = true; e.text = "Progress check-in written, not sent (test run)" + (subject.isEmpty ? "" : ": " + subject)
+            } else if items[0].hasPrefix("not sent") {
+                e.level = .warn
+                e.text = "Progress check-in not sent" + (subject.isEmpty ? "" : ": " + subject)
+                if let r = items[0].range(of: "not sent (") { e.detail.insert(String(items[0][r.upperBound...].dropLast()), at: 0) }
+                else if let r = items[0].range(of: "not sent: ") { e.text = "Progress check-in not sent: " + items[0][r.upperBound...] }
+            } else if items[0].hasPrefix("skipped: ") {
+                e.routine = true; e.text = "Progress check-in skipped: " + items[0].dropFirst(9)
+            } else if items[0].hasPrefix("work ended") {
+                e.routine = true
+                e.text = "Long work ended" + items[0].dropFirst(10) + (items.count > 1 ? "; " + items[1] : "")
+            } else {
+                e.kind = .problem; e.level = .warn
+                e.text = "A progress check-in failed"
+                e.detail.append(String(after.prefix(300)))
+            }
         case "notify":
             e.kind = .wait
             let (main, _, subject) = split(rest)

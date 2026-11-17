@@ -572,15 +572,17 @@ def open_tasks():
     return found
 
 
-def background(tp, running):
-    """What a session still runs in the background after its turn: agents (any kind, forks too) that have not
-    finished, and Bash commands its main thread sent to the background that still run. `running`: this session's
-    open tasks, from open_tasks(). {'agents', 'bash', 'what' (the newest one's description), 'since' (the oldest
-    one's start)}, or None. A Kit wait's model check runs outside the session and never counts."""
+def running_agents(tp, running, now=None, foreground=False):
+    """The agents of a session (any kind, forks too) still at work: Claude Code marks an agent `finished` in its
+    subagents/agent-<id>.meta.json when it stops, and a foreground agent is part of the turn itself (counted only with
+    `foreground`). One whose record has not changed for BG_QUIET is alive only while a background task of its own
+    still runs (it waits on that); else it died with its session. `running`: this session's open tasks, from
+    open_tasks(), or a function that gives them, called only when an agent is quiet that long. [{'id', 'path' (its
+    record), 'what' (its description), 'start', 'changed'}], the oldest first. The window's Claude working group
+    (background()) and the progress check-ins (checkin.py) both count agents this way."""
     if not tp.endswith('.jsonl'):
-        return None
-    now, items = time.time(), []  # (start, description)
-    agents = bash = 0
+        return []
+    now, out = now or time.time(), []
     sub = os.path.join(tp[:-len('.jsonl')], 'subagents')
     try:
         metas = [n for n in os.listdir(sub) if n.endswith('.meta.json')]
@@ -588,24 +590,39 @@ def background(tp, running):
         metas = []
     for n in metas:
         meta = os.path.join(sub, n)
+        path = meta[:-len('.meta.json')] + '.jsonl'
         try:
             m = json.load(open(meta))
-            st = os.stat(meta[:-len('.meta.json')] + '.jsonl')
+            st = os.stat(path)
         except (OSError, ValueError):
             continue
-        # Claude Code marks an agent finished when it stops; a foreground agent is part of the turn itself
-        if m.get('finished') or m.get('requestShape') == 'foreground':
+        if m.get('finished') or (m.get('requestShape') == 'foreground' and not foreground):
             continue
         if now - st.st_mtime > BG_QUIET:
-            # quiet for long: alive only while a background task of its own still runs (it waits on that)
+            if callable(running):
+                running = running()
             try:
-                text = open(meta[:-len('.meta.json')] + '.jsonl', 'rb').read() if running else b''
+                text = open(path, 'rb').read() if running else b''
             except OSError:
                 text = b''
             if not any(('"backgroundTaskId":"%s"' % t).encode() in text for t in running):
                 continue
-        agents += 1
-        items.append((getattr(st, 'st_birthtime', st.st_mtime), m.get('description') or ''))
+        out.append({'id': n[:-len('.meta.json')], 'path': path, 'what': m.get('description') or '',
+                    'start': getattr(st, 'st_birthtime', st.st_mtime), 'changed': st.st_mtime,
+                    'fg': m.get('requestShape') == 'foreground'})
+    return sorted(out, key=lambda a: a['start'])
+
+
+def background(tp, running):
+    """What a session still runs in the background after its turn: agents (any kind, forks too) that have not
+    finished (running_agents()), and Bash commands its main thread sent to the background that still run. `running`:
+    this session's open tasks, from open_tasks(). {'agents', 'bash', 'what' (the newest one's description), 'since'
+    (the oldest one's start)}, or None. A Kit wait's model check runs outside the session and never counts."""
+    if not tp.endswith('.jsonl'):
+        return None
+    now = time.time()
+    items = [(a['start'], a['what']) for a in running_agents(tp, running, now)]  # (start, description)
+    agents, bash = len(items), 0
     if running:  # Bash the main thread sent to the background; an agent's own count with the agent
         try:
             text = open(tp, 'rb').read()
@@ -1593,7 +1610,12 @@ def on_prompt(data, sid):
         return
     snippet = re.sub(r'\s+', ' ', prompt)[:80]
     with state() as s:  # when this turn started: the Kit window's "Working for"
-        s['sessions'].setdefault(sid, {})['turn_at'] = time.time()
+        x0 = s['sessions'].setdefault(sid, {})
+        x0['turn_at'] = time.time()
+        # when the person last wrote in it, not an agent's or a command's notice or the Kit: the progress check-ins
+        # (checkin.py) count from there
+        if not prompt.startswith(('<task-notification>', '[Sttark Claude Kit]')):
+            x0['asked_at'] = x0['turn_at']
     st = peek()
     x = st.get('sessions', {}).get(sid, {})
     proc, launched = session_process()
