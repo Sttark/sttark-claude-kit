@@ -304,6 +304,15 @@ def reply_wait_check(data):
     names = ', '.join(sorted({m['v'] for m in miss}))[:200]
     hows = {'draft': 'a draft', 'email': 'a mail', 'form': 'a web form', 'messenger': 'a supplier messenger'}
     how = ' and '.join(sorted({hows.get(m['how'], m['how']) for m in miss}))
+    mark = 'replywait:' + full  # the contacts noted last, so the same work is noted once, not at each end of turn
+
+    def seen(a):
+        if a.get(mark) == names:
+            return True
+        a[mark] = names
+        return False
+    if notes(seen):
+        return
     notes(lambda a: a.__setitem__(full, (a.get(full, []) + [
         'Your last work contacted %s (%s) and set no wait for the answer. An answer to a message comes as a message: '
         'set the wait on that channel, with the deadline in --by, for example: %s. A claude-wait at alone does not '

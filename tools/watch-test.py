@@ -485,5 +485,7 @@ rules.reply_wait_check({'session_id': 'sid-4', 'transcript_path': TP4})
 note = json.load(open(rules.NOTES)).get('sid-4', [''])[0]
 check('the working rules\' Stop check notes it for the next prompt, with no model call',
       'kingsample.example' in note and 'claude-wait email-reply' in note)
+rules.reply_wait_check({'session_id': 'sid-4', 'transcript_path': TP4})
+check('once: the next end of turn of the same work adds no second note', len(json.load(open(rules.NOTES))['sid-4']) == 1)
 print('%d failed' % fails if fails else 'all passed')
 sys.exit(1 if fails else 0)
