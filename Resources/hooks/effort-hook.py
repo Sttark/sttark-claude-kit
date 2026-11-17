@@ -572,14 +572,14 @@ def open_tasks():
     return found
 
 
-def running_agents(tp, running, now=None):
+def running_agents(tp, running, now=None, foreground=False):
     """The agents of a session (any kind, forks too) still at work: Claude Code marks an agent `finished` in its
-    subagents/agent-<id>.meta.json when it stops, and a foreground agent is part of the turn itself. One whose record
-    has not changed for BG_QUIET is alive only while a background task of its own still runs (it waits on that);
-    else it died with its session. `running`: this session's open tasks, from open_tasks(), or a function that gives
-    them, called only when an agent is quiet that long. [{'id', 'path' (its record), 'what' (its description),
-    'start', 'changed'}], the oldest first. The window's Claude working group (background()) and the progress
-    check-ins (checkin.py) both count agents this way."""
+    subagents/agent-<id>.meta.json when it stops, and a foreground agent is part of the turn itself (counted only with
+    `foreground`). One whose record has not changed for BG_QUIET is alive only while a background task of its own
+    still runs (it waits on that); else it died with its session. `running`: this session's open tasks, from
+    open_tasks(), or a function that gives them, called only when an agent is quiet that long. [{'id', 'path' (its
+    record), 'what' (its description), 'start', 'changed'}], the oldest first. The window's Claude working group
+    (background()) and the progress check-ins (checkin.py) both count agents this way."""
     if not tp.endswith('.jsonl'):
         return []
     now, out = now or time.time(), []
@@ -596,7 +596,7 @@ def running_agents(tp, running, now=None):
             st = os.stat(path)
         except (OSError, ValueError):
             continue
-        if m.get('finished') or m.get('requestShape') == 'foreground':
+        if m.get('finished') or (m.get('requestShape') == 'foreground' and not foreground):
             continue
         if now - st.st_mtime > BG_QUIET:
             if callable(running):

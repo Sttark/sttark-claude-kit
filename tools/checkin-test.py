@@ -204,6 +204,10 @@ c.check(now=S)
 check('no check-in for work under 15 minutes, and no model call', not SENT and not inputs())
 check('the long agent and the long turn start runs; a finished, quiet, foreground or archived agent does not',
       set(runs()) == {CSE[A], CSE[E], CSE[H]})
+eh = load('effort-hook')
+check('a foreground agent counts only while its turn runs (it is the turn\'s work)',
+      [x['what'] for x in eh.running_agents(F, set(), S)] == [] and
+      [x['what'] for x in eh.running_agents(F, set(), S, foreground=True)] == ['Part of the turn'])
 
 # --- at 15 minutes: one check-in each ---------------------------------------------------------------------------------
 T1 = S + 6 * 60

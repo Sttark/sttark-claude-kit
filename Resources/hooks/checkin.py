@@ -155,12 +155,14 @@ def in_turn(cse, x, st, now):
 
 def work_of(e, cse, x, st, now, tasks):
     """What the session runs now: [{'kind': 'agent' or 'turn', 'path', 'what', 'start'}], the oldest first. `tasks`
-    gives the open background tasks of the Mac, and is called only when an unfinished agent is quiet for long."""
+    gives the open background tasks of the Mac, and is called only when an unfinished agent is quiet for long. While
+    the turn runs, an agent it waits on (a foreground one) is work too: what it does is what the turn does."""
     tp = x.get('transcript') or ''
+    turn = in_turn(cse, x, st, now)
     out = []
-    for a in e.running_agents(tp, lambda: tasks().get(os.path.basename(tp)[:-len('.jsonl')], set()), now):
+    for a in e.running_agents(tp, lambda: tasks().get(os.path.basename(tp)[:-len('.jsonl')], set()), now, foreground=turn):
         out.append({'kind': 'agent', 'path': a['path'], 'what': a['what'], 'start': a['start']})
-    if in_turn(cse, x, st, now):
+    if turn:
         out.append({'kind': 'turn', 'path': tp, 'what': '', 'start': min(x.get('turn_at') or now, now)})
     return sorted(out, key=lambda w: w['start'])
 
@@ -186,8 +188,8 @@ def new_entries(path, off, since, tail=TAIL):
         size = os.path.getsize(path)
     except OSError:
         return [], off or 0
-    if off is not None and size < off:
-        off = None  # the record was written again from the start
+    if off is not None and (size < off or size - off > tail):
+        off = None  # written again from the start, or grown more than a summary reads: its newest part, from `since`
     start = off if off is not None else max(0, size - tail)
     try:
         with open(path, 'rb') as f:
@@ -407,7 +409,7 @@ def parts_of(c, work, title, now):
     for p, off in list(files.items()):
         if p in seen or not p.endswith('.jsonl') or '/subagents/' not in p:
             continue
-        entries, end = new_entries(p, off, 0)
+        entries, end = new_entries(p, off, c.get('sent') or 0)
         lines, steps, failed, _ = digest(entries)
         meta = read_json(p[:-len('.jsonl')] + '.meta.json')
         if lines:

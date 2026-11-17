@@ -1622,6 +1622,9 @@ struct SettingRow<Control: View>: View {
         .padding(.horizontal, K.z(12))
         .padding(.vertical, K.z(9))
         .frame(minHeight: K.z(44))
+        // the height its words need at its width, whatever height the box offers: offered less, a row of two lines
+        // kept only the least height and its words ran over its padding
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
