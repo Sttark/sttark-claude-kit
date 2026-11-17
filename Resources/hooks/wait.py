@@ -15,6 +15,8 @@ session goes on and tells the person through Reach me by (claude-notify).
     claude-wait check-prompt "<yes/no question>" --every <30m> --by <deadline> --why "<...>"   (a Haiku call)
     --what "<what you watch for, in the person's words>"  (any wait; e.g. "New Star's reply about the laminator")
     claude-wait --list                 open waits, every session
+    claude-wait --watching             what the Kit watches for replies with no wait: each session's contacts (the
+                                       people, threads, sites, Asana tasks and Chat spaces it wrote to), watch.py
     claude-wait --cancel <id> [--by window|phone]
                                        drop a wait
     claude-wait --now <id> [--by window|phone]
@@ -37,6 +39,8 @@ started on its own the way the keep check starts an unarchived chat (effort-hook
 with the prompt as its first message, typed locally so Claude Code runs it; a prompt posted through the server
 would be held. It is then one of the keep check's chats on their own (keep.alone). A session that can't come back
 (no link, or its conversation isn't on this Mac) gets the message straight from the Kit instead.
+After the waits, each minute, the reply watch (watch.py) brings a session back when an answer comes from someone
+it contacted, also when it set no wait for it; a wait never ends on a message the watch already brought it for.
 Logged with lines starting "wait". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
 STTARK_WAIT_DRY=1 checks and decides but brings nothing back and sends nothing.
 """
@@ -51,6 +55,7 @@ PR_EVERY = 300      # seconds between reads of one pull request
 RETRY = 600         # seconds before trying again to bring back a session that didn't come back
 FALLBACK = 900      # seconds after bringing a session back with no claude-notify from it: the Kit sends a message
 MAIL_EVERY = 300    # seconds between reads of a mailbox the Kit reads directly (claude-mail): free, at any hour
+STARTING = 120      # seconds after the Kit starts a session in which it is not started again: its first prompt runs
 
 
 def load(name):
@@ -204,6 +209,13 @@ def haiku(prompt, tools, timeout=180):
     Run as the person, through Claude Code's connectors. `why` says, in a few words, why the run gave no usable
     result: the Workrouter connector did not load (a Claude outage, or its sign-in), the tool answered an error, or
     the model did not call it. A caller that finds no answer in the results raises it, so the log and the window say."""
+    final, calls, why = haiku_calls(prompt, tools, timeout)
+    return final, [res for _, _, res, err in calls if not err], why
+
+
+def haiku_calls(prompt, tools, timeout=180):
+    """The same run as haiku(), with each call of `tools` it made: (final text, [(tool, its input, its result's text,
+    whether that was an error)], why). The reply watch (watch.py) makes all its reads in one such run."""
     env = {k: v for k, v in os.environ.items() if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
     env['EFFORT_JUDGE'] = '1'
     os.makedirs(os.path.join(KIT, 'wait-checks'), exist_ok=True)
@@ -212,7 +224,7 @@ def haiku(prompt, tools, timeout=180):
                         '--settings', '{"disableAllHooks":true}'],
                        input=prompt, capture_output=True, text=True, timeout=timeout, env=env,
                        cwd=os.path.join(KIT, 'wait-checks'))
-    final, results, errors, called, init = '', [], [], {}, None
+    final, calls, called, init = '', [], {}, None
     for line in r.stdout.splitlines():
         try:
             ev = json.loads(line)
@@ -226,18 +238,21 @@ def haiku(prompt, tools, timeout=180):
             if not isinstance(part, dict):
                 continue
             if part.get('type') == 'tool_use':
-                called[part.get('id')] = part.get('name', '')
-            elif part.get('type') == 'tool_result' and called.get(part.get('tool_use_id')) in tools:
+                called[part.get('id')] = (part.get('name', ''), part.get('input') or {})
+            elif part.get('type') == 'tool_result' and (called.get(part.get('tool_use_id')) or ('',))[0] in tools:
                 c = part.get('content')
                 text = ''.join(x.get('text', '') for x in c if isinstance(x, dict)) if isinstance(c, list) else str(c or '')
-                (errors if part.get('is_error') else results).append(text)
+                name, inp = called[part.get('tool_use_id')]
+                calls.append((name, inp, text, bool(part.get('is_error'))))
+    results = [c for c in calls if not c[3]]
+    errors = [c[2] for c in calls if c[3]]
     if r.returncode and not results and not final:
         raise RuntimeError('claude -p exit %d: %s' % (r.returncode, (r.stderr or r.stdout).strip()[:160]))
     why = ''
     wr = [t for t in tools if t.startswith(WR)]
     if errors:   # the tool ran, so its connector loaded: its own error says why
         why = '%s answered an error: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', errors[0])[:140])
-    elif not any(n in tools for n in called.values()):
+    elif not any(n in tools for n, _ in called.values()):
         # The start of the run lists only the connectors that loaded by then: run from the Kit, claude.ai connectors
         # load after it and are not listed, yet the tool works. Only a connector listed as not loaded explains it.
         server = [m for m in (init or {}).get('mcp_servers') or [] if m.get('name') == 'claude.ai Sttark Workrouter']
@@ -248,7 +263,7 @@ def haiku(prompt, tools, timeout=180):
             why = 'the Workrouter connector did not load in the check (%s): a Claude outage or its sign-in' % status
         else:
             why = 'Haiku did not call %s; it said: %s' % (wr[0][len(WR):] if wr else 'the tool', re.sub(r'\s+', ' ', final)[:120] or 'nothing')
-    return final, results, why
+    return final, calls, why
 
 
 def due(w, now):
@@ -332,8 +347,9 @@ def check_mailbox(w, box):
                                  '(%s)' % w['query'] if w.get('query') else '', 'after:%d' % since, '-from:me') if x)
         new.update((x['id'], x) for x in m.search(box, q, 20))
     skip = [a for a in (box, me()) if a]
-    found = sorted((x for x in new.values() if x['at'] >= since and not any(a in x['from'].lower() for a in skip)),
-                   key=lambda x: -x['at'])
+    old = told(w)
+    found = sorted((x for x in new.values() if x['at'] >= since and not any(a in x['from'].lower() for a in skip)
+                    and x['id'] not in old), key=lambda x: -x['at'])
     if not found:
         return False, 'no new mail yet'
     e = found[0]
@@ -388,7 +404,7 @@ def check_email_reply(w):
                                           ' -from:me subject:(%s)' % re.sub(r'[^\w\s]', ' ', w['subject']).strip()[:120])
     _, results, why = haiku('Call %sgmail_search exactly once with query %s and max_results 20, then reply "done".'
                             % (WR, json.dumps(q)), [WR + 'gmail_search'], timeout=120)
-    found, n = None, 0
+    found, n, old = None, 0, told(w)
     for t in results:
         try:
             emails = json.loads(t).get('emails') or []
@@ -398,7 +414,7 @@ def check_email_reply(w):
         n += len(emails)
         for e in emails:
             sender = (e.get('from') or '').lower()
-            if me() and me() in sender:
+            if (me() and me() in sender) or e.get('id') in old:
                 continue
             if w.get('query') or e.get('thread_id') == w['target'] or (w.get('from') and w['from'].lower() in sender):
                 found.append(e)
@@ -407,7 +423,16 @@ def check_email_reply(w):
     if not found:
         return False, 'no reply yet' + (' (%d new message%s, none a reply)' % (n, '' if n == 1 else 's') if n else '')
     e = found[0]
+    w['found'] = {'id': e.get('id', ''), 'thread_id': e.get('thread_id', '')}
     return True, '%s replied: "%s" (%s)' % (e.get('from', 'someone'), e.get('subject', ''), (e.get('snippet') or '')[:160])
+
+
+def told(w):
+    """The messages the Kit already brought this wait's session back for (watch.py): a wait never ends on one."""
+    try:
+        return load('watch').told(w.get('cse') or '')
+    except Exception:
+        return set()
 
 
 def check_prompt(w):
@@ -500,6 +525,9 @@ def bring_back(w, prompt=None):
     cse, tp = w.get('cse'), w.get('transcript')
     if not cse or not tp or not os.path.exists(tp):
         return False
+    started = ((((peek().get('keep') or {}).get('alone') or {}).get(cse)) or {}).get('at', 0)
+    if 0 <= time.time() - started < STARTING:
+        raise RuntimeError('busy')  # the Kit started it moments ago (a wait, the reply watch): its first prompt may not run yet
     d = e.sse().session(cse)
     if d.get('status') == 'active':
         app = ((peek().get('sessions') or {}).get(cse) or {}).get('app') or {}
@@ -733,13 +761,29 @@ def check(only=None, by=None):
             upd.update(stage='back', back_at=time.time(), what=what, late=late)
             change(save)
             result = 'brought'
+            if (w.get('found') or {}).get('id'):  # the reply watch never brings it back for the same message
+                try:
+                    load('watch').mark_told(w.get('cse'), [w['found']['id']])
+                except Exception:
+                    pass
         else:
             w['stage'] = 'out'
             fallback(w, what, late)
             log('%s sent the message from the Kit; the session did not come back' % wid)
             change(lambda s: (s.get('waits') or {}).pop(wid, None))
             result = 'sent'
+    if not only:
+        try:  # the reply watch: answers that no wait names (watch.py), in the same minute and under the same lock
+            load('watch').check(Self())
+        except Exception as e:
+            log('the reply watch failed: %s: %s' % (type(e).__name__, str(e)[:200]))
     return result
+
+
+class Self(object):
+    """This module as the reply watch sees it, so a test that replaces a function here (bring_back) reaches it too."""
+    def __getattr__(self, name):
+        return globals()[name]
 
 
 # --- the command -------------------------------------------------------------------------------------------
@@ -761,6 +805,8 @@ def main():
     if args[0] == '--check':
         check()
         return 0
+    if args[0] == '--watching':
+        return load('watch').listing()
     if args[0] == '--list':
         ws = peek().get('waits') or {}
         for wid, w in sorted(ws.items(), key=lambda x: x[1].get('by') or x[1].get('at') or 0):

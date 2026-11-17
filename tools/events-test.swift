@@ -156,6 +156,20 @@ import Foundation
         let n = Events.kitLine(f.string(from: Date()) + " wait   cse_01AAAtest1 \"Press color\" not brought back from the archive (phone): its conversation is not on this Mac", names)
         check(n?.text == "Not brought back: its conversation is not on this Mac" && n?.level == .warn
               && n?.detail.first?.contains("the phone") == true, "one that could not come back says why")
+        // The reply watch (watch.py): a session brought back for new messages, a read, a failed read, and the working
+        // rules' reply wait check.
+        let wb = Events.kitLine(f.string(from: Date()) + " watch  cse_01AAAtest1 \"Press color\" brought back for 1 new message: Sam <help@utility.example> \"[Ticket 1] Contact Us\"", names)
+        check(wb?.name == "Press color" && wb?.kind == .restart && wb?.text == "Brought back: new messages came in from someone it contacted"
+              && wb?.detail.first?.contains("help@utility.example") == true, "a session the reply watch brought back, with what came")
+        let wr = Events.kitLine(f.string(from: Date()) + " watch  person@sample.example read (Haiku through Workrouter): 4 new messages, 0 for a session", names)
+        check(wr?.kind == .check && wr?.routine == true && wr?.text == "Reply watch read person@sample.example: 4 new messages, 0 for a session",
+              "a read of the reply watch is a routine check")
+        let wf = Events.kitLine(f.string(from: Date()) + " watch  person@sample.example read failed: Haiku did not call gmail_search", names)
+        check(wf?.kind == .problem && wf?.text == "The reply watch could not read person@sample.example"
+              && wf?.detail.first == "Haiku did not call gmail_search", "a failed read is a problem, with why")
+        let wn = Events.kitLine(f.string(from: Date()) + " watch  f46255ef contacted utility.example (a web form) with no reply wait: noted for the next prompt", names)
+        check(wn?.name == "Press color" && wn?.kind == .check && wn?.text == "Contacted someone and set no wait for the answer",
+              "the reply wait check names the session")
 
         print(failed == 0 ? "all passed" : "\(failed) failed")
         exit(failed == 0 ? 0 : 1)
