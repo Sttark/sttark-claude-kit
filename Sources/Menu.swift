@@ -124,6 +124,7 @@ final class Controller: NSObject, NSMenuDelegate {
         Waiting.refresh()
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in Waiting.refresh() }
         Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in Server.keepChats() }
+        Server.haltChatsAtPowerOff()
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in ChromeWindow.cleanTabs() }
         Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { _ in KitDefaults.applyBypassSettings() }
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in Reach.poll() }

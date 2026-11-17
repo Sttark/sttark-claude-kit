@@ -207,6 +207,17 @@ enum Server {
         }
     }
 
+    /// Before the Mac shuts down, restarts or logs out: end each chat the Kit runs on its own (screens kit-*) the
+    /// way that never archives it. The system ends what is left with SIGTERM, and Claude Code archives a Remote
+    /// Control chat when it ends that way; only the person archives a session. keep() starts them again after the
+    /// restart, on the same link. See halt_copies() in effort-hook.py.
+    static func haltChatsAtPowerOff() {
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willPowerOffNotification, object: nil,
+                                                          queue: .main) { _ in
+            Updater.run("/usr/bin/python3", [hooksDir.appendingPathComponent("effort-hook.py").path, "--halt-copies"])
+        }
+    }
+
     // MARK: the Kit's own copies of the server
 
     struct Proc: Equatable { let pid: Int32; let ppid: Int32; let uid: UInt32; let age: Int; let command: String }

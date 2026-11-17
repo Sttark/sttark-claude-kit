@@ -401,9 +401,11 @@ def describe(w):
 
 
 def bring_back(w, prompt=None):
-    """Unarchive the session on its own link, with its whole conversation and `prompt` as its first message; with no
-    prompt it waits for the person. True when it started. The window's Archived page brings a session back with this
-    too (archived.py --back), so there is one way to do it."""
+    """Start the session in a Kit copy on its own link (unarchiving it when it is archived), with its whole
+    conversation and `prompt` as its first message; with no prompt it waits for the person. True when it started.
+    The window's Archived page brings a session back with this too (archived.py --back), so there is one way to do it.
+    The Kit never archives a session (only the person does): a copy that runs it now, in the server or the Kit, is
+    ended with end_copy(), which leaves the chat as it is."""
     e = load('effort-hook')
     cse, tp = w.get('cse'), w.get('transcript')
     if not cse or not tp or not os.path.exists(tp):
@@ -413,12 +415,9 @@ def bring_back(w, prompt=None):
         app = ((peek().get('sessions') or {}).get(cse) or {}).get('app') or {}
         if d.get('worker_status') == 'running' or d.get('status_bucket') == 'working' or \
                 (app.get('background') and time.time() - app.get('checked', 0) < 180):
-            raise RuntimeError('busy')  # a turn, or its agents, run now (archiving would end them); the next check tries again
-        e.api('POST', 'https://api.anthropic.com/v1/code/sessions/%s/archive' % cse, {})
-        for _ in range(20):  # archiving ends its process
-            time.sleep(1)
-            if ('--session-id ' + cse) not in e.processes() and ('--resume ' + os.path.basename(tp)[:-6]) not in e.processes():
-                break
+            raise RuntimeError('busy')  # a turn, or its agents, run now (ending its copy would end them); the next check tries again
+        if not e.end_server_copy(cse):  # the copy started below must be its one copy, or the keep check ends that one
+            raise RuntimeError('its copy in the server did not stop')
     cid = os.path.basename(tp)[:-len('.jsonl')]
     with open(os.path.join(KIT, 'keep.lock'), 'w') as lock:  # the keep check starts chats too: one at a time
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -473,7 +472,7 @@ def unarchive(cse, by='window'):
         e.write_archived([x for x in items if x.get('cse') != cse], force=True)
     d = status()
     title = (item or {}).get('title') or (d.get('title') or '').strip() or 'Session ' + cse[-6:]
-    if not d:  # unknown: never start one that may be running (bring_back archives an active session first)
+    if not d:  # unknown: never start one that may be running (bring_back ends the copy of an active session first)
         print('Claude did not answer, so the Kit did not bring it back. Try again in a minute.')
         log('%s "%s" not brought back from the archive (%s): its status could not be read' % (cse, title, by))
         return 1

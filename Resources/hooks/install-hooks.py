@@ -28,6 +28,8 @@ the person removes later stays removed, and --remove takes out only a true the K
 --bypass-defaults on sets permissions.defaultMode to bypassPermissions and skipDangerousModePermissionPrompt to
 true, each only when missing, and records what it set in kit-settings.json in the Kit's folder; --bypass-defaults off
 takes out only what it recorded, when the value is still the one it set.
+On install it also puts the tools a session could archive a session with in permissions.deny (set_no_archive):
+only the person archives a session, by hand in the Claude app.
 --status prints which are on. Other settings and hooks are left as they are, and a backup is saved
 before any change.
 """
@@ -222,6 +224,43 @@ def set_rc_startup(s, on):
         os.remove(RC_SET)
 
 
+NO_ARCHIVE = ('mcp__claude-code-remote__archive_session', 'mcp__ccd_session_mgmt__archive_session')
+
+
+def set_no_archive(s, on):
+    """Only the person archives a session, by hand in the Claude app: the tools a session could archive another
+    session with (or itself) go in permissions.deny, which holds even in bypass mode. Added when missing, on every
+    launch; --remove takes out only the ones the Kit added (recorded in kit-settings.json)."""
+    rec_path = os.path.join(KIT_DIR, 'kit-settings.json')
+    try:
+        with open(rec_path) as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        rec = {}
+    perms = s.get('permissions') if isinstance(s.get('permissions'), dict) else {}
+    deny = perms.get('deny') if isinstance(perms.get('deny'), list) else []
+    added = list(rec.get('permissions.deny') or [])
+    if on:
+        missing = [t for t in NO_ARCHIVE if t not in deny]
+        if not missing:
+            return
+        s['permissions'] = dict(perms, deny=deny + missing)
+        rec['permissions.deny'] = added + [t for t in missing if t not in added]
+    else:
+        if not added:
+            return
+        left = [t for t in deny if t not in added]
+        perms = dict(perms, deny=left) if left else {k: v for k, v in perms.items() if k != 'deny'}
+        if perms:
+            s['permissions'] = perms
+        else:
+            s.pop('permissions', None)
+        rec.pop('permissions.deny', None)
+    os.makedirs(KIT_DIR, exist_ok=True)
+    with open(rec_path, 'w') as f:
+        json.dump(rec, f)
+
+
 def ours(cmd):
     return cmd.rstrip('"').endswith('effort-hook.py')
 
@@ -289,7 +328,8 @@ def main():
                           'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
                           'limit': has(s, 'PreToolUse', is_limit),
                           'guard': has(s, 'PreToolUse', is_guard) and has(s, 'UserPromptSubmit', is_guard),
-                          'remote_control_at_startup': s.get('remoteControlAtStartup')}))
+                          'remote_control_at_startup': s.get('remoteControlAtStartup'),
+                          'no_archive': all(t in ((s.get('permissions') or {}).get('deny') or []) for t in NO_ARCHIVE)}))
         return
     remove = '--remove' in sys.argv
     before = json.dumps(s, sort_keys=True)
@@ -363,6 +403,7 @@ def main():
     set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     set_rc_startup(s, not remove)
+    set_no_archive(s, not remove)
     for event in ('UserPromptSubmit', 'PostToolUse', 'PreToolUse'):
         groups = hooks.get(event, [])
         for g in groups:  # drop every copy, old paths included

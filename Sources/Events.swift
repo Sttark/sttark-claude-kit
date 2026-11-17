@@ -265,7 +265,10 @@ enum Events {
             if tag == "keep", main.contains("\"") {
                 e.kind = .restart; e.routine = false
                 if levelWords[String(lv)] != nil { e.text = "Started again at \(level(lv)) effort" }
-                else if main.contains("archived or deleted") { e.text = "Archived in the Claude app, so the Kit stopped it" }
+                else if main.contains("archived or deleted") {
+                    e.text = main.contains("while it was stopped") ? "Archived in the Claude app while it was stopped, so the Kit left it archived"
+                        : "Archived in the Claude app, so the Kit stopped it"
+                }
                 else if let q = main.range(of: "\"", options: .backwards) {
                     let x = main[q.upperBound...].trimmingCharacters(in: .whitespaces)
                     e.text = x.prefix(1).uppercased() + x.dropFirst()
@@ -315,16 +318,25 @@ enum Events {
             e.text = rest.contains("usage limit") ? "Effort not checked: at the usage limit" : "Effort not set: not a Remote Control session"
         case "paused":
             e.kind = .effort; e.text = "Auto effort is off"; e.routine = true
+        case "halt":   // effort-hook.py halt_copies(): the Mac shuts down
+            e.kind = .restart; e.routine = true
+            e.text = "The Mac shuts down, so the Kit stopped its sessions without archiving them"
         case "wake", "start", "reattach", "move", "handover", "standdown":
             e.kind = .restart
             who(first); named(rest)
             switch tag {
             case "wake": e.text = "Stopped while not archived, so the Kit started it again"
             case "start": e.text = "Had stopped, so the Kit started it again"
-            case "reattach": e.text = "Unarchived, so the Kit started it on the same link"
-                e.detail = ["The server does not start a session that was archived. The Kit runs it on its own, and it answers the messages sent after it was unarchived."]
-            case "move": e.text = "Moved to a new link, and the old entry archived"; e.level = .warn
-                e.detail = ["Claude Code could not keep its old link. Its Routines moved with it."]
+            case "reattach":
+                if rest.contains("wakes did not start it") {
+                    e.text = "The server did not start it, so the Kit started it on the same link"
+                    e.detail = ["The Kit asked the server to start it, and the server did not. The Kit runs it on its own, and it answers the messages sent while it was stopped."]
+                } else {
+                    e.text = "Unarchived, so the Kit started it on the same link"
+                    e.detail = ["The server does not start a session that was archived. The Kit runs it on its own, and it answers the messages sent after it was unarchived."]
+                }
+            case "move": e.text = "Moved to a new link; the old entry stays in your list"; e.level = .warn
+                e.detail = ["Claude Code could not keep its old link. Its Routines moved with it. The old entry has \"(old link)\" after its name; archive it in the Claude app when you want."]
             case "handover": e.text = "The server runs it again, so the Kit closed its own copy"
             default: e.text = "Taken over in another place, so the Kit closed its own copy"; e.level = .warn
             }
