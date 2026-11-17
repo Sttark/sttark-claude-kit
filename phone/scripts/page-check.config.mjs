@@ -33,7 +33,8 @@ const sampleServer = (name, person) => ({
   ready: '/healthz',
   timeout: 240,
 });
-/** The sample's pages: the three tabs, Menu, a search, a session of each
+/** The sample's pages: the three tabs, Menu, a search on Sessions and one
+ *  on Archived that also finds a session that waits, a session of each
  *  group, an archived session, the Mac that is away and one of its
  *  sessions, a link page waiting for Link, and Usage by session for each
  *  period (the Mac that is away has a list for 7 days only), with every
@@ -43,6 +44,7 @@ const SAMPLE_PAGES = [
   '/',
   '/?q=lam',
   '/archived',
+  '/archived?q=laminator',
   '/usage',
   '/usage?p=today',
   '/usage?p=30d',

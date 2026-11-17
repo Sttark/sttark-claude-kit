@@ -361,7 +361,7 @@ Results:
 
 **On the server.** Table `archived`: one row per Mac with its `rev` and list, replaced at each update, deleted with the Mac.
 
-**On the phone.** The Archived tab sends `open_archived`; the server answers with `archived {mac, rev, items}` from its copy and asks the Mac for a newer one if needed. A search field at the top searches the names on the phone. Rows show the name, folder and when archived, with the ↗ button. A tap on a row opens its page with **Bring it back** and **Open in Claude**.
+**On the phone.** The Archived tab sends `open_archived`; the server answers with `archived {mac, rev, items}` from its copy and asks the Mac for a newer one if needed. A search field at the top searches the names and folders on the phone. It also finds the sessions under "Waiting on someone else" in the snapshot (by name or what they wait on) and shows them in a group of their own under the list, since they are not in it; a tap opens the session's page under Sessions. So a search never says a session is not there when it waits. Rows show the name, folder and when archived, with the ↗ button. A tap on a row opens its page with **Bring it back** and **Open in Claude**.
 
 ## 14. Usage by session
 

@@ -3,6 +3,7 @@
 //   docs/menu.png             the menu: what needs you, one row for each other group, one group's submenu open
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected
 //   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
+//   docs/window-archived-search.png  the Archived page's search, which finds an archived session that waits
 //   docs/window-usage.png     the window's Usage page, 7 days, the biggest session selected with its days and models
 //   docs/window-settings.png  the window's Settings page
 //   docs/settings-phone.png   the Settings page's Phone box in each of its states (Kit on your phone)
@@ -113,6 +114,11 @@ import SwiftUI
             // the archived note's picture: the selected session with Open and Bring it back
             Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
                       to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
+            // a search for an archived session that waits: it is under Waiting on someone else, not in the list
+            model.archivedSearch = "laminator"
+            model.reload()
+            Shot.capture(w, to: folder + "/window-archived-search.png")
+            model.archivedSearch = ""
             model.page = .usage
             model.usageData = SessionUsage.read()
             model.setUsagePeriod(.week)
@@ -456,7 +462,8 @@ enum Sample {
             "a1b2c3": ["id": "a1b2c3", "kind": "email-reply", "target": "18c0sample", "from": "supplier.example",
                        "what": "Supplier's reply to the deposit email", "why": "They said 2 workdays; later misses this week's slot",
                        "by": at(9, 0, daysAhead: daysToMon).timeIntervalSince1970, "set_at": now - 5 * 3600, "cse": "cse_01Sample10",
-                       "title": "Laminator quote", "session_url": "https://claude.ai/code/session_sample10"],
+                       "title": "Laminator quote", "session_url": "https://claude.ai/code/session_sample10",
+                       "cwd": NSHomeDirectory() + "/src/purchasing"],
             "j1k2l3": ["id": "j1k2l3", "kind": "email-reply", "target": "18c1sample", "what": "Supplier's reply on the web path drawing",
                        "why": "Same supplier, the older thread", "by": at(9, 0, daysAhead: daysToMon).timeIntervalSince1970 + 3600,
                        "set_at": now - 5 * 3600, "cse": "cse_01Sample10", "title": "Laminator quote",

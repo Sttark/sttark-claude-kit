@@ -156,6 +156,25 @@ describe('Archived, Usage, a Mac, Menu', () => {
     expect(h).not.toContain('class="folder"');
     expect(html({ page: 'archived' }, one(), { ...emptyUi(), q: 'quotes' })).toContain('Laminator RFQ');
   });
+  it('finds a session that waits on someone else, in its own group that opens it under Sessions', () => {
+    // "powder" matches no archived session; the session waits, so it is under Sessions, not here
+    const h = html({ page: 'archived' }, one(), { ...emptyUi(), q: 'powder' });
+    expect(h).not.toContain('No archived session matches');
+    expect(h).toContain('>Waiting on someone else <');
+    expect(h).toContain('href="/s/session_01SamplePowderWatch"');
+    expect(h).toContain('These are under Sessions. Tap one to see it there.');
+    // by what a wait is for, and next to archived matches
+    const both = html({ page: 'archived' }, one(), { ...emptyUi(), q: 'laminator' });
+    expect(both).toContain('Laminator RFQ');
+    expect(both.indexOf('Laminator RFQ')).toBeLessThan(both.indexOf('href="/s/session_01SampleLaminator"'));
+    expect(html({ page: 'archived' }, one(), { ...emptyUi(), q: 'web path drawing' })).toContain('href="/s/session_01SampleLaminator"');
+    // an away Mac's waits too, as its last list
+    expect(html({ page: 'archived' }, kit(), { ...emptyUi(), q: 'label printer' })).toContain('href="/s/session_01SampleBinLabels"');
+    // no search: the group never shows, and one session is in one list only
+    expect(html({ page: 'archived' }, one())).not.toContain('Waiting on someone else');
+    // nothing in either list
+    expect(html({ page: 'archived' }, one(), { ...emptyUi(), q: 'zzz' })).toContain('No archived session matches “zzz”');
+  });
   it('offers Bring it back for an archived session', () => {
     const h = html({ page: 'archived-item', cse: 'session_01SampleDoorPi' });
     expect(h).toContain('Bring it back');

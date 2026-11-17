@@ -209,13 +209,37 @@ final class KitModel: ObservableObject {
         if archivedSelected == nil || !shown.contains(where: { $0.id == archivedSelected }) { archivedSelected = shown.first?.id }
     }
 
+    /// The Archived page's search, as words; none when nothing is typed.
+    var archivedWords: [String] { archivedSearch.lowercased().split(separator: " ").map(String.init) }
+
     /// The archived sessions the search matches (name, folder or what it was doing), newest first.
     var archivedRows: [Archived.Item] {
-        let words = archivedSearch.lowercased().split(separator: " ").map(String.init)
+        let words = archivedWords
         return archived.items.filter { x in
             let hay = (x.title + " " + x.folderShort + " " + x.doing).lowercased()
             return words.allSatisfy { hay.contains($0) }
         }
+    }
+
+    /// While a search is typed: the sessions under Waiting on someone else that it matches (name, folder or what each
+    /// wait is for). They are not in the archived list, since a session shows in one list only, so without them a
+    /// search for an archived session that waits would say it is not on this Mac.
+    var archivedWaitRows: [Inbox.Row] {
+        let words = archivedWords
+        guard !words.isEmpty else { return [] }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return snap.rows(.waits).filter { r in
+            let hay = ([r.title, r.sub] + r.waits.flatMap { [$0.what, $0.folder.replacingOccurrences(of: home, with: "~")] })
+                .joined(separator: " ").lowercased()
+            return words.allSatisfy { hay.contains($0) }
+        }
+    }
+
+    /// A session on the Sessions page, selected in its group. The Sessions search is cleared when it hides the row.
+    func showOnSessions(_ id: String) {
+        selected = id
+        if let r = snap.rows.first(where: { $0.id == id }), !rows(r.group).contains(where: { $0.id == id }) { search = "" }
+        page = .sessions
     }
 
     /// The same, by the day each was last active: "Today", "Yesterday", "Thursday, Nov 12".
@@ -1159,9 +1183,11 @@ struct ArchivedPage: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if let n = model.backNote, -n.at.timeIntervalSinceNow < 300 { note(n) }
                     let days = model.archivedDays
-                    if days.isEmpty {
+                    let waits = model.archivedWaitRows
+                    let searching = !model.archivedWords.isEmpty
+                    if days.isEmpty && waits.isEmpty {
                         Text(model.archived.at == nil ? "Reading the archived sessions…"
-                             : !model.archivedSearch.isEmpty ? "No archived session matches \"\(model.archivedSearch)\"."
+                             : searching ? "No archived session matches \"\(model.archivedSearch)\"."
                              : "No archived sessions that this Mac can bring back.")
                             .foregroundColor(K.steel).padding(.top, 24).padding(.leading, 8)
                     }
@@ -1174,7 +1200,19 @@ struct ArchivedPage: View {
                             ArchivedRow(item: x, selected: x.id == model.archivedSelected).onTapGesture { model.archivedSelected = x.id }
                         }
                     }
-                    if model.archived.at != nil {
+                    if !waits.isEmpty {
+                        // a session that waits is on the Sessions page, archived or not: the search finds it there
+                        GroupHeader(group: .waits, count: waits.count)
+                        Text("These are on the Sessions page. Click one to see it there.")
+                            .font(K.font(12)).foregroundColor(K.steel).padding(.horizontal, 8).padding(.bottom, 4)
+                        ForEach(Array(waits.enumerated()), id: \.element.id) { i, r in
+                            if i > 0 { Hairline().padding(.horizontal, 10) }
+                            RowView(row: r, selected: false).onTapGesture { model.showOnSessions(r.id) }
+                                .help("Shows this session on the Sessions page.")
+                        }
+                    }
+                    // under a search, only when nothing matched in either list: it says the session is not on this Mac
+                    if model.archived.at != nil && (!searching || (days.isEmpty && waits.isEmpty)) {
                         Text("A session from another computer or the cloud is not here: its conversation is not on this Mac. The Claude app's archive has it.")
                             .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
                             .padding(.top, 20).padding(.horizontal, 8)
@@ -1187,7 +1225,10 @@ struct ArchivedPage: View {
             Rectangle().fill(K.hair).frame(width: 1)
             Group {
                 if let x = model.archivedItem { ArchivedDetail(model: model, item: x).id(x.id) } else {
-                    Text("Pick a session to see it here.").foregroundColor(K.steel).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Text(model.archivedRows.isEmpty && !model.archivedWaitRows.isEmpty ? "Click a session to see it on the Sessions page."
+                         : "Pick a session to see it here.")
+                        .foregroundColor(K.steel).multilineTextAlignment(.center).padding(.horizontal, 16)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .frame(width: min(K.z(340), 420))
