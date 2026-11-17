@@ -9,6 +9,7 @@
 //   whats-new/server-on-by-itself.png a still: the Claude app's Code menu with Remote Control > src picked
 //   whats-new/shared-mailbox-waits.png a still: one sign-in, a wait on a shared mailbox, the Kit's free reads
 //   whats-new/reply-watch.png         a still: what a session contacted, what the Kit watches, and the session back
+//   whats-new/parallel-agents.png     a still: one build divided into agents that run at once; new work gets a new agent
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
 //   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
@@ -425,6 +426,31 @@ func replyWatchPicture() -> NSBitmapImageRep {
     }
 }
 
+/// One build divided into parts, each part an agent in its own worktree, all running at once; then the work the
+/// person adds gets a new agent, not a queue on a running one. A still, so one PNG.
+func parallelAgentsPicture() -> NSBitmapImageRep {
+    frame(276) {
+        text("One build, divided into parts", 20, 16, size: 13, color: C.steel)
+        let parts: [(String, String)] = [("Data and API", "data-api"), ("Page", "page"), ("Import flow", "import")]
+        let gap: CGFloat = 10, w = (W - 40 - gap * 2) / 3
+        for (i, p) in parts.enumerated() {
+            let r = NSRect(x: 20 + CGFloat(i) * (w + gap), y: 40, width: w, height: 88)
+            card(r, radius: 8)
+            text("Agent", r.minX + 12, r.minY + 12, size: 12, color: C.steel)
+            text(p.0, r.minX + 12, r.minY + 38, size: 14, bold: true)
+            text("worktree " + p.1, r.minX + 12, r.minY + 60, size: 12, color: C.steel)
+            chip("Runs", right: r.maxX - 8, midY: r.minY + 20, good: true)
+        }
+        text("You add work while they run", 20, 138, size: 13, color: C.steel)
+        let add = NSRect(x: 20, y: 160, width: W - 40, height: 44)
+        card(add, fill: C.infoSoft, border: C.infoBorder)
+        text("Photo of a label", add.minX + 14, add.minY + 13, size: 14, bold: true)
+        chip("New agent", right: add.maxX - 10, midY: add.midY, good: false)
+        text("Not a queue on a running agent. Their pull requests merge one at a time.", 20, 218,
+             size: 14, bold: true, width: W - 40)
+    }
+}
+
 func png(_ rep: NSBitmapImageRep, to path: String) {
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     print("wrote \(path)")
@@ -444,5 +470,6 @@ for dark in [false, true] {
     if wanted("agent-windows") { png(agentWindowsPicture(), to: "whats-new/agent-windows" + (dark ? "-dark.png" : ".png")) }
     if wanted("browser-guard") { png(browserGuardPicture(), to: "whats-new/browser-guard" + (dark ? "-dark.png" : ".png")) }
     if wanted("shared-mailbox-waits") { png(mailboxPicture(), to: "whats-new/shared-mailbox-waits" + (dark ? "-dark.png" : ".png")) }
+    if wanted("parallel-agents") { png(parallelAgentsPicture(), to: "whats-new/parallel-agents" + (dark ? "-dark.png" : ".png")) }
     if wanted("reply-watch") { png(replyWatchPicture(), to: "whats-new/reply-watch" + (dark ? "-dark.png" : ".png")) }
 }

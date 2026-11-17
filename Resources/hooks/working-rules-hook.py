@@ -17,6 +17,8 @@ unreadable one) is logged and nothing is saved.
 
 The same Stop hook also checks the manager rule, with no model call: when the work since the person's last
 message made more than 8 tool calls in the chat and started no agent, a note goes in front of the next prompt.
+And the agent queue check, with no model call: when the person's last message got a long SendMessage to an agent
+that runs (new work queued on it) and no new agent, a note goes in front of the next prompt.
 And the status icon check, with no model call: a status table cell in the reply with more than one of
 ✅ 🔄 🔴 ⚪ gets a note in front of the next prompt. And the reply wait check, with no model call: work that
 contacted someone whose answer comes as a message (a mail or a draft, a web form, a supplier's messenger, read from
@@ -24,7 +26,7 @@ the session's records and its agents' by watch.py) and set no wait for it but a 
 next prompt, with the claude-wait command to set.
 
 Logged to ~/Library/Logs/sttark-claude-kit.log, lines starting "ste" (the reply check), "agents" (the
-manager check), "icons" (the status icon check) and "watch" (the reply wait check).
+manager check and the agent queue check), "icons" (the status icon check) and "watch" (the reply wait check).
 """
 import fcntl, json, os, re, subprocess, sys, time
 
@@ -34,6 +36,8 @@ NOTES = os.path.join(os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/L
                      'working-notes.json')  # misses per session
 MANAGER_MAX = 8     # tool calls a turn may make in the chat with no agent before the manager check notes it
 AGENT_TOOLS = ('Agent', 'Task', 'SendMessage', 'Workflow')  # starting or steering an agent
+NEW_AGENT_TOOLS = ('Agent', 'Task', 'Workflow')  # starting an agent
+QUEUE_MIN = 400     # characters of a SendMessage to an agent above which it reads as new work, not a short steer
 STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')  # the kit's fixed copy, when the server is on
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
 MODEL = 'haiku'     # Claude Code's alias for the newest Haiku: fast and cheap, enough for a word check
@@ -60,10 +64,14 @@ recaps of what you just did, closing offers, "let me know if". Never end with co
 - Run the tool, show the result, then comment. No narration mid-task.
 - Work like a manager, not a worker. Give each task that takes more than a few tool calls to a subagent that \
 runs in the background, then come back to the person immediately. Reading, research, design and checks are tasks \
-too: start the agent before your third tool call on that work, not after the work has grown. When they give several tasks, start one agent \
-for each task in the same message, so they run at the same time. Use a fork agent when the task needs the chat \
-context. Use a new agent with full instructions when it does not. Give each agent its own git worktree when two \
-agents could change the same files. When an agent completes, tell the person in one or two lines what it found \
+too: start the agent before your third tool call on that work, not after the work has grown. Use agents in \
+parallel, not one long queue on one agent. When the person gives several tasks, start one agent for each task in the \
+same message. Also divide one large build into parts that agents can build at the same time (for example: the data \
+and API, the page, the import flow), and start one agent for each part in the same message. Give each agent that \
+changes files its own git worktree, and merge their pull requests one at a time. When the person adds work while \
+an agent runs, start a new agent for the new part. Do not send it to that agent with SendMessage, unless it changes \
+what that agent builds now. Give each agent a name that matches its part. Use a fork agent when the task needs the \
+chat context. Use a new agent with full instructions when it does not. When an agent completes, tell the person in one or two lines what it found \
 or did. Keep the chat for direction and decisions. Do the work in the chat only for one lookup or a one-line fix.
 - When a prompt holds more than one ask, number the asks. At every end of turn, give a table with each ask \
 and its status, each status starting with its icon so the person sees it at a glance: ✅ Done, 🔄 In progress, \
@@ -334,6 +342,56 @@ def manager_check(data):
     log('%s %d tool calls in the chat, no agent: noted for the next prompt' % (full[:8], calls), 'agents ')
 
 
+def queued_work(path):
+    """(SendMessage calls to an agent since the person's last message that read as new work, how many of them were
+    made before the turn that just ended, whether that work started a new agent). Subagent lines don't count."""
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 4000000))
+            lines = f.read().decode('utf-8', 'replace').splitlines()
+    except (OSError, TypeError):
+        return 0, 0, False
+    sent, before, started = 0, 0, False
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get('isSidechain'):
+            continue
+        if is_person(e):
+            sent, before, started = 0, 0, False
+        elif is_prompt(e):
+            before = sent
+        elif e.get('type') == 'assistant':
+            for b in (e.get('message') or {}).get('content') or []:
+                if not isinstance(b, dict) or b.get('type') != 'tool_use':
+                    continue
+                i = b.get('input') or {}
+                if b.get('name') in NEW_AGENT_TOOLS:
+                    started = True
+                elif b.get('name') == 'SendMessage' and i.get('recipient_kind', 'agent') == 'agent' and len(
+                        str(i.get('message') or i.get('content') or '')) >= QUEUE_MIN:
+                    sent += 1
+    return sent, before, started
+
+
+def queue_check(data):
+    """No model call: the person's last message got new work sent to an agent that runs, with SendMessage, and no
+    new agent. A note goes in front of the next prompt, once, in the turn that sent it."""
+    full = data.get('session_id') or ''
+    sent, before, started = queued_work(data.get('transcript_path') or '')
+    if not full or started or sent <= before:
+        return
+    notes(lambda a: a.__setitem__(full, (a.get(full, []) + [
+        'Your last turn sent new work to an agent that runs, with SendMessage, and started no new agent. Start a new '
+        'agent, in its own git worktree, for each new part. Use SendMessage only when it changes what that agent '
+        'builds now.'])[-3:]))
+    log('%s new work sent to a running agent with SendMessage, no new agent: noted for the next prompt' % full[:8],
+        'agents ')
+
+
 def prose(text):
     """The reply without its code blocks: what the check reads."""
     return FENCE.sub('', text).strip()
@@ -426,6 +484,10 @@ def main():
             manager_check(data)
         except Exception as e:
             log('%s error manager check %s: %s' % ((data.get('session_id') or '')[:8], type(e).__name__, e), 'agents ')
+        try:
+            queue_check(data)
+        except Exception as e:
+            log('%s error agent queue check %s: %s' % ((data.get('session_id') or '')[:8], type(e).__name__, e), 'agents ')
         try:
             icon_check(data)
         except Exception as e:
