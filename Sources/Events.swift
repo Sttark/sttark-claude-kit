@@ -498,6 +498,42 @@ enum Events {
                 if let q = quoted(x) { x = x.replacingOccurrences(of: "\"\(q)\" ", with: "") }
                 e.text = x.prefix(1).uppercased() + x.dropFirst()
             }
+        case "watch":   // the reply watch (watch.py), and the working rules' reply wait check
+            e.kind = .wait
+            named(rest)   // the session's name in quotes; its id in the line is cut short, as in a wait line
+            let after = rest.firstIndex(of: ":").map { String(rest[rest.index(after: $0)...]).trimmingCharacters(in: .whitespaces) } ?? ""
+            if rest.contains(" brought back for ") {
+                e.kind = .restart
+                e.text = "Brought back: new messages came in from someone it contacted"
+                if !after.isEmpty { e.detail.append("Messages: " + after.prefix(300)) }
+            } else if rest.contains(" would come back (dry)") {
+                e.routine = true; e.text = "Would bring it back for new messages (test run)"
+            } else if rest.contains(" is in a turn;") {
+                e.routine = true; e.text = "New messages came in; it comes back when its turn ends"
+            } else if rest.contains("the Kit sent you the message") {
+                e.level = .warn; e.text = "New messages came in, but it could not come back; the Kit sent you a message"
+            } else if rest.contains(" could not come back") || rest.contains(" message failed") || rest.hasPrefix("could not read a step") {
+                e.kind = .problem; e.level = .warn; e.text = "The reply watch could not bring it back"
+                e.detail.append(String(rest.prefix(300)))
+            } else if rest.contains(" with no reply wait") {
+                e.kind = .check; who(first)
+                e.text = "Contacted someone and set no wait for the answer"
+                e.detail = [String(rest.dropFirst(first.count + 1).prefix(200)), "The session gets a note with its next prompt."]
+            } else if rest.contains(" read failed: ") {
+                e.kind = .problem; e.level = .warn
+                e.text = "The reply watch could not read " + String(first).trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+                e.detail.append(after.isEmpty ? String(rest.prefix(300)) : String(rest[rest.range(of: " read failed: ")!.upperBound...].prefix(300)))
+            } else if rest.contains(" read (") {
+                e.kind = .check
+                e.routine = !rest.contains(" for a session") || rest.contains(", 0 for a session")
+                e.text = "Reply watch read " + String(first) + ": " + after
+            } else if rest.contains("cannot read this mailbox") {
+                e.kind = .check; e.level = .warn
+                e.text = "The reply watch cannot read " + String(first).trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+                e.detail.append(String(rest.prefix(300)))
+            } else {
+                e.text = "Reply watch: " + rest.prefix(160)
+            }
         case "notify":
             e.kind = .wait
             let (main, _, subject) = split(rest)

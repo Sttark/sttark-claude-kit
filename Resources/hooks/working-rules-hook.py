@@ -18,10 +18,13 @@ unreadable one) is logged and nothing is saved.
 The same Stop hook also checks the manager rule, with no model call: when the work since the person's last
 message made more than 8 tool calls in the chat and started no agent, a note goes in front of the next prompt.
 And the status icon check, with no model call: a status table cell in the reply with more than one of
-✅ 🔄 🔴 ⚪ gets a note in front of the next prompt.
+✅ 🔄 🔴 ⚪ gets a note in front of the next prompt. And the reply wait check, with no model call: work that
+contacted someone whose answer comes as a message (a mail or a draft, a web form, a supplier's messenger, read from
+the session's records and its agents' by watch.py) and set no wait for it but a time gets a note in front of the
+next prompt, with the claude-wait command to set.
 
 Logged to ~/Library/Logs/sttark-claude-kit.log, lines starting "ste" (the reply check), "agents" (the
-manager check) and "icons" (the status icon check).
+manager check), "icons" (the status icon check) and "watch" (the reply wait check).
 """
 import fcntl, json, os, re, subprocess, sys, time
 
@@ -79,7 +82,17 @@ the person opens on this Mac); claude-wait at <time> --why ...; claude-wait \
 check-script <path> --every 10m --by ... for anything a small script can check with no model, such as an API value, a \
 page that changes or a tracking number, where exit 0 means it happened; claude-wait check-prompt "<yes/no question>" \
 --every 1h --by ... only when nothing free works, since each check is a Haiku call). Prefer pr, at and check-script. \
-Do the same when the person asks \
+Set the wait on the channel that the answer comes on. After an email or a draft: claude-wait email-reply <thread id> \
+--from <sender>. After a web form: claude-wait email-reply --query "from:(<the site's domain>)", because the answer \
+comes by email to the address you gave in the form. After a message on a supplier's messenger: the Kit cannot \
+read the messenger, so claude-wait at <time> to look at it with claude-window, and claude-wait email-reply --query \
+"from:(<the supplier's domain>)" when the supplier also writes by email. After you ask the person to call someone: \
+claude-wait at <time> to ask them how the call went. A \
+claude-wait at alone is wrong when the answer comes as a message, because it does not see the answer: use the time \
+only as the deadline (--by). The Kit also watches by itself, for 7 days after your last turn: mail from an address \
+or a domain you wrote to, in a thread you used, from a site whose form you sent, a comment on an Asana task you \
+commented on, and a post in a Chat space you posted in bring the session back. That is a safety net with no \
+deadline, not a wait. Do the same when the person asks \
 "let me know when they reply", "tell me when it merges" or the like, and when they ask "has X replied?" or "how long \
 has it been?" about something no wait covers yet. The Kit watches it with no model calls and brings the session \
 back when it happens, or at the deadline when it has not. You pick the deadline with judgment; there is no \
@@ -100,6 +113,10 @@ needed from you." Example: "Your reporter works again (v6, last report 5 min ago
 adds a retry for the 'fetch failed' error (v7); CI passes; open, waiting for a merge and deploy. After deploy, \
 each person on v2 reinstalls once. Nothing needed from you." A reply to the person in a live chat stays in the \
 session: no claude-notify.
+- When the Kit brings a session back with new messages (a prompt that starts "[Sttark Claude Kit] New messages came \
+in"), read each one in full and decide if it needs action. If it does, go on with the work, then send the person one \
+message with claude-notify, as above. If it does not (a receipt, an automatic reply, or a thing you already did), end \
+the turn with one line that says why, with no claude-notify.
 - Repo work: pull latest from remote before you work, and read the project docs before you change anything. The \
 projects have history.
 - UI and layout: function over form. Usability is king. See it rendered before calling it done.
@@ -258,6 +275,52 @@ def icon_check(data):
     log('%s status cell with more than one icon: noted for the next prompt' % full[:8], 'icons  ')
 
 
+def kit_module(name):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name.replace('-', '_'), os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), name + '.py'))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def reply_wait_check(data):
+    """No model call: the work since the person's last message contacted someone whose answer comes as a message (a
+    mail or a draft, a web form, a supplier's messenger: watch.py reads it from the session's records and its
+    agents'), and set no wait for it, only a time or none. A note goes in front of the next prompt, with the
+    command to set. The Kit's reply watch brings the session back for the answer in any case."""
+    full = data.get('session_id') or ''
+    tp = data.get('transcript_path') or ''
+    if not full or not tp:
+        return
+    try:
+        waits = json.load(open(os.path.join(os.path.dirname(NOTES), 'state.json'))).get('waits') or {}
+    except (OSError, ValueError):
+        waits = {}
+    w = kit_module('watch')
+    miss = w.missing_wait(tp, full, waits)
+    if not miss:
+        return
+    names = ', '.join(sorted({m['v'] for m in miss}))[:200]
+    hows = {'draft': 'a draft', 'email': 'a mail', 'form': 'a web form', 'messenger': 'a supplier messenger'}
+    how = ' and '.join(sorted({hows.get(m['how'], m['how']) for m in miss}))
+    mark = 'replywait:' + full  # the contacts noted last, so the same work is noted once, not at each end of turn
+
+    def seen(a):
+        if a.get(mark) == names:
+            return True
+        a[mark] = names
+        return False
+    if notes(seen):
+        return
+    notes(lambda a: a.__setitem__(full, (a.get(full, []) + [
+        'Your last work contacted %s (%s) and set no wait for the answer. An answer to a message comes as a message: '
+        'set the wait on that channel, with the deadline in --by, for example: %s. A claude-wait at alone does not '
+        'see the answer. The Kit also brings this session back when an answer comes, for %d days.'
+        % (names, how, w.wait_hint(miss), w.WATCH_DAYS)])[-3:]))
+    log('%s contacted %s (%s) with no reply wait: noted for the next prompt' % (full[:8], names, how), 'watch  ')
+
+
 def manager_check(data):
     """No model call: a turn that made more than MANAGER_MAX tool calls in the chat with no agent gets a note
     in front of the session's next prompt. Noted once, in the turn that passed the count."""
@@ -367,6 +430,10 @@ def main():
             icon_check(data)
         except Exception as e:
             log('%s error icon check %s: %s' % ((data.get('session_id') or '')[:8], type(e).__name__, e), 'icons  ')
+        try:
+            reply_wait_check(data)
+        except Exception as e:
+            log('%s error reply wait check %s: %s' % ((data.get('session_id') or '')[:8], type(e).__name__, e), 'watch  ')
         return check(data)
     text = LEAD + '\n\n' + RULES
     try:
