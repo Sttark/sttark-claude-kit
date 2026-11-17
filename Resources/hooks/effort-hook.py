@@ -1609,7 +1609,12 @@ def on_prompt(data, sid):
         return
     snippet = re.sub(r'\s+', ' ', prompt)[:80]
     with state() as s:  # when this turn started: the Kit window's "Working for"
-        s['sessions'].setdefault(sid, {})['turn_at'] = time.time()
+        x0 = s['sessions'].setdefault(sid, {})
+        x0['turn_at'] = time.time()
+        # when the person last wrote in it, not an agent's or a command's notice or the Kit: the progress check-ins
+        # (checkin.py) count from there
+        if not prompt.startswith(('<task-notification>', '[Sttark Claude Kit]')):
+            x0['asked_at'] = x0['turn_at']
     st = peek()
     x = st.get('sessions', {}).get(sid, {})
     proc, launched = session_process()

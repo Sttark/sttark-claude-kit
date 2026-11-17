@@ -5,13 +5,16 @@ notify.py in its dry mode (nothing is sent; no model is called; no session is to
 - what runs: an agent Claude Code has not marked finished, and active in the last 15 minutes; not a finished one, a
   quiet one, a foreground one or one of an archived session; the session's own turn as the minute check saw it;
 - when: none for work under 15 minutes; one at 15 minutes; none in the next 15; the next at 30; one message for all of
-  a session's agents; none when the work ends, and the session leaves the file;
+  a session's agents; none when the work ends, which a minute with no work does not do (a run ends after 5 minutes);
+  agents that follow each other make one run; a prompt of the person starts the 15 minutes again; an agent that is
+  continued counts from then; the short turn after the agents brings none;
 - what: the summary reads only what the records gained since the last check-in, with each agent's task; the subject
-  names the oldest agent's description; an agent that finished since the last check-in is in the next one; no
+  names the session and the oldest agent's description; an agent that stopped since the last check-in is in the next
+  one, also one that started and stopped between two; no
   em-dash goes out; with no new steps no model is called; a failed call gives the count of steps;
 - how: the person's ways less the Claude app; none checked, or the Claude app alone, is logged once; a session held
   at its usage limit is skipped; the switch off stops them; a check-in is not the session's own message (no
-  reach_sent, no "notify" line); STTARK_CHECKIN_DRY sends nothing; wait.py --check runs them.
+  reach_sent, no "notify" line); a test folder or a dry run sends nothing and saves nothing; wait.py --check runs them.
 Run from the repo root: /usr/bin/python3 tools/checkin-test.py"""
 import importlib.util, json, os, re, stat, subprocess, sys, tempfile, time
 
@@ -56,6 +59,7 @@ def load(name):
 
 
 c = load('checkin')
+c.DRY = c.NO_MODEL = False   # a test folder makes it dry; here notify.py is dry instead, so the file and log are real
 HELD = set()   # Claude Code ids of the sessions held at their usage limit
 SENT = []      # (subject, body, ways, title, url, cse) of each message notify.py was asked to send
 
@@ -177,7 +181,8 @@ agent(R, 'rx1', 'Archived agent', 'Do it.', S - 30 * 60, S - 10, use('a step', S
 write(E, use('TURNSTEP one', S - 10 * 60) + say('The build passes. TURNSAID', S - 9 * 60))
 
 
-def state(now, ways=('email',), on=None, turn=False):
+def state(now, ways=('email',), on=None, turn=False, more=None):
+    """The state file at `now`: E's turn runs with `turn`; `more` gives other sessions' own fields (a turn, a prompt)."""
     s = {'sessions': {}, 'reach': {'ways': list(ways), 'email': 'name@sttark.com'}}
     for tp, cse in CSE.items():
         x = {'transcript': tp, 'title': NAMES[tp], 'url': 'https://claude.ai/code/session_' + cse[4:], 'at': now - 120,
@@ -185,6 +190,11 @@ def state(now, ways=('email',), on=None, turn=False):
         if tp == E:
             x['turn_at'] = S - 11 * 60
             x['app']['working'] = turn
+        for k, v in ((more or {}).get(tp) or {}).items():
+            if k == 'working':
+                x['app']['working'] = v
+            else:
+                x[k] = v
         s['sessions'][cse] = x
     if on is not None:
         s['checkins'] = on
@@ -273,18 +283,23 @@ n_sent, n_in = len(SENT), len(inputs())
 state(T4)
 c.check(now=T4)
 third = [m for m in SENT[n_sent:] if m[5] == CSE[A]]
-check('the third: the running agent names it, and the one that finished is in the note',
-      len(third) == 1 and third[0][0] == 'Docs site: Check the links, working 28 min'
-      and any('XDONE' in x and 'finished since the last note' in x and 'YSTEP two' in x for x in inputs()[n_in:]))
-check('the turn that ended gets no message, and its session leaves the file', CSE[E] not in runs()
+check('the third: the running agent names it, with the run\'s age, and the one that stopped is in the note',
+      len(third) == 1 and third[0][0] == 'Docs site: Check the links, working 46 min'
+      and any('XDONE' in x and 'stopped since the last note' in x and 'YSTEP two' in x for x in inputs()[n_in:]))
+check('the turn that ended gets no message; its run waits 5 minutes before it ends', runs()[CSE[E]].get('idle') == T4
       and not [m for m in SENT[n_sent:] if m[5] == CSE[E]])
 finish(Y)
 n_sent = len(SENT)
 state(T4 + 60)
 c.check(now=T4 + 60)
-check('no message when the work ends; the session leaves the file', len(SENT) == n_sent and CSE[A] not in runs())
-check('the end is logged with how many went',
-      any(l.startswith('checkin cse_01DocsSite000001 "Docs site" work ended after 47 min; 3 check-ins sent') for l in log_lines()))
+check('no message when the work ends, and the run is not over after one minute',
+      len(SENT) == n_sent and runs()[CSE[A]].get('start') and not any('work ended' in l for l in log_lines()))
+state(T4 + 60 + c.GAP)
+c.check(now=T4 + 60 + c.GAP)
+check('5 minutes with no work end the run, with no message; the end is logged with how many went',
+      len(SENT) == n_sent and not runs()[CSE[A]].get('start') and runs()[CSE[A]].get('sent') == T4
+      and any(l.startswith('checkin cse_01DocsSite000001 "Docs site" work ended after 47 min; 3 check-ins sent') for l in log_lines())
+      and any(l.startswith('checkin cse_01LongTurn000005 "Long turn" work ended after 47 min; 2 check-ins sent') for l in log_lines()))
 
 # --- the ways ----------------------------------------------------------------------------------------------------------
 def fresh_agent(tp, aid, now):
@@ -331,11 +346,88 @@ T8 = T7 + 15 * 60
 n_sent = len(SENT)
 state(T8, on=False)
 c.check(now=T8)
-check('the switch off: none, and the file is cleared', len(SENT) == n_sent and runs() == {})
+check('the switch off: none, and the records stay', len(SENT) == n_sent and runs().get(CSE[B], {}).get('sent') == T7)
 os.utime(os.path.join(B[:-6], 'subagents', 'agent-b2.jsonl'), (T8 + 30, T8 + 30))
 state(T8 + 60, on=True)
 c.check(now=T8 + 60)
 check('on again: the work is due at once (it runs 2 hours)', len(SENT) == n_sent + 1)
+
+# --- runs: a missed minute, agents that follow each other, a prompt, an agent continued, the turn after the agents -----
+U = T8 + 600
+K, L, M, N, P = (session(x) for x in ('build', 'chain', 'again', 'between', 'report'))
+CSE.update({K: 'cse_01LongBuild000008', L: 'cse_01Chained00000009', M: 'cse_01Continued000010', N: 'cse_01Between0000011',
+            P: 'cse_01Report00000012'})
+NAMES.update({K: 'Long build', L: 'Chained', M: 'Continued', N: 'Between', P: 'Report'})
+write(K, use('KSTEP', U - 10 * 60))
+L1 = agent(L, 'l1', 'Read the old pages', 'Read them.', U - 10 * 60, U - 30, use('LSTEP one', U - 9 * 60))
+L2 = agent(L, 'l2', 'Draw the new pages', 'Draw them.', U - 2 * 60, U - 30, use('LSTEP two', U - 60))
+M1 = agent(M, 'm1', 'Fix the form', 'Fix the form.', U - 2 * 3600, U - 30,
+           use('OLDM', U - 2 * 3600 + 60) + use('NEWM', U - 60))
+N1 = agent(N, 'n1', 'Write the guide', 'Write it.', U - 14 * 60, U - 30, use('NSTEP one', U - 13 * 60))
+C = c.read_json(c.FILE)   # a run that ended an hour ago for M; for P, agents ran 30 minutes and a note went at 20
+C['sessions'][CSE[M]] = {'sent': U - 3600}
+C['sessions'][CSE[P]] = {'start': U - 30 * 60, 'sent': U - 20 * 60, 'n': 1, 'files': {}}
+c.save(C)
+
+
+def at(now, k_turn=True, k_asked=U - 16 * 60, p_turn=True, live=()):
+    for f in live:
+        os.utime(f, (now - 20, now - 20))
+    state(now, more={K: {'working': k_turn, 'turn_at': k_asked, 'asked_at': k_asked},
+                     P: {'working': p_turn, 'turn_at': U - 60}})
+    before = len(SENT)
+    c.check(now=now)
+    return {m[5]: m for m in SENT[before:]}
+
+
+got = at(U, live=(L1, L2, M1, N1))
+check('a long turn: a note at 16 minutes after the prompt', list(got) == [CSE[K]] and got[CSE[K]][0] == 'Long build: Working 16 min')
+check('an agent continued after its run ended counts from now, not from its start 2 hours ago',
+      CSE[M] not in got and runs()[CSE[M]]['start'] == U - 120)
+check('the short turn after the agents (quiet for 20 minutes) brings no note', CSE[P] not in got)
+got = at(U + 60, k_turn=False, live=(L1, L2, M1, N1))
+check('a minute in which the turn does not show ends nothing', not got.get(CSE[K]) and runs()[CSE[K]].get('idle') == U + 60)
+check('the guide agent at 15 minutes', list(got) == [CSE[N]] and got[CSE[N]][0] == 'Between: Write the guide, working 15 min')
+got = at(U + 120, live=(L1, L2, M1, N1), p_turn=False)
+check('the turn shows again: the same run, no second note', CSE[K] not in got and not runs()[CSE[K]].get('idle'))
+finish(L1)
+os.utime(L1, (U + 120, U + 120))
+N2 = agent(N, 'n2', 'Check one link', 'Check it.', U + 180, U + 480, use('N2STEP', U + 240), finished=True)
+L3 = agent(L, 'l3', 'Check the new pages', 'Check them.', U + 480, U + 570, use('LSTEP three', U + 500))
+got = at(U + 600, k_asked=U + 600, live=(L2, L3, M1, N1))
+check('agents that follow each other, none 15 minutes old, make one run: a note at 20 minutes: %r'
+      % (got.get(CSE[L], ('',))[0],), got.get(CSE[L], ('',))[0] == 'Chained: Draw the new pages and 1 more agent, working 20 min'
+      and any('LSTEP one' in x and 'stopped since the last note' in x and 'LSTEP three' in x for x in inputs()))
+got = at(U + 930, k_asked=U + 600, live=(L2, L3, M1, N1))
+check('a prompt of the person starts the 15 minutes again', CSE[K] not in got)
+m = got.get(CSE[M], ('',) * 7)
+check('the continued agent at 17 minutes of its new run, with only its new steps: %r' % m[0],
+      re.match(r'Continued: Fix the form, working 1[78] min$', m[0])
+      and any('NEWM' in x and 'OLDM' not in x for x in inputs() if 'Fix the form' in x))
+got = at(U + 960, k_asked=U + 600, live=(L2, L3, M1, N1))
+check('an agent that started and stopped between two notes is in the next one',
+      CSE[N] in got and any('N2STEP' in x and 'Check one link' in x for x in inputs() if 'Write the guide' in x))
+
+# --- reading a record: from its place, back from the end at a whole line, another file at the same name -------------
+REC = os.path.join(d, 'record.jsonl')
+one, two = {'type': 'user', 'timestamp': iso(S), 'k': 1}, {'type': 'user', 'timestamp': iso(S + 60), 'k': 2}
+write(REC, [one, two], 'w')
+got, place = c.new_entries(REC, None, 0)
+check('a record read whole, its place at its end', [x['k'] for x in got] == [1, 2] and place[0] == os.path.getsize(REC))
+got, _ = c.new_entries(REC, None, 0, tail=os.path.getsize(REC) - len(json.dumps(one)) - 1)
+check('a read back from the end that starts at a line keeps that line', [x['k'] for x in got] == [2])
+got, _ = c.new_entries(REC, None, 0, tail=os.path.getsize(REC) - len(json.dumps(one)))
+check('one that starts inside a line drops the part', [x['k'] for x in got] == [2])
+write(REC, [{'type': 'user', 'timestamp': iso(S + 120), 'k': 3}])
+open(REC + '.part', 'w').write('{"type": "user", "timestamp": "%s", "k": 4}' % iso(S + 130))
+with open(REC, 'a') as f:
+    f.write(open(REC + '.part').read())
+got, place2 = c.new_entries(REC, place, 0)
+check('from its place: only the new whole lines; a line still being written waits', [x['k'] for x in got] == [3])
+os.rename(REC, REC + '.old')
+write(REC, [one, two, {'type': 'user', 'timestamp': iso(S + 200), 'k': 5}, {'type': 'user', 'timestamp': iso(S + 210), 'k': 6}], 'w')
+got, _ = c.new_entries(REC, place2, S + 200)
+check('another file at the same name (a bigger one too) is read again from the time asked', [x['k'] for x in got] == [5, 6])
 
 # --- notify.py's quiet send: no reach_sent, no notify line ---------------------------------------------------------------
 nm = load('notify')
