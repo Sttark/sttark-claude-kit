@@ -16,8 +16,8 @@ ends, since the session tells the person itself.
 What: one Haiku call (MODEL, through Claude Code with no tools and hooks off, as the Kit's other side calls) reads
 only what the session's record and its agents' records gained since the last check-in (the first one: since each
 piece of work started) and writes 2 or 3 short sentences: what got done, what it does next, and what it is stuck on.
-The subject names the oldest agent's description, and the email's subject starts with the session's name; the
-message links to the session. No check-in while the session holds at its usage limit. When the call fails, the
+The subject is the session's name, the oldest agent's description and how long the work has run; the message
+links to the session. No check-in while the session holds at its usage limit. When the call fails, the
 message gives what the records show (the steps, and how many failed) instead.
 
 How it goes out: notify.py send(), the ways claude-notify uses, less the Claude app, which only a session can send. A
@@ -562,7 +562,9 @@ def send(c, cse, x, st, title, work, age, now):
     else:
         body = plain(parts, first)  # nothing new to read: no model call
     url = x.get('url') or (x.get('app') or {}).get('url') or ''
-    res = n.send(subj, body, ways=ways, title=title, url=url, cse=cse, quiet=True)
+    # the subject starts with the session's name in every way (Google Chat and a text show only the subject first);
+    # the log line, under the session's name already, keeps the rest
+    res = n.send('%s: %s' % (title, subj), body, ways=ways, title=title, url=url, cse=cse, quiet=True)
     for p in parts:
         if not p.get('done'):
             c['files'][p['path']] = p['end']

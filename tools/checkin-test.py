@@ -217,7 +217,7 @@ c.check(now=T1)
 sent = {m[5]: m for m in SENT}
 check('one check-in for the agent at 16 minutes and one for the turn', set(sent) == {CSE[A], CSE[E]})
 a = sent.get(CSE[A]) or ('',) * 7
-check('the subject names the agent and how long it works: %r' % a[0], a[0] == 'Build the docs pages, working 16 min')
+check('the subject names the session, the agent and how long it works: %r' % a[0], a[0] == 'Docs site: Build the docs pages, working 16 min')
 check('the note has no em-dash: %r' % a[1], '—' not in a[1] and a[1].startswith('It finished the docs pages, and opened'))
 check('it goes the ways picked, with the session\'s name and link, as a Kit message (quiet)',
       a[2] == ['email'] and a[3] == 'Docs site' and a[4].endswith('session_01DocsSite000001') and a[6] is True)
@@ -226,7 +226,7 @@ check('the summary reads the agent\'s task and its steps since it started, with 
       len(first) == 1 and 'OLDTASK' in first[0] and 'OLDSTEP one' in first[0] and 'OLDSTEP two (it failed: exit 1: it broke)' in first[0]
       and '2 steps, 1 failed' in first[0])
 e = sent.get(CSE[E]) or ('',) * 7
-check('a long turn with no agent: "Working 17 min"', e[0] == 'Working 17 min')
+check('a long turn with no agent: "Long turn: Working 17 min"', e[0] == 'Long turn: Working 17 min')
 check('its summary reads the session\'s own steps and words', any('TURNSTEP one' in x and 'TURNSAID' in x and 'The session itself' in x for x in inputs()))
 lines = log_lines()
 check('a log line for each: the ways, the subject and the note',
@@ -254,7 +254,7 @@ state(T3, turn=True)
 c.check(now=T3)
 second = [m for m in SENT[n_sent:] if m[5] == CSE[A]]
 check('the second check-in at 31 minutes, for both agents: %r' % (second[0][0] if second else None),
-      len(second) == 1 and second[0][0] == 'Build the docs pages and 1 more agent, working 31 min')
+      len(second) == 1 and second[0][0] == 'Docs site: Build the docs pages and 1 more agent, working 31 min')
 latest = [x for x in inputs()[n_in:] if 'Build the docs pages' in x]
 check('it reads only what the records gained since the last one, and the new agent from its start',
       len(latest) == 1 and 'NEWSTEP one' in latest[0] and 'NEWSTEP two' in latest[0] and 'OLDSTEP' not in latest[0]
@@ -274,7 +274,7 @@ state(T4)
 c.check(now=T4)
 third = [m for m in SENT[n_sent:] if m[5] == CSE[A]]
 check('the third: the running agent names it, and the one that finished is in the note',
-      len(third) == 1 and third[0][0] == 'Check the links, working 28 min'
+      len(third) == 1 and third[0][0] == 'Docs site: Check the links, working 28 min'
       and any('XDONE' in x and 'finished since the last note' in x and 'YSTEP two' in x for x in inputs()[n_in:]))
 check('the turn that ended gets no message, and its session leaves the file', CSE[E] not in runs()
       and not [m for m in SENT[n_sent:] if m[5] == CSE[E]])
@@ -343,6 +343,13 @@ nm.DRY = True
 res = nm.send('Subject', 'Body', ways=['email'], title='Docs site', url='https://claude.ai/code/session_01x', cse='cse_01x', quiet=True)
 check('notify.send(quiet=True) answers each way and writes nothing', res and res[0][0] == 'email' and res[0][1][0]
       and 'reach_sent' not in c.read_json(c.STATE) and not log_lines('notify '))
+seen = {}
+nm.seal = lambda obj: seen.update(obj) or 'sealed'
+nm.send('Docs site: Build the docs pages, working 16 min', 'Body', ways=['email'], title='Docs site', url='', cse='cse_01x', quiet=True)
+once = seen.get('subject')
+nm.send('The supplier replied', 'Body', ways=['email'], title='Docs site', url='', cse='cse_01x', quiet=True)
+check('the email\'s subject names the session once: %r, %r' % (once, seen.get('subject')),
+      once == 'Docs site: Build the docs pages, working 16 min' and seen.get('subject') == 'Docs site: The supplier replied')
 
 # --- STTARK_CHECKIN_DRY, and wait.py --check runs the check-ins --------------------------------------------------------
 fresh_agent(Q, 'q2', time.time())

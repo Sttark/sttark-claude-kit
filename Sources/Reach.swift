@@ -132,7 +132,7 @@ enum Reach {
         let n = UNMutableNotificationContent()
         n.title = job["subject"] as? String ?? ""
         let title = job["title"] as? String ?? ""
-        if !title.isEmpty { n.subtitle = title }
+        if !title.isEmpty && !n.title.hasPrefix(title + ": ") { n.subtitle = title }   // a check-in's subject names it already
         n.body = job["body"] as? String ?? ""
         n.sound = .default
         let link = job["link"] as? String ?? ""

@@ -208,7 +208,8 @@ def email(m, r):
     to = (r.get('email') or '').strip()
     if not to.lower().endswith('@sttark.com'):
         return False, 'needs a @sttark.com address: set it under Reach me by in the menu'
-    subject = (m['title'] + ': ' if m['title'] else '') + m['subject']
+    named = m['title'] and not m['subject'].startswith(m['title'] + ': ')  # a check-in's subject names it already
+    subject = (m['title'] + ': ' if named else '') + m['subject']
     p = seal({'to': to, 'subject': subject, 'text': text_of(m), 'html': html_of(m)})
     if DRY:
         return True, 'would mail %s (sealed, %d characters)' % (to, len(p))
