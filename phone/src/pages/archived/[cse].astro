@@ -1,13 +1,15 @@
 ---
 // One archived session: when it was archived, its folder, Bring it back
-// and Open in Claude. Once it is back, the session's own page.
+// and Open in Claude. Once it is back, the session's own page. ?from=search
+// (a row of what the search found) sets the way back to the search.
 import Base from '../../layouts/Base.astro';
 import { loadKit } from '../../lib/state.ts';
 import { draw, type View } from '../../view/render.ts';
 import { emptyUi } from '../../view/model.ts';
 const cse = Astro.params.cse ?? '';
 const kit = loadKit(Astro.locals.user!, { session: cse });
-const view: View = { page: 'archived-item', cse };
+const from = Astro.url.searchParams.get('from') ?? 'archived';
+const view: View = { page: 'archived-item', cse, from };
 const drawn = draw(view, kit, emptyUi());
 Astro.response.status = drawn.status;
 ---

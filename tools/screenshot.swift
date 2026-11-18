@@ -4,7 +4,9 @@
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected, each row with
 //                             its alerts bell (off, as each session starts; two sessions have their alerts turned on)
 //   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
-//   docs/window-archived-search.png  the Archived page's search, which finds an archived session that waits
+//   docs/window-search.png    the top bar's search for "report": a session in each of two groups, then Archived, with
+//                             the archived one picked and its Bring it back
+//   docs/window-search-none.png  a search that finds no session
 //   docs/window-usage.png     the window's Usage page, 7 days, the biggest session selected with its days and models
 //   docs/window-settings.png  the window's Settings page
 //   docs/settings-phone.png   the Settings page's Phone box in each of its states (Kit on your phone)
@@ -14,6 +16,9 @@
 // and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
 // STTARK_SHOT_PANELS=<folder> also draws the whole window with a wait and a message the person replied to selected.
+// STTARK_SHOT_SEARCH=<folder> also draws the search's three states, light and dark, at the window's narrowest: the
+// Usage page with nothing typed, a search that finds sessions in several groups, and one that finds none; and the
+// Events page, with its own filter of words in its row of filters.
 // The window and the sheet are real windows, kept off every screen and drawn by their own views, so they look as
 // they do on this Mac; nothing shows on the screen and nothing comes to the front (see ShotWindow).
 // The times are drawn in a time zone where it is late morning, so the sample times read the same on every run.
@@ -117,11 +122,42 @@ import SwiftUI
             // the archived note's picture: the selected session with Open and Bring it back
             Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
                       to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
-            // a search for an archived session that waits: it is under Waiting on someone else, not in the list
-            model.archivedSearch = "core"
-            model.reload()
-            Shot.capture(w, to: folder + "/window-archived-search.png")
-            model.archivedSearch = ""
+            // the top bar's search, over the page it was on: "report" finds a session that waits, an idle one and an
+            // archived one, picked, with its Bring it back; and a search that finds nothing
+            model.search = "report"
+            model.searchPick = model.found.archived.first.map { "archived:" + $0.id }
+            Shot.capture(w, to: folder + "/window-search.png")
+            // the search note's picture: the search with what it found, in the groups and rows of the Sessions page
+            Shot.searchNote(model, w.appearance, to: "whats-new/search-all-sessions" + (look ? "-dark" : "") + ".png")
+            model.search = "laminator"
+            Shot.capture(w, to: folder + "/window-search-none.png")
+            model.search = ""
+            model.searchPick = nil
+            // STTARK_SHOT_SEARCH=<folder>: each state of the search at the window's narrowest, to look at
+            if let s = ProcessInfo.processInfo.environment["STTARK_SHOT_SEARCH"] {
+                let wide = w.frame
+                w.setContentSize(NSSize(width: 960, height: 640))
+                w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+                let tag = look ? "-dark" : "-light"
+                model.page = .usage
+                model.usageData = SessionUsage.read()
+                model.setUsagePeriod(.week)
+                Shot.capture(w, to: s + "/search-empty" + tag + ".png")
+                model.search = "report"
+                model.searchPick = model.found.archived.first.map { "archived:" + $0.id }
+                Shot.capture(w, to: s + "/search-found" + tag + ".png")
+                model.search = "laminator"
+                Shot.capture(w, to: s + "/search-none" + tag + ".png")
+                model.search = ""
+                model.searchPick = nil
+                // the Events page, whose own filter of words is in its row of filters, under the top bar's search
+                model.page = .events
+                model.readEvents()
+                RunLoop.main.run(until: Date().addingTimeInterval(1))
+                Shot.capture(w, to: s + "/events-filter" + tag + ".png")
+                w.setFrame(wide, display: true)
+                ShotWindow.check("the window's size again")
+            }
             model.page = .usage
             model.usageData = SessionUsage.read()
             model.setUsagePeriod(.week)
@@ -405,6 +441,35 @@ import SwiftUI
         }
         .padding(20).frame(width: 480).background(K.card).font(K.font(13)).foregroundColor(K.ink)
         shoot(view, dark: dark, to: path)
+    }
+
+    /// The search note's picture, 440 by 280 points: the top bar's search with the words the model has, and what it
+    /// found in the Sessions page's groups and rows, Archived last.
+    static func searchNote(_ model: KitModel, _ look: NSAppearance?, to path: String) {
+        let f = model.found
+        let w = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+        w.appearance = look
+        w.isReleasedWhenClosed = false
+        w.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Text("Search").font(K.font(15, true))
+                Spacer()
+                SearchField(model: model)
+            }
+            .padding(.leading, 8)
+            ForEach(f.groups, id: \.group) { g in
+                GroupHeader(group: g.group, count: g.rows.count)
+                ForEach(g.rows) { r in RowView(row: r, selected: false, alerts: model.snap.alerts(r), reach: model.snap.reach) }
+            }
+            if !f.archived.isEmpty {
+                ListHeader(icon: "archivebox", title: "Archived", count: f.archived.count, column: "Last active", trailing: RowView.afterTime)
+                ForEach(f.archived) { x in ArchivedRow(item: x, selected: false, inSearch: true) }
+            }
+            Spacer(minLength: 0)
+        }.padding(.horizontal, 14).padding(.top, 12).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+        w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+        capture(w, to: path)
+        w.close()
     }
 
     /// One state of the Phone box, alone, 440 points wide: a What's new note's picture.
@@ -752,6 +817,7 @@ enum Sample {
             archived(23, "Press setup notes", "/src/docs", at(14, 10, daysAhead: -1), "Added the new plate sizes to the setup chapter."),
             archived(24, "Guard bracket print", "/src/fixtures", at(15, 30, daysAhead: -3), "Printed the test bracket; the guard fits the frame."),
             archived(25, "Weekly plan", "/Documents/plans", at(8, 45, daysAhead: -3), ""),
+            archived(26, "Waste report totals", "/src/reports", at(11, 20, daysAhead: -4), "Fixed the totals row; the weekly waste report adds up again."),
         ]]
         try! JSONSerialization.data(withJSONObject: arch).write(to: dir.appendingPathComponent("archived.json"))
         // Usage by session: what usage-scan.py writes, for made-up sessions over the last 30 days

@@ -132,7 +132,7 @@
     },
     "server_to_mac.want_archived": {
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
-      "description": "A phone opened the Archived tab and the server's copy is older than the Mac's archived_rev. The Mac answers with archived (full list), or with archived_delta when it still has the list with rev have.",
+      "description": "A phone opened the Archived tab or the search on Sessions, and the server's copy is older than the Mac's archived_rev. The Mac answers with archived (full list), or with archived_delta when it still has the list with rev have.",
       "properties": {
         "event": { "const": "want_archived" }, "success": { "const": true },
         "payload": { "type": "object", "additionalProperties": false, "required": ["have"], "properties": { "have": { "type": ["string", "null"], "maxLength": 64, "pattern": "^[0-9a-f]{8,64}$" } } }
@@ -298,7 +298,7 @@
     },
     "phone_to_server.open_archived": {
       "type": "object", "additionalProperties": false, "required": ["event", "success", "payload"],
-      "description": "The Archived tab opened. The server answers with archived from its copy and sends want_archived to each Mac whose copy is old.",
+      "description": "The Archived tab opened, or the search on Sessions, which finds archived sessions too. The server answers with archived from its copy and sends want_archived to each Mac whose copy is old.",
       "properties": { "event": { "const": "open_archived" }, "success": { "const": true }, "payload": { "$ref": "#/$defs/empty" } }
     },
     "phone_to_server.open_usage": {

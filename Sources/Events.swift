@@ -1112,32 +1112,68 @@ struct EventsPage: View {
     }
 }
 
+/// The Events page's filters: Kind, Session, Problems only, Routine checks and its own filter of words, which looks in
+/// the events (the top bar's search finds sessions). One row when the page is wide enough, else two.
 struct EventFilters: View {
     @ObservedObject var model: KitModel
     var body: some View {
-        HStack(spacing: 10) {
-            Picker("Kind", selection: $model.eventKind) {
-                Text("All kinds").tag(KitEvent.Kind?.none)
-                ForEach(KitEvent.Kind.allCases, id: \.self) { k in Label(k.title, systemImage: k.icon).tag(KitEvent.Kind?.some(k)) }
-            }
-            .fixedSize()
-            Picker("Session", selection: $model.eventSession) {
-                Text("All sessions").tag(String?.none)
-                ForEach(model.eventSessionNames, id: \.self) { Text($0).tag(String?.some($0)) }
-            }
-            .frame(maxWidth: K.z(260))
-            Toggle("Problems only", isOn: $model.eventProblems).toggleStyle(.checkbox)
-            Toggle("Routine checks", isOn: $model.eventRoutine).toggleStyle(.checkbox)
-                .help("Checks that run all the time and change nothing, such as a reply check that passed")
-            Spacer()
-            if model.eventFiltered {
-                Button("Clear filters") { model.clearEventFilters() }.buttonStyle(.link)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) { kind; session; checks; words; Spacer(minLength: 0); clear }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) { kind; session; Spacer(minLength: 0); clear }
+                HStack(spacing: 10) { checks; words; Spacer(minLength: 0) }
             }
         }
         .font(K.font(13))
         .controlSize(K.control)
         .padding(.horizontal, K.z(20))
         .padding(.vertical, K.z(10))
+    }
+
+    var kind: some View {
+        Picker("Kind", selection: $model.eventKind) {
+            Text("All kinds").tag(KitEvent.Kind?.none)
+            ForEach(KitEvent.Kind.allCases, id: \.self) { k in Label(k.title, systemImage: k.icon).tag(KitEvent.Kind?.some(k)) }
+        }
+        .fixedSize()
+    }
+
+    var session: some View {
+        Picker("Session", selection: $model.eventSession) {
+            Text("All sessions").tag(String?.none)
+            ForEach(model.eventSessionNames, id: \.self) { Text($0).tag(String?.some($0)) }
+        }
+        .frame(minWidth: K.z(140), idealWidth: K.z(180), maxWidth: K.z(260), alignment: .leading)
+    }
+
+    @ViewBuilder var checks: some View {
+        Toggle("Problems only", isOn: $model.eventProblems).toggleStyle(.checkbox).fixedSize()
+        Toggle("Routine checks", isOn: $model.eventRoutine).toggleStyle(.checkbox).fixedSize()
+            .help("Checks that run all the time and change nothing, such as a reply check that passed")
+    }
+
+    /// Words in the events: a filter of this list, not the top bar's search, which finds sessions.
+    var words: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "line.3.horizontal.decrease").foregroundColor(K.steel)
+            TextField("Filter events", text: $model.eventSearch).textFieldStyle(.plain).font(K.font(13))
+                .accessibilityLabel("Filter events by words")
+            if !model.eventSearch.isEmpty {
+                Button { model.eventSearch = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(K.steel) }
+                    .buttonStyle(.plain).accessibilityLabel("Clear the filter")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(width: K.z(170), height: K.z(26))
+        .background(K.card, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(K.gray))
+        .help("Shows only the events with these words. The search at the top finds sessions.")
+    }
+
+    @ViewBuilder var clear: some View {
+        if model.eventFiltered {
+            Button("Clear filters") { model.clearEventFilters() }.buttonStyle(.link).fixedSize()
+        }
     }
 }
 

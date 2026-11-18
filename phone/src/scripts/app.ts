@@ -161,7 +161,7 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       lostAt = null;
       if (conn) conn.hidden = true;
       sendMsg('hello', { visible: visible() });
-      if (view.page === 'archived' || view.page === 'archived-item') sendMsg('open_archived', {});
+      askArchived();
       askUsage();
     });
     ws.addEventListener('message', (ev) => {
@@ -177,6 +177,7 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       if (open) lostAt = Date.now();
       open = false;
       ws = null;
+      archivedAsked = false;
       later();
     });
   }
@@ -196,6 +197,20 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       redraw();
     }
   });
+
+  // ---------- the archived lists ----------
+
+  /** The archived lists, on Archived, an archived session's page, and Sessions
+   *  while its search shows (the search finds archived sessions too): the
+   *  server sends its copy, asks each Mac for a newer one, and sends each
+   *  change after. Once for each connection. */
+  let archivedAsked = false;
+  function askArchived() {
+    if (archivedAsked || !open) return;
+    if (view.page !== 'archived' && view.page !== 'archived-item' && !(view.page === 'sessions' && (ui.find || ui.q))) return;
+    archivedAsked = true;
+    sendMsg('open_archived', {});
+  }
 
   // ---------- Usage by session ----------
 
@@ -332,7 +347,7 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
 
   root.addEventListener('input', (ev) => {
     const input = ev.target as HTMLInputElement;
-    if (input.id !== 'sq' && input.id !== 'aq') return;
+    if (input.id !== 'sq') return;
     ui.q = input.value;
     drawListOnly();
     const url = new URL(location.href);
@@ -429,6 +444,7 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
         if (view.page !== 'sessions') return; // the link opens Sessions with search
         ev.preventDefault();
         setQuery(ui.find ? '' : ui.q, !ui.find);
+        askArchived();
         drawAll();
         if (ui.find) root.querySelector<HTMLInputElement>('#sq')?.focus();
         return;
@@ -448,11 +464,12 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       case 'back':
       case 'menu-close': {
         // Back to the page before at the same scroll place, when it is the
-        // one this link goes to (or, for Close, any page of this app).
+        // one this link goes to, with what it showed (the search's words, a
+        // period), or, for Close, any page of this app.
         const href = (el as HTMLAnchorElement).href;
         const ref = document.referrer;
         const same = ref && new URL(ref).origin === location.origin && new URL(ref).pathname.startsWith(base + '/');
-        if (same && (el.dataset.act === 'menu-close' || ref.split('#')[0] === href)) {
+        if (same && (el.dataset.act === 'menu-close' || new URL(ref).pathname === new URL(href).pathname)) {
           ev.preventDefault();
           history.back();
         }

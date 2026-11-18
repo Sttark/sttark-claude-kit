@@ -27,6 +27,7 @@ import {
   noticesOf,
   periodOf,
   rowsOf,
+  searchAll,
   sessionLink,
   tzOf,
   usageBlocks,
@@ -35,6 +36,7 @@ import {
   type MacInfo,
   type Notices,
   type Placed,
+  type PlacedArchived,
   type Result,
   type Row,
   type Ui,
@@ -51,7 +53,7 @@ export type View =
   | { page: 'sessions' }
   | { page: 'session'; cse: string; from: string }
   | { page: 'archived' }
-  | { page: 'archived-item'; cse: string }
+  | { page: 'archived-item'; cse: string; from?: string }
   | { page: 'usage'; usage?: UsageView }
   | { page: 'mac'; id: string }
   | { page: 'menu' };
@@ -89,6 +91,8 @@ const backOf = (k: Kit, from: string): { href: string; label: string; tab: Drawn
   }
   if (from === 'usage') return { href: L(k, '/usage'), label: 'Usage', tab: 'usage' };
   if (from === 'archived') return { href: L(k, '/archived'), label: 'Archived', tab: 'archived' };
+  // what a search found, on Sessions: back goes to it (the page's script goes back in the history, to the words typed)
+  if (from === 'search') return { href: L(k, '/?find=1'), label: 'Search', tab: 'sessions' };
   return { href: L(k, '/'), label: 'Sessions', tab: 'sessions' };
 };
 const crumbs = (href: string, label: string) => `<nav class="crumbs" aria-label="Back"><a href="${esc(href)}" data-act="back">${ic('chevron-left')}${esc(label)}</a></nav>`;
@@ -175,7 +179,8 @@ function sessionRow(k: Kit, p: Placed, from: string, stale: boolean): string {
   const off = alertsOn(row) ? '' : ALERTS_OFF;
   const ck = checkinOf(row);
   return (
-    `<li><a class="row" href="${esc(sessionHref(k, row.cse, from))}"><div class="row-main"><div class="name-line"><span class="name">${esc(row.title)}</span>${lvl}${off}</div>` +
+    // a Mac's last list, in gray (among what a search found, the row alone)
+    `<li${stale ? ' class="stale"' : ''}><a class="row" href="${esc(sessionHref(k, row.cse, from))}"><div class="row-main"><div class="name-line"><span class="name">${esc(row.title)}</span>${lvl}${off}</div>` +
     `<div class="sub">${rowSub(k, p, now)}</div>` +
     `</div><span class="time${row.late && !stale ? ' late' : ''}">${esc(rowTime(row, now, snap.mac.tz))}</span>` +
     // under the name and the time, the row's whole width, so more of the note shows
@@ -185,13 +190,17 @@ function sessionRow(k: Kit, p: Placed, from: string, stale: boolean): string {
   );
 }
 
-function groupsHtml(k: Kit, list: Placed[], from: string, stale = false): string {
+/** The groups, each with its count. `stale`: every row is a Mac's last list
+ *  (an away Mac's page); `mixed`: the search, where only an away Mac's rows
+ *  are, each in gray as of its Mac's last list. */
+function groupsHtml(k: Kit, list: Placed[], from: string, stale: boolean | 'mixed' = false): string {
+  const old = (p: Placed) => (stale === 'mixed' ? !isLive(p.mac) : stale);
   return GROUPS.map((g) => {
     const rows = list.filter((p) => p.row.group === g.key);
     if (!rows.length) return '';
     return (
-      `<section class="grp" aria-label="${esc(g.label)}"><h2 class="grp-h ${g.key}">${ic(g.icon)}${esc(g.label)} <span class="n">${rows.length}</span><span class="col">${stale ? '' : esc(g.col)}</span></h2>` +
-      `<ul class="rows">${rows.map((p) => sessionRow(k, p, from, stale)).join('')}</ul></section>`
+      `<section class="grp" aria-label="${esc(g.label)}"><h2 class="grp-h ${g.key}">${ic(g.icon)}${esc(g.label)} <span class="n">${rows.length}</span><span class="col">${stale === true ? '' : esc(g.col)}</span></h2>` +
+      `<ul class="rows">${rows.map((p) => sessionRow(k, p, from, old(p))).join('')}</ul></section>`
     );
   }).join('');
 }
@@ -240,17 +249,49 @@ function awayHead(m: MacInfo): string {
 
 // ---------- Sessions ----------
 
+/** An archived session's row: a tap opens its page, with Bring it back. On
+ *  the Archived tab the day is the heading over it, so the row says the
+ *  time; among what a search found, the day too. */
+function archivedRow(k: Kit, a: PlacedArchived, search: boolean): string {
+  const t = a.item.archived_at;
+  return (
+    `<li><a class="row" href="${esc(L(k, `/archived/${enc(a.item.cse)}${search ? '?from=search' : ''}`))}"><div class="row-main"><div class="name-line"><span class="name">${esc(a.item.title)}</span></div>` +
+    (multi(k) ? `<div class="sub"><span class="mac">${esc(a.mac.name)}</span></div>` : '') +
+    `</div><span class="time">${t ? esc(search ? when(t, k.now, a.tz) : clock(t, a.tz)) : ''}</span></a>${openLink(a.item.url, '', false)}</li>`
+  );
+}
+
+/** What the search found: the sessions in their groups (a Mac that is away:
+ *  its last list, in gray), then Archived, every Mac's archived sessions,
+ *  newest first; each group with its count. A row opens the session's page,
+ *  whose way back is the search. */
+function searchList(k: Kit, ui: Ui): string {
+  const f = searchAll(k, ui.q);
+  const q = ui.q.trim();
+  // a live Mac with archived sessions whose list the server has not sent yet: the page asked for it
+  const waiting = k.macs.filter((m) => isLive(m) && !k.archived[m.id] && (k.snaps[m.id]?.archived_count ?? 0) > 0);
+  const note = waiting.length ? `<p class="quiet">Getting the archived sessions from ${esc(waiting.map((m) => m.name).join(' and '))}...</p>` : '';
+  if (!f.rows.length && !f.archived.length) {
+    return note + emptyHtml('search', `No session matches “${q}”`, 'Search looks at each session’s name, folder, waits, last check-in and messages, archived sessions too.');
+  }
+  let html = note + groupsHtml(k, f.rows, 'search', 'mixed');
+  if (f.archived.length) {
+    html +=
+      `<section class="grp" aria-label="Archived"><h2 class="grp-h">${ic('archive')}Archived <span class="n">${f.archived.length}</span><span class="col">Archived</span></h2>` +
+      `<ul class="rows">${f.archived.map((a) => archivedRow(k, a, true)).join('')}</ul></section>`;
+  }
+  return html;
+}
+
 function sessionsList(k: Kit, ui: Ui): string {
   if (!k.macs.length) return noMacHtml('Your Claude sessions show here: the ones that need you, the ones Claude works on, and the ones that wait.');
-  const all = liveRows(k);
-  const q = ui.q.trim().toLowerCase();
-  const shown = q ? all.filter((p) => p.row.title.toLowerCase().includes(q) || p.mac.name.toLowerCase().includes(q)) : all;
+  if (ui.q.trim()) return searchList(k, ui);
+  const shown = liveRows(k);
   let html = '';
-  if (q && !shown.length) html += emptyHtml('search', `No session matches “${ui.q.trim()}”`, 'Search looks at session names.');
-  else if (!shown.length && !k.macs.some(isLive)) html += emptyHtml('moon', 'No Mac is live now', 'The last list of each Mac is under Macs away. Actions work when a Mac is back.');
+  if (!shown.length && !k.macs.some(isLive)) html += emptyHtml('moon', 'No Mac is live now', 'The last list of each Mac is under Macs away. Actions work when a Mac is back.');
   else if (!shown.length) html += emptyHtml('inbox', 'Nothing needs you', 'No session works, waits or holds now.');
   html += groupsHtml(k, shown, 'sessions');
-  const away = q ? [] : awayMacs(k);
+  const away = awayMacs(k);
   if (away.length) {
     html +=
       `<section class="grp" aria-label="Macs away"><h2 class="grp-h">${ic('moon')}Macs away <span class="n">${away.length}</span></h2><ul class="rows">` +
@@ -293,6 +334,7 @@ function stripHtml(k: Kit): string {
 
 function pageSessions(k: Kit, ui: Ui): Drawn {
   const find = ui.find || !!ui.q;
+  // the top bar's Search: one search over every session, archived ones too
   const field = find
     ? `<div class="search-row" role="search"><div class="search-field">${ic('search')}<input id="sq" type="search" name="q" placeholder="Search sessions" aria-label="Search sessions" value="${esc(ui.q)}" autocomplete="off" data-form-type="other" data-1p-ignore data-lpignore="true"></div>` +
       `<button type="button" class="close-search" data-act="close-search" aria-label="Close search">${ic('x')}</button></div>`
@@ -400,7 +442,9 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
               ? chip('warn', 'Check failing')
               : chip('', 'Waiting');
   let html = crumbs(back.href, back.label) + `<div class="title-row"><h1 class="page-title">${esc(row.title)}</h1>${head}</div>`;
-  if (multi(k)) html += `<p class="page-sub">On ${esc(mac.name)}</p>`;
+  // its Mac (with several), and the folder it works in, which the search finds it by
+  const where = [multi(k) ? `On ${esc(mac.name)}` : '', row.folder ? `Folder <span class="folder">${esc(row.folder)}</span>` : ''].filter(Boolean);
+  if (where.length) html += `<p class="page-sub">${where.join(' · ')}</p>`;
   if (ro) html += `<div class="card away-head">${ic('moon')}<span><b>${esc(awayHead(mac))}</b> Actions work when this Mac is back.</span></div>`;
   const effortHere = !ro && !!row.session;
   const waitsHere = row.group === 'waiting' && row.waits.length > 0;
@@ -538,20 +582,16 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
 
 // ---------- Archived ----------
 
-function archivedList(k: Kit, ui: Ui): string {
+function archivedList(k: Kit): string {
   if (!k.macs.length) return noMacHtml('Your archived sessions show here, so you can find an old session and bring it back.');
-  const all = archivedOf(k);
+  const list = archivedOf(k);
   // A live Mac that has archived sessions but whose list the server does
   // not have yet: the server asks it when this tab opens.
   const waiting = k.macs.filter((m) => isLive(m) && !k.archived[m.id] && (k.snaps[m.id]?.archived_count ?? 0) > 0);
   const note = waiting.length ? `<p class="quiet">Getting the list from ${esc(waiting.map((m) => m.name).join(' and '))}...</p>` : '';
-  const q = ui.q.trim().toLowerCase();
-  // A session that waits on someone else is under Sessions, archived or
-  // not, so it is never in this list; a search finds it there too.
-  const waits = q ? waitMatches(k, q) : '';
-  if (!all.length && !waits) return note + (waiting.length ? '' : emptyHtml('archive', 'No archived sessions', 'Sessions you archive in the Claude app show here.'));
-  const list = q ? all.filter((a) => a.item.title.toLowerCase().includes(q) || a.item.folder.toLowerCase().includes(q)) : all;
-  if (!list.length && !waits) return note + emptyHtml('search', `No archived session matches “${ui.q.trim()}”`, 'Search looks at names and folders, and at the sessions that wait on someone else.');
+  // A session that waits on someone else is under Sessions, archived or not,
+  // so it is never in this list; the top bar's Search finds both.
+  if (!list.length) return note + (waiting.length ? '' : emptyHtml('archive', 'No archived sessions', 'Sessions you archive in the Claude app show here.'));
   const days: { key: string; label: string; rows: typeof list }[] = [];
   for (const a of list) {
     const t = a.item.archived_at;
@@ -566,52 +606,29 @@ function archivedList(k: Kit, ui: Ui): string {
       .map(
         (d) =>
           `<section class="grp" aria-label="${esc(d.label)}"><h2 class="grp-h">${esc(d.label)} <span class="n">${d.rows.length}</span><span class="col">Archived</span></h2><ul class="rows">` +
-          d.rows
-            .map(
-              (a) =>
-                `<li><a class="row" href="${esc(L(k, `/archived/${enc(a.item.cse)}`))}"><div class="row-main"><div class="name-line"><span class="name">${esc(a.item.title)}</span></div>` +
-                (multi(k) ? `<div class="sub"><span class="mac">${esc(a.mac.name)}</span></div>` : '') + `</div>` +
-                `<span class="time">${a.item.archived_at ? esc(clock(a.item.archived_at, a.tz)) : ''}</span></a>${openLink(a.item.url, '', false)}</li>`,
-            )
-            .join('') +
+          d.rows.map((a) => archivedRow(k, a, false)).join('') +
           `</ul></section>`,
       )
-      .join('') +
-    waits
+      .join('')
   );
 }
 
-/** The sessions under Waiting on someone else that a search matches (name,
- *  or what each wait is for), as their own group. A row opens the session's
- *  page under Sessions, where it is. */
-function waitMatches(k: Kit, q: string): string {
-  const g = GROUPS.find((x) => x.key === 'waiting')!;
-  const rows = rowsOf(k, k.macs).filter(
-    (p) => p.row.group === 'waiting' && [p.row.title, p.row.sub, ...p.row.waits.map((w) => w.what)].some((t) => t.toLowerCase().includes(q)),
-  );
-  if (!rows.length) return '';
-  return (
-    `<section class="grp" aria-label="${esc(g.label)}"><h2 class="grp-h ${g.key}">${ic(g.icon)}${esc(g.label)} <span class="n">${rows.length}</span><span class="col">${esc(g.col)}</span></h2>` +
-    `<p class="quiet">These are under Sessions. Tap one to see it there.</p>` +
-    `<ul class="rows">${rows.map((p) => sessionRow(k, p, 'sessions', !isLive(p.mac))).join('')}</ul></section>`
-  );
-}
-
-function pageArchived(k: Kit, ui: Ui): Drawn {
-  const field =
-    // The field's own clear button (type=search) empties it.
-    `<div class="search-row" role="search"><div class="search-field">${ic('search')}<input id="aq" type="search" name="q" placeholder="Search archived sessions" aria-label="Search archived sessions" value="${esc(ui.q)}" autocomplete="off" data-form-type="other" data-1p-ignore data-lpignore="true"></div></div>`;
-  return { title: 'Archived', tab: 'archived', status: 200, html: `<h1 class="vh">Archived</h1>${k.macs.length ? field : ''}<div id="list">${archivedList(k, ui)}</div>` };
+/** Archived: the list, by day. The top bar's Search finds archived sessions
+ *  with every other session, so this tab has no search of its own. */
+function pageArchived(k: Kit): Drawn {
+  return { title: 'Archived', tab: 'archived', status: 200, html: `<h1 class="vh">Archived</h1><div id="list">${archivedList(k)}</div>` };
 }
 
 function pageArchivedItem(k: Kit, cse: string, ui: Ui, from = 'archived'): Drawn {
   const a = findArchived(k, cse);
+  // the way back: the Archived tab, or where the page was opened from (what the search found, Usage, a Mac)
+  const way = from === 'sessions' ? 'archived' : from;
   if (!a) {
     // Brought back: it is in the list again, on its own page.
-    if (findRow(k, cse)) return pageSession(k, cse, 'archived', ui);
-    return gone(k, 'archived', ui, cse);
+    if (findRow(k, cse)) return pageSession(k, cse, way, ui);
+    return gone(k, way, ui, cse);
   }
-  const back = backOf(k, from === 'sessions' ? 'archived' : from);
+  const back = backOf(k, way);
   const { item, mac, tz } = a;
   const live = isLive(mac);
   let html =
@@ -644,7 +661,7 @@ function pageArchivedItem(k: Kit, cse: string, ui: Ui, from = 'archived'): Drawn
       `${openLink(item.url, 'btn full', true)}</div>`;
   }
   html += changesHtml(k, cse);
-  return { title: item.title, tab: 'archived', status: 200, html };
+  return { title: item.title, tab: back.tab, status: 200, html };
 }
 
 // ---------- Usage ----------
@@ -995,9 +1012,9 @@ export function draw(view: View, k: Kit, ui: Ui): Drawn {
     case 'session':
       return pageSession(k, view.cse, view.from, ui);
     case 'archived':
-      return pageArchived(k, ui);
+      return pageArchived(k);
     case 'archived-item':
-      return pageArchivedItem(k, view.cse, ui);
+      return pageArchivedItem(k, view.cse, ui, view.from);
     case 'usage':
       return pageUsage(k, ui, view.usage);
     case 'mac':
@@ -1007,9 +1024,9 @@ export function draw(view: View, k: Kit, ui: Ui): Drawn {
   }
 }
 
-/** Only the list part of a page with search, drawn again as people type. */
+/** Only the list part of a page with search (Sessions), drawn again as
+ *  people type. */
 export function drawList(view: View, k: Kit, ui: Ui): string | null {
   if (view.page === 'sessions') return sessionsList(k, ui);
-  if (view.page === 'archived') return archivedList(k, ui);
   return null;
 }

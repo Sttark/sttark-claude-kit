@@ -1,8 +1,9 @@
 ---
 // Sessions: the person's sessions from every live Mac in four groups (Needs
 // you first), then the Macs that are away, and the 5-hour and weekly strip.
-// Until a Mac is linked, how to link one. ?q= searches the names; ?find=1
-// shows the search field (the top bar's Search).
+// Until a Mac is linked, how to link one. ?find=1 shows the search field
+// (the top bar's Search); ?q= searches every session, archived ones too, by
+// name, folder, waits, check-in and messages (view/model.ts, searchText).
 import Base from '../layouts/Base.astro';
 import { loadKit } from '../lib/state.ts';
 import { draw, type View } from '../view/render.ts';

@@ -93,6 +93,13 @@ enum Inbox {
         }
         /// The link that opens the session in the Claude app.
         var url: String { session?.url.nilIfEmpty ?? wait?.sessionURL.nilIfEmpty ?? "" }
+        /// The folder the session works in, a full path, when the Kit knows it: from its saved conversation, its wait,
+        /// or (On this Mac only) the list of local sessions. Empty when not known.
+        var folder: String {
+            session?.folder.nilIfEmpty ?? local?.cwd.nilIfEmpty ?? waits.lazy.map(\.folder).first { !$0.isEmpty } ?? ""
+        }
+        /// The same, with the home folder as "~".
+        var folderShort: String { Search.home(folder) }
         var target: Limit.Target? {
             if let s = session { return Limit.Target(sid: s.sid, cse: s.id, title: s.title) }
             if let h = hold { return h.target }
