@@ -589,7 +589,7 @@ enum Events {
             e.kind = .wait
             e.text = on ? "Alerts turned on" : "Alerts turned off"
             e.detail.append((rest.hasSuffix("(phone)") ? "From your phone. " : "From the Kit window. ")
-                            + (on ? "It reaches you the ways set in Reach me by." : "Nothing about it goes out. Its messages stay in the Kit app."))
+                            + (on ? "It reaches you the ways set in Reach me by." : "Nothing about it goes out; its messages are kept on the session."))
         case "notify":
             e.kind = .wait
             // kept in the Kit app (notify.py keep_in_kit()): "<name> kept <id>: <why> | <subject>"
@@ -653,6 +653,7 @@ enum Events {
                 e.name = q; e.session = names.cseByName[q]
                 e.kind = .wait
                 e.text = off ? "No reminder: its alerts are off" : "No reminder: it sent you a Reach me by message in the last 30 minutes"
+                if off { e.detail = ["It has waited on you for 10 minutes. It shows under Needs you on the Sessions page."] }
             } else if rest.hasPrefix("window:") || tag == "window" || rest.hasPrefix("what's new") {
                 e.routine = true
                 e.text = tag == "window" ? rest.replacingOccurrences(of: "Claude window: ", with: "Claude window in Chrome ") : rest.prefix(1).uppercased() + rest.dropFirst()

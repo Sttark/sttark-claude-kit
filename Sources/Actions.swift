@@ -181,9 +181,10 @@ enum KitActions {
             let before = Values(alerts: Alerts.on(id))
             Alerts.set(id, on: on, title: r.title, by: origin)
             let after = Values(alerts: Alerts.on(id))
-            return Result(reason: .ok, words: on ? "Alerts are on. This session reaches you the ways set in Reach me by."
-                                                 : "Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app.",
-                          before: before, after: after)
+            let words = !on ? "Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app."
+                : Reach.alertsOn ? "Alerts are on. This session reaches you the ways set in Reach me by."
+                : "Alerts are on for this session. Alerts are off for every session in Reach me by, so nothing goes out now."
+            return Result(reason: .ok, words: words, before: before, after: after)
         }
     }
 

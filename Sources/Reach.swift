@@ -257,9 +257,10 @@ enum Reach {
 /// Each session's alerts: on unless the person turned them off for that session, with the bell on its row in the window
 /// (or its Alerts switch) or on its page on the phone (KitActions.setAlerts). Off is `alerts_off[<cse>]` in the state
 /// file, by the session's Remote Control id, so it lasts through archive, unarchive, a Kit restart and a Mac restart;
-/// a new session starts on. With alerts off, nothing about the session goes out by any Reach me by way: notify.py keeps
-/// claude-notify's message, and the Kit's own when its wait ends (wait.py) or a reply comes (watch.py), in the Kit app,
-/// and the Needs you reminder goes neither to this Mac nor to the phone (Waiting.notifyDue).
+/// a new session starts on. With alerts off, nothing about the session goes out by any Reach me by way: notify.py held()
+/// gives "this session's alerts are off", so claude-notify's message and the Kit's own (wait.py, watch.py) are kept on
+/// the session, as with Reach me by's Alerts switch off (Kept), and the Needs you reminder goes neither to this Mac nor
+/// to the phone (Waiting.notifyDue).
 enum Alerts {
     static let key = "alerts_off"
 
