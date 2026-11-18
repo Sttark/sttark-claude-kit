@@ -148,14 +148,22 @@ describe('One session', () => {
     expect(html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' }, k)).toMatch(/Set effort to High from the phone, \d+:\d\d [AP]M/);
   });
   it('has the Alerts switch: on with the Reach me by ways, off with where its messages go', () => {
-    const on = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' });
+    // Reach me by's Alerts on, on the Mac
+    const k = kit();
+    delete k.snaps[PRO].flags.alerts_off;
+    const on = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' }, k);
     expect(on).toMatch(/role="switch" aria-checked="true" aria-labelledby="al-h" data-act="alerts"[^>]*>On </);
     expect(on).toContain('On: it reaches you by Google Chat and Claude app, as set in Reach me by on your Mac.');
-    const off = html({ page: 'session', cse: 'session_01SamplePowderWatch', from: 'sessions' });
+    const off = html({ page: 'session', cse: 'session_01SamplePowderWatch', from: 'sessions' }, k);
     expect(off).toMatch(/role="switch" aria-checked="false" aria-labelledby="al-h" data-act="alerts"[^>]*>Off </);
-    expect(off).toContain('Its messages stay in the Kit app on your Mac.');
-    const sending = html({ page: 'session', cse: 'session_01SamplePowderWatch', from: 'sessions' }, kit(), { ...emptyUi(), sending: 'alerts' });
+    expect(off).toContain('Its messages stay here and in the Kit on your Mac.');
+    expect(off).toContain('Then its message stays in the Kit on this session, since its alerts are off.');
+    const sending = html({ page: 'session', cse: 'session_01SamplePowderWatch', from: 'sessions' }, k, { ...emptyUi(), sending: 'alerts' });
     expect(sending).toMatch(/data-act="alerts"[^>]*>Sending\.\.\. </);
+    // Reach me by's Alerts off on the Mac (the fixture): a session's own switch still shows, and says nothing goes out now
+    expect(html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' })).toContain(
+      'On, but alerts are off for every session in Reach me by on your Mac, so its messages stay in the Kit.',
+    );
   });
   it('shows a session of a Mac that is away with its alerts as words, and a Kit from before the switch as on', () => {
     const h = html({ page: 'session', cse: 'session_01SampleNozzleCheck', from: `mac:${MINI}` });

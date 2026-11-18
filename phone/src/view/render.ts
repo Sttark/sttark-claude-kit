@@ -421,7 +421,9 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
         `It comes back when any one wait ends: when the thing occurs, or at its deadline. ${
           snap.flags.alerts_off
             ? 'Then its message stays in the Kit on this session, since alerts are off in Reach me by on your Mac.'
-            : 'Then it tells you the way you set in Reach me by on your Mac.'
+            : !alertsOn(row)
+              ? 'Then its message stays in the Kit on this session, since its alerts are off.'
+              : 'Then it tells you the way you set in Reach me by on your Mac.'
         }${many ? ' Its other waits stay open.' : ''}`,
       ) +
       resultAt(ui, cse, 'waits') +
@@ -503,10 +505,12 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
       resultAt(ui, cse, 'alerts') +
       `<p class="why">${esc(
         !on
-          ? 'Off: nothing about this session goes out, not even a Needs you notice. Its messages stay in the Kit app on your Mac.'
-          : list
-            ? `On: it reaches you by ${list}, as set in Reach me by on your Mac.`
-            : 'On, but no way is checked in Reach me by on your Mac.',
+          ? 'Off: nothing about this session goes out, not even a Needs you notice. Its messages stay here and in the Kit on your Mac.'
+          : snap.flags.alerts_off
+            ? 'On, but alerts are off for every session in Reach me by on your Mac, so its messages stay in the Kit.'
+            : list
+              ? `On: it reaches you by ${list}, as set in Reach me by on your Mac.`
+              : 'On, but no way is checked in Reach me by on your Mac.',
       )}</p></section>`;
   }
   html += changesHtml(k, cse);

@@ -1,11 +1,14 @@
 #!/usr/bin/python3
-"""Tests each session's alerts switch in the hooks, on copies: a test folder and log (STTARK_KIT_DIR, STTARK_KIT_LOG),
-notify.py dry (STTARK_NOTIFY_DRY: nothing is sent) and nothing brought back:
-- claude-notify in a session whose alerts are off: no way at all, exit 0, words that tell the session the person reads
-  it in the Kit app, a "kept" line in the log, no reach_sent; the same command in a session whose alerts are on goes
-  as before; a session_ id counts as its cse_ id;
+"""Tests each session's own alerts switch in the hooks, on copies: a test folder and log (STTARK_KIT_DIR,
+STTARK_KIT_LOG), notify.py dry (STTARK_NOTIFY_DRY: nothing is sent) and nothing brought back. A session whose alerts
+are off takes the one path for a message that does not go out, notify.py held() and keep_in_kit(), with its own reason:
+- claude-notify in that session: no way at all, exit 0, the kept line that tells the session the person reads it in
+  the Kit app, the message in kept.json on that session with its reason, a "kept" line in the log, no reach_sent; the
+  same command in a session whose alerts are on goes as before; a session_ id counts as its cse_ id; Reach me by's own
+  Alerts switch off still gives its own reason first;
 - wait.py: the Kit's own message when a session that came back sent none (FALLBACK), and when it could not come back,
-  is kept, and its log line says so; a kept message from the session counts as its message, so no FALLBACK follows;
+  is kept on the session, and its log line says so; a kept message from the session counts as its message, so no
+  FALLBACK follows;
 - the reply watch's message for a session that could not come back is kept, and its log line says so.
 (Progress check-ins never alert: they show only in the Kit app, so the switch has nothing to stop there.)
 Run from the repo root: /usr/bin/python3 tools/alerts-test.py"""
@@ -21,6 +24,7 @@ for k in ('STTARK_WAIT_DRY', 'CLAUDE_PID', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_COD
     os.environ.pop(k, None)
 fails = 0
 NOW = time.time()
+WHY = "this session's alerts are off"
 
 
 def check(what, ok):
@@ -68,22 +72,32 @@ n = load('notify')
 
 # --- claude-notify ------------------------------------------------------------------------------------------------
 code, out = notify('Snow report', '14 in fell overnight.', session='session_01PowderWatch')
-check('alerts off: claude-notify sends no way, exits 0 and tells the session the person reads it in the Kit app: %r' % out,
-      code == 0 and out.strip() == 'Alerts are off for this session, so nothing was sent. The person reads this message in the Kit app.')
-check('alerts off: one "kept" line under the session\'s name, with the subject, and no line for a way',
-      'notify Powder watch kept: alerts are off for this session' in log() and '| Snow report' in log()
+check('its alerts off: claude-notify sends no way, exits 0 and prints the kept line with its reason: %r' % out,
+      code == 0 and out.strip() == n.kept_line(WHY))
+kept = n.kept('cse_01PowderWatch')
+check('its alerts off: the message is kept on the session, with its words and its reason',
+      len(kept) == 1 and kept[0]['subject'] == 'Snow report' and kept[0]['body'] == '14 in fell overnight.'
+      and kept[0]['why'] == WHY and kept[0]['from'] == 'session')
+check('its alerts off: one "kept" line under the session\'s name, with its reason and subject, and no line for a way',
+      'notify Powder watch kept %s: %s | Snow report' % (kept[0]['id'] if kept else '?', WHY) in log()
       and ' email ok' not in log() and ' chat ok' not in log())
-check('alerts off: no reach_sent, so nothing says the person was told', 'reach_sent' not in state())
+check('its alerts off: no reach_sent, so nothing says the person was told', 'reach_sent' not in state())
 code, out = notify('Order page', 'The login works.', session='session_01OrderPage')
 check('alerts on: the same command goes the ways picked, as before', code == 0 and 'Email: would mail name@sttark.com' in out
       and 'Google Chat: would post' in out and 'cse_01OrderPage' in (state().get('reach_sent') or {}))
 check('alerts_off reads a session_ id as its cse_ id, and an empty id as on',
       n.alerts_off('session_01PowderWatch') and n.alerts_off('cse_01PowderWatch') and not n.alerts_off('cse_01OrderPage')
       and not n.alerts_off(''))
+check('held(): its own reason; none for a session with alerts on; none for no session',
+      n.held('cse_01PowderWatch') == WHY and n.held('cse_01OrderPage') == '' and n.held('') == '')
+s = state()
+s['reach']['alerts'] = False
+check('held(): Reach me by\'s Alerts off comes first, for every session', n.held('cse_01PowderWatch', state=s) == 'alerts are off'
+      and n.held('cse_01OrderPage', state=s) == 'alerts are off')
 direct = n.send('Snow report', 'It reads the snow report.', title='Powder watch',
                 url='https://claude.ai/code/session_01PowderWatch', cse='cse_01PowderWatch')
 check('send() itself, with the session given: kept, no way: %r' % direct,
-      direct == [(n.KEPT, (True, n.KEPT_WORDS))] and log().count(' kept: ') == 2)
+      direct == [(n.IN_KIT, (True, WHY))] and len(n.kept('cse_01PowderWatch')) == 2)
 
 # --- wait.py: the Kit's own message ------------------------------------------------------------------------------------
 w = load('wait')
@@ -123,16 +137,14 @@ w.check()
 after = log()[mark:]
 check('no FALLBACK for the session that sent its message (kept): the wait just ends',
       'p1' not in (state().get('waits') or {}) and 'Powder watch' not in after)
-check('FALLBACK for the session that said nothing, whose alerts are off: kept, and the wait line says so: %r' % after,
-      'notify Snow plan kept: alerts are off for this session' in after
-      and 'p2 cse_01SnowPl "Snow plan" sent no message after coming back; the Kit kept its own in the Kit app: its alerts are off' in after
+snow = n.kept('cse_01SnowPlan')
+check('FALLBACK for the session that said nothing, whose alerts are off: kept on it as the Kit\'s, and the wait line says so: %r' % after,
+      len(snow) == 1 and snow[0]['from'] == 'kit' and snow[0]['why'] == WHY
+      and ('p2 cse_01SnowPl "Snow plan" sent no message after coming back; the Kit kept one in the Kit app (%s)' % WHY) in after
       and 'p2' not in (state().get('waits') or {}))
-kept = w.fallback({'id': 'p2', 'kind': 'at', 'at': NOW, 'cse': 'cse_01PowderWatch', 'title': 'Powder watch', 'why': 'x'},
-                  'The time you set came', False)
-check('wait.py fallback() says True when the message was kept', kept is True)
-sent = w.fallback({'id': 'p3', 'kind': 'at', 'at': NOW, 'cse': 'cse_01OrderPage', 'title': 'Order page', 'why': 'x'},
-                  'The time you set came', False)
-check('and False when it went out (alerts on)', sent is False)
+res = w.fallback({'id': 'p3', 'kind': 'at', 'at': NOW, 'cse': 'cse_01OrderPage', 'title': 'Order page', 'why': 'x'},
+                 'The time you set came', False)
+check('wait.py fallback() for a session with alerts on: it goes the ways (dry), not kept', res and res[0][0] != n.IN_KIT)
 
 # --- the reply watch's message for a session that could not come back ---------------------------------------------------
 wt = load('watch')
@@ -152,8 +164,9 @@ class Back(object):
 e = {'pending': [{'id': 'm1', 'kind': 'mail', 'from': 'snow.example', 'subject': 'Storm total', 'snippet': '14 in'}],
      'transcript': '/nonexistent.jsonl', 'title': 'Powder watch', 'url': 'https://claude.ai/code/session_01PowderWatch'}
 wt.deliver_one(Back, 'cse_01PowderWatch', e, {}, time.time())
-check('the reply watch: it could not come back, so the Kit kept the message in the Kit app',
-      'could not come back; the Kit kept the message in the Kit app, since its alerts are off' in log())
+check('the reply watch: it could not come back, so the Kit kept the message on the session',
+      ('could not come back; the Kit kept the message in the Kit app (%s)' % WHY) in log()
+      and n.kept('cse_01PowderWatch')[-1]['subject'] == 'New messages for Powder watch')
 
 print('all passed' if not fails else '%d failed' % fails)
 sys.exit(1 if fails else 0)
