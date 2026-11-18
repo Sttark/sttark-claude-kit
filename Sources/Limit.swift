@@ -182,13 +182,13 @@ enum Limit {
         // one row per session: the session's own hold when it has one, else its first agent's
         let bySession = Dictionary(grouping: rows, by: { $0.w.sid })
         return bySession.values.compactMap { group -> Waiting? in
-            let sorted = group.sorted { ($0.agent.isEmpty ? 0 : 1, $0.w.since) < ($1.agent.isEmpty ? 0 : 1, $1.w.since) }
+            let sorted = group.sorted { ($0.agent.isEmpty ? 0 : 1, $0.w.since, $0.key) < ($1.agent.isEmpty ? 0 : 1, $1.w.since, $1.key) }
             guard let first = sorted.first?.w else { return nil }
             let agents = Set(group.map(\.agent).filter { !$0.isEmpty }).count
             return Waiting(sid: first.sid, cse: first.cse, title: first.title, limit: first.limit, since: first.since,
                            until: group.map(\.w.until).max() ?? first.until, mode: first.mode, at: first.at,
                            percent: first.percent, agents: agents)
-        }.sorted { $0.since < $1.since }
+        }.sorted { ($0.since, $0.title, $0.sid) < ($1.since, $1.title, $1.sid) }   // a full key: limit_pauses is a dictionary
     }
 
     /// The limit reached now, from the hook's last usage read: its name and reset time. Nil under the limit,

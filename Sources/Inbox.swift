@@ -208,7 +208,7 @@ enum Inbox {
         let working = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id) && (inTurn($0) || background(raw[$0.id]) != nil) }
         func turnAt(_ s: Session) -> Date? { Limit.num(raw[s.id]?["turn_at"]).map { Date(timeIntervalSince1970: $0) } }
         func since(_ s: Session) -> Date? { inTurn(s) ? turnAt(s) : background(raw[s.id])?.since }
-        for s in working.sorted(by: { (since($0) ?? $0.at) < (since($1) ?? $1.at) }) {
+        for s in working.sorted(by: { (since($0) ?? $0.at, $0.title, $0.id) < (since($1) ?? $1.at, $1.title, $1.id) }) {
             used.insert(s.id)
             let bg = inTurn(s) ? nil : background(raw[s.id])
             var r = Row(id: s.id, group: .working, title: s.title, sub: bg.map(\.words) ?? effortWords(s),
@@ -220,7 +220,7 @@ enum Inbox {
             snap.rows.append(r)
         }
 
-        // waits handed to the Kit, one row per session, by its first deadline
+        // waits handed to the Kit, one row per session, by its first wait in Waits.before's order
         var bySession: [String: [Waits.Wait]] = [:], order: [String] = []
         for w in Waits.list(state) {
             let key = w.cse.isEmpty ? "wait:" + w.id : w.cse
@@ -248,7 +248,7 @@ enum Inbox {
         let cutoff = Date().addingTimeInterval(-hours * 3600)
         let rest = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id)
             && (listedIds != nil || $0.at > cutoff || unread[$0.id] != nil) }
-        for s in rest.sorted(by: { (unread[$0.id] ?? $0.at) > (unread[$1.id] ?? $1.at) }) {
+        for s in rest.sorted(by: { (unread[$0.id] ?? $0.at, $1.title, $1.id) > (unread[$1.id] ?? $1.at, $0.title, $0.id) }) {
             // a message kept in the Kit in the last day says the most: it is what the session had to tell you
             let message = kept[s.id]?.first { -$0.at.timeIntervalSinceNow < Kept.recent }
             let sub = message.map { "Message: " + $0.subject } ?? (unread[s.id] != nil ? "Finished; reply not opened" : effortWords(s))

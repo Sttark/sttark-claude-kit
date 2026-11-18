@@ -14,7 +14,7 @@ enum Waiting {
     static var sessions: [Session] {
         // the ones that need you first, then the ones you haven't opened; oldest first in each
         State.sessions(hours: 24).filter { $0.waitingSince != nil }
-            .sorted { ($0.needsYou ? 0 : 1, $0.waitingSince!) < ($1.needsYou ? 0 : 1, $1.waitingSince!) }
+            .sorted { ($0.needsYou ? 0 : 1, $0.waitingSince!, $0.title, $0.id) < ($1.needsYou ? 0 : 1, $1.waitingSince!, $1.title, $1.id) }
     }
 
     static func ago(_ d: Date) -> String {

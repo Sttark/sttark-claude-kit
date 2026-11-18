@@ -424,7 +424,14 @@ enum Waits {
             x.sessionURL = w["session_url"] as? String ?? ""
             x.url = w["url"] as? String ?? ""
             return x
-        }.filter { !$0.back }.sorted { ($0.by ?? .distantFuture) < ($1.by ?? .distantFuture) }
+        }.filter { !$0.back }.sorted(by: before)
+    }
+
+    /// The one order of waits everywhere: deadline, then when it was set, then the session's name, then the wait's id.
+    /// The state keeps waits in a dictionary, which has no order of its own, so every key is needed for one fixed
+    /// order: with fewer, two waits with the same deadline change places from one read to the next.
+    static func before(_ a: Wait, _ b: Wait) -> Bool {
+        (a.by ?? .distantFuture, a.setAt ?? .distantFuture, a.title, a.id) < (b.by ?? .distantFuture, b.setAt ?? .distantFuture, b.title, b.id)
     }
 
     /// Every minute: the check reads each pull request with gh and the clock; no model calls.

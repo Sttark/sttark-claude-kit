@@ -219,7 +219,7 @@ enum SessionUsage {
             lines[w.s]?.human += h
             lines[w.s]?.humanByKind[w.k, default: 0] += h
         }
-        r.lines = lines.values.filter { $0.usd > 0 }.sorted { ($0.usd, $1.session.title) > ($1.usd, $0.session.title) }
+        r.lines = lines.values.filter { $0.usd > 0 }.sorted { ($0.usd, $1.session.title, $1.session.key) > ($1.usd, $0.session.title, $0.session.key) }
         r.usd = r.lines.reduce(0) { $0 + $1.usd }
         r.agents = r.lines.reduce(0) { $0 + $1.agents }
         r.tokens = r.lines.reduce(0) { $0 + $1.tokens }

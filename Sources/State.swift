@@ -173,7 +173,7 @@ enum State {
                 }
             }
             return s
-        }.sorted { $0.at > $1.at }
+        }.sorted { ($0.at, $1.title, $1.id) > ($1.at, $0.title, $0.id) }   // a full key: the state is a dictionary, with no order
     }
 }
 
