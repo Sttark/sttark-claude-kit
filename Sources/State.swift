@@ -47,6 +47,45 @@ struct Session {
     var why: String = ""
     /// Claude needs you (blocked, or the reply asks you); otherwise just not opened yet.
     var needsYou = false
+    /// The folder it works in (a full path; it stays on this Mac), from its saved conversation. Empty when not known.
+    var folder: String = ""
+}
+
+/// The folder a session works in: the last "cwd" its saved conversation names, read from the end of the file (else its
+/// start), as effort-hook.py's archived list reads it. Kept 5 minutes for each file, so a reload reads no file again.
+enum Folders {
+    private static var cache: [String: (folder: String, at: Date)] = [:]
+    private static let lock = NSLock()
+    private static let cwd = try! NSRegularExpression(pattern: #""cwd": ?"((?:[^"\\]|\\.)*)""#)
+
+    static func of(transcript: String) -> String {
+        guard transcript.hasSuffix(".jsonl") else { return "" }
+        lock.lock(); defer { lock.unlock() }
+        if let c = cache[transcript], -c.at.timeIntervalSinceNow < 300 { return c.folder }
+        let f = read(transcript)
+        cache[transcript] = (f, Date())
+        return f
+    }
+
+    /// The last cwd in the file's last 64 KB (nearly every line has one), else its last 256 KB, else its first 256 KB;
+    /// "" when there is none or no file.
+    static func read(_ path: String) -> String {
+        guard let h = FileHandle(forReadingAtPath: path) else { return "" }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        var parts: [(start: UInt64, length: UInt64)] = [(size > 65536 ? size - 65536 : 0, 65536)]
+        if size > 65536 { parts.append((size > 262144 ? size - 262144 : 0, 262144)) }
+        if size > 262144 { parts.append((0, 262144)) }
+        for (start, length) in parts {
+            guard (try? h.seek(toOffset: start)) != nil, let d = try? h.read(upToCount: Int(length)) else { continue }
+            let text = String(decoding: d, as: UTF8.self)
+            guard let m = cwd.matches(in: text, range: NSRange(text.startIndex..., in: text)).last,
+                  let r = Range(m.range(at: 1), in: text) else { continue }
+            let raw = "\"" + text[r] + "\""
+            if let s = try? JSONSerialization.jsonObject(with: Data(raw.utf8), options: .fragmentsAllowed) as? String { return s }
+        }
+        return ""
+    }
 }
 
 /// The state file the hook and the app share: {"paused": bool, "sessions": {id: {...}}}.
@@ -142,6 +181,7 @@ enum State {
                             manual: x["manual"] as? Bool ?? false, at: at)
             if let tp = x["transcript"] as? String, tp.hasSuffix(".jsonl") {
                 s.sid = String((tp as NSString).lastPathComponent.dropLast(6))
+                s.folder = Folders.of(transcript: tp)
             }
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

@@ -68,11 +68,58 @@ describe('Sessions', () => {
     expect(html({ page: 'sessions' })).toContain('<span class="mac">MacBook Pro</span>');
     expect(html({ page: 'sessions' }, one())).not.toContain('<span class="mac">');
   });
-  it('searches the names', () => {
+  it('searches every session, archived ones too, with Archived as the last group', () => {
     const h = html({ page: 'sessions' }, kit(), { ...emptyUi(), q: 'lam' });
     expect(h).toContain('Laminator quote');
     expect(h).not.toContain('Press color');
+    // the archived one, after the groups, with its count and the day it was archived
+    expect(h).toMatch(/>Archived <span class="n">1<\/span>/);
+    expect(h.indexOf('Laminator quote')).toBeLessThan(h.indexOf('Laminator RFQ'));
+    expect(h).toContain('href="/archived/session_01SampleLaminatorRfq?from=search"');
+    expect(h).toMatch(/Laminator RFQ<\/span><\/div><div class="sub"><span class="mac">MacBook Pro<\/span><\/div><\/div><span class="time">Wed 9:30 AM<\/span>/);
+    // a row opens the session's page, whose way back is the search
+    expect(h).toContain('href="/s/session_01SampleLaminator?from=search"');
+    // no Macs away under a search
+    expect(h).not.toContain('Macs away');
     expect(html({ page: 'sessions' }, kit(), { ...emptyUi(), q: 'zzz' })).toContain('No session matches “zzz”');
+  });
+  it('finds a session by its name, folder, waits, check-in and messages, with case and accents ignored', () => {
+    const find = (q: string) => html({ page: 'sessions' }, one(), { ...emptyUi(), q });
+    expect(find('web path drawing')).toContain('>Laminator quote<'); // what a wait is for
+    expect(find('purchasing')).toContain('>Laminator quote<'); // its folder
+    expect(find('matte profile')).toContain('>Press color<'); // its last check-in
+    expect(find('crate size')).toContain('>Freight quotes<'); // a kept message
+    expect(find('order-site')).toContain('>Order page login<');
+    expect(find('ORDER LOGIN')).toContain('>Order page login<'); // every word, in any order, any case
+    expect(find('order zzz')).toContain('No session matches “order zzz”');
+    expect(find('blind_control')).toContain('>Blinds Wi-Fi watchdog<'); // an archived session's folder
+    expect(find('powdér')).toContain('>Powder watch<'); // accents ignored
+    // what it looks at, when nothing matches
+    expect(find('zzz')).toContain('Search looks at each session’s name, folder, waits, last check-in and messages, archived sessions too.');
+  });
+  it('finds the sessions of a Mac that is away, in gray as of its last list', () => {
+    const h = html({ page: 'sessions' }, kit(), { ...emptyUi(), q: 'label printer' });
+    expect(h).toContain('href="/s/session_01SampleBinLabels?from=search"');
+    expect(h).toContain(`<li class="stale"><a class="row" href="/s/session_01SampleBinLabels?from=search">`);
+    expect(html({ page: "sessions" }, kit(), { ...emptyUi(), q: "lam" })).toContain(`<li><a class="row" href="/s/session_01SampleLaminator?from=search">`);
+  });
+  it('shows a session’s folder on its page, which the search finds it by', () => {
+    expect(html({ page: 'session', cse: 'session_01SampleLaminator', from: 'search' }, one())).toContain('<p class="page-sub">Folder <span class="folder">purchasing</span></p>');
+    expect(html({ page: 'session', cse: 'session_01SampleLaminator', from: 'search' })).toContain('<p class="page-sub">On MacBook Pro · Folder <span class="folder">purchasing</span></p>');
+    expect(html({ page: 'session', cse: 'session_01SampleHvacUpdates', from: 'sessions' }, one())).not.toContain('class="page-sub"');
+  });
+  it('goes back to the search from a session it found, also an archived one', () => {
+    const s = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'search' });
+    expect(s).toContain('<nav class="crumbs" aria-label="Back"><a href="/?find=1" data-act="back">');
+    expect(s).toContain('Search</a></nav>');
+    const d = draw({ page: 'archived-item', cse: 'session_01SampleLaminatorRfq', from: 'search' }, kit(), emptyUi());
+    expect(d.html).toContain('<a href="/?find=1" data-act="back">');
+    expect(d.tab).toBe('sessions');
+    expect(d.html).toContain('Bring it back');
+    // from the Archived tab, back to it
+    const a = draw({ page: 'archived-item', cse: 'session_01SampleLaminatorRfq' }, kit(), emptyUi());
+    expect(a.html).toContain('<a href="/archived" data-act="back">');
+    expect(a.tab).toBe('archived');
   });
   it('says how to link a Mac when none is linked', () => {
     expect(html({ page: 'sessions' }, kit({ snaps: {}, archived: {} }, []))).toContain('No Mac linked yet');
@@ -216,26 +263,14 @@ describe('Archived, Usage, a Mac, Menu', () => {
     const h = html({ page: 'archived' }, one());
     expect(h.indexOf('Weekly plan')).toBeLessThan(h.indexOf('South E building model'));
     expect(h).not.toContain('class="folder"');
-    expect(html({ page: 'archived' }, one(), { ...emptyUi(), q: 'quotes' })).toContain('Laminator RFQ');
+    expect(h).toContain('href="/archived/session_01SampleLaminatorRfq"');
   });
-  it('finds a session that waits on someone else, in its own group that opens it under Sessions', () => {
-    // "powder" matches no archived session; the session waits, so it is under Sessions, not here
-    const h = html({ page: 'archived' }, one(), { ...emptyUi(), q: 'powder' });
-    expect(h).not.toContain('No archived session matches');
-    expect(h).toContain('>Waiting on someone else <');
-    expect(h).toContain('href="/s/session_01SamplePowderWatch"');
-    expect(h).toContain('These are under Sessions. Tap one to see it there.');
-    // by what a wait is for, and next to archived matches
-    const both = html({ page: 'archived' }, one(), { ...emptyUi(), q: 'laminator' });
-    expect(both).toContain('Laminator RFQ');
-    expect(both.indexOf('Laminator RFQ')).toBeLessThan(both.indexOf('href="/s/session_01SampleLaminator"'));
-    expect(html({ page: 'archived' }, one(), { ...emptyUi(), q: 'web path drawing' })).toContain('href="/s/session_01SampleLaminator"');
-    // an away Mac's waits too, as its last list
-    expect(html({ page: 'archived' }, kit(), { ...emptyUi(), q: 'label printer' })).toContain('href="/s/session_01SampleBinLabels"');
-    // no search: the group never shows, and one session is in one list only
-    expect(html({ page: 'archived' }, one())).not.toContain('Waiting on someone else');
-    // nothing in either list
-    expect(html({ page: 'archived' }, one(), { ...emptyUi(), q: 'zzz' })).toContain('No archived session matches “zzz”');
+  it('has no search of its own: the top bar’s Search finds archived sessions with every other one', () => {
+    const h = html({ page: 'archived' }, one(), { ...emptyUi(), q: 'laminator' });
+    expect(h).not.toContain('type="search"');
+    expect(h).not.toContain('Waiting on someone else');
+    // a q in its address does nothing here: the whole list
+    expect(h).toContain('South E building model');
   });
   it('offers Bring it back for an archived session', () => {
     const h = html({ page: 'archived-item', cse: 'session_01SampleDoorPi' });

@@ -210,7 +210,7 @@ components:
       payload: { $ref: './schema/messages.v1.json#/$defs/phone_to_server.visible' }
     phone_to_server.open_archived:
       name: open_archived
-      summary: The Archived tab opened.
+      summary: The Archived tab opened, or the search on Sessions, which finds archived sessions too.
       payload: { $ref: './schema/messages.v1.json#/$defs/phone_to_server.open_archived' }
     phone_to_server.open_usage:
       name: open_usage

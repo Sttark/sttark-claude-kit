@@ -3558,5 +3558,177 @@
       "archived_rev": "a1b2c3d4e5f60718",
       "archived_count": 7
     }
+  },
+  {
+    "why": "a row's folder as a path: only its own name goes up",
+    "value": {
+      "v": 1,
+      "at": 1794587400,
+      "mac": {
+        "name": "MacBook Pro",
+        "kit": "1.140",
+        "tz": "America/New_York",
+        "account": "3f9a1c7db6bf8c04"
+      },
+      "flags": {
+        "paused": false,
+        "credits_all": false,
+        "alerts_off": true
+      },
+      "reach": [
+        "chat",
+        "push"
+      ],
+      "usage": {
+        "at": 1794587400,
+        "bars": [
+          {
+            "kind": "session",
+            "name": "5-hour limit",
+            "percent": 100,
+            "resets": 1794606000
+          },
+          {
+            "kind": "weekly_all",
+            "name": "Weekly",
+            "percent": 64,
+            "resets": 1794639600
+          }
+        ],
+        "reached": {
+          "name": "5-hour limit",
+          "until": 1794606000
+        }
+      },
+      "rows": [
+        {
+          "id": "session_01SampleOrderLogin",
+          "cse": "session_01SampleOrderLogin",
+          "sid": "5b0c2f4e-1d7a-4c11-9e2b-3a6f8d0c1e21",
+          "group": "needs_you",
+          "title": "Order page login",
+          "sub": "A plan waits for you",
+          "sub_strong": null,
+          "sub_warn": null,
+          "late": true,
+          "time_at": 1794586080,
+          "url": "https://claude.ai/code/session_01SampleOrderLogin",
+          "session": {
+            "level": "high",
+            "manual": false,
+            "reason": "A plan with several steps",
+            "needs_you": true,
+            "why": "A plan waits for your go-ahead",
+            "waiting_since": 1794586080,
+            "turn_at": null
+          },
+          "background": null,
+          "waits": [],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          },
+          "messages": [
+            {
+              "at": 1794586140,
+              "subject": "Plan ready for your go-ahead",
+              "text": "The plan for the order page login is ready: 4 steps, about 2 hours of work.\nIt changes the sign-in form and adds a reset link.\n\nOpen the session to approve it or to ask for changes.",
+              "why": "alerts are off"
+            }
+          ],
+          "alerts": true,
+          "folder": "Users/sample/src"
+        }
+      ],
+      "archived_rev": "a1b2c3d4e5f60718",
+      "archived_count": 7
+    }
+  },
+  {
+    "why": "a row's folder that is empty: none is sent instead",
+    "value": {
+      "v": 1,
+      "at": 1794587400,
+      "mac": {
+        "name": "MacBook Pro",
+        "kit": "1.140",
+        "tz": "America/New_York",
+        "account": "3f9a1c7db6bf8c04"
+      },
+      "flags": {
+        "paused": false,
+        "credits_all": false,
+        "alerts_off": true
+      },
+      "reach": [
+        "chat",
+        "push"
+      ],
+      "usage": {
+        "at": 1794587400,
+        "bars": [
+          {
+            "kind": "session",
+            "name": "5-hour limit",
+            "percent": 100,
+            "resets": 1794606000
+          },
+          {
+            "kind": "weekly_all",
+            "name": "Weekly",
+            "percent": 64,
+            "resets": 1794639600
+          }
+        ],
+        "reached": {
+          "name": "5-hour limit",
+          "until": 1794606000
+        }
+      },
+      "rows": [
+        {
+          "id": "session_01SampleOrderLogin",
+          "cse": "session_01SampleOrderLogin",
+          "sid": "5b0c2f4e-1d7a-4c11-9e2b-3a6f8d0c1e21",
+          "group": "needs_you",
+          "title": "Order page login",
+          "sub": "A plan waits for you",
+          "sub_strong": null,
+          "sub_warn": null,
+          "late": true,
+          "time_at": 1794586080,
+          "url": "https://claude.ai/code/session_01SampleOrderLogin",
+          "session": {
+            "level": "high",
+            "manual": false,
+            "reason": "A plan with several steps",
+            "needs_you": true,
+            "why": "A plan waits for your go-ahead",
+            "waiting_since": 1794586080,
+            "turn_at": null
+          },
+          "background": null,
+          "waits": [],
+          "hold": null,
+          "limit_mode": {
+            "mode": "follow",
+            "at": null
+          },
+          "messages": [
+            {
+              "at": 1794586140,
+              "subject": "Plan ready for your go-ahead",
+              "text": "The plan for the order page login is ready: 4 steps, about 2 hours of work.\nIt changes the sign-in form and adds a reset link.\n\nOpen the session to approve it or to ask for changes.",
+              "why": "alerts are off"
+            }
+          ],
+          "alerts": true,
+          "folder": ""
+        }
+      ],
+      "archived_rev": "a1b2c3d4e5f60718",
+      "archived_count": 7
+    }
   }
 ]

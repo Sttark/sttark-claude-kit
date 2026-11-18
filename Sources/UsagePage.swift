@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// The window's Usage page: each session's share of the person's use in the period picked in the header (Today, 7
-/// days, 30 days or Custom), the biggest first, with what the same work takes people (human work, an estimate), and the
+/// The window's Usage page: each session's share of the person's use in the period picked at the top of the list (Today,
+/// 7 days, 30 days or Custom), the biggest first, with what the same work takes people (human work, an estimate), and the
 /// selected session on the right: its share split between the session and its agents, its tokens, the agents it
 /// started, its use at API prices, its time at work and its human work, a bar for each day and its models.
 /// No folder or path shows. The data colors are the brand's blue for the session and a tint of it for its agents,
@@ -16,6 +16,7 @@ struct UsagePage: View {
         HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    period.padding(.top, 12)
                     if model.usagePeriod.isCustom { range.padding(.top, 12) }
                     note.padding(.top, 12)
                     if r.lines.isEmpty {
@@ -51,6 +52,20 @@ struct UsagePage: View {
             .frame(width: min(K.z(340), 420))
             .background(K.panel)
         }
+    }
+
+    /// The period, at the top of the list (the top bar holds the search): a choice among a few, the chosen one in ink.
+    var period: some View {
+        let tags: [(SessionUsage.Period, String)] = [(.today, "Today"), (.week, "7 days"), (.month, "30 days")]
+        return Segments(options: tags.map { ($0.0.key, $0.1) } + [("custom", "Custom")],
+                        value: model.usagePeriod.isCustom ? "custom" : model.usagePeriod.key) { k in
+            if k == "custom" {
+                let s = SessionUsage.span(model.usagePeriod)
+                if !model.usagePeriod.isCustom { model.setUsagePeriod(.custom(s.from, s.to)) }
+            } else if let p = SessionUsage.Period(key: k) { model.setUsagePeriod(p) }
+        }
+        .frame(width: K.z(320))
+        .accessibilityLabel("Period")
     }
 
     /// Custom: the first and last day, within the days the Kit keeps.

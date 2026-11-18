@@ -108,9 +108,10 @@ The contract is in this folder and is the source of truth for every message: `as
 | `rows[].limit_mode` (`mode`, `at`) | At the usage limit setting | `Limit.mode(target)` (`limit_modes`) |
 | `rows[].messages[]` (`at`, `subject`, `text`, `why`, `replied`) | Optional, on a row of any group: at most 3 messages, newest first, from the last 24 hours, that the session (`claude-notify`) or the Kit would have sent and kept in the Kit instead. `text` at most 1000 characters with its line breaks; `why` is the Mac's words for why it was not sent ("alerts are off", "this session's alerts are off"). `replied`, optional: when the person replied themselves where the message is about (its email thread, Chat space or Asana task), so it is handled; the page says "You replied" and the time on the message, and first on an idle row whose newest message it is. Never where, or what they wrote | The messages the Kit kept (`kept.json`, `replied` from the reply watch) |
 | `rows[].alerts` | The session's alerts: `true` only when the person turned them on for it; `false` for every other session, as each session starts off. Optional: a Kit from before the switch sends none, which reads as on, since it has no switch | `Alerts.on(cse)` (`alerts`) |
+| `rows[].folder` | Optional: the folder the session works in, its own name only (for example `src`), never the path, so the phone's search finds a session by it and its page shows it. None when the Mac does not know it, or for the home folder, whose name is the person's account on the Mac | `Inbox.Row.folder`: the last `cwd` of its saved conversation (`Folders`), its wait's `cwd`, or a session on this Mac only |
 | `archived_rev`, `archived_count` | The archived list's version and length; the list itself goes up only when the server asks (section 13) | `archived.json` (`rev`, `items`) |
 
-**Never leaves the Mac.** Prompts, replies, transcript lines, file contents, and the log. File and folder paths: transcripts, working folders, the server's folder. An archived session's folder goes up as its own name only (for example `src`), never the path. A wait's target (Gmail thread id, pull request), its check script and its output. A check-prompt's question: the phone shows "A yes/no check" unless the session gave `--what`. An email wait's sender address: `from` gets its domain only (sessions give `--from` as a full address). The Reach me by address, phone number and Chat webhook. Tokens and the Keychain. Idle sessions with no kept message, and On this Mac only sessions. A kept message's link, and any address it would have gone to.
+**Never leaves the Mac.** Prompts, replies, transcript lines, file contents, and the log. File and folder paths: transcripts, working folders, the server's folder. A session's folder, archived or not, goes up as its own name only (for example `src`), never the path. A wait's target (Gmail thread id, pull request), its check script and its output. A check-prompt's question: the phone shows "A yes/no check" unless the session gave `--what`. An email wait's sender address: `from` gets its domain only (sessions give `--from` as a full address). The Reach me by address, phone number and Chat webhook. Tokens and the Keychain. Idle sessions with no kept message, and On this Mac only sessions. A kept message's link, and any address it would have gone to.
 
 Some labels are short lines the Kit or Claude wrote about the work. They are not prompt or reply text, and the window already shows them: the effort reason, why a session needs you, an agent's task, a wait's what and why, and a progress check-in (a Haiku summary of the work's steps, told to name no file path or id).
 
@@ -331,7 +332,7 @@ Everything else follows the guide: the black top bar with the Sttark mark, "Clau
 | Tab | What it shows |
 |---|---|
 | Sessions | The four groups (Needs you, Claude working, Waiting on someone else, Held at usage limit), then Idle with a message (an idle session with a message kept in the Kit; its page shows the messages under Open in Claude), then "Macs away"; a compact 5-hour and weekly strip above the tab bar |
-| Archived | Archived sessions, newest first, with a search field (section 13) |
+| Archived | Archived sessions, newest first (section 13). The top bar's search finds them with every other session (section 15) |
 | Usage | The 5-hour and weekly bars with reset times and the 60% and 80% marks, the held sessions and when each goes on, and By session: each session's share of your use in a period (section 14) |
 
 ![The phone screens: Sessions, One session, Usage and Archived, with the bottom tab bar](mockup.png)
@@ -348,7 +349,7 @@ The phone and the Mac window both list archived sessions, so a person can find a
 
 **Which sessions are listed.** A session is listed only when it is archived, is not a run of a scheduled task, its conversation is on this Mac, and it has no open Kit wait. A session with an open wait shows under "Waiting on someone else", so a session is never in two lists.
 
-**What goes up, and when.** The snapshot carries only `archived_rev` and `archived_count`. The Kit makes the rev itself from the items it sends (after it drops a session that has a wait, or that the Claude app lists again), so the rev always names the list sent, whatever `archived.json`'s own rev covers. The full list goes up only when the server asks with `want_archived {have}`, which it sends when a phone opens the Archived tab and its copy is older than the Mac's `archived_rev`. After that, the Mac sends changes as `archived_delta {base, rev, add, remove}` (`remove` is a list of `cse`). When the server does not have `base`, it asks for the full list again. Each item sent:
+**What goes up, and when.** The snapshot carries only `archived_rev` and `archived_count`. The Kit makes the rev itself from the items it sends (after it drops a session that has a wait, or that the Claude app lists again), so the rev always names the list sent, whatever `archived.json`'s own rev covers. The full list goes up only when the server asks with `want_archived {have}`, which it sends when a phone opens the Archived tab, or the search on Sessions, and its copy is older than the Mac's `archived_rev`. After that, the Mac sends changes as `archived_delta {base, rev, add, remove}` (`remove` is a list of `cse`). When the server does not have `base`, it asks for the full list again. Each item sent:
 
 | Field | What it is |
 |---|---|
@@ -369,7 +370,7 @@ Results:
 
 **On the server.** Table `archived`: one row per Mac with its `rev` and list, replaced at each update, deleted with the Mac.
 
-**On the phone.** The Archived tab sends `open_archived`; the server answers with `archived {mac, rev, items}` from its copy and asks the Mac for a newer one if needed. A search field at the top searches the names and folders on the phone. It also finds the sessions under "Waiting on someone else" in the snapshot (by name or what they wait on) and shows them in a group of their own under the list, since they are not in it; a tap opens the session's page under Sessions. So a search never says a session is not there when it waits. Rows show the name, folder and when archived, with the ↗ button. A tap on a row opens its page with **Bring it back** and **Open in Claude**.
+**On the phone.** The Archived tab sends `open_archived`, and so does Sessions while its search shows (section 15); the server answers with `archived {mac, rev, items}` from its copy and asks the Mac for a newer one if needed. The tab has no search of its own: the top bar's search finds archived sessions with every other session. Rows show the name and when archived, with the ↗ button. A tap on a row opens its page with **Bring it back** and **Open in Claude**.
 
 ## 14. Usage by session
 
@@ -386,6 +387,18 @@ The Mac window's Usage page and the phone's Usage tab show how much of the perso
 **The flow.** The Usage tab sends `open_usage {period}` when it opens, shows again, changes its period, and every minute. The server answers with each Mac's kept list for that period (`usage {mac, list}`), and sends `want_usage {period}` to each live Mac (at most once for a period in 10 seconds). The Mac answers with `usage`; the server keeps it and sends it to the person's pages that show that period. A Mac that connects while a page shows Usage is asked at once. A Mac that is away shows its last list for the period, "As of" its time, in gray. A Kit from before this list never answers; the page says so after 15 seconds.
 
 **On the server.** Table `usage_lists`: one row per Mac and period, replaced at each update, only the newest range of days per Mac, deleted with the Mac.
+
+## 15. One search
+
+The window and the phone have one search each, over every session, so a person finds a session without knowing its group or whether it is archived.
+
+**Where.** On the phone, the top bar's Search on every page opens Sessions with the search field (`/?find=1`); the Archived tab has none of its own. In the Mac window, **Search sessions** sits at the top right of every page.
+
+**What it finds.** Each word typed must be in what the device knows of a session, in any order, with case and accents ignored: its name, the words on its row, its folder's own name (`rows[].folder`), its Mac's name, what each wait is for, why then and from whom, its last check-in and its kept messages; for an archived session, its name, its folder and its Mac's name. The window matches the same fields from the Mac's own data, plus an archived session's summary of its last turn (`doing`, which stays on the Mac). Prompts and replies are never searched: the Kit keeps none for this, and none goes up.
+
+**What it shows.** The groups of Sessions, each with its count, then **Archived**, every Mac's archived sessions, newest first, each with the day and time. A Mac that is away has its rows in their groups too, in gray, as of its last list. A row opens the session's page (`?from=search`), whose way back returns to the search with its words (the page's script goes back in the history when the page before is Sessions). Nothing matches: "No session matches" and what the search looks at.
+
+**The data.** The rows are in each snapshot already. The archived lists come with `open_archived`, which the Sessions page sends once a connection while its search shows, as the Archived tab does; the server then sends each change. The phone searches its own copy as each key is typed: no message per key.
 
 ## Appendix: the two sockets
 

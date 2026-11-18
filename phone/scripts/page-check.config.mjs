@@ -33,8 +33,9 @@ const sampleServer = (name, person) => ({
   ready: '/healthz',
   timeout: 240,
 });
-/** The sample's pages: the three tabs, Menu, a search on Sessions and one
- *  on Archived that also finds a session that waits, a session of each
+/** The sample's pages: the three tabs, Menu, the search on Sessions (it
+ *  finds every session: one that waits, an archived one, one of the Mac
+ *  that is away, and none), a session of each
  *  group (Needs you and Idle with a message with their kept messages, as
  *  MacBook Pro has Alerts off), an archived session, the Mac that is away
  *  and one of its sessions, a link page waiting for Link, and Usage by
@@ -44,8 +45,9 @@ const SAMPLE_PAGES = [
   '/menu',
   '/',
   '/?q=lam',
+  '/?q=label',
+  '/?q=zzz',
   '/archived',
-  '/archived?q=laminator',
   '/usage',
   '/usage?p=today',
   '/usage?p=30d',
@@ -58,6 +60,7 @@ const SAMPLE_PAGES = [
   '/s/session_01SampleOrderLogin',
   '/s/session_01SampleFreightQuotes',
   '/archived/session_01SampleDoorPi',
+  '/archived/session_01SampleLaminatorRfq?from=search',
   '/mac/mac_2Vd8Rt5Wn1',
   '/s/session_01SampleBinLabels?from=mac%3Amac_2Vd8Rt5Wn1',
   `/link/${SAMPLE_LINK.token}`,

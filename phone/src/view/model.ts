@@ -71,6 +71,9 @@ export type Row = {
    *  every session starts off. A Kit from before the switch sends none: on,
    *  since it had no switch. */
   alerts?: boolean;
+  /** The folder it works in, its own name only (src), when the Mac knows
+   *  it. A Kit from before it sends none. */
+  folder?: string;
 };
 
 /** A session's alerts, as its Mac says them (on for a Kit that sends none). */
@@ -217,9 +220,9 @@ export type Ui = {
   result: Result | null;
   /** The Mac whose Remove asks to confirm. */
   confirm: string | null;
-  /** Search words (Sessions, Archived). */
+  /** The search's words, on Sessions: every session, archived ones too. */
   q: string;
-  /** Sessions: the search field shows. */
+  /** Sessions: the search field shows (the top bar's Search). */
   find: boolean;
   /** Menu: Needs you notices on this phone, once the page checked its
    *  browser; until then Menu draws what the server knows (Kit.notices). */
@@ -290,6 +293,41 @@ export const needsCount = (k: Kit) => liveRows(k).filter((p) => p.row.group === 
  *  Mac's last list. */
 export function findRow(k: Kit, cse: string): Placed | null {
   return rowsOf(k, liveMacs(k)).find((p) => p.row.cse === cse) ?? rowsOf(k, awayMacs(k)).find((p) => p.row.cse === cse) ?? null;
+}
+
+// ---------- the search ----------
+// One search, from the top bar on every page, over every session the phone
+// has: the rows of the live Macs and every Mac's archived sessions. Each word
+// must be in what the phone knows of a session, with case and accents
+// ignored: its name, the words on its row, its folder, its Mac's name, what
+// each wait is for, why then and from whom, its last check-in and its kept
+// messages; for an archived session, its name, its folder and its Mac's name.
+// The window's search does the same over what the Mac has (Sources/Search.swift).
+
+/** Case and accents ignored: "Café" and "cafe" are the same word. */
+export const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+/** The words typed, folded; none for spaces only. */
+export const searchWords = (q: string) => fold(q).split(/\s+/).filter(Boolean);
+/** What a session row is found by, folded. */
+export function searchText(p: Placed): string {
+  const { row, mac } = p;
+  const parts = [row.title, row.sub, row.sub_strong, row.sub_warn, row.folder, mac.name, row.session?.reason, row.session?.why, row.background?.what, row.checkin?.note];
+  for (const w of row.waits) parts.push(w.what, w.why, w.from);
+  for (const m of row.messages ?? []) parts.push(m.subject, m.text);
+  return fold(parts.filter(Boolean).join('\n'));
+}
+/** What an archived session is found by, folded. */
+export const archivedText = (a: PlacedArchived) => fold([a.item.title, a.item.folder, a.mac.name].filter(Boolean).join('\n'));
+const matches = (text: string, words: string[]) => words.every((w) => text.includes(w));
+
+/** What a search found: the rows that match, the live Macs' first, then
+ *  those of the Macs that are away (their last list), and the archived
+ *  sessions that match, newest first. */
+export function searchAll(k: Kit, q: string): { rows: Placed[]; archived: PlacedArchived[] } {
+  const words = searchWords(q);
+  if (!words.length) return { rows: [], archived: [] };
+  const rows = [...liveRows(k), ...rowsOf(k, awayMacs(k))].filter((p) => matches(searchText(p), words));
+  return { rows, archived: archivedOf(k).filter((a) => matches(archivedText(a), words)) };
 }
 
 export type PlacedArchived = { item: ArchivedItem; mac: MacInfo; tz: string };

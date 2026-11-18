@@ -74,7 +74,8 @@
           "why": "alerts are off"
         }
       ],
-      "alerts": true
+      "alerts": true,
+      "folder": "order-site"
     },
     {
       "id": "session_01SamplePressColor",
@@ -108,7 +109,8 @@
         "mode": "follow",
         "at": null
       },
-      "alerts": false
+      "alerts": false,
+      "folder": "press-color"
     },
     {
       "id": "session_01SampleHvacUpdates",
@@ -215,7 +217,8 @@
         "mode": "follow",
         "at": null
       },
-      "alerts": false
+      "alerts": false,
+      "folder": "sttark-claude-kit"
     },
     {
       "id": "session_01SampleLaminator",
@@ -269,7 +272,8 @@
         "mode": "follow",
         "at": null
       },
-      "alerts": true
+      "alerts": true,
+      "folder": "purchasing"
     },
     {
       "id": "session_01SamplePowderWatch",
@@ -432,7 +436,8 @@
           "why": "alerts are off"
         }
       ],
-      "alerts": false
+      "alerts": false,
+      "folder": "shipping"
     },
     {
       "id": "session_01SampleDoorLog",

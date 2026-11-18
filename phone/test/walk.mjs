@@ -81,10 +81,26 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
   await shot(page, 'sessions-two-macs');
   await shot(page, 'sessions-two-macs-all', { tall: true });
   if (!SHORT) {
+    // the top bar's Search: one search over every session, archived ones too
     await page.click('.bar-btn.search');
     await page.fill('#sq', 'lam');
     await page.waitForTimeout(150);
     await shot(page, 'sessions-search');
+    await page.fill('#sq', 'label');
+    await page.waitForTimeout(150);
+    await shot(page, 'sessions-search-away');
+    await page.fill('#sq', 'zzz');
+    await page.waitForTimeout(150);
+    await shot(page, 'sessions-search-none');
+    // an archived session it found, and back to the search
+    await page.fill('#sq', 'lam');
+    await page.waitForTimeout(150);
+    await page.click('a[href*="session_01SampleLaminatorRfq?from=search"]');
+    await page.waitForSelector('[data-act=unarchive]', { timeout: 8000 }).catch(() => problems.push('search: the archived session did not open'));
+    await shot(page, 'search-archived-item');
+    await page.click('[data-act=back]');
+    await page.waitForSelector('#sq', { timeout: 8000 }).catch(() => problems.push('search: back did not come to the search'));
+    if ((await page.inputValue('#sq').catch(() => '')) !== 'lam') problems.push('search: back lost the words');
     await go(page, P.lam);
     await shot(page, 'session-waiting', { tall: true });
     await page.click('[data-act=info][data-key=waits]');
@@ -131,12 +147,6 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
     // Archived.
     await go(page, '/archived');
     await shot(page, 'archived', { tall: true });
-    await page.fill('#aq', 'lam');
-    await page.waitForTimeout(150);
-    await shot(page, 'archived-search');
-    await page.fill('#aq', 'zzz');
-    await page.waitForTimeout(150);
-    await shot(page, 'archived-search-none');
     await go(page, '/archived/session_01SampleDoorPi');
     await shot(page, 'archived-item');
     await answer(page, '[data-act=unarchive]', 'unarchive');
@@ -211,7 +221,7 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
 // ---------- desktop, light ----------
 {
   const { ctx, page } = await context(1280, 800);
-  for (const [path, name] of [['/', 'w-sessions'], [P.lam, 'w-session'], ['/archived', 'w-archived'], ['/archived/session_01SampleWeeklyPlan', 'w-archived-item'], ['/usage', 'w-usage'], ['/menu', 'w-menu'], ['/mac/mac_2Vd8Rt5Wn1', 'w-mac']]) {
+  for (const [path, name] of [['/', 'w-sessions'], [P.lam, 'w-session'], ['/archived', 'w-archived'], ['/archived/session_01SampleWeeklyPlan', 'w-archived-item'], ['/?q=lam', 'w-search'], ['/?q=zzz', 'w-search-none'], ['/usage', 'w-usage'], ['/menu', 'w-menu'], ['/mac/mac_2Vd8Rt5Wn1', 'w-mac']]) {
     if (SHORT && !['/', '/menu'].includes(path)) continue;
     await go(page, path);
     await shot(page, name, { tall: true });
@@ -222,7 +232,7 @@ const P = { lam: '/s/session_01SampleLaminator', usage: '/s/session_01SampleUsag
 // ---------- phone, dark ----------
 if (!SHORT) {
   const { ctx, page } = await context(390, 844, 'dark');
-  for (const [path, name] of [['/', 'd-sessions'], [P.lam, 'd-session'], ['/usage', 'd-usage'], ['/archived', 'd-archived'], ['/menu', 'd-menu'], [`/link/${SAMPLE_LINK.token}`, 'd-linked']]) {
+  for (const [path, name] of [['/', 'd-sessions'], [P.lam, 'd-session'], ['/usage', 'd-usage'], ['/archived', 'd-archived'], ['/?q=lam', 'd-search'], ['/?q=zzz', 'd-search-none'], ['/menu', 'd-menu'], [`/link/${SAMPLE_LINK.token}`, 'd-linked']]) {
     await go(page, path, { live: !path.startsWith('/link/') });
     await shot(page, name);
   }

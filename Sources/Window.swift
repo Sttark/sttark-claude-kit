@@ -20,7 +20,7 @@ final class KitWindow: NSObject, NSWindowDelegate {
     /// `sheet`: with the What's new sheet on top.
     func show(_ page: KitModel.Page = .sessions, select: String? = nil, sheet: Bool = false, controller: Controller) {
         model.controller = controller
-        model.page = page
+        model.go(page)   // a search left typed would hide the page asked for
         if let select { model.selected = select }
         model.reload()
         model.reloadFacts()
@@ -81,6 +81,8 @@ final class KitWindow: NSObject, NSWindowDelegate {
     @objc func zoomIn() { model.zoom(by: 1) }
     @objc func zoomOut() { model.zoom(by: -1) }
     @objc func actualSize() { model.zoom(by: 0) }
+    /// Edit > Search Sessions (Command-F): the top bar's search field takes the keyboard.
+    @objc func find() { model.findTick += 1 }
 
     func windowWillClose(_ notification: Notification) {
         timer?.invalidate()
@@ -106,6 +108,8 @@ final class KitWindow: NSObject, NSWindowDelegate {
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Search Sessions", action: #selector(KitWindow.find), keyEquivalent: "f").target = KitWindow.shared
         editItem.submenu = edit
         main.addItem(editItem)
         let viewItem = NSMenuItem()
@@ -122,10 +126,11 @@ final class KitWindow: NSObject, NSWindowDelegate {
 }
 
 /// Command-plus, Command-equals, Command-minus and Command-zero zoom the window, as in the Claude app, whether or
-/// not the View menu gets the keys first.
+/// not the View menu gets the keys first. Escape clears the top bar's search, wherever the keyboard is in the window.
 final class KitNSWindow: NSWindow {
     override func performKeyEquivalent(with e: NSEvent) -> Bool {
         let mods = e.modifierFlags.intersection([.command, .option, .control])
+        if KitNSWindow.clearsSearch(e, KitWindow.shared.model) { return true }
         if mods == .command, let c = e.charactersIgnoringModifiers {
             switch c {
             case "=", "+": KitWindow.shared.model.zoom(by: 1); return true
@@ -136,6 +141,14 @@ final class KitNSWindow: NSWindow {
         }
         return super.performKeyEquivalent(with: e)
     }
+
+    /// Escape, with no Command, Option or Control, while a search is typed: clears it, and the page shows again.
+    static func clearsSearch(_ e: NSEvent, _ model: KitModel) -> Bool {
+        guard e.type == .keyDown, e.keyCode == 53, e.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+              !model.search.isEmpty else { return false }
+        model.clearSearch()
+        return true
+    }
 }
 
 /// What the window shows, read from the shared state. The settings run commands, so they're read off the main thread.
@@ -144,7 +157,16 @@ final class KitModel: ObservableObject {
     @Published var page: Page = .sessions
     @Published var snap = Inbox.Snapshot()
     @Published var selected: String?
+    /// The top bar's search, on every page (Search): while words are typed, the window shows what it found, over the
+    /// page it was on, which shows again when the search is cleared.
     @Published var search = ""
+    /// The session picked among what the search found: a row's id, or "archived:" and an archived session's id.
+    @Published var searchPick: String?
+    /// Edit > Search Sessions (Command-F): the search field takes the keyboard.
+    @Published var findTick = 0
+    /// The search's texts, made again after each read of the state, and what the last words found.
+    private var searchIndex: Search.Index?
+    private var foundFor: (q: String, found: Search.Found)?
     @Published var facts = MenuFacts()
     @Published var factsRead = false
     @Published var usage = Usage()
@@ -170,10 +192,10 @@ final class KitModel: ObservableObject {
     /// The session being moved now (its row id), and the one whose "close it there?" question shows.
     @Published var moving: String? = nil
     @Published var confirmMove: String? = nil
-    /// The Archived page: the list, its search, the selected session, the one being brought back, and what the last
-    /// Bring it back said (over the list, with its session's name, so Show it can open it on the Sessions page).
+    /// The Archived page: the list, the selected session, the one being brought back, and what the last Bring it back
+    /// said (over the list, with its session's name, so Show it can open it on the Sessions page). The top bar's search
+    /// finds archived sessions too.
     @Published var archived = Archived.List()
-    @Published var archivedSearch = ""
     @Published var archivedSelected: String?
     @Published var bringing: String? = nil
     @Published var backNote: (ok: Bool, words: String, at: Date, id: String, title: String)? = nil
@@ -205,44 +227,75 @@ final class KitModel: ObservableObject {
         unseen = WhatsNew.unseen.count
         if selected == nil || !snap.rows.contains(where: { $0.id == selected }) { selected = snap.rows.first?.id }
         archived = Archived.read()
-        let shown = archivedRows
-        if archivedSelected == nil || !shown.contains(where: { $0.id == archivedSelected }) { archivedSelected = shown.first?.id }
+        if archivedSelected == nil || !archived.items.contains(where: { $0.id == archivedSelected }) { archivedSelected = archived.items.first?.id }
+        searchIndex = nil
+        foundFor = nil
     }
 
-    /// The Archived page's search, as words; none when nothing is typed.
-    var archivedWords: [String] { archivedSearch.lowercased().split(separator: " ").map(String.init) }
+    /// The archived sessions, newest first.
+    var archivedRows: [Archived.Item] { archived.items }
 
-    /// The archived sessions the search matches (name, folder or what it was doing), newest first.
-    var archivedRows: [Archived.Item] {
-        let words = archivedWords
-        return archived.items.filter { x in
-            let hay = (x.title + " " + x.folderShort + " " + x.doing).lowercased()
-            return words.allSatisfy { hay.contains($0) }
+    // MARK: the search
+
+    /// The words of the top bar's search; none when nothing (or only spaces) is typed.
+    var searchWords: [String] { Search.words(search) }
+    /// A search is typed: the window shows what it found, over the page it was on.
+    var searching: Bool { !searchWords.isEmpty }
+
+    /// What the search finds now: the Sessions page's groups, then the archived sessions.
+    var found: Search.Found {
+        if let f = foundFor, f.q == search { return f.found }
+        let index = searchIndex ?? Search.Index(snap, archived.items)
+        searchIndex = index
+        let f = index.find(searchWords)
+        foundFor = (search, f)
+        return f
+    }
+
+    /// The session the search shows on the right: the one picked, while the search still finds it, else the first.
+    enum Picked {
+        case row(Inbox.Row), archived(Archived.Item)
+        var key: String {
+            switch self { case .row(let r): return r.id; case .archived(let x): return "archived:" + x.id }
         }
     }
-
-    /// While a search is typed: the sessions under Waiting on someone else that it matches (name, folder or what each
-    /// wait is for). They are not in the archived list, since a session shows in one list only, so without them a
-    /// search for an archived session that waits would say it is not on this Mac.
-    var archivedWaitRows: [Inbox.Row] {
-        let words = archivedWords
-        guard !words.isEmpty else { return [] }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return snap.rows(.waits).filter { r in
-            let hay = ([r.title, r.sub] + r.waits.flatMap { [$0.what, $0.folder.replacingOccurrences(of: home, with: "~")] })
-                .joined(separator: " ").lowercased()
-            return words.allSatisfy { hay.contains($0) }
+    var picked: Picked? {
+        let f = found
+        if let p = searchPick {
+            if let x = f.archived.first(where: { "archived:" + $0.id == p }) { return .archived(x) }
+            if let r = f.rows.first(where: { $0.id == p }) { return .row(r) }
         }
+        if let r = f.groups.first?.rows.first { return .row(r) }
+        return f.archived.first.map { .archived($0) }
     }
 
-    /// A session on the Sessions page, selected in its group. The Sessions search is cleared when it hides the row.
+    /// The search's ×, Escape, or the page's own name in the sidebar: the page shows again, with the session picked in
+    /// the search selected on it when it lists that session.
+    func clearSearch() {
+        guard !search.isEmpty else { return }
+        switch picked {
+        case .row(let r)? where page == .sessions: selected = r.id
+        case .archived(let x)? where page == .archived: archivedSelected = x.id
+        default: break
+        }
+        search = ""
+        searchPick = nil
+    }
+
+    /// Another page from the sidebar: the search is cleared, so the page shows.
+    func go(_ p: Page) {
+        search = ""
+        searchPick = nil
+        page = p
+    }
+
+    /// A session on the Sessions page, selected in its group (Show it, after Bring it back).
     func showOnSessions(_ id: String) {
+        go(.sessions)
         selected = id
-        if let r = snap.rows.first(where: { $0.id == id }), !rows(r.group).contains(where: { $0.id == id }) { search = "" }
-        page = .sessions
     }
 
-    /// The same, by the day each was last active: "Today", "Yesterday", "Thursday, Nov 12".
+    /// The archived sessions by the day each was last active: "Today", "Yesterday", "Thursday, Nov 12".
     var archivedDays: [(day: String, items: [Archived.Item])] {
         var out: [(day: String, items: [Archived.Item])] = []
         let cal = Calendar.current, f = DateFormatter()
@@ -407,10 +460,7 @@ final class KitModel: ObservableObject {
         zoom = z
     }
 
-    func rows(_ g: Inbox.Group) -> [Inbox.Row] {
-        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return snap.rows(g).filter { q.isEmpty || $0.title.lowercased().contains(q) || $0.sub.lowercased().contains(q) }
-    }
+    func rows(_ g: Inbox.Group) -> [Inbox.Row] { snap.rows(g) }
 
     /// A session's alerts on or off, from the bell on its row or its Alerts switch. The row shows the new state at once;
     /// the state file then says what is so.
@@ -534,13 +584,17 @@ struct KitRoot: View {
             VStack(spacing: 0) {
                 Header(model: model)
                 Rectangle().fill(K.hair).frame(height: 1)
-                switch model.page {
-                case .sessions: SessionsPage(model: model)
-                case .archived: ArchivedPage(model: model)
-                case .usage: UsagePage(model: model)
-                case .settings: SettingsPage(model: model)
-                case .news: NewsPage(model: model)
-                case .events: EventsPage(model: model)
+                if model.searching {
+                    SearchPage(model: model)
+                } else {
+                    switch model.page {
+                    case .sessions: SessionsPage(model: model)
+                    case .archived: ArchivedPage(model: model)
+                    case .usage: UsagePage(model: model)
+                    case .settings: SettingsPage(model: model)
+                    case .news: NewsPage(model: model)
+                    case .events: EventsPage(model: model)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -578,9 +632,10 @@ struct Sidebar: View {
     }
 
     func nav(_ p: KitModel.Page, _ title: String, _ icon: String, badge: Int = 0, strong: Bool = false, text: String = "") -> some View {
-        let on = model.page == p
+        // while a search shows, no page is where you are; a click clears the search and opens the page
+        let on = model.page == p && !model.searching
         return Button {
-            model.page = p
+            model.go(p)
             if p == .settings { model.reloadFacts() }
             if p == .news { model.markNewsSeen() }
             if p == .events { model.readEvents() }
@@ -651,51 +706,38 @@ struct Header: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(K.font(15, true))
-                Text(subtitle).font(K.font(12)).foregroundColor(K.steel)
+                Text(title).font(K.font(15, true)).lineLimit(1)
+                Text(subtitle).font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
             }
-            Spacer()
-            if model.page == .sessions || model.page == .events || model.page == .archived {
-                let text = model.page == .events ? $model.eventSearch : model.page == .archived ? $model.archivedSearch : $model.search
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").foregroundColor(K.steel)
-                    TextField(model.page == .events ? "Search events" : model.page == .archived ? "Search archived sessions" : "Search sessions",
-                              text: text).textFieldStyle(.plain).font(K.font(13))
-                    if !text.wrappedValue.isEmpty {
-                        Button { text.wrappedValue = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(K.steel) }
-                            .buttonStyle(.plain).accessibilityLabel("Clear search")
-                    }
-                }
-                .padding(.horizontal, 8)
-                .frame(width: K.z(220), height: K.z(28))
-                .background(K.card, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(K.gray))
-            } else if model.page == .usage {
-                // the period: a choice among a few, the chosen one in ink
-                let tags: [(SessionUsage.Period, String)] = [(.today, "Today"), (.week, "7 days"), (.month, "30 days")]
-                Segments(options: tags.map { ($0.0.key, $0.1) } + [("custom", "Custom")],
-                         value: model.usagePeriod.isCustom ? "custom" : model.usagePeriod.key) { k in
-                    if k == "custom" {
-                        let s = SessionUsage.span(model.usagePeriod)
-                        if !model.usagePeriod.isCustom { model.setUsagePeriod(.custom(s.from, s.to)) }
-                    } else if let p = SessionUsage.Period(key: k) { model.setUsagePeriod(p) }
-                }
-                .frame(width: K.z(320))
-                .accessibilityLabel("Period")
-            }
+            Spacer(minLength: 8)
+            SearchField(model: model)
         }
         .padding(.leading, K.z(20))
         .padding(.trailing, K.z(16))
         .frame(height: max(52, K.z(52)))
     }
 
+    /// A page's name, as the sidebar says it.
+    static func name(_ p: KitModel.Page) -> String {
+        switch p {
+        case .sessions: return "Sessions"; case .archived: return "Archived"; case .usage: return "Usage"; case .settings: return "Settings"
+        case .news: return "What's new"; case .events: return "Events"
+        }
+    }
+
     var title: String {
+        if model.searching { return "Search" }
         switch model.page {
         case .sessions: return "Sessions"; case .archived: return "Archived"; case .usage: return "Usage by session"; case .settings: return "Settings"
         case .news: return "What's new"; case .events: return "Events"
         }
     }
     var subtitle: String {
+        if model.searching {
+            let n = model.found.count
+            return (n == 0 ? "No session matches" : n == 1 ? "1 session matches" : "\(n) sessions match")
+                + " · Escape goes back to \(Header.name(model.page))"
+        }
         switch model.page {
         case .sessions: return model.snap.summary
         case .archived:
@@ -723,22 +765,10 @@ struct SessionsPage: View {
         HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let n = model.moveNote, -n.at.timeIntervalSinceNow < 300 {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: n.ok ? "checkmark.circle" : "exclamationmark.triangle")
-                                .foregroundColor(n.ok ? K.infoMark : K.warnMark)
-                            Text(n.words).font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            Button { model.moveNote = nil } label: { Image(systemName: "xmark") }
-                                .buttonStyle(.borderless).help("Hide this message.")
-                        }
-                        .padding(10)
-                        .background(K.wash, in: RoundedRectangle(cornerRadius: 6))
-                        .padding(.top, 10)
-                    }
+                    MoveNote(model: model)
                     let groups = Inbox.Group.allCases.filter { !model.rows($0).isEmpty }
                     if groups.isEmpty {
-                        Text(model.search.isEmpty ? "No sessions in the last 12 hours." : "No session matches \"\(model.search)\".")
+                        Text("No sessions in the last 12 hours.")
                             .foregroundColor(K.steel).padding(.top, 24).padding(.leading, 8)
                     }
                     ForEach(groups, id: \.self) { g in
@@ -765,6 +795,50 @@ struct SessionsPage: View {
             }
             .frame(width: min(K.z(340), 420))
             .background(K.panel)
+        }
+    }
+}
+
+/// What the last Move to Remote Control said, over the session list, for 5 minutes or until hidden.
+struct MoveNote: View {
+    @ObservedObject var model: KitModel
+    var body: some View {
+        if let n = model.moveNote, -n.at.timeIntervalSinceNow < 300 {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: n.ok ? "checkmark.circle" : "exclamationmark.triangle")
+                    .foregroundColor(n.ok ? K.infoMark : K.warnMark)
+                Text(n.words).font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button { model.moveNote = nil } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless).help("Hide this message.")
+            }
+            .padding(10)
+            .background(K.wash, in: RoundedRectangle(cornerRadius: 6))
+            .padding(.top, 10)
+        }
+    }
+}
+
+/// What the last Bring it back said, over the list, for 5 minutes or until hidden; Show it opens the session on the
+/// Sessions page.
+struct BackNote: View {
+    @ObservedObject var model: KitModel
+    var body: some View {
+        if let n = model.backNote, -n.at.timeIntervalSinceNow < 300 {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: n.ok ? "checkmark.circle" : "exclamationmark.triangle").foregroundColor(n.ok ? K.infoMark : K.warnMark)
+                (Text(n.title).font(K.font(12.5, true)) + Text(": " + n.words).font(K.font(12.5))).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                if n.ok && model.snapHas(n.id) {
+                    Button("Show it") { model.showOnSessions(n.id) }
+                        .controlSize(.small).help("Opens it on the Sessions page.")
+                }
+                Button { model.backNote = nil } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless).help("Hide this message.")
+            }
+            .padding(10)
+            .background(K.wash, in: RoundedRectangle(cornerRadius: 6))
+            .padding(.top, 10)
         }
     }
 }
@@ -1006,6 +1080,8 @@ struct DetailView: View {
                 p.append(("Last active", "\(Waiting.ago(x.last)) ago, at \(Limit.clock(x.last))"))
             }
         }
+        // the folder it works in, which the search finds it by (On this Mac only has it above)
+        if row.group != .local, !row.folder.isEmpty { p.append(("Folder", row.folderShort)) }
         return p
     }
 
@@ -1350,24 +1426,115 @@ struct Segments: View {
     }
 }
 
+// MARK: search
+
+/// The top bar's search, on every page: every session, archived ones too (Search). Its × and Escape clear it, and the
+/// page it was on shows again; Edit > Search Sessions (Command-F) gives it the keyboard.
+struct SearchField: View {
+    @ObservedObject var model: KitModel
+    @FocusState private var focused: Bool
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundColor(K.steel)
+            TextField("Search sessions", text: $model.search)
+                .textFieldStyle(.plain).font(K.font(13))
+                .focused($focused)
+                .onExitCommand { model.clearSearch() }
+                .accessibilityLabel("Search sessions")
+            if !model.search.isEmpty {
+                Button { model.clearSearch() } label: { Image(systemName: "xmark.circle.fill").foregroundColor(K.steel) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                    .help("Clears the search, and \(Header.name(model.page)) shows again. Escape does the same.")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(width: K.z(220), height: K.z(28))
+        .background(K.card, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(focused ? K.green : K.gray, lineWidth: focused ? 2 : 1))
+        .help("Finds any session, archived ones too: by its name, folder, waits, check-in or messages. Command-F")
+        .onChange(of: model.findTick) { focused = true }
+    }
+}
+
+/// What the top bar's search found, over the page it was on: the Sessions page's groups and rows, with their counts,
+/// then Archived, the archived sessions this Mac can bring back. The picked one shows on the right in its own panel: a
+/// session as on the Sessions page, an archived one with Open and Bring it back, as on the Archived page.
+struct SearchPage: View {
+    @ObservedObject var model: KitModel
+    var body: some View {
+        let f = model.found
+        let pick = model.picked?.key
+        HStack(spacing: 0) {
+            ScrollView {
+                // lazy: only the rows on the screen are drawn, so a key typed stays quick with hundreds found
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    MoveNote(model: model)
+                    BackNote(model: model)
+                    if f.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("No session matches \u{201C}\(model.search.trimmingCharacters(in: .whitespaces))\u{201D}.")
+                            Text("The search looks at every session, archived ones too: its name, folder, waits, last check-in and the messages kept in the Kit. An archived session from another computer or the cloud is not here: the Claude app's archive has it.")
+                                .font(K.font(12)).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .foregroundColor(K.steel).padding(.top, 24).padding(.horizontal, 8)
+                    }
+                    ForEach(f.groups, id: \.group) { g in
+                        GroupHeader(group: g.group, count: g.rows.count)
+                        ForEach(Array(g.rows.enumerated()), id: \.element.id) { i, r in
+                            if i > 0 && r.id != pick && g.rows[i - 1].id != pick {
+                                Hairline().padding(.horizontal, 10)
+                            } else if i > 0 { Color.clear.frame(height: 1) }
+                            RowView(row: r, selected: r.id == pick, alerts: model.snap.alerts(r),
+                                    reach: model.snap.reach) { on in model.setAlerts(r, on: on) }
+                                .onTapGesture { model.searchPick = r.id }
+                        }
+                    }
+                    if !f.archived.isEmpty {
+                        ListHeader(icon: "archivebox", title: "Archived", count: f.archived.count, column: "Last active", trailing: RowView.afterTime)
+                        ForEach(Array(f.archived.enumerated()), id: \.element.id) { i, x in
+                            let key = "archived:" + x.id
+                            if i > 0 && key != pick && "archived:" + f.archived[i - 1].id != pick {
+                                Hairline().padding(.horizontal, 10)
+                            } else if i > 0 { Color.clear.frame(height: 1) }
+                            ArchivedRow(item: x, selected: key == pick, inSearch: true)
+                                .onTapGesture { model.searchPick = key }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+            }
+            Rectangle().fill(K.hair).frame(width: 1)
+            Group {
+                switch model.picked {
+                case .row(let r)?: DetailView(model: model, row: r).id(r.id)
+                case .archived(let x)?: ArchivedDetail(model: model, item: x).id("archived:" + x.id)
+                case nil: Color.clear
+                }
+            }
+            .frame(width: min(K.z(340), 420))
+            .frame(maxHeight: .infinity)
+            .background(K.panel)
+        }
+    }
+}
+
 // MARK: archived
 
 /// The archived sessions this Mac can bring back, by the day each was last active; the selected one on the right,
-/// with Open and Bring it back, as on the Sessions page.
+/// with Open and Bring it back, as on the Sessions page. The top bar's search finds them too, with every other session.
 struct ArchivedPage: View {
     @ObservedObject var model: KitModel
     var body: some View {
         HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let n = model.backNote, -n.at.timeIntervalSinceNow < 300 { note(n) }
+                    BackNote(model: model)
                     let days = model.archivedDays
-                    let waits = model.archivedWaitRows
-                    let searching = !model.archivedWords.isEmpty
-                    if days.isEmpty && waits.isEmpty {
-                        Text(model.archived.at == nil ? "Reading the archived sessions…"
-                             : searching ? "No archived session matches \"\(model.archivedSearch)\"."
-                             : "No archived sessions that this Mac can bring back.")
+                    if days.isEmpty {
+                        Text(model.archived.at == nil ? "Reading the archived sessions…" : "No archived sessions that this Mac can bring back.")
                             .foregroundColor(K.steel).padding(.top, 24).padding(.leading, 8)
                     }
                     ForEach(days, id: \.day) { d in
@@ -1379,19 +1546,7 @@ struct ArchivedPage: View {
                             ArchivedRow(item: x, selected: x.id == model.archivedSelected).onTapGesture { model.archivedSelected = x.id }
                         }
                     }
-                    if !waits.isEmpty {
-                        // a session that waits is on the Sessions page, archived or not: the search finds it there
-                        GroupHeader(group: .waits, count: waits.count)
-                        Text("These are on the Sessions page. Click one to see it there.")
-                            .font(K.font(12)).foregroundColor(K.steel).padding(.horizontal, 8).padding(.bottom, 4)
-                        ForEach(Array(waits.enumerated()), id: \.element.id) { i, r in
-                            if i > 0 { Hairline().padding(.horizontal, 10) }
-                            RowView(row: r, selected: false).onTapGesture { model.showOnSessions(r.id) }
-                                .help("Shows this session on the Sessions page.")
-                        }
-                    }
-                    // under a search, only when nothing matched in either list: it says the session is not on this Mac
-                    if model.archived.at != nil && (!searching || (days.isEmpty && waits.isEmpty)) {
+                    if model.archived.at != nil {
                         Text("A session from another computer or the cloud is not here: its conversation is not on this Mac. The Claude app's archive has it.")
                             .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
                             .padding(.top, 20).padding(.horizontal, 8)
@@ -1404,8 +1559,7 @@ struct ArchivedPage: View {
             Rectangle().fill(K.hair).frame(width: 1)
             Group {
                 if let x = model.archivedItem { ArchivedDetail(model: model, item: x).id(x.id) } else {
-                    Text(model.archivedRows.isEmpty && !model.archivedWaitRows.isEmpty ? "Click a session to see it on the Sessions page."
-                         : "Pick a session to see it here.")
+                    Text("Pick a session to see it here.")
                         .foregroundColor(K.steel).multilineTextAlignment(.center).padding(.horizontal, 16)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -1414,41 +1568,31 @@ struct ArchivedPage: View {
             .background(K.panel)
         }
     }
-
-    /// What the last Bring it back said; Show it opens the session on the Sessions page.
-    func note(_ n: (ok: Bool, words: String, at: Date, id: String, title: String)) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: n.ok ? "checkmark.circle" : "exclamationmark.triangle").foregroundColor(n.ok ? K.infoMark : K.warnMark)
-            (Text(n.title).font(K.font(12.5, true)) + Text(": " + n.words).font(K.font(12.5))).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 4)
-            if n.ok && model.snapHas(n.id) {
-                Button("Show it") { model.selected = n.id; model.page = .sessions }
-                    .controlSize(.small).help("Opens it on the Sessions page.")
-            }
-            Button { model.backNote = nil } label: { Image(systemName: "xmark") }
-                .buttonStyle(.borderless).help("Hide this message.")
-        }
-        .padding(10)
-        .background(K.wash, in: RoundedRectangle(cornerRadius: 6))
-        .padding(.top, 10)
-    }
 }
 
 struct ArchivedRow: View {
     let item: Archived.Item
     let selected: Bool
+    /// Among what the search found: the day with the time, since no day heading is over it, what it was doing (else its
+    /// folder), and the time where the Sessions page's rows have theirs, before their bell's column.
+    var inSearch = false
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(K.font(13.5, true)).lineLimit(1)
-                if !item.doing.isEmpty {
-                    Text(item.doing).font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
+        let sub = inSearch ? item.doing.nilIfEmpty ?? Search.home(item.folder) : item.doing
+        HStack(spacing: RowView.bellGap) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title).font(K.font(13.5, true)).lineLimit(1)
+                    if !sub.isEmpty {
+                        Text(sub).font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
+                    }
                 }
+                Spacer(minLength: 8)
+                Text(inSearch ? Inbox.day(item.at) : ArchivedRow.time(item.at)).font(K.font(12)).foregroundColor(K.steel)
             }
-            Spacer(minLength: 8)
-            Text(ArchivedRow.time(item.at)).font(K.font(12)).foregroundColor(K.steel)
+            if inSearch { Color.clear.frame(width: RowView.bellColumn, height: 1) }
         }
-        .padding(.horizontal, K.z(10))
+        .padding(.leading, K.z(10))
+        .padding(.trailing, inSearch ? RowView.edge : K.z(10))
         .padding(.vertical, K.z(6))
         .frame(minHeight: K.z(44))
         .background(selected ? K.wash : .clear, in: RoundedRectangle(cornerRadius: 6))

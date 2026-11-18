@@ -173,12 +173,23 @@ enum Phone {
         }
         let kept = messages(r)
         if !kept.isEmpty { x["messages"] = kept }   // optional: only a row with a message kept in the last day
+        // optional: the folder's own name, never its path, as an archived session's goes up; the phone's search finds it
+        let folder = folderName(r.folder)
+        if !folder.isEmpty { x["folder"] = folder }
         switch r.target.map({ Limit.mode($0, in: state) }) ?? .follow {
         case .follow: x["limit_mode"] = ["mode": "follow", "at": NSNull()]
         case .credits: x["limit_mode"] = ["mode": "credits", "at": NSNull()]
         case .hold(let n): x["limit_mode"] = ["mode": "hold", "at": clamp(n, 1, 100)] as [String: Any]
         }
         return x
+    }
+
+    /// A session's folder as the phone gets it: its own name only (`src` for /Users/name/src), cut to 80. None for the
+    /// home folder itself, whose name is the person's account on this Mac, or for no folder.
+    static func folderName(_ path: String) -> String {
+        let p = (path as NSString).standardizingPath
+        guard !p.isEmpty, p != "/", p != FileManager.default.homeDirectoryForCurrentUser.path else { return "" }
+        return cut((p as NSString).lastPathComponent.filter { !"/\\~".contains($0) }, 80)
     }
 
     /// One wait of a row. `raw` is its entry in the state file, for the words the session gave (--what, the PR's want).

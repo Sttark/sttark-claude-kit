@@ -86,7 +86,7 @@ const V = APP_ICON_V;
       </a>
       {shell && (
         <>
-          {/* Search finds a session by its name, on Sessions. */}
+          {/* Search: one search over every session, archived ones too, on Sessions. */}
           <a class="btn bar-btn search" href={href('/?find=1')} data-act="search" aria-label="Search sessions"><Fragment set:html={ICONS.search} /></a>
           {onMenu ? (
             <a class="btn bar-btn pressed" href={href('/')} data-act="menu-close"><Fragment set:html={ICONS.x} /><span>Close</span></a>
