@@ -141,13 +141,24 @@ function rowSub(k: Kit, p: Placed): string {
   return out + esc(row.sub);
 }
 
+/** The latest progress check-in of a working row, or null: the Kit writes
+ *  one every 15 minutes while the work runs, and drops it when the work ends. */
+const checkinOf = (row: Row) => (row.group === 'working' && row.checkin?.note ? row.checkin : null);
+/** "Check-in 12 min ago", "Check-in just now". */
+const checkinAge = (at: number, now: number) => (now - at < 60 ? 'Check-in just now' : `Check-in ${span(now - at)} ago`);
+
 function sessionRow(k: Kit, p: Placed, from: string, stale: boolean): string {
   const { row, snap } = p;
   const now = stale ? snap.at : k.now;
   const lvl = row.group === 'working' && row.session?.level ? `<span class="lvl${row.session.manual ? ' manual' : ''}">${esc(levelLabel(row.session.level))}</span>` : '';
+  const ck = checkinOf(row);
   return (
     `<li><a class="row" href="${esc(sessionHref(k, row.cse, from))}"><div class="row-main"><div class="name-line"><span class="name">${esc(row.title)}</span>${lvl}</div>` +
-    `<div class="sub">${rowSub(k, p)}</div></div><span class="time${row.late && !stale ? ' late' : ''}">${esc(rowTime(row, now, snap.mac.tz))}</span></a>` +
+    `<div class="sub">${rowSub(k, p)}</div>` +
+    `</div><span class="time${row.late && !stale ? ' late' : ''}">${esc(rowTime(row, now, snap.mac.tz))}</span>` +
+    // under the name and the time, the row's whole width, so more of the note shows
+    (ck ? `<div class="ck">${ic('message-square-text')}<span class="ck-text"><span class="ck-age">${esc(checkinAge(ck.at, now))}:</span> ${esc(ck.note)}</span></div>` : '') +
+    `</a>` +
     `${openLink(row.url, '', false)}</li>`
   );
 }
@@ -353,10 +364,17 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
       `</div><p class="why">Answer it in Claude. Opening it there clears it from Needs you.</p></section>`;
   } else if (row.group === 'working') {
     const since = row.session?.turn_at ?? row.time_at;
+    const ck = checkinOf(row);
     html +=
       `<div class="sec"><div class="card facts"><div class="f"><span>Working for</span><span>${esc(since ? span(now - since) : '')}</span></div>` +
       (row.background ? `<div class="f"><span>Still runs</span><span>${esc(stillRuns(row.background))}</span></div>` : '') +
       `</div></div>`;
+    if (ck) {
+      html +=
+        `<section class="sec" aria-labelledby="ck-h"><h2 class="sub-h" id="ck-h">Last check-in</h2>` +
+        `<div class="card ck-card"><p>${esc(ck.note)}</p><p class="ck-when">${esc(`${now - ck.at < 60 ? 'Just now' : `${span(now - ck.at)} ago`}, at ${clock(ck.at, tz)}`)}</p></div>` +
+        `<p class="why">A new one every 15 min while the work runs.</p></section>`;
+    }
   } else if (waitsHere) {
     const many = row.waits.length > 1;
     html +=

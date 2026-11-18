@@ -77,6 +77,20 @@ describe('Sessions', () => {
     expect(h).toContain('No Mac is live now');
     expect(h).toContain('The Kit quit at');
   });
+  it('shows the latest progress check-in on a working row, with its age, and none on a row without one', () => {
+    const h = html({ page: 'sessions' }, one());
+    expect(h).toContain('<span class="ck-age">Check-in 2 min ago:</span> It finished the matte profile');
+    expect(h.match(/class="ck"/g)?.length).toBe(1);
+  });
+  it('shows no check-in when the work ended, or from a Kit that sends none', () => {
+    const k = one();
+    const press = k.snaps[PRO].rows.find((r) => r.title === 'Press color')!;
+    press.group = 'needs_you';
+    expect(html({ page: 'sessions' }, k)).not.toContain('class="ck"');
+    press.group = 'working';
+    delete press.checkin;
+    expect(html({ page: 'sessions' }, k)).not.toContain('class="ck"');
+  });
   it('escapes every word from a Mac', () => {
     const k = one();
     k.snaps[PRO].rows[0].title = '<img src=x onerror=alert(1)>';
@@ -87,6 +101,12 @@ describe('Sessions', () => {
 });
 
 describe('One session', () => {
+  it('shows the whole check-in of a working session, with when it was written', () => {
+    const h = html({ page: 'session', cse: 'session_01SamplePressColor', from: 'sessions' }, one());
+    expect(h).toContain('>Last check-in</h2><div class="card ck-card"><p>It finished the matte profile and printed the test strip, and the blues match the reference. Next it checks the reds against the proof.</p><p class="ck-when">2 min ago, at ');
+    expect(h).toContain('A new one every 15 min while the work runs.');
+    expect(html({ page: 'session', cse: 'session_01SampleHvacUpdates', from: 'sessions' }, one())).not.toContain('check-in');
+  });
   it('has Open in Claude as its one green button, and Stop, Bring it back now and Stop waiting for a wait', () => {
     const h = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' });
     expect(h.match(/class="btn full"/g)?.length).toBe(1);

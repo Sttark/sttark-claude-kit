@@ -250,6 +250,22 @@ import SwiftUI
             Shot.capture(w, to: local)
             Shot.crop(local, NSRect(x: 845, y: 74, width: 335, height: 280),
                       to: "whats-new/move-to-remote-control" + (look ? "-dark" : "") + ".png")
+            // the check-ins note's picture: the Claude working group at the window's narrowest, HVAC's row with its
+            // latest check-in
+            model.selected = model.snap.rows.first { $0.checkin != nil }?.id
+            let wide = w.frame
+            w.setContentSize(NSSize(width: 960, height: 760))
+            w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+            let ck = "/tmp/kit-shot-\(getpid())-checkin.png"
+            Shot.capture(w, to: ck)
+            if ProcessInfo.processInfo.environment["STTARK_SHOT_KEEP"] != nil {
+                try? FileManager.default.removeItem(atPath: folder + "/window-checkin-full.png")
+                try? FileManager.default.copyItem(atPath: ck, toPath: folder + "/window-checkin-full.png")
+            }
+            Shot.crop(ck, NSRect(x: 226, y: 146, width: 392, height: 176),
+                      to: "whats-new/check-ins-in-the-kit" + (look ? "-dark" : "") + ".png")
+            w.setFrame(wide, display: true)
+            ShotWindow.check("the window's size again")
             model.selected = before
         }
         w.close()
@@ -434,7 +450,8 @@ enum Sample {
             (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a full app window. | Add an event viewer to the Kit"),
             (21, "limit  hold   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM (Bash)"),
             (21, "limit  wait   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM, with no model calls until it ends"),
-            (16, "checkin cse_01Sample4 \"Sttark Claude Kit\" sent by Google Chat | Design the event rows and 1 more agent, working 45 min | It finished the event rows and the filters, and the build passes. Next it checks the rows in dark mode."),
+            (16, "checkin cse_01Sample5 \"HVAC updates\" shown in the Kit | Photos of the B unit heads and 1 more agent, working 15 min | It read the photos of the A unit heads and found two blocked nozzles. Next it reads the B unit photos."),
+            (1, "checkin cse_01Sample5 \"HVAC updates\" shown in the Kit | Photos of the B unit heads and 1 more agent, working 30 min | It read the B unit photos and marked three heads to clean. Next it writes the list for the technician."),
             (12, "notify Sttark Claude Kit email ok: sent to you@example.com; it arrives in about a minute | HVAC updates: the supplier replied"),
             (9, "error  cse_01Sample8 judge failed: TimeoutExpired"),
             (6, "change cse_01Sample4 xhigh->high (2.4s) high - The layout is set; now the checks. | Make the rows plain words"),
@@ -458,7 +475,7 @@ enum Sample {
             session(3, "Exterior lighting", "low", ago: 8, app: ["unseen": true, "last_event_at": ago(8)]),
             session(4, "Sttark Claude Kit", "xhigh", ago: 0, reason: "Design question on a full app window", app: ["working": true], turn: 6),
             session(5, "HVAC updates", "medium", ago: 1, reason: "Summarizes the agents' photos",
-                    app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the B unit heads", "since": now - 9 * 60]]),
+                    app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the B unit heads", "since": now - 31 * 60]]),
             session(6, "Press color", "high", ago: 0, manual: true, app: ["working": true], turn: 14),
             session(7, "Site map plan", "high", ago: 30, reason: "Design work across several apps"),
             session(8, "Inventory photo cleanup", "medium", ago: 50),
@@ -518,6 +535,13 @@ enum Sample {
             "limits": [["kind": "session", "percent": 100, "resets_at": iso(fiveHour), "is_active": true],
                        ["kind": "weekly_all", "percent": 64, "resets_at": iso(weekly), "is_active": false]]]]
         try! JSONSerialization.data(withJSONObject: state).write(to: dir.appendingPathComponent("state.json"))
+        // the progress check-ins (checkin.py): the latest note of HVAC's work, which runs 31 min
+        let checkins: [String: Any] = ["sessions": [
+            "cse_01Sample5": ["start": now - 31 * 60, "seen": now - 20, "sent": now - 60, "n": 2, "note_at": now - 60,
+                              "subject": "Photos of the B unit heads and 1 more agent, working 30 min",
+                              "note": "It read the B unit photos and marked three heads to clean. Next it writes the list for the technician."],
+        ]]
+        try! JSONSerialization.data(withJSONObject: checkins).write(to: dir.appendingPathComponent("checkins.json"))
         try! JSONSerialization.data(withJSONObject: usage).write(to: dir.appendingPathComponent("usage.json"))
         // sessions that run only on this Mac, as migrate.py --scan lists them
         let local: [String: Any] = ["at": now, "sessions": [

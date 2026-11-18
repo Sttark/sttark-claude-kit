@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Tests the progress check-ins (Resources/hooks/checkin.py) on copies: a test folder and log (STTARK_KIT_DIR,
-STTARK_KIT_LOG), made-up sessions with agents' records, a stand-in for the Haiku call (STTARK_CHECKIN_MODEL) and
-notify.py in its dry mode (nothing is sent; no model is called; no session is touched):
+STTARK_KIT_LOG), made-up sessions with agents' records and a stand-in for the Haiku call (STTARK_CHECKIN_MODEL); no
+model is called and no session is touched:
 - what runs: an agent Claude Code has not marked finished, and active in the last 15 minutes; not a finished one, a
   quiet one, a foreground one or one of an archived session; the session's own turn as the minute check saw it;
 - when: none for work under 15 minutes; one at 15 minutes; none in the next 15; the next at 30; one message for all of
@@ -12,9 +12,10 @@ notify.py in its dry mode (nothing is sent; no model is called; no session is to
   names the session and the oldest agent's description; an agent that stopped since the last check-in is in the next
   one, also one that started and stopped between two; no
   em-dash goes out; with no new steps no model is called; a failed call gives the count of steps;
-- how: the person's ways less the Claude app; none checked, or the Claude app alone, is logged once; a session held
-  at its usage limit is skipped; the switch off stops them; a check-in is not the session's own message (no
-  reach_sent, no "notify" line); a test folder or a dry run sends nothing and saves nothing; wait.py --check runs them.
+- where: the latest note of a run is kept in checkins.json (note, note_at) for the Kit app, and dropped when the run
+  ends; nothing goes out any way (notify.py is never loaded, no "notify" line, no reach_sent, no Mac notice), also
+  with no Reach me by way checked; a session held at its usage limit is skipped; the switch off stops them; a test
+  folder or a dry run writes the note and saves nothing; wait.py --check runs them.
 Run from the repo root: /usr/bin/python3 tools/checkin-test.py"""
 import importlib.util, json, os, re, stat, subprocess, sys, tempfile, time
 
@@ -59,9 +60,10 @@ def load(name):
 
 
 c = load('checkin')
-c.DRY = c.NO_MODEL = False   # a test folder makes it dry; here notify.py is dry instead, so the file and log are real
+c.DRY = c.NO_MODEL = False   # a test folder makes it dry; here the file and log are real
 HELD = set()   # Claude Code ids of the sessions held at their usage limit
-SENT = []      # (subject, body, ways, title, url, cse) of each message notify.py was asked to send
+SENT = []      # ("<name>: <subject>", note, None, name, url, cse) of each check-in written
+LOADED = set()  # the Kit's modules checkin.py loaded
 
 
 class Limit(object):
@@ -71,15 +73,8 @@ class Limit(object):
 
 
 def fake_load(name):
+    LOADED.add(name)
     m = load(name)
-    if name == 'notify':
-        m.DRY = True   # notify.py itself sends nothing; the check-ins log as if it had
-        real = m.send
-
-        def send(subject, body, link='', ways=None, title=None, url=None, cse='', quiet=False):
-            SENT.append((subject, body, ways, title, url, cse, quiet))
-            return real(subject, body, link, ways, title, url, cse, quiet)
-        m.send = send
     if name == 'effort-hook':
         m.open_tasks = lambda: {}   # no lsof: no agent here waits on a background task
     if name == 'limit-hook':
@@ -88,6 +83,17 @@ def fake_load(name):
 
 
 c.load = fake_load
+real_write = c.write
+
+
+def write_and_keep(cc, cse, x, title, work, now):
+    n_before = cc.get('n', 0)
+    real_write(cc, cse, x, title, work, now)
+    if cc.get('n', 0) > n_before:
+        SENT.append(('%s: %s' % (title, cc['subject']), cc['note'], None, title, x.get('url'), cse))
+
+
+c.write = write_and_keep
 
 
 def inputs():
@@ -229,8 +235,9 @@ check('one check-in for the agent at 16 minutes and one for the turn', set(sent)
 a = sent.get(CSE[A]) or ('',) * 7
 check('the subject names the session, the agent and how long it works: %r' % a[0], a[0] == 'Docs site: Build the docs pages, working 16 min')
 check('the note has no em-dash: %r' % a[1], '—' not in a[1] and a[1].startswith('It finished the docs pages, and opened'))
-check('it goes the ways picked, with the session\'s name and link, as a Kit message (quiet)',
-      a[2] == ['email'] and a[3] == 'Docs site' and a[4].endswith('session_01DocsSite000001') and a[6] is True)
+check('it is kept for the Kit app: the note and when it was written, in checkins.json',
+      runs()[CSE[A]].get('note') == a[1] and runs()[CSE[A]].get('note_at') == T1
+      and runs()[CSE[A]].get('subject') == 'Build the docs pages, working 16 min')
 first = [x for x in inputs() if 'Build the docs pages' in x]
 check('the summary reads the agent\'s task and its steps since it started, with the failed one',
       len(first) == 1 and 'OLDTASK' in first[0] and 'OLDSTEP one' in first[0] and 'OLDSTEP two (it failed: exit 1: it broke)' in first[0]
@@ -239,11 +246,12 @@ e = sent.get(CSE[E]) or ('',) * 7
 check('a long turn with no agent: "Long turn: Working 17 min"', e[0] == 'Long turn: Working 17 min')
 check('its summary reads the session\'s own steps and words', any('TURNSTEP one' in x and 'TURNSAID' in x and 'The session itself' in x for x in inputs()))
 lines = log_lines()
-check('a log line for each: the ways, the subject and the note',
-      any(l.startswith('checkin cse_01DocsSite000001 "Docs site" sent by Email | Build the docs pages, working 16 min | It finished') for l in lines))
+check('a log line for each (a row on the Events page): the subject and the note',
+      any(l.startswith('checkin cse_01DocsSite000001 "Docs site" shown in the Kit | Build the docs pages, working 16 min | It finished') for l in lines))
 check('the held session is skipped, once', sum('skipped: it holds at the usage limit' in l for l in lines) == 1 and CSE[H] not in sent)
-check('a check-in is not the session\'s own message: no reach_sent, no notify line',
-      'reach_sent' not in c.read_json(c.STATE) and not log_lines('notify '))
+check('nothing goes out: notify.py is not loaded, no notify line, no reach_sent, no Mac notice queued',
+      'notify' not in LOADED and 'reach_sent' not in c.read_json(c.STATE) and not log_lines('notify ')
+      and not os.path.exists(os.path.join(KIT, 'notify-queue')))
 
 # --- the next minutes: nothing new -------------------------------------------------------------------------------------
 n_sent, n_in = len(SENT), len(inputs())
@@ -296,12 +304,13 @@ check('no message when the work ends, and the run is not over after one minute',
       len(SENT) == n_sent and runs()[CSE[A]].get('start') and not any('"Docs site" work ended' in l for l in log_lines()))
 state(T4 + 60 + c.GAP)
 c.check(now=T4 + 60 + c.GAP)
-check('5 minutes with no work end the run, with no message; the end is logged with how many went',
+check('5 minutes with no work end the run, with no note; its last note goes (the Kit app shows it no more); the end is logged',
       len(SENT) == n_sent and not runs()[CSE[A]].get('start') and runs()[CSE[A]].get('sent') == T4
-      and any(l.startswith('checkin cse_01DocsSite000001 "Docs site" work ended after 46 min; 3 check-ins sent') for l in log_lines())
-      and any(l.startswith('checkin cse_01LongTurn000005 "Long turn" work ended after 32 min; 2 check-ins sent') for l in log_lines()))
+      and 'note' not in runs()[CSE[A]] and 'note_at' not in runs()[CSE[A]]
+      and any(l.startswith('checkin cse_01DocsSite000001 "Docs site" work ended after 46 min; 3 check-ins') for l in log_lines())
+      and any(l.startswith('checkin cse_01LongTurn000005 "Long turn" work ended after 32 min; 2 check-ins') for l in log_lines()))
 
-# --- the ways ----------------------------------------------------------------------------------------------------------
+# --- Reach me by has no say ---------------------------------------------------------------------------------------------
 def fresh_agent(tp, aid, now):
     return agent(tp, aid, 'Long job ' + aid, 'Do the long job.', now - 20 * 60, now - 10, use('step of ' + aid, now - 60))
 
@@ -311,20 +320,12 @@ fresh_agent(B, 'b2', T5)
 state(T5 - 16 * 60)
 c.check(now=T5 - 16 * 60)
 check('work first seen counts from then, at most 2 minutes back', runs()[CSE[B]]['start'] == T5 - 18 * 60)
-state(T5, ways=('push',))
+state(T5 + 180, ways=())
 n_sent = len(SENT)
-c.check(now=T5)
-state(T5 + 60, ways=('push',))
-c.check(now=T5 + 60)
-check('the Claude app alone: nothing goes, no model call, and it is logged once',
-      len(SENT) == n_sent and sum('only the Claude app' in l for l in log_lines()) == 1)
-state(T5 + 120, ways=())
-c.check(now=T5 + 120)
-check('no way checked: logged once', sum('no way is checked under Reach me by' in l for l in log_lines()) == 1 and len(SENT) == n_sent)
-state(T5 + 180, ways=('email', 'push', 'chat'))
 c.check(now=T5 + 180)
-check('the ways picked less the Claude app', SENT[-1][2] == ['email', 'chat'] and SENT[-1][5] == CSE[B])
-check('a way that cannot go is in the log line', any('sent by Email; not by Google Chat (needs a Google Chat webhook' in l for l in log_lines()))
+check('no Reach me by way checked: the note is written all the same, and nothing goes out',
+      len(SENT) == n_sent + 1 and SENT[-1][5] == CSE[B] and runs()[CSE[B]].get('note') == SENT[-1][1]
+      and 'notify' not in LOADED and not log_lines('notify '))
 
 # --- no new steps: no model call; a failed call: the count of steps ------------------------------------------------------
 T6 = T5 + 180 + 15 * 60
@@ -470,19 +471,8 @@ write(REC, [one, two, {'type': 'user', 'timestamp': iso(S + 200), 'k': 5}, {'typ
 got, _ = c.new_entries(REC, place2, S + 200)
 check('another file at the same name (a bigger one too) is read again from the time asked', [x['k'] for x in got] == [5, 6])
 
-# --- notify.py's quiet send: no reach_sent, no notify line ---------------------------------------------------------------
-nm = load('notify')
-nm.DRY = True
-res = nm.send('Subject', 'Body', ways=['email'], title='Docs site', url='https://claude.ai/code/session_01x', cse='cse_01x', quiet=True)
-check('notify.send(quiet=True) answers each way and writes nothing', res and res[0][0] == 'email' and res[0][1][0]
-      and 'reach_sent' not in c.read_json(c.STATE) and not log_lines('notify '))
-seen = {}
-nm.seal = lambda obj: seen.update(obj) or 'sealed'
-nm.send('Docs site: Build the docs pages, working 16 min', 'Body', ways=['email'], title='Docs site', url='', cse='cse_01x', quiet=True)
-once = seen.get('subject')
-nm.send('The supplier replied', 'Body', ways=['email'], title='Docs site', url='', cse='cse_01x', quiet=True)
-check('the email\'s subject names the session once: %r, %r' % (once, seen.get('subject')),
-      once == 'Docs site: Build the docs pages, working 16 min' and seen.get('subject') == 'Docs site: The supplier replied')
+check('in all of it, nothing went out: notify.py was never loaded, and no notify line or Mac notice',
+      'notify' not in LOADED and not log_lines('notify ') and not os.path.exists(os.path.join(KIT, 'notify-queue')))
 
 # --- STTARK_CHECKIN_DRY, and wait.py --check runs the check-ins --------------------------------------------------------
 fresh_agent(Q, 'q2', time.time())
@@ -496,9 +486,10 @@ json.dump({}, open(os.path.join(d, 'keys.json'), 'w'))
 r = subprocess.run([sys.executable, os.path.join(HOOKS, 'wait.py'), '--check'], capture_output=True, text=True,
                    env=dict(os.environ, STTARK_WAIT_DRY='1', STTARK_LIMIT_TEST=USAGE,
                             STTARK_MAIL_KEYS=os.path.join(d, 'keys.json')), timeout=120)
-check('wait.py --check runs them; a dry run writes the note and sends nothing: %r' % r.stdout[-200:],
-      'would send for cse_01QuietOne000003 "Quiet one": Long job q2, working 20 min' in r.stdout
-      and any('"Quiet one" would send (dry) | Long job q2, working 20 min | It finished' in l for l in log_lines()))
+check('wait.py --check runs them; a dry run writes the note and keeps nothing: %r' % r.stdout[-200:],
+      'would show for cse_01QuietOne000003 "Quiet one": Long job q2, working 20 min' in r.stdout
+      and any('"Quiet one" written (dry) | Long job q2, working 20 min | It finished' in l for l in log_lines())
+      and not runs().get(CSE[Q], {}).get('note'))
 fresh_agent(Q, 'q3', time.time())
 os.remove(c.FILE)
 env = dict(os.environ, STTARK_WAIT_DRY='1', STTARK_LIMIT_TEST=USAGE, STTARK_MAIL_KEYS=os.path.join(d, 'keys.json'))

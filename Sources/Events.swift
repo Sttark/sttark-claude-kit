@@ -534,14 +534,15 @@ enum Events {
             } else {
                 e.text = "Reply watch: " + rest.prefix(160)
             }
-        case "checkin":   // the progress check-ins (checkin.py): a note on a session's long work, the Reach me by ways
+        case "checkin":   // the progress check-ins (checkin.py): a note on a session's long work, shown in the Kit app
             e.kind = .wait
             if first.hasPrefix("cse_") { who(first) }
             named(rest)
             var after = rest
             if let q = quoted(rest), let r = rest.range(of: "\"\(q)\" ") { after = String(rest[r.upperBound...]) }
-            // "<status> | <subject> | <note>"; the status is "sent by Email, Google Chat", then "; not by …" and
-            // "; no summary (…)" when they apply, or "would send (dry)", or "not sent (…)"
+            // "<status> | <subject> | <note>"; the status is "shown in the Kit", then "; no summary (…)" when it applies,
+            // or "written (dry)". Lines from before check-ins stayed in the Kit app say "sent by …", "would send (dry)"
+            // or "not sent (…)", with "; not by …"
             let fields = after.components(separatedBy: " | ")
             let items = fields[0].components(separatedBy: "; ")
             let subject = fields.count > 1 ? fields[1] : ""
@@ -551,7 +552,11 @@ enum Events {
                 if x.hasPrefix("not by ") { e.level = .warn; e.detail.append("Not sent by " + x.dropFirst(7) + ".") }
                 else if x.hasPrefix("no summary") { e.detail.append("Haiku gave no summary" + x.dropFirst(10) + ", so the note gives the count of steps.") }
             }
-            if items[0].hasPrefix("sent by ") {
+            if items[0].hasPrefix("shown") {
+                e.text = "Progress check-in" + (subject.isEmpty ? "" : ": " + subject)
+            } else if items[0].hasPrefix("written (dry)") {
+                e.routine = true; e.text = "Progress check-in written, not kept (test run)" + (subject.isEmpty ? "" : ": " + subject)
+            } else if items[0].hasPrefix("sent by ") {
                 e.text = "Progress check-in sent by " + items[0].dropFirst(8) + (subject.isEmpty ? "" : ": " + subject)
             } else if items[0].hasPrefix("would send") {
                 e.routine = true; e.text = "Progress check-in written, not sent (test run)" + (subject.isEmpty ? "" : ": " + subject)

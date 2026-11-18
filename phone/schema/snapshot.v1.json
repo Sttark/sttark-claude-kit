@@ -131,6 +131,16 @@
             "since": { "$ref": "#/$defs/time_or_null" }
           }
         },
+        "checkin": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["note", "at"],
+          "description": "Optional. The latest progress check-in of the work that runs now (Claude working only): the Kit's short note on what got done and what is next, written by Haiku every 15 minutes while the work runs. Null when there is none, and when the work ends. A Kit from before it sends no checkin.",
+          "properties": {
+            "note": { "type": "string", "minLength": 1, "maxLength": 400, "description": "2 or 3 short sentences. Cut to 400 characters on the Mac." },
+            "at": { "$ref": "#/$defs/time", "description": "When the Kit wrote it." }
+          }
+        },
         "waits": {
           "type": "array",
           "maxItems": 20,

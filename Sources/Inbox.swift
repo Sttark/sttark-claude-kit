@@ -71,6 +71,8 @@ enum Inbox {
         var local: LocalSessions.Item? = nil
         /// What a session runs in the background after its turn ended (Claude working, with no turn).
         var background: Background? = nil
+        /// The latest progress check-in of its work (Claude working only): what got done and what is next.
+        var checkin: Checkins.Note? = nil
         /// The time with what it is, for the menu: "waiting 15 min", "continues Sat 2:00 AM", "deadline Mon 9:00 AM".
         var timeLabel: String {
             guard !time.isEmpty else { return "" }
@@ -191,6 +193,7 @@ enum Inbox {
             if let b = bucket[s.id], listAt > Limit.num(app?["checked"]) ?? 0 { return b == "working" }
             return app?["working"] as? Bool == true || bucket[s.id] == "working"
         }
+        let notes = Checkins.latest(state)
         let working = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id) && (inTurn($0) || background(raw[$0.id]) != nil) }
         func turnAt(_ s: Session) -> Date? { Limit.num(raw[s.id]?["turn_at"]).map { Date(timeIntervalSince1970: $0) } }
         func since(_ s: Session) -> Date? { inTurn(s) ? turnAt(s) : background(raw[s.id])?.since }
@@ -202,6 +205,7 @@ enum Inbox {
             r.timeAt = since(s)
             r.session = s
             r.background = bg
+            r.checkin = notes[s.id]
             snap.rows.append(r)
         }
 
