@@ -60,6 +60,11 @@ enum Phone {
         for (g, name) in groups {
             for r in snap.rows(g) { if let x = row(r, group: name, state: state) { rows.append(x) } }
         }
+        // an idle session goes up only with a message kept in the Kit in the last day (Kept): its message is why the
+        // person looks, with alerts off
+        for r in snap.rows(.idle) where r.kept.contains(where: { -$0.at.timeIntervalSinceNow < Kept.recent }) {
+            if var x = row(r, group: "idle", state: state) { x["time_at"] = time(r.kept.first?.at); rows.append(x) }
+        }
         let usage = Usage.read()
         let list = archived(state)
         let kit = cut(mac.kit, 20), zone = cut(mac.tz, 64)
@@ -72,7 +77,7 @@ enum Phone {
                 "tz": zoneLike(zone) ? zone : "UTC",
                 "account": mac.account.count >= 16 && mac.account.count <= 32 && mac.account.allSatisfy(hexDigits.contains) ? mac.account : account(""),
             ] as [String: Any],
-            "flags": ["paused": snap.paused, "credits_all": snap.creditsAll],
+            "flags": flags(snap),
             "reach": Reach.ways.filter(snap.reach.ways.contains),
             "usage": [
                 "at": time(usage.at),
@@ -85,6 +90,31 @@ enum Phone {
             "archived_rev": list?.rev ?? NSNull(),
             "archived_count": list?.items.count ?? 0,
         ]
+    }
+
+    /// Auto effort off, Use credits at the usage limit, and Reach me by's alerts off, which goes up only when it is
+    /// off (an optional field, so a server from before it still takes every other Mac's snapshot).
+    static func flags(_ snap: Inbox.Snapshot) -> [String: Any] {
+        var f: [String: Any] = ["paused": snap.paused, "credits_all": snap.creditsAll]
+        if !snap.reach.alerts { f["alerts_off"] = true }
+        return f
+    }
+
+    /// The messages kept in the Kit for a row's session in the last day (Kept), newest first, at most 3: the subject
+    /// and words a session (or the Kit) wrote to send the person, and why they did not go. Never a link or an address.
+    static func messages(_ r: Inbox.Row) -> [[String: Any]] {
+        r.kept.filter { -$0.at.timeIntervalSinceNow < Kept.recent }.prefix(3).map { m in
+            ["at": time(m.at), "subject": cut(plain(m.subject).nilIfEmpty ?? "A message"), "text": cutText(plain(m.body), 1000),
+             "why": cut(m.why, 80)]
+        }
+    }
+
+    /// A kept message's words as they go up: an email address as its domain (as a wait's sender), and a file or
+    /// folder path on this Mac as its own name. Links in it stay.
+    static func plain(_ s: String) -> String {
+        s.replacingOccurrences(of: #"[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)"#, with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: #"(?<![\w:/.~-])(?:~|/Users|/private|/var/folders|/tmp|/Volumes|/Library)(?:/[^\s/]+)*/([^\s/]+)"#,
+                                  with: "$1", options: .regularExpression)
     }
 
     /// One row of the window's Sessions page, as the phone gets it. Nil for a row with no Remote Control id (a held or
@@ -137,6 +167,8 @@ enum Phone {
                          "percent": h.percent.map { clamp($0, 0, 1000) as Any } ?? NSNull(), "limit": cut(limitName(h.limit), 60),
                          "since": time(h.since), "until": time(h.until), "agents": clamp(h.agents, 0, 100)] as [String: Any]
         }
+        let kept = messages(r)
+        if !kept.isEmpty { x["messages"] = kept }   // optional: only a row with a message kept in the last day
         switch r.target.map({ Limit.mode($0, in: state) }) ?? .follow {
         case .follow: x["limit_mode"] = ["mode": "follow", "at": NSNull()]
         case .credits: x["limit_mode"] = ["mode": "credits", "at": NSNull()]
@@ -431,6 +463,20 @@ enum Phone {
             n += k
         }
         return out.trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    /// A longer text (a kept message) as the schema takes it: as `cut`, but a blank line between paragraphs stays.
+    static func cutText(_ s: String, _ cap: Int) -> String {
+        let t = s.components(separatedBy: "\n\n").map { cut($0, cap) }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        guard t.unicodeScalars.count > cap else { return t }
+        var out = "", n = 0
+        for ch in t {
+            let k = ch.unicodeScalars.count
+            if n + k > cap - 1 { break }
+            out.append(ch)
+            n += k
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
     /// A label, or null when there is none.

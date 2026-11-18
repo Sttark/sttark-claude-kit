@@ -29,6 +29,15 @@ within a few seconds. Logged with lines starting "notify". A message that went a
 reach_sent[<cse>] in the state file: for 30 minutes the Kit sends that session no Needs you reminder, on the phone or
 the Mac, since this message already told the person (phone/DESIGN.md section 5). STTARK_KIT_DIR and STTARK_KIT_LOG point it at a
 test folder and log; STTARK_NOTIFY_DRY=1 does everything except send (the sealed email is checked instead).
+
+KEPT IN THE KIT APP. A message that must not go out is kept, not dropped: held() is the one place that decides
+(Reach me by's Alerts switch is off, or no way is checked; a session's own alerts switch adds its reason there), and
+keep_in_kit() is the one path that keeps it: kept.json in the Kit's folder (the last 7 days), which the Kit's window
+shows on the message's session and the phone gets for the last 24 hours, and a log line "notify <name> kept <id>:
+<why> | <subject>" for the Events page. send() takes that path by itself, for claude-notify and the Kit's own
+message (wait.py after a wait, watch.py for a reply it could not bring back), so nothing alerts outside the Kit app: no
+mail, Chat, text, Mac notice, and no PushNotification step for the session. claude-notify then exits 0 and prints one line that tells
+the session the person reads it in the Kit app, so it does not try another way.
 """
 import base64, fcntl, importlib.util, json, os, re, subprocess, sys, time, urllib.request, uuid
 
@@ -36,6 +45,10 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 KIT = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
 STATE = os.path.join(KIT, 'state.json')
 QUEUE = os.path.join(KIT, 'notify-queue')
+KEPT = os.path.join(KIT, 'kept.json')
+KEPT_DAYS = 7        # a kept message stays this long in the Kit app
+KEPT_MAX = 300       # and at most this many, the newest
+IN_KIT = 'kit'       # the "way" send() answers with when it kept the message in the Kit app
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 DRY = bool(os.environ.get('STTARK_NOTIFY_DRY'))
 REPO = 'Sttark/sttark-claude-kit'
@@ -77,6 +90,72 @@ def settings(state=None):
     if not isinstance(r.get('ways'), list):
         r['ways'] = ['email'] if r['email'].lower().endswith('@sttark.com') else ['mac']
     return r
+
+
+def alerts_on(state=None):
+    """Reach me by's Alerts switch in Settings: on unless the person turned it off ("alerts": false in "reach").
+    Off keeps the ways and their address, number and webhook, so on brings them back as they were."""
+    r = (state if state is not None else peek()).get('reach') or {}
+    return r.get('alerts') is not False
+
+
+def held(cse='', ways=None, state=None):
+    """Why a message for the session `cse` stays in the Kit app instead of going out, or '' when it goes out. The one
+    place that decides, for every message the Kit or a session sends (send() asks it first). `ways`: the ways the
+    caller would use (None: the ones checked). Reasons, in the words the window, the phone and the log show:
+      'alerts are off'                        Reach me by's Alerts switch is off
+      'no way is checked under Reach me by'   on, with nothing checked
+    A session's own alerts switch adds its reason here, before the check of the ways."""
+    st = state if state is not None else peek()
+    if not alerts_on(st):
+        return 'alerts are off'
+    if not [w for w in (ways if ways is not None else settings(st)['ways']) if w in WAYS]:
+        return 'no way is checked under Reach me by'
+    return ''
+
+
+def keep_in_kit(subject, body, link='', title='', url='', cse='', why='alerts are off', source='session', now=None):
+    """KEPT IN THE KIT APP: the one path for a message that does not go out (see held()). It goes into kept.json in the
+    Kit's folder, under its lock, with the session it belongs to, and the window shows it on that session (the Sessions
+    page) and the phone on the session's page; entries older than KEPT_DAYS go. `source`: 'session' (claude-notify) or
+    'kit' (the Kit's own message: wait.py, watch.py). Logs "notify <name> kept <id>: <why> | <subject>" for the Events
+    page; wait.py reads that line as the session's message. Returns the message's id."""
+    now = float(now or time.time())
+    kid = uuid.uuid4().hex[:12]
+    item = {'id': kid, 'at': round(now, 3), 'cse': cse or '', 'title': title or '', 'subject': subject.strip(),
+            'body': body.strip(), 'link': link or '', 'url': url or '', 'from': source, 'why': why}
+    os.makedirs(KIT, exist_ok=True)
+    with open(KEPT + '.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            items = json.load(open(KEPT)).get('items') or []
+        except (OSError, ValueError, AttributeError):
+            items = []
+        items = [x for x in items if isinstance(x, dict) and (x.get('at') or 0) > now - KEPT_DAYS * 86400]
+        items = (items + [item])[-KEPT_MAX:]
+        tmp = KEPT + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump({'items': items}, f, indent=1)
+        os.replace(tmp, KEPT)
+    log('%s kept %s: %s | %s' % ((title or '-')[:40], kid, why, subject.strip()[:80]))
+    return kid
+
+
+def kept(cse=None, now=None):
+    """The messages kept in the Kit app, oldest first; with `cse`, that session's only."""
+    now = now or time.time()
+    try:
+        items = json.load(open(KEPT)).get('items') or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [x for x in items if isinstance(x, dict) and (x.get('at') or 0) > now - KEPT_DAYS * 86400
+            and (cse is None or x.get('cse') == cse)]
+
+
+def kept_line(why):
+    """The one line claude-notify prints when it kept the message: the session must not try another way."""
+    return ('Kept in the Sttark Claude Kit app, on this session (%s): the person reads it there. It went no other way, '
+            'and that is done: do not send it another way.' % why)
 
 
 def mark_sent(cse, now=None):
@@ -288,14 +367,21 @@ def by_app(ways, m, r):
     return res
 
 
-def send(subject, body, link='', ways=None, title=None, url=None, cse=''):
+def send(subject, body, link='', ways=None, title=None, url=None, cse='', source='session'):
     """`url` is the session's claude.ai link and `cse` its Remote Control id. In the message, 'url' is the
     open_link page link (for a computer), 'web' the claude.ai link (for a phone), and 'cse' the id the Mac
-    notice opens directly."""
+    notice opens directly.
+    When held() gives a reason, nothing goes out: keep_in_kit() keeps it, and the answer is one
+    [(IN_KIT, (True, <why>))]. `source` names the sender for keep_in_kit(): 'session' (claude-notify) or 'kit' (the
+    Kit's own message: wait.py after a wait, watch.py for a reply it could not bring back)."""
     r = settings()
     ways = [w for w in (ways or r['ways']) if w in WAYS]
     if title is None:
         title, url, cse = session()
+    why = held(cse, ways)
+    if why:
+        keep_in_kit(subject, body, link, title or '', url or '', cse or '', why, source)
+        return [(IN_KIT, (True, why))]
     m = {'subject': subject.strip(), 'body': body.strip(), 'link': link, 'title': title or '',
          'url': open_link(cse, url), 'web': url or '', 'cse': cse or ''}
     results = {}
@@ -327,6 +413,7 @@ def main():
         return 0
     if args[0] == '--show':
         r = settings()
+        print('Alerts: ' + ('on' if alerts_on() else 'off (each message is kept in the Kit app, on its session)'))
         print('Reach me by: ' + (', '.join(NAMES[w] for w in r['ways'] if w in NAMES) or 'nothing picked'))
         print('Email: %s\nText message: %s\nGoogle Chat: %s' % (r.get('email') or '(not set)', r.get('phone') or '(not set)',
                                                                 'set' if r.get('chat') else '(not set)'))
@@ -337,6 +424,12 @@ def main():
         link = args[i + 1] if i + 1 < len(args) else ''
         del args[i:i + 2]
     if args[0] == '--test':
+        if not alerts_on():
+            print('Alerts are off under Reach me by in Sttark Claude Kit, so no test was sent.')
+            return 0
+        if held(''):
+            print('Nothing is picked under Reach me by in the Sttark Claude Kit menu, so nothing was sent.')
+            return 1
         out = send('Test from Sttark Claude Kit',
                    'This is a test of Reach me by. When something a Claude session waited on happens, '
                    'it comes this way.', link, title=None if os.environ.get('CLAUDE_PID') else '',
@@ -346,9 +439,9 @@ def main():
             print('Usage: claude-notify "<subject>" "<message>" [--link <url>]', file=sys.stderr)
             return 2
         out = send(args[0], args[1], link)
-    if not out:
-        print('Nothing is picked under Reach me by in the Sttark Claude Kit menu, so nothing was sent.')
-        return 1
+    if out and out[0][0] == IN_KIT:
+        print(kept_line(out[0][1][1]))
+        return 0
     bad = 0
     for w, (ok, words) in out:
         print('%s: %s%s' % (NAMES[w], '' if ok else 'NOT SENT: ', words))

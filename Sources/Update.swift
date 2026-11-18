@@ -90,7 +90,13 @@ final class Updater: NSObject, UNUserNotificationCenterDelegate {
                "Click to try again. It takes a few seconds and keeps your settings.")
     }
 
+    /// The Kit's own notice on this Mac (an update that failed, a setup it did). With Reach me by's alerts off it shows
+    /// nothing: the Events page has it, and the window or the menu shows what it is about.
     static func post(_ id: String, _ title: String, _ body: String) {
+        guard Reach.alertsOn else {
+            note("notice not shown, alerts are off: \(title) | \(body)")
+            return
+        }
         let c = UNUserNotificationCenter.current()
         c.requestAuthorization(options: [.alert]) { ok, _ in
             guard ok else { return }

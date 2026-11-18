@@ -894,6 +894,33 @@ main > div > h1.page-title,
   font-weight: 600;
   line-height: 20px;
 }
+/* A message the Kit kept instead of sending: its subject, when it came, and
+   its words with their own line breaks, wrapped to the card. */
+.msg {
+  padding: 12px;
+}
+.msg + .msg {
+  margin-top: 8px;
+}
+.msg-subj {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.msg-at {
+  margin-top: 4px;
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 18px;
+}
+.msg-text {
+  margin-top: 8px;
+  font-size: 16px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .w-by {
   margin-top: 4px;
   font-size: 14px;

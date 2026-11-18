@@ -38,9 +38,9 @@ const one = () => kit({}, [{ id: PRO, name: 'MacBook Pro', state: 'live', last_s
 const html = (v: View, k = kit(), ui = emptyUi()) => draw(v, k, ui).html;
 
 describe('Sessions', () => {
-  it('draws the four groups, Needs you first, then the Macs away', () => {
+  it('draws the groups, Needs you first, then Idle with a message, then the Macs away', () => {
     const h = html({ page: 'sessions' });
-    const order = ['Needs you', 'Claude working', 'Waiting on someone else', 'Held at usage limit', 'Macs away'].map((w) => h.indexOf(`>${w} <`));
+    const order = ['Needs you', 'Claude working', 'Waiting on someone else', 'Held at usage limit', 'Idle with a message', 'Macs away'].map((w) => h.indexOf(`>${w} <`));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
@@ -398,6 +398,108 @@ describe('Menu > Notices', () => {
     const failed = menu(k, { state: 'off', problem: "The phone's push service did not answer. Try again." });
     expect(failed).toContain('<div class="note result fail" role="status">');
     expect(failed).toContain("<b>Notices did not change.</b> The phone&#39;s push service did not answer. Try again.");
+  });
+});
+
+describe('Alerts off: kept messages', () => {
+  /** One section of a page, from its start to its end. */
+  const part = (h: string, start: string) => {
+    const i = h.indexOf(start);
+    return i < 0 ? '' : h.slice(i, h.indexOf('</section>', i) + 10);
+  };
+  const noAlertsOff = (k: Kit) => {
+    for (const s of Object.values(k.snaps)) delete s.flags.alerts_off;
+    return k;
+  };
+
+  it('lists idle sessions with a message in their own group after Held: mail icon, Message column, newest first, a clock time', () => {
+    const h = html({ page: 'sessions' }, one());
+    const g = part(h, '<section class="grp" aria-label="Idle with a message">');
+    expect(g).toContain('<h2 class="grp-h idle"><svg class="i"');
+    expect(g).toContain('<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/>');
+    expect(g).toContain('Idle with a message <span class="n">2</span><span class="col">Message</span>');
+    expect(g.indexOf('Freight quotes')).toBeLessThan(g.indexOf('Door log export'));
+    expect(g).toContain('<div class="sub">Message: Freight quotes are in</div>');
+    expect(g).toMatch(/Message: Freight quotes are in<\/div><\/div><span class="time">\d+:\d\d [AP]M<\/span>/);
+    expect(g).toContain('href="/s/session_01SampleFreightQuotes"');
+    expect(g).toContain('href="https://claude.ai/code/session_01SampleFreightQuotes" target="_blank" rel="noopener" aria-label="Open in Claude"');
+    // It needs nothing: the Needs you count is as before.
+    expect(h.match(/aria-label="Needs you"/g)?.length).toBe(1);
+  });
+
+  it('a session page shows its messages right under Open in Claude: subject, time, words with their line breaks, and why they were not sent', () => {
+    const h = html({ page: 'session', cse: 'session_01SampleFreightQuotes', from: 'sessions' }, one());
+    expect(h).toContain('<h1 class="page-title">Freight quotes</h1><span class="chip">Idle</span>');
+    const m = part(h, '<section class="sec msgs"');
+    expect(m).toContain('<h2 class="sub-h" id="msgs-h">Messages</h2>');
+    expect(m.match(/<article class="card msg">/g)?.length).toBe(2);
+    expect(m.indexOf('Freight quotes are in')).toBeLessThan(m.indexOf('Crate size from the supplier'));
+    expect(m).toMatch(/<div class="msg-subj">Freight quotes are in<\/div><div class="msg-at">\d+:\d\d [AP]M<\/div>/);
+    expect(m).toContain('<p class="msg-text">Three forwarders answered for the laminator crate (2.4 x 1.6 x 1.9 m, 1,850 kg):\n\n1. Ocean, door to door, 34 days: $2,180\n');
+    expect(m).toContain('<p class="why">Not sent: alerts are off on your Mac. Messages stay here and in the Kit on your Mac.</p>');
+    // Alerts off is a choice: no warning or bad colors.
+    expect(m).not.toMatch(/warn|bad|fail/);
+    // Placed high: after Open in Claude, before effort.
+    expect(h.indexOf('data-k="open"')).toBeLessThan(h.indexOf('id="msgs-h"'));
+    expect(h.indexOf('id="msgs-h"')).toBeLessThan(h.indexOf('id="eff-h"'));
+    // Open in Claude stays the one green button.
+    expect(h.match(/class="btn full"/g)?.length).toBe(1);
+  });
+
+  it('shows messages on a row of any group, before Needs you', () => {
+    const h = html({ page: 'session', cse: 'session_01SampleOrderLogin', from: 'sessions' }, one());
+    expect(h).toContain('<span class="chip warn">Needs you</span>');
+    expect(h).toContain('<div class="msg-subj">Plan ready for your go-ahead</div>');
+    expect(h.indexOf('id="msgs-h"')).toBeLessThan(h.indexOf('id="needs-h"'));
+    // A session with no message has no Messages section.
+    expect(html({ page: 'session', cse: 'session_01SamplePressColor', from: 'sessions' }, one())).not.toContain('msgs-h');
+  });
+
+  it('says the newest message’s reason in the Mac’s words, and escapes every word', () => {
+    const k = one();
+    const row = k.snaps[PRO].rows.find((r) => r.cse === 'session_01SampleFreightQuotes')!;
+    row.messages![0].why = 'Alerts are off for this session.';
+    row.messages![0].subject = '<b>x</b>';
+    row.messages![0].text = '<script>alert(1)</script>\nsecond line';
+    const h = html({ page: 'session', cse: 'session_01SampleFreightQuotes', from: 'sessions' }, k);
+    expect(h).toContain('Not sent: alerts are off for this session on your Mac. Messages stay here and in the Kit on your Mac.');
+    expect(h).toContain('<div class="msg-subj">&lt;b&gt;x&lt;/b&gt;</div>');
+    expect(h).toContain('<p class="msg-text">&lt;script&gt;alert(1)&lt;/script&gt;\nsecond line</p>');
+    expect(h).not.toContain('<script>alert');
+  });
+
+  it('the waits note says the message stays in the Kit while alerts are off, and Reach me by while they are on', () => {
+    const v: View = { page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' };
+    const off = html(v, one());
+    expect(off).toContain('Then its message stays in the Kit on this session, since alerts are off in Reach me by on your Mac. Its other waits stay open.');
+    expect(off).not.toContain('the way you set in Reach me by');
+    const on = html(v, noAlertsOff(one()));
+    expect(on).toContain('Then it tells you the way you set in Reach me by on your Mac. Its other waits stay open.');
+    expect(on).not.toContain('alerts are off');
+  });
+
+  it('Menu says, quietly under the switch, that the Macs send no notices when every live Mac has alerts off', () => {
+    const menu = (k: Kit) => html({ page: 'menu' }, k);
+    // MacBook Pro is the one live Mac, with alerts off; Mac mini is asleep.
+    const h = menu(kit());
+    expect(h).toContain('</div><p class="why" id="notices-alerts">MacBook Pro sends no notices while its alerts are off in Reach me by on the Mac.</p></section>');
+    expect(h).toContain('aria-describedby="notices-line notices-alerts"');
+    expect(part(h, '<section class="m-sec" aria-labelledby="notices-h">')).not.toMatch(/warn|bad/);
+    // Alerts on, or no live Mac: no line.
+    expect(menu(noAlertsOff(kit()))).not.toContain('notices-alerts');
+    const asleep = kit({}, [{ id: PRO, name: 'MacBook Pro', state: 'asleep', last_seen: AT, kit: '1.140' }]);
+    expect(menu(asleep)).not.toContain('notices-alerts');
+    // Two live Macs: only when both have alerts off, and it names both.
+    const two = (miniOff: boolean) => {
+      const k = kit({}, [
+        { id: PRO, name: 'MacBook Pro', state: 'live', last_seen: AT, kit: '1.140' },
+        { id: MINI, name: 'Mac mini', state: 'live', last_seen: AT, kit: '1.139' },
+      ]);
+      if (miniOff) k.snaps[MINI].flags.alerts_off = true;
+      return menu(k);
+    };
+    expect(two(false)).not.toContain('notices-alerts');
+    expect(two(true)).toContain('MacBook Pro and Mac mini send no notices while their alerts are off in Reach me by on the Mac.');
   });
 });
 

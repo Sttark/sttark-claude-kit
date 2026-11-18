@@ -1183,10 +1183,14 @@ def deliver_one(wm, cse, e, cache, now):
                                                                '' if len(pend) == 1 else 's', what))
         return
     try:
-        load('notify').send('New messages for ' + title, 'New messages came in that may concern the session "%s": '
-                            '%s. It could not come back by itself; open it to go on.' % (title, what),
-                            title=title, url=e.get('url', ''), cse=cse)
-        log('%s "%s" could not come back; the Kit sent you the message' % (cse[:12], title))
+        n = load('notify')
+        res = n.send('New messages for ' + title, 'New messages came in that may concern the session "%s": '
+                     '%s. It could not come back by itself; open it to go on.' % (title, what),
+                     title=title, url=e.get('url', ''), cse=cse, source='kit')
+        if res and res[0][0] == n.IN_KIT:  # alerts off (notify.py held()): kept in the Kit app on the session
+            log('%s "%s" could not come back; the Kit kept the message in the Kit app (%s)' % (cse[:12], title, res[0][1][1]))
+        else:
+            log('%s "%s" could not come back; the Kit sent you the message' % (cse[:12], title))
     except Exception as x:
         log('%s "%s" message failed: %s' % (cse[:12], title, str(x)[:160]))
 

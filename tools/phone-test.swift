@@ -345,6 +345,50 @@ import Foundation
               && obj(many["more"])["sessions"] as? Int == 35 && ((obj(many["more"])["share"] as? Double) ?? 0) > 0)
         Sample.usage(kit: kit, now: fixedNow)
 
+        // ---- alerts off: messages kept in the Kit (notify.py keep_in_kit()) go up on their session ----
+        var keptState = state
+        var reach = keptState["reach"] as? [String: Any] ?? [:]
+        reach["alerts"] = false
+        keptState["reach"] = reach
+        Sample.hookWrite(keptState, kit: kit)
+        func keptItem(_ id: String, _ cse: String, _ title: String, ago: Int, _ subject: String, _ body: String) -> [String: Any] {
+            ["id": id, "at": now - ago, "cse": cse, "title": title, "subject": subject, "body": body,
+             "link": "https://github.com/Sttark/sample/pull/7", "url": "", "from": "session", "why": "alerts are off"]
+        }
+        let keptItems: [[String: Any]] = [
+            keptItem("a00000000001", "cse_01PhoneUnseen", "IDLEMARK unread reply", ago: 900, "PR merged",
+                     "It merged.\n\nMail from sales@supplier.example came too; the notes are in /Users/sample/PATHMARK/notes.md."),
+            keptItem("a00000000002", "cse_01PhoneUnseen", "IDLEMARK unread reply", ago: 600, "Deploy done", "It is live. Nothing needed from you."),
+            keptItem("a00000000003", "cse_01PhoneOrderLogin", "Order page login", ago: 300, "One question", String(repeating: "Long words. ", count: 120)),
+            keptItem("a00000000004", "cse_01PhoneOrderLogin", "Order page login", ago: 2 * 86400, "Old one", "Two days old: not sent up."),
+            keptItem("a00000000005", "cse_01PhoneIdle", "IDLEMARK quarterly notes", ago: 3 * 86400, "Older", "An idle session with an old message stays on the Mac."),
+        ]
+        try? JSONSerialization.data(withJSONObject: ["items": keptItems]).write(to: kit.appendingPathComponent("kept.json"))
+        let keptSnap = Phone.snapshot(now: Date(timeIntervalSince1970: Double(now)), mac: mac)
+        let keptRows = keptSnap["rows"] as? [[String: Any]] ?? []
+        func keptRow(_ cse: String) -> [String: Any] { keptRows.first { $0["cse"] as? String == cse } ?? [:] }
+        let unseen = keptRow("cse_01PhoneUnseen"), orderKept = keptRow("cse_01PhoneOrderLogin")
+        let unseenMsgs = list(unseen["messages"]), orderMsgs = list(orderKept["messages"])
+        check("alerts off goes up as flags.alerts_off; with alerts on it is not there",
+              obj(keptSnap["flags"])["alerts_off"] as? Bool == true && obj(snap["flags"])["alerts_off"] == nil)
+        check("an idle session with a message kept in the last day goes up as idle, last, with the message as its line and time",
+              keptRows.last?["cse"] as? String == "cse_01PhoneUnseen" && unseen["group"] as? String == "idle"
+              && unseen["sub"] as? String == "Message: Deploy done" && int(unseen["time_at"]) == now - 600
+              && keptRow("cse_01PhoneIdle").isEmpty && keptRows.filter { $0["group"] as? String == "idle" }.count == 1)
+        check("its messages, newest first, with subject, text (paragraphs kept), time and why; no link",
+              unseenMsgs.map { $0["subject"] as? String ?? "" } == ["Deploy done", "PR merged"] && int(unseenMsgs.first?["at"]) == now - 600
+              && unseenMsgs.dropFirst().first?["text"] as? String == "It merged.\n\nMail from supplier.example came too; the notes are in notes.md."
+              && unseenMsgs.allSatisfy { $0["why"] as? String == "alerts are off" && $0["link"] == nil })
+        check("a row in another group gets its messages of the last day only, the text cut to 1000",
+              orderKept["group"] as? String == "needs_you" && orderMsgs.count == 1 && orderMsgs[0]["subject"] as? String == "One question"
+              && ((orderMsgs[0]["text"] as? String)?.unicodeScalars.count ?? 0) <= 1000 && (orderMsgs[0]["text"] as? String ?? "").hasSuffix("…")
+              && row("cse_01PhoneOrderLogin")["messages"] == nil)
+        var keptForLeaks = keptSnap   // the idle session's name is meant to go up now; nothing else of it
+        keptForLeaks["rows"] = keptRows.map { r -> [String: Any] in var x = r; if x["cse"] as? String == "cse_01PhoneUnseen" { x["title"] = "" }; return x }
+        built.append(("snapshot.kept", keptForLeaks))
+        try? fm.removeItem(at: kit.appendingPathComponent("kept.json"))
+        Sample.hookWrite(state, kit: kit)
+
         // ---- the empty state ----
         for f in ["state.json", "usage.json", "archived.json", "local-sessions.json"] { try? fm.removeItem(at: kit.appendingPathComponent(f)) }
         Sample.hookWrite(["reach": ["ways": [String](), "email": "empty@sttark.com"]], kit: kit)
@@ -571,6 +615,23 @@ import Foundation
         State.change { s in s["reach"] = ["ways": ["chat"], "email": ""] }
         notify(["Price drop", "It is under 9000 now."], session: "session_01PhoneKitDesign")
         check("a message that went no way (no Chat webhook) notes nothing", Waiting.reachSent()["cse_01PhoneKitDesign"] == nil)
+
+        // Reach me by's alerts off: no reminder on this Mac or the phone, and the log says why; claude-notify keeps the
+        // message in the Kit, on its session, and exits 0
+        State.change { s in s["reach"] = ["ways": ["chat"], "email": "", "chat": "https://chat.googleapis.com/v1/spaces/x", "alerts": false] }
+        let before = shown.count
+        reply("cse_01PhoneOrderLogin", ago: 800)
+        PhoneLink.atMac = { true }
+        Waiting.notifyDue()
+        reply("cse_01PhoneOrderLogin", ago: 860)
+        PhoneLink.atMac = { false }
+        Waiting.notifyDue()
+        check("alerts off: no reminder at the Mac or away, and the log says why",
+              shown.count == before && log().contains("waiting notice skipped: Order page login: alerts are off"))
+        check("alerts off: claude-notify keeps the message on its session and exits 0",
+              notify(["Laminator quote", "The supplier answered."], session: "session_01PhoneOrderLogin") == 0
+              && Kept.of("cse_01PhoneOrderLogin").first?.subject == "Laminator quote" && Kept.of("cse_01PhoneOrderLogin").first?.why == "alerts are off")
+        try? FileManager.default.removeItem(at: Kept.file)
         UserDefaults.standard.removeObject(forKey: "waitingTold")
     }
 

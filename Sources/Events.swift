@@ -486,6 +486,10 @@ enum Events {
                     e.detail = ["Asked from \(from)."]
                     if main.contains("not archived now") { e.level = .info; e.kind = .restart }
                 }
+            } else if main.contains("the Kit kept one in the Kit app") || main.contains(" kept the message from the Kit") {
+                e.text = main.contains("did not come back") ? "It could not come back; the Kit kept its message here"
+                                                            : "It sent no message after coming back; the Kit kept one here"
+                e.detail = ["Alerts are off, so nothing was sent. The message is on the session's panel on the Sessions page."]
             } else if main.contains(" brought ") { e.text = "Brought back: the wait ended" }
             else if main.contains(" cancelled") { e.text = "Wait cancelled" }
             else if main.contains("checked:") {
@@ -510,6 +514,8 @@ enum Events {
                 e.routine = true; e.text = "Would bring it back for new messages (test run)"
             } else if rest.contains(" is in a turn;") {
                 e.routine = true; e.text = "New messages came in; it comes back when its turn ends"
+            } else if rest.contains("the Kit kept the message in the Kit app") {
+                e.text = "New messages came in, but it could not come back; the Kit kept a message on the session"
             } else if rest.contains("the Kit sent you the message") {
                 e.level = .warn; e.text = "New messages came in, but it could not come back; the Kit sent you a message"
             } else if rest.contains(" could not come back") || rest.contains(" message failed") || rest.hasPrefix("could not read a step") {
@@ -577,6 +583,21 @@ enum Events {
             }
         case "notify":
             e.kind = .wait
+            // kept in the Kit app (notify.py keep_in_kit()): "<name> kept <id>: <why> | <subject>"
+            if let k = rest.range(of: #" kept [0-9a-f]{12}: "#, options: .regularExpression) {
+                let title = String(rest[..<k.lowerBound]), id = String(rest[k].dropFirst(6).prefix(12))
+                let tail = rest[k.upperBound...]
+                let why = tail.range(of: " | ").map { String(tail[..<$0.lowerBound]) } ?? String(tail)
+                let subject = tail.range(of: " | ").map { String(tail[$0.upperBound...]) } ?? ""
+                if title != "-" { e.name = title; e.session = names.cseByName[title] }
+                let m = Kept.find(id)
+                if let m, !m.cse.isEmpty { e.session = m.cse }
+                e.text = "Message kept in the Kit, not sent" + (subject.isEmpty ? "" : ": " + (m?.subject ?? subject))
+                e.detail = ["Not sent: \(why). It is on the session's panel on the Sessions page."]
+                if let m, !m.body.isEmpty { e.detail.append("\u{201C}" + m.body.replacingOccurrences(of: "\n\n", with: " ") + "\u{201D}") }
+                if why.contains("no way") { e.level = .warn }
+                break
+            }
             let (main, _, subject) = split(rest)
             let ok = main.contains(" ok")
             let way = ["email", "chat", "text", "push", "app", "notice"].first { main.lowercased().contains(" \($0) ") } ?? ""
@@ -602,6 +623,18 @@ enum Events {
             } else if rest.hasPrefix("waiting notice: ") {
                 let q = String(rest.dropFirst(16)); e.name = q; e.session = names.cseByName[q]
                 e.kind = .wait; e.text = "Notice: it has waited on you for 10 minutes"
+            } else if rest.hasPrefix("waiting notice skipped: "), rest.hasSuffix(": alerts are off") {
+                // "waiting notice skipped: Order page login: alerts are off"
+                let q = String(rest.dropFirst(24).dropLast(16))
+                e.name = q; e.session = names.cseByName[q]
+                e.kind = .wait; e.text = "No reminder: alerts are off"
+                e.detail = ["It has waited on you for 10 minutes. It shows under Needs you on the Sessions page."]
+            } else if rest.hasPrefix("notice not shown, alerts are off: ") {
+                // "notice not shown, alerts are off: <title> | <body>": the Kit's own notice (Updater.post)
+                let x = rest.dropFirst(34)
+                let r = x.range(of: " | ")
+                e.text = "Notice not shown, alerts are off: " + (r.map { String(x[..<$0.lowerBound]) } ?? String(x))
+                if let r { e.detail = [String(x[r.upperBound...])] }
             } else if rest.hasPrefix("waiting notice skipped: ") {
                 // "waiting notice skipped: Order page login: it sent a Reach me by message in the last 30 min"
                 let body = rest.dropFirst(24)

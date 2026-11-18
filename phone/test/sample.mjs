@@ -3,7 +3,9 @@
 // moved so the fixture's moment is now. MacBook Pro is live (its last_seen
 // is a day ahead, so it stays live through a long check); Mac mini went to
 // sleep when its snapshot was made. Each has its Usage by session list for
-// 7 days. Never a real person or a live server.
+// 7 days. MacBook Pro has Alerts off in Reach me by, so it sends idle
+// sessions with a kept message, and messages on a Needs you session. Never a
+// real person or a live server.
 //
 //   node test/sample.mjs <database file> [email]
 //
