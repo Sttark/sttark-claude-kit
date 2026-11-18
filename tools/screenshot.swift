@@ -213,6 +213,31 @@ import SwiftUI
             Shot.capture(ar, to: "whats-new/subagent-effort" + (look ? "-dark" : "") + ".png")
             ar.close()
             model.openEvent = nil
+            // the running-work note's picture: a bring-back that waits for a session's agents, and work the Kit ended at
+            // a handover, opened, with the session told. Lines for this picture only: the log goes back after.
+            let logBefore = (try? String(contentsOf: dir.appendingPathComponent("log"), encoding: .utf8)) ?? ""
+            Sample.work(dir)
+            model.readEvents()
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+            let work = model.events.filter { $0.text.hasPrefix("Work stopped") || $0.text.hasPrefix("Told the session")
+                || $0.text.hasPrefix("Comes back when its work ends") }
+            model.openEvent = work.first { $0.text.hasPrefix("Work stopped") }?.id
+            let rw = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            rw.appearance = w.appearance
+            rw.isReleasedWhenClosed = false
+            rw.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(work.prefix(3))) { e in
+                    EventRow(model: model, e: e, open: model.openEvent == e.id)
+                    Hairline()
+                }
+                Spacer(minLength: 0)
+            }.padding(12).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            rw.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+            Shot.capture(rw, to: "whats-new/running-work-kept" + (look ? "-dark" : "") + ".png")
+            rw.close()
+            model.openEvent = nil
+            try? logBefore.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
+            model.readEvents()
             // the kit-window note's picture: the top of the session list, at the window's narrowest
             model.page = .sessions
             let f = w.frame
@@ -506,6 +531,21 @@ enum Sample {
         let lf = DateFormatter(); lf.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let line = lf.string(from: Date().addingTimeInterval(-12 * 60)) + " notify Rename report columns kept a1b2c3d4e5f6: alerts are off | PR #42 merged\n"
         if let h = try? FileHandle(forWritingTo: dir.appendingPathComponent("log")) { h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close() }
+    }
+
+    /// A bring-back that waits for a session's agents, and work the Kit ended at a handover with the session told
+    /// (effort-hook.py running_work(), wait.py hold_for_work()), for the running-work note's picture.
+    static func work(_ dir: URL) {
+        let lf = DateFormatter(); lf.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        func at(_ m: Double) -> String { lf.string(from: Date().addingTimeInterval(-m * 60)) }
+        let lines = [
+            at(4) + " work   defer cse_01Sample5 \"Slitter blade change\" bring-back waits: 2 agents (a3f1c2d4e5b6a7c8d \"Photos of the slitter blades\", a9e8d7c6b5a4f3e2d \"Blade list for the technician\"); it tries again each minute, at most 2 hours",
+            at(3) + " work   kill cse_01Sample4 \"Press 2 job board\" handover: 1 agent (a1d2e3f4a5b6c7d8e \"Build the press filters\"), 1 background command (b8k2m4q6x \"Run the page tests\"); the session is told at its next prompt",
+            at(2) + " work   told cse_01Sample4 \"Press 2 job board\" what stopped at 10:57 AM (handover: 2 item(s)), with its next prompt",
+        ]
+        if let h = try? FileHandle(forWritingTo: dir.appendingPathComponent("log")) {
+            h.seekToEndOfFile(); h.write((lines.joined(separator: "\n") + "\n").data(using: .utf8)!); try? h.close()
+        }
     }
 
     static func write(_ dir: URL) {

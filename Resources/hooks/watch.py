@@ -1167,8 +1167,12 @@ def deliver_one(wm, cse, e, cache, now):
     except RuntimeError as x:
         if str(x) == 'busy':
             if now - e.get('busy_said', 0) > 900:
-                log('%s "%s" is in a turn; it comes back with %d new message%s when the turn ends'
-                    % (cse[:12], title, len(pend), '' if len(pend) == 1 else 's'))
+                if getattr(x, 'work', False):  # its agents, background commands or Monitors (wait.py hold_for_work())
+                    log('%s "%s" has agents or background commands at work; it comes back with %d new message%s when '
+                        'they end' % (cse[:12], title, len(pend), '' if len(pend) == 1 else 's'))
+                else:
+                    log('%s "%s" is in a turn; it comes back with %d new message%s when the turn ends'
+                        % (cse[:12], title, len(pend), '' if len(pend) == 1 else 's'))
                 e['busy_said'] = now
             return
         ok = False

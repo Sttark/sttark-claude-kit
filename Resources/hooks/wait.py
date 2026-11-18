@@ -34,11 +34,14 @@ by default.
 
 Waits are "waits" in the shared state file, keyed by a short id, with the session's link (cse_...), its saved
 conversation and its folder, so they outlast archiving, a Mac restart and an app restart.
-Bringing a session back: an active session with no turn running is archived first (that ends its process), then
-started on its own the way the keep check starts an unarchived chat (effort-hook.py point_at and a kit- screen),
-with the prompt as its first message, typed locally so Claude Code runs it; a prompt posted through the server
-would be held. It is then one of the keep check's chats on their own (keep.alone). A session that can't come back
-(no link, or its conversation isn't on this Mac) gets the message straight from the Kit instead.
+Bringing a session back: the copy that runs it now, in the server or the Kit, is ended first with SIGKILL
+(effort-hook.py end_copy()), which leaves the session as it is: the Kit never archives one. Then it is started on its
+own the way the keep check starts an unarchived chat (effort-hook.py point_at and a kit- screen), with the prompt as
+its first message, typed locally so Claude Code runs it; a prompt posted through the server would be held. It is then
+one of the keep check's chats on their own (keep.alone). While its turn runs, or its agents, background commands or
+Monitors (they would end with that copy), the bring-back waits and tries again each minute; after HOLD_MAX it goes on,
+and its message tells the session what stopped. A session that can't come back (no link, or its conversation isn't on
+this Mac) gets the message straight from the Kit instead.
 After the waits, each minute, the reply watch (watch.py) brings a session back when an answer comes from someone
 it contacted, also when it set no wait for it; a wait never ends on a message the watch already brought it for.
 Then a prompt the person sent from a new session to an open one that does the same work (same-work.py) goes to that
@@ -61,6 +64,8 @@ FALLBACK = 900      # seconds after bringing a session back with no claude-notif
                     # (kept in the Kit app instead when alerts are off: notify.py held())
 MAIL_EVERY = 300    # seconds between reads of a mailbox the Kit reads directly (claude-mail): free, at any hour
 STARTING = 120      # seconds after the Kit starts a session in which it is not started again: its first prompt runs
+HOLD_MAX = 7200     # seconds a bring-back waits at most for a session's agents, background commands and Monitors
+                    # (DESIGN-DECISIONS.md): longer than 95% of background agents ran in one Mac's records
 
 
 def load(name):
@@ -524,27 +529,81 @@ def describe(w):
     return 'the time %s' % clock(w['at'])
 
 
+def busy(work=False):
+    """The session can't come back yet: its turn runs, or (`work`) its agents, background commands or Monitors."""
+    err = RuntimeError('busy')
+    err.work = work
+    return err
+
+
+def hold_for_work(e, w, cse, tp):
+    """Before a bring-back ends the session's copy: the work that would end with it (effort-hook.py copy_work(): the
+    agents, background commands and Monitors of every copy that runs the session now). While some runs the bring-back
+    waits: busy(work=True), so the next minute tries again, with a `work defer` line when the wait starts and when the
+    work changes. After HOLD_MAX it goes on, and the work is returned: it ends with the copy, and the bring-back's
+    message tells the session which (bring_back()). None when nothing runs."""
+    try:
+        work, _ = e.copy_work(tp, cse)
+    except Exception as x:  # what runs can't be read: the minute check's view of the session decides, as before
+        log('%s could not read what runs in its session: %s: %s' % (w.get('id', ''), type(x).__name__, str(x)[:160]))
+        app = ((peek().get('sessions') or {}).get(cse) or {}).get('app') or {}
+        if app.get('background') and time.time() - app.get('checked', 0) < 180:
+            raise busy(work=True)
+        return None
+    ids, now, title = e.work_ids(work), time.time(), w.get('title', '')
+    rec = (peek().get('work_wait') or {}).get(cse)
+    held = rec if rec and now - rec.get('at', 0) < 600 else None  # a wait the minute check still saw: the same one
+
+    def drop(s):
+        (s.get('work_wait') or {}).pop(cse, None)
+    if not ids:
+        if held:
+            e.log(f'work   done {cse} "{title}" bring-back waited {max(1, round((now - held["since"]) / 60))} min; '
+                  'its work ended')
+        if rec:
+            change(drop)
+        return None
+    since = held['since'] if held else now
+    if now - since >= HOLD_MAX:
+        return work
+    if not held or held.get('ids') != ids:
+        e.log(f'work   defer {cse} "{title}" bring-back waits: {e.work_words(work)}; it tries again each minute, '
+              f'at most {HOLD_MAX // 3600} hours')
+    change(lambda s: s.setdefault('work_wait', {}).__setitem__(cse, {'since': since, 'at': now, 'ids': ids}))
+    raise busy(work=True)
+
+
 def bring_back(w, prompt=None):
     """Start the session in a Kit copy on its own link (unarchiving it when it is archived), with its whole
     conversation and `prompt` as its first message; with no prompt it waits for the person. True when it started.
     The window's Archived page brings a session back with this too (archived.py --back), so there is one way to do it.
     The Kit never archives a session (only the person does): a copy that runs it now, in the server or the Kit, is
-    ended with end_copy(), which leaves the chat as it is."""
+    ended with end_copy(), which leaves the chat as it is. Not while a turn runs, or the session's agents, background
+    commands or Monitors, which would end with it (hold_for_work()): RuntimeError('busy'), and the caller tries again.
+    The message also tells the session what the Kit ended in it before (a handover, the Mac shut down), once."""
     e = load('effort-hook')
     cse, tp = w.get('cse'), w.get('transcript')
     if not cse or not tp or not os.path.exists(tp):
         return False
     started = ((((peek().get('keep') or {}).get('alone') or {}).get(cse)) or {}).get('at', 0)
     if 0 <= time.time() - started < STARTING:
-        raise RuntimeError('busy')  # the Kit started it moments ago (a wait, the reply watch): its first prompt may not run yet
+        raise busy()  # the Kit started it moments ago (a wait, the reply watch): its first prompt may not run yet
     d = e.sse().session(cse)
+    ended, why = None, 'bring-back'
     if d.get('status') == 'active':
-        app = ((peek().get('sessions') or {}).get(cse) or {}).get('app') or {}
-        if d.get('worker_status') == 'running' or d.get('status_bucket') == 'working' or \
-                (app.get('background') and time.time() - app.get('checked', 0) < 180):
-            raise RuntimeError('busy')  # a turn, or its agents, run now (ending its copy would end them); the next check tries again
+        if d.get('worker_status') == 'running' or d.get('status_bucket') == 'working':
+            raise busy()  # a turn runs now (ending its copy would end it); the next check tries again
+        ended = hold_for_work(e, w, cse, tp)  # its agents, background commands and Monitors: it waits for them
         if not e.end_server_copy(cse):  # the copy started below must be its one copy, or the keep check ends that one
             raise RuntimeError('its copy in the server did not stop')
+    else:  # archived: the person stopped it; a copy of the Kit's that still runs (keep() ends it in 2 minutes) ends now
+        work = e.copy_work(tp, cse, 'kit')[0]
+        if e.work_ids(work):
+            ended, why = work, 'archived'
+    pending = e.pending_stopped(cse) if prompt else []  # work the Kit ended before (a handover): the session hears now
+    told = pending + ([e.stopped_notice(ended, why, time.time(), '%d hours' % (HOLD_MAX // 3600))] if prompt and ended else [])
+    if told:
+        prompt = '\n\n'.join([prompt] + told)
     cid = os.path.basename(tp)[:-len('.jsonl')]
     with open(os.path.join(KIT, 'keep.lock'), 'w') as lock:  # the keep check starts chats too: one at a time
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -563,7 +622,12 @@ def bring_back(w, prompt=None):
         def alone(s):
             k = s.setdefault('keep', {})
             k.setdefault('alone', {})[cse] = {'transcript': tp, 'title': w.get('title', ''), 'at': now}
+            (s.get('work_wait') or {}).pop(cse, None)
         change(alone)
+    if ended:
+        e.note_stopped(cse, w.get('title', ''), ended, why, in_message=bool(prompt))
+    if pending:
+        e.take_stopped(cse, "in the Kit's message", only=pending)
     return True
 
 
@@ -686,7 +750,8 @@ def check(only=None, by=None):
     """Every minute, from the app. No model calls: gh for pull requests and the clock.
     With `only` (claude-wait --now <id>), that one wait ends now; `by` (window or phone) goes in its log line. Returns
     what became of it: 'brought', 'sent' (the Kit sent the message itself), 'dry', 'busy' (its session is in a turn),
-    'back' (it already ended), 'locked' (the minute check runs now) or None (no such wait)."""
+    'working' (its agents, background commands or Monitors run: it comes back when they end), 'back' (it already
+    ended), 'locked' (the minute check runs now) or None (no such wait)."""
     lock = open(os.path.join(KIT, 'wait.lock'), 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -766,14 +831,20 @@ def check(only=None, by=None):
             ok = bring_back(w, prompt_for(w, what, late))
         except RuntimeError as e:
             if str(e) == 'busy':
+                working = getattr(e, 'work', False)  # its agents, background commands or Monitors run (not a turn)
                 if not w.get('ready'):
-                    log('%s its session is in a turn; %s' % (wid, 'the wait stays open%s' % (' (%s)' % by if by else '')
-                                                              if only else 'trying again in a minute'))
-                if not only:  # what it found, kept: the next minute brings it back with no new check (no model call)
+                    log('%s %s; %s' % (wid, 'its session\'s agents or background commands still run' if working else
+                                            'its session is in a turn',
+                                       'it comes back when they end%s' % (' (%s)' % by if by else '') if working and only
+                                       else 'the wait stays open%s' % (' (%s)' % by if by else '') if only
+                                       else 'trying again in a minute'))
+                # what it found, kept: the next minute brings it back with no new check (no model call). Bring it back
+                # now also comes back that way once the work ends; at a turn it leaves the wait as it was
+                if not only or working:
                     upd['ready'] = {'what': what, 'late': late, 'found': w.get('found') or {},
                                     'found_ids': w.get('found_ids') or []}
                     change(save)
-                result = 'busy'
+                result = 'working' if working else 'busy'
                 continue
             ok = False
             log('%s could not bring it back: %s' % (wid, str(e)[:160]))
@@ -896,6 +967,10 @@ def main():
             return 1
         if r == 'busy':
             print('Its session is in a turn now. Try again when the turn ends.')
+            return 1
+        if r == 'working':
+            print('Its agents or background commands still run, so the Kit brings it back when they end (at most '
+                  '%d hours from now).' % (HOLD_MAX // 3600))
             return 1
         if r in ('back', None):
             print('That wait already ended. Nothing was changed.')
