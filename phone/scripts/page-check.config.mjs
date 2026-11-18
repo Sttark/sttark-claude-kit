@@ -52,6 +52,7 @@ const SAMPLE_PAGES = [
   '/usage?p=custom&from=2026-11-02&to=2026-11-09',
   '/usage?all=1',
   '/s/session_01SampleLaminator',
+  '/s/session_01SamplePowderWatch',
   '/s/session_01SampleHvacUpdates',
   '/s/session_01SampleSiteMap',
   '/s/session_01SampleOrderLogin',
