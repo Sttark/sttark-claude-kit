@@ -590,6 +590,14 @@ enum Events {
             e.text = on ? "Alerts turned on" : "Alerts turned off"
             e.detail.append((rest.hasSuffix("(phone)") ? "From your phone. " : "From the Kit window. ")
                             + (on ? "It reaches you the ways set in Reach me by." : "Nothing about it goes out; its messages are kept on the session."))
+        case "notify" where rest.hasPrefix("alerts of each session are off unless turned on"):
+            // once, after the update (Alerts.migrate): "… unless turned on: kept 1 turned off and 1 turned on by hand"
+            e.kind = .wait
+            e.routine = true
+            e.text = "Alerts of each session are off until you turn them on"
+            if let r = rest.range(of: ": kept ") {
+                e.detail = ["Your choices stay: kept " + rest[r.upperBound...] + ". Every other session's alerts are off."]
+            }
         case "notify":
             e.kind = .wait
             // kept in the Kit app (notify.py keep_in_kit()): "<name> kept <id>: <why> | <subject>"

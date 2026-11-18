@@ -417,7 +417,7 @@ final class KitModel: ObservableObject {
     func setAlerts(_ r: Inbox.Row, on: Bool) {
         guard let c = r.target?.cse else { return }
         let id = Alerts.cse(c)
-        if on { snap.alertsOff.remove(id) } else { snap.alertsOff.insert(id) }
+        if on { snap.alertsOn.insert(id) } else { snap.alertsOn.remove(id) }
         KitActions.setAlerts(cse: id, on: on, origin: .window) { [weak self] _ in self?.changed() }
     }
 }
@@ -1235,9 +1235,9 @@ struct DetailView: View {
                 Toggle(isOn: pick) { Text(on ? "On" : "Off").font(K.font(12.5)) }
                     .toggleStyle(.switch).controlSize(.mini)
                     .accessibilityLabel("Alerts")
-                    .help(on ? "Turn off to keep this session's messages here, on the session." : "Turn on to let this session reach you again.")
+                    .help(on ? "Turn off to keep this session's messages here, on the session." : "Turn on to let this session reach you the ways set under Reach me by.")
             }
-            Text(!on ? "Off: nothing about this session goes out, not even a Needs you reminder. Its messages stay here, on the session."
+            Text(!on ? "Off, as each session starts: nothing about it goes out, not even a Needs you reminder. Its messages stay here, on the session."
                  : !model.snap.reach.alerts ? "On, but Alerts are off for every session under Reach me by in Settings, so its messages stay here."
                  : ways.isEmpty ? "On, but no way is checked under Reach me by in Settings."
                  : "On: it reaches you by \(Reach.summary(model.snap.reach)), as set under Reach me by in Settings.")

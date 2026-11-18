@@ -39,10 +39,11 @@ message (wait.py after a wait, watch.py for a reply it could not bring back), so
 mail, Chat, text, Mac notice, and no PushNotification step for the session. claude-notify then exits 0 and prints one line that tells
 the session the person reads it in the Kit app, so it does not try another way.
 
-Each session's alerts are on unless the person turned them off for that session: the bell on its row in the Kit
-window, or the Alerts switch on its page on the phone. Off is alerts_off[<cse>] in the state file, by the session's
-Remote Control id, so it lasts through archive, unarchive and restarts (Alerts in Sources/Reach.swift); held() then
-keeps every message about that session ("this session's alerts are off"), and the Needs you reminder skips it.
+Each session's alerts are off unless the person turned them on for that session: the bell on its row in the Kit
+window, or the Alerts switch on its page on the phone. A choice by hand is alerts[<cse>] = {"on": true or false, ...} in
+the state file, by the session's Remote Control id, so it lasts through archive, unarchive and restarts (Alerts in
+Sources/Reach.swift). A session with no choice, a new one too, is off: held() keeps every message about it ("this
+session's alerts are off"), and the Needs you reminder skips it. A message with no Remote Control id has no switch.
 """
 import base64, fcntl, importlib.util, json, os, re, subprocess, sys, time, urllib.request, uuid
 
@@ -109,7 +110,7 @@ def held(cse='', ways=None, state=None):
     place that decides, for every message the Kit or a session sends (send() asks it first). `ways`: the ways the
     caller would use (None: the ones checked). Reasons, in the words the window, the phone and the log show:
       'alerts are off'                        Reach me by's Alerts switch is off
-      "this session's alerts are off"         the session's own alerts switch is off (alerts_off)
+      "this session's alerts are off"         the session's own alerts switch is off, as each session starts (alerts_off())
       'no way is checked under Reach me by'   on, with nothing checked"""
     st = state if state is not None else peek()
     if not alerts_on(st):
@@ -172,10 +173,14 @@ def cse_of(sid):
 
 
 def alerts_off(cse, state=None):
-    """True when the person turned this session's alerts off (alerts_off[<cse>] in the state file, which the Kit window
-    and the phone write): nothing about it goes out by any way."""
-    off = (state if state is not None else peek()).get('alerts_off')
-    return bool(cse) and isinstance(off, dict) and cse_of(cse) in off
+    """True when this session's alerts are off: every session's are, unless the person turned them on for it
+    (alerts[<cse>] = {"on": true, ...} in the state file, which the Kit window and the phone write). Then nothing about
+    it goes out by any way. An id that is not a Remote Control id has no switch, so it is never off."""
+    c = cse_of(cse)
+    if not c.startswith('cse_'):
+        return False
+    x = ((state if state is not None else peek()).get('alerts') or {}).get(c)
+    return not (isinstance(x, dict) and x.get('on') is True)
 
 
 def mark_sent(cse, now=None):

@@ -505,7 +505,7 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
       resultAt(ui, cse, 'alerts') +
       `<p class="why">${esc(
         !on
-          ? 'Off: nothing about this session goes out, not even a Needs you notice. Its messages stay here and in the Kit on your Mac.'
+          ? 'Off, as each session starts: nothing about it goes out, not even a Needs you notice. Its messages stay here and in the Kit on your Mac.'
           : snap.flags.alerts_off
             ? 'On, but alerts are off for every session in Reach me by on your Mac, so its messages stay in the Kit.'
             : list

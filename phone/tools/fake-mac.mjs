@@ -421,7 +421,7 @@ export class FakeMac {
             id: item.cse, cse: item.cse, sid: null, group: 'working', title: item.title, sub: 'Brought back from the archive',
             sub_strong: null, sub_warn: null, late: false, time_at: now, url: item.url,
             session: { level: 'medium', manual: false, reason: null, needs_you: false, why: null, waiting_since: null, turn_at: now },
-            background: null, waits: [], hold: null, limit_mode: { mode: 'follow', at: null }, alerts: true,
+            background: null, waits: [], hold: null, limit_mode: { mode: 'follow', at: null }, alerts: false, // no choice: off
           });
         });
       }

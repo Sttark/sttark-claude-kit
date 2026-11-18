@@ -108,7 +108,7 @@
         "mode": "follow",
         "at": null
       },
-      "alerts": true
+      "alerts": false
     },
     {
       "id": "session_01SampleHvacUpdates",
@@ -143,7 +143,7 @@
         "mode": "follow",
         "at": null
       },
-      "alerts": true
+      "alerts": false
     },
     {
       "id": "session_01SampleKitDesign",
@@ -173,7 +173,7 @@
         "mode": "follow",
         "at": null
       },
-      "alerts": true
+      "alerts": false
     },
     {
       "id": "session_01SampleUsageRetry",
@@ -215,7 +215,7 @@
         "mode": "follow",
         "at": null
       },
-      "alerts": true
+      "alerts": false
     },
     {
       "id": "session_01SampleLaminator",
@@ -348,7 +348,7 @@
         "mode": "hold",
         "at": 80
       },
-      "alerts": true
+      "alerts": false
     },
     {
       "id": "session_01SampleInventoryPhotos",
@@ -386,7 +386,7 @@
         "mode": "hold",
         "at": 60
       },
-      "alerts": true
+      "alerts": false
     },
     {
       "id": "session_01SampleFreightQuotes",
@@ -430,7 +430,7 @@
           "why": "alerts are off"
         }
       ],
-      "alerts": true
+      "alerts": false
     },
     {
       "id": "session_01SampleDoorLog",
@@ -468,7 +468,7 @@
           "why": "alerts are off"
         }
       ],
-      "alerts": true
+      "alerts": false
     }
   ],
   "archived_rev": "a1b2c3d4e5f60718",

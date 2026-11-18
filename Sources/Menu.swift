@@ -98,6 +98,7 @@ final class Controller: NSObject, NSMenuDelegate {
 
     func start() {
         setupResult = Setup.install()
+        Alerts.migrate()   // once: each session's alerts are off unless turned on; choices by hand stay
         if ChromeApprover.on { ChromeApprover.copyHelper() }
         if ChromeWindow.on { ChromeWindow.installTool() }
         ChromeWindow.tellHooks()

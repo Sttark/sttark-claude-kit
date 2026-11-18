@@ -61,12 +61,13 @@ export type Row = {
   limit_mode: { mode: 'follow' | 'credits' | 'hold'; at: number | null };
   /** At most 3, newest first; only when there is one. */
   messages?: KeptMessage[];
-  /** The session's alerts: false when the person turned them off for it.
-   *  A Kit from before the switch sends none: on. */
+  /** The session's alerts: true only when the person turned them on for it;
+   *  every session starts off. A Kit from before the switch sends none: on,
+   *  since it had no switch. */
   alerts?: boolean;
 };
 
-/** A session's alerts are on unless its Mac says they are off. */
+/** A session's alerts, as its Mac says them (on for a Kit that sends none). */
 export const alertsOn = (row: Row) => row.alerts !== false;
 
 /** The Reach me by ways, as the Kit's Settings name them. */

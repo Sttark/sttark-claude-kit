@@ -178,7 +178,7 @@
           "description": "Optional, on a row of any group: the messages this session or the Kit would have sent to the person by email, Chat, a text or a notice, kept in the Kit instead, in the last 24 hours, newest first. Sent only when there is one.",
           "items": { "$ref": "#/$defs/message" }
         },
-        "alerts": { "type": "boolean", "description": "The session's alerts. true: it reaches the person the Reach me by ways. false: the person turned them off for this session, so nothing about it goes out and its messages stay in the Kit app on the Mac. Optional: a Kit from before the switch sends none, and the phone reads that as true." }
+        "alerts": { "type": "boolean", "description": "The session's alerts. true: the person turned them on for this session, so it reaches them the Reach me by ways. false: off, as every session starts and stays until the person turns them on, so nothing about it goes out and its messages stay in the Kit app on the Mac. Optional: a Kit from before the switch sends none, and the phone reads that as true, since such a Kit has no switch." }
       }
     },
     "message": {

@@ -55,10 +55,14 @@ describe('Sessions', () => {
     expect(h).toContain('href="/s/session_01SampleOrderLogin"');
     expect(h).toContain('href="https://claude.ai/code/session_01SampleOrderLogin" target="_blank" rel="noopener" aria-label="Open in Claude"');
   });
-  it('marks a row whose alerts are off with a bell with a line through it and its words, and no other row', () => {
+  it('marks each row whose alerts are off (every session starts off) with a bell with a line through it and its words, not one turned on', () => {
     const h = html({ page: 'sessions' });
-    expect(h.match(/class="alerts-off"/g)?.length).toBe(1);
     expect(h).toMatch(/>Powder watch<\/span><span class="alerts-off"><svg[^>]*>.*?<\/svg><span class="vh">Alerts off<\/span><\/span>/);
+    expect(h).toMatch(/>Press color<\/span>(<span class="lvl[^"]*">[^<]*<\/span>)?<span class="alerts-off">/);
+    // turned on by hand: no mark
+    expect(h).toMatch(/>Order page login<\/span><\/div>/);
+    expect(h).toMatch(/>Laminator quote<\/span><\/div>/);
+    expect(h.match(/class="alerts-off"/g)?.length).toBeGreaterThan(5);
   });
   it('names the Mac on a row only with more than one Mac', () => {
     expect(html({ page: 'sessions' })).toContain('<span class="mac">MacBook Pro</span>');
