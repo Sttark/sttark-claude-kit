@@ -267,6 +267,42 @@ import SwiftUI
             w.setFrame(wide, display: true)
             ShotWindow.check("the window's size again")
             model.selected = before
+            // Reach me by's alerts off: the Settings box (the alerts-off note's picture), and a session's message kept in
+            // the Kit on the Sessions page and the Events page. The log and the state go back as they were after.
+            let log = (try? String(contentsOf: dir.appendingPathComponent("log"), encoding: .utf8)) ?? ""
+            Sample.keep(dir)
+            Reach.setAlerts(false)
+            var off = facts
+            off.reach.alerts = false
+            model.fixedFacts = off
+            model.reloadFacts()
+            ShotWindow.key = true
+            model.page = .settings
+            Shot.redraw(w)
+            let alerts = "/tmp/kit-shot-\(getpid())-alerts-settings\(look ? "-dark" : "").png"
+            Shot.capture(w, to: alerts)
+            ShotWindow.key = false
+            Shot.crop(alerts, NSRect(x: 245, y: 356, width: 440, height: 280),
+                      to: "whats-new/alerts-off" + (look ? "-dark" : "") + ".png")
+            model.page = .sessions
+            model.reload()
+            model.selected = model.snap.rows.first { !$0.kept.isEmpty }?.id
+            Shot.capture(w, to: "/tmp/kit-shot-\(getpid())-alerts-session\(look ? "-dark" : "").png")
+            model.page = .events
+            model.readEvents()
+            RunLoop.main.run(until: Date().addingTimeInterval(1))
+            model.openEvent = model.events.first { $0.text.hasPrefix("Message kept") }?.id
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            Shot.capture(w, to: "/tmp/kit-shot-\(getpid())-alerts-events\(look ? "-dark" : "").png")
+            model.openEvent = nil
+            Reach.setAlerts(true)
+            try? FileManager.default.removeItem(at: Kept.file)
+            try? log.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
+            model.fixedFacts = facts
+            model.reloadFacts()
+            model.page = .sessions
+            model.selected = before
+            model.reload()
         }
         w.close()
     }
@@ -430,6 +466,24 @@ enum Sample {
         f.loginEnds = Date().addingTimeInterval(20 * 86400)
         f.lastCheck = Date().addingTimeInterval(-6 * 60)
         return f
+    }
+
+    /// Two messages kept in the Kit for an idle session while alerts are off (notify.py keep_in_kit()), and the log
+    /// line of the newest, for the Events page.
+    static func keep(_ dir: URL) {
+        let now = Date().timeIntervalSince1970
+        func item(_ id: String, ago: Double, _ subject: String, _ body: String, link: String = "") -> [String: Any] {
+            ["id": id, "at": now - ago * 60, "cse": "cse_01Sample9", "title": "Rename report columns", "subject": subject, "body": body,
+             "link": link, "url": "https://claude.ai/code/session_sample9", "from": "session", "why": "alerts are off"]
+        }
+        let items = [item("b1c2d3e4f5a6", ago: 95, "PR #42 waits for a review", "The new column names are in PR #42. CI passes. It waits for a review; I watch it and come back when it merges."),
+                     item("a1b2c3d4e5f6", ago: 12, "PR #42 merged",
+                          "The report columns have their new names. PR #42 merged and the deploy is done.\n\nNothing needed from you.",
+                          link: "https://github.com/Sttark/sample/pull/42")]
+        try? JSONSerialization.data(withJSONObject: ["items": items]).write(to: Kept.file)
+        let lf = DateFormatter(); lf.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let line = lf.string(from: Date().addingTimeInterval(-12 * 60)) + " notify Rename report columns kept a1b2c3d4e5f6: alerts are off | PR #42 merged\n"
+        if let h = try? FileHandle(forWritingTo: dir.appendingPathComponent("log")) { h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close() }
     }
 
     static func write(_ dir: URL) {

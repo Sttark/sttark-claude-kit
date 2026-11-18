@@ -17,6 +17,9 @@ enum Reach {
         var email: String
         var phone: String
         var chat: String
+        /// The Alerts switch at the top of Reach me by. Off: nothing alerts outside the Kit app; each message is kept on
+        /// its session (Kept, notify.py keep_in_kit()). The ways and their settings stay as they are.
+        var alerts = true
     }
 
     /// The address of the Claude Code login: the email default until the person sets one.
@@ -31,7 +34,23 @@ enum Reach {
         let r = state["reach"] as? [String: Any] ?? [:]
         let email = (r["email"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? loginEmail
         let ways = r["ways"] as? [String] ?? (email.lowercased().hasSuffix("@sttark.com") ? ["email"] : ["mac"])
-        return Settings(ways: ways, email: email, phone: r["phone"] as? String ?? "", chat: r["chat"] as? String ?? "")
+        return Settings(ways: ways, email: email, phone: r["phone"] as? String ?? "", chat: r["chat"] as? String ?? "",
+                        alerts: r["alerts"] as? Bool ?? true)
+    }
+
+    /// Reach me by's Alerts switch, as notify.py alerts_on() reads it: on unless the person turned it off.
+    static var alertsOn: Bool { settings().alerts }
+
+    /// The Alerts switch in Settings. Off keeps the ways, the address, the phone number and the webhook, so on brings
+    /// them back as they were.
+    static func setAlerts(_ on: Bool) {
+        save { $0["alerts"] = on }
+        note("Reach me by: alerts \(on ? "on" : "off")")
+    }
+
+    /// What happens to a session's message, for the session's panel: "tells you by Email", or that it stays here.
+    static func then(_ s: Settings) -> String {
+        s.alerts && !s.ways.isEmpty ? "tells you by \(summary(s))" : "its message stays here, on the session"
     }
 
     static func save(_ edit: @escaping (inout [String: Any]) -> Void) {
@@ -88,11 +107,13 @@ enum Reach {
     private static let work = DispatchQueue(label: "reach")
     private static var busy = false
 
-    /// Every 2 seconds: each message claude-notify left for the app.
+    /// Every 2 seconds: each message claude-notify left for the app. With alerts off (a job that came in the moment
+    /// they went off) nothing shows: notify.py keeps messages in the Kit app before they reach here.
     static func poll() {
         guard !busy, let files = try? FileManager.default.contentsOfDirectory(atPath: queue.path) else { return }
         let jobs = files.filter { $0.hasSuffix(".json") }
         guard !jobs.isEmpty else { return }
+        let alerts = alertsOn
         busy = true
         work.async {
             for name in jobs {
@@ -103,7 +124,8 @@ enum Reach {
                 try? FileManager.default.removeItem(at: u)
                 var answer: [String: [String: Any]] = [:]
                 for way in job["ways"] as? [String] ?? [] {
-                    let (ok, words) = way == "mac" ? notice(job, id: String(name.dropLast(5))) : way == "text" ? text(job) : (false, "not the app's")
+                    let (ok, words) = !alerts ? (false, "not shown: alerts are off")
+                        : way == "mac" ? notice(job, id: String(name.dropLast(5))) : way == "text" ? text(job) : (false, "not the app's")
                     answer[way] = ["ok": ok, "words": words]
                 }
                 if let out = try? JSONSerialization.data(withJSONObject: answer) {

@@ -13,8 +13,8 @@ What it serves (under `BASE_PATH`, Environment below):
 
 | Path | What |
 |---|---|
-| `/` | **Sessions**, the first of three tabs: the four groups (Needs you first; a working row shows its last progress check-in under it), Macs away, the usage strip. `?q=` searches the names; `?find=1` shows the search field |
-| `/s/<cse>` | **One session**: what it does (with its last progress check-in while it works), Open in Claude, its waits (Stop, Bring it back now, Stop waiting), effort and Auto, At the usage limit, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
+| `/` | **Sessions**, the first of three tabs: the four groups (Needs you first; a working row shows its last progress check-in under it), Idle with a message, Macs away, the usage strip. `?q=` searches the names; `?find=1` shows the search field |
+| `/s/<cse>` | **One session**: what it does (with its last progress check-in while it works), Open in Claude, the messages the Kit kept for it while alerts are off, its waits (Stop, Bring it back now, Stop waiting), effort and Auto, At the usage limit, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
 | `/archived` | **Archived**, grouped by day; `?q=` searches names and folders, and also finds the sessions under Waiting on someone else, in their own group (a row opens it under Sessions) |
 | `/archived/<cse>` | One archived session, with **Bring it back** |
 | `/usage` | **Usage**: the 5-hour and weekly limits, the sessions held at them, the Use credits setting, and **By session** (The pages, below): `?p=today`, `7d` (the default), `30d` or `custom` with `from` and `to` (days, `2026-11-02`); `?all=1` shows every row |
@@ -266,6 +266,11 @@ sender is `src/lib/push.ts`.
   minutes), a phone of theirs can get a push (`welcome`'s `phones`, then
   each `phones` message), and the session sent no Reach me by message in
   the last 30 minutes. Otherwise the Mac shows its own notice. Never both.
+- **Alerts off.** A Mac with Alerts off in Reach me by sends no `remind`
+  and shows no notice; each message stays in the Kit and comes up on its
+  session (`flags.alerts_off`, `rows[].messages`, `DESIGN.md` section 3).
+  When every live Mac has Alerts off, Menu > Notices says so in one quiet
+  line under the switch.
 - **What the server skips:** no key pair (production without
   `VAULT_VAPID_*`); no phone with notices on; a reminder it sent already
   (`pushes_sent`: the person, the session and its waiting time, 2 days, so
@@ -453,7 +458,9 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   sample Macs on the sample server (each session group, archived, a Mac
   away, Menu, a link page, and Usage by session for each period and with
   every row).
-- **The pages** (`test/pages.test.ts`): the groups and their order, a Mac
+- **The pages** (`test/pages.test.ts`): the groups and their order
+  (Idle with a message after Held), a session's kept messages and why they
+  were not sent, the waits note and Menu's line with alerts off, a Mac
   that is away, Mac names only with several Macs, search, every answer,
   `BASE_PATH` in every link, a Mac's state from the database, and Remove.
   Usage by session: under the limits, biggest share first, the note, the

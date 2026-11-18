@@ -73,6 +73,8 @@ enum Inbox {
         var background: Background? = nil
         /// The latest progress check-in of its work (Claude working only): what got done and what is next.
         var checkin: Checkins.Note? = nil
+        /// Messages kept in the Kit app for this session (Kept), newest first: the last 7 days.
+        var kept: [Kept.Message] = []
         /// The time with what it is, for the menu: "waiting 15 min", "continues Sat 2:00 AM", "deadline Mon 9:00 AM".
         var timeLabel: String {
             guard !time.isEmpty else { return "" }
@@ -127,6 +129,7 @@ enum Inbox {
         snap.paused = state["paused"] as? Bool ?? false
         let raw = state["sessions"] as? [String: [String: Any]] ?? [:]
         let sessions = State.sessions(hours: 24)
+        let kept = Dictionary(grouping: Kept.all(), by: \.cse)
         var used = Set<String>()
         func session(cse: String, sid: String) -> Session? {
             sessions.first { (!cse.isEmpty && $0.id == cse) || (!sid.isEmpty && $0.sid == sid) }
@@ -238,7 +241,9 @@ enum Inbox {
         let rest = (sessions + extra).filter { !used.contains($0.id) && inApp($0.id)
             && (listedIds != nil || $0.at > cutoff || unread[$0.id] != nil) }
         for s in rest.sorted(by: { (unread[$0.id] ?? $0.at) > (unread[$1.id] ?? $1.at) }) {
-            let sub = unread[s.id] != nil ? "Finished; reply not opened" : effortWords(s)
+            // a message kept in the Kit in the last day says the most: it is what the session had to tell you
+            let message = kept[s.id]?.first { -$0.at.timeIntervalSinceNow < Kept.recent }
+            let sub = message.map { "Message: " + $0.subject } ?? (unread[s.id] != nil ? "Finished; reply not opened" : effortWords(s))
             var r = Row(id: s.id, group: .idle, title: s.title, sub: sub, time: Waiting.ago(unread[s.id] ?? s.at))
             r.timeAt = unread[s.id] ?? s.at
             r.session = s
@@ -253,6 +258,9 @@ enum Inbox {
             r.timeAt = x.last
             r.local = x
             snap.rows.append(r)
+        }
+        for i in snap.rows.indices {
+            if let cse = snap.rows[i].target?.cse, !cse.isEmpty { snap.rows[i].kept = kept[cse] ?? [] }
         }
         return snap
     }

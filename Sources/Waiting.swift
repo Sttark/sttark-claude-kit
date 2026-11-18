@@ -45,6 +45,12 @@ enum Waiting {
         guard !due.isEmpty else { return }
         for s in due { told[s.id] = s.waitingSince!.timeIntervalSince1970 }
         d.set(told, forKey: "waitingTold")
+        // Reach me by's alerts off: no notice on this Mac and no push to a phone. The row in Needs you, in bold after
+        // 10 minutes, is the reminder, in the Kit; the Events page says no reminder went.
+        guard Reach.alertsOn else {
+            note("waiting notice skipped: \(due.map(\.title).joined(separator: ", ")): alerts are off")
+            return
+        }
         let sent = reachSent()
         let now = Date().timeIntervalSince1970
         let quiet = due.filter { s in sent[s.id].map { now - $0 < reachQuiet } ?? false }

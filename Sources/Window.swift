@@ -866,6 +866,7 @@ struct DetailView: View {
                 }
                 facts
                 if let n = row.checkin { checkin(n) }
+                messages
                 waitList
                 actions
                 if let s = row.session, row.wait == nil { effort(s) }
@@ -915,18 +916,14 @@ struct DetailView: View {
         case .waits:
             if row.waits.count > 1, let w = row.wait {
                 p.append(("Waits on", Inbox.waitsWords(row.waits) + ". It comes back when any one ends, at a reply or at its deadline."))
-                let ways = Reach.summary(model.snap.reach)
-                p.append(("Then", w.cse.isEmpty ? "You get a message by \(ways); open the session yourself."
-                                                : "Comes back to your list; tells you by \(ways)."))
+                p.append(("Then", DetailView.then(w, model.snap.reach)))
             } else if let w = row.wait {
                 p.append(("Waits on", w.what + (w.from.isEmpty ? "" : ", from \(w.from)")))
                 if let by = w.by { p.append(("Deadline", Inbox.longDay(by))) }
                 if !w.why.isEmpty { p.append(("Why then", w.why)) }
                 p.append(("Kit checks", Inbox.checks(w)))
                 if !w.failing.isEmpty { p.append(("Check failing", DetailView.failingWords(w))) }
-                let ways = Reach.summary(model.snap.reach)
-                p.append(("Then", w.cse.isEmpty ? "You get a message by \(ways); open the session yourself."
-                                                : "Comes back to your list; tells you by \(ways)."))
+                p.append(("Then", DetailView.then(w, model.snap.reach)))
             }
         case .held:
             if let h = row.hold {
@@ -952,9 +949,50 @@ struct DetailView: View {
         return p
     }
 
+    /// What happens when a wait ends: the session comes back and tells the person the ways checked, or, with alerts
+    /// off, its message stays on the session here.
+    static func then(_ w: Waits.Wait, _ r: Reach.Settings) -> String {
+        let out = r.alerts && !r.ways.isEmpty
+        if w.cse.isEmpty {
+            return out ? "You get a message by \(Reach.summary(r)); open the session yourself."
+                       : "The Kit keeps its message here; open the session yourself."
+        }
+        return "Comes back to your list; " + Reach.then(r) + "."
+    }
+
     /// "Since 8:01 AM: the Workrouter connector did not load … The Kit tries again every 10 min."
     static func failingWords(_ w: Waits.Wait) -> String {
         (w.failingSince.map { "Since \(Limit.clock($0)): " } ?? "") + w.failing + ". The Kit tries again every 10 min; the deadline still brings the session back."
+    }
+
+    /// Messages kept in the Kit for this session (Kept): what it, or the Kit for it, would have sent you with alerts on.
+    /// The newest 5 of the last 7 days; the Events page has each one too. Not a warning: alerts off is a choice.
+    @ViewBuilder var messages: some View {
+        if let newest = row.kept.first {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Messages").font(K.font(12.5, true))
+                ForEach(row.kept.prefix(5)) { m in
+                    Box {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(m.subject).font(K.font(12.5, true)).fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 6)
+                                Text(Inbox.day(m.at)).font(K.font(12)).foregroundColor(K.steel)
+                            }
+                            Text(m.body).font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
+                            if !m.link.isEmpty, let u = URL(string: m.link) {
+                                Link(destination: u) { Text(m.link).font(K.font(12)).underline().foregroundColor(K.ink).lineLimit(1).truncationMode(.middle) }
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                    }
+                }
+                Text(Kept.notSent(newest.why) + (row.kept.count > 5 ? " \(row.kept.count - 5) older ones are on the Events page." : " Each one is on the Events page too."))
+                    .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 16)
+        }
     }
 
     /// A session with several waits: each one, with its deadline, its reason and how the Kit checks it.
@@ -1447,25 +1485,32 @@ struct SettingsPage: View {
     @ViewBuilder var reach: some View {
         heading("Reach me by")
         Box {
-            Text("When a session's wait ends, tell me by").font(K.font(12)).foregroundColor(K.steel)
-                .padding(.horizontal, 12).padding(.vertical, 10)
+            let on = f.reach.alerts
+            SettingRow(title: "Alerts", desc: on ? "When a session's wait ends, it tells you the ways checked below."
+                                                 : "Off: nothing goes out. Each message stays here, on its session and on the Events page.") {
+                Toggle("Alerts", isOn: Binding(get: { on }, set: { Reach.setAlerts($0); model.changed() }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            .help(on ? "Turn off to keep every message in the Kit. The ways and their settings stay as they are."
+                     : "Turn on to send messages the ways checked below again.")
             ForEach(Reach.ways, id: \.self) { way in
                 Hairline()
-                reachRow(way)
+                reachRow(way, alerts: on)
             }
             Hairline()
             HStack {
                 Spacer()
                 Button("Send a test") { Reach.test() }
-                    .disabled(f.reach.ways.isEmpty)
-                    .help("Sends a test message every way that's checked, then says how each went.")
+                    .disabled(f.reach.ways.isEmpty || !on)
+                    .help(on ? "Sends a test message every way that's checked, then says how each went." : "Alerts are off, so nothing is sent.")
             }
             .controlSize(K.control)
             .padding(.horizontal, 12).padding(.vertical, 9)
         }
     }
 
-    func reachRow(_ way: String) -> some View {
+    /// One way. With alerts off it shows as it is, dimmed and unchangeable, and a missing setting is not a warning.
+    func reachRow(_ way: String, alerts: Bool) -> some View {
         let r = f.reach
         let need = Reach.missing(way, r)
         let detail: String = {
@@ -1479,14 +1524,17 @@ struct SettingsPage: View {
         }()
         let ask: (() -> Bool)? = way == "email" ? Reach.askEmail : way == "text" ? Reach.askPhone : way == "chat" ? Reach.askChat : nil
         return HStack(spacing: 10) {
-            Toggle(Reach.names[way]!, isOn: Binding(get: { r.ways.contains(way) }, set: { _ in Reach.pick(way); model.changed() }))
-                .toggleStyle(.checkbox).font(K.font(13))
+            Toggle(isOn: Binding(get: { r.ways.contains(way) }, set: { _ in Reach.pick(way); model.changed() })) {
+                Text(Reach.names[way]!).foregroundColor(alerts ? K.ink : K.steel)
+            }
+            .toggleStyle(.checkbox).font(K.font(13))
             Spacer()
-            if let need { Text(need).font(K.font(12)).foregroundColor(K.warnText) } else { Text(detail).font(K.font(12.5)).foregroundColor(K.steel).lineLimit(1) }
+            if let need { Text(need).font(K.font(12)).foregroundColor(alerts ? K.warnText : K.steel) } else { Text(detail).font(K.font(12.5)).foregroundColor(K.steel).lineLimit(1) }
             if let ask {
                 Button(need == nil ? "Change…" : "Set…") { _ = ask(); model.changed() }
             }
         }
+        .disabled(!alerts)
         .padding(.horizontal, K.z(12))
         .frame(minHeight: K.z(40))
     }

@@ -35,10 +35,11 @@ const sampleServer = (name, person) => ({
 });
 /** The sample's pages: the three tabs, Menu, a search on Sessions and one
  *  on Archived that also finds a session that waits, a session of each
- *  group, an archived session, the Mac that is away and one of its
- *  sessions, a link page waiting for Link, and Usage by session for each
- *  period (the Mac that is away has a list for 7 days only), with every
- *  row. */
+ *  group (Needs you and Idle with a message with their kept messages, as
+ *  MacBook Pro has Alerts off), an archived session, the Mac that is away
+ *  and one of its sessions, a link page waiting for Link, and Usage by
+ *  session for each period (the Mac that is away has a list for 7 days
+ *  only), with every row. */
 const SAMPLE_PAGES = [
   '/menu',
   '/',
@@ -54,6 +55,7 @@ const SAMPLE_PAGES = [
   '/s/session_01SampleHvacUpdates',
   '/s/session_01SampleSiteMap',
   '/s/session_01SampleOrderLogin',
+  '/s/session_01SampleFreightQuotes',
   '/archived/session_01SampleDoorPi',
   '/mac/mac_2Vd8Rt5Wn1',
   '/s/session_01SampleBinLabels?from=mac%3Amac_2Vd8Rt5Wn1',

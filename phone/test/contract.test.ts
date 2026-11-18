@@ -51,6 +51,44 @@ describe('contract', () => {
     }
   });
 
+  it('a snapshot takes alerts_off, idle rows and kept messages; one from a Kit before them still passes', () => {
+    const snapshot = (payload: any) => ({ event: 'snapshot', success: true, payload });
+    const snap = read('snapshot.macbook-pro.json');
+    expect(snap.flags.alerts_off).toBe(true);
+    const idle = snap.rows.filter((r: any) => r.group === 'idle');
+    expect(idle.length).toBeGreaterThan(0);
+    expect(idle.every((r: any) => r.messages.length > 0 && r.sub.startsWith('Message: '))).toBe(true);
+    expect(snap.rows.some((r: any) => r.group !== 'idle' && r.messages)).toBe(true);
+    expect(checkMessage('mac_to_server', snapshot(snap))).toMatchObject({ ok: true });
+    // The server forwards it to the person's pages as it came.
+    expect(checkMessage('server_to_phone', { event: 'snapshot', success: true, payload: { mac: 'mac_7Hq2Lx9Kp4', snapshot: snap } })).toMatchObject({ ok: true });
+    // A Kit before them sends none of the three.
+    const old = structuredClone(snap);
+    delete old.flags.alerts_off;
+    old.rows = old.rows.filter((r: any) => r.group !== 'idle');
+    for (const r of old.rows) delete r.messages;
+    expect(checkMessage('mac_to_server', snapshot(old))).toMatchObject({ ok: true });
+    // At most 3 messages, text at most 1000, why at most 80, no field it does not know (a link never goes up).
+    const row = idle[0];
+    const bad = (change: (r: any) => void) => {
+      const s = structuredClone(snap);
+      change(s.rows.find((r: any) => r.cse === row.cse));
+      return checkMessage('mac_to_server', snapshot(s)).ok;
+    };
+    expect(bad((r) => (r.messages = [r.messages[0], r.messages[0], r.messages[0]]))).toBe(true);
+    expect(bad((r) => (r.messages = [r.messages[0], r.messages[0], r.messages[0], r.messages[0]]))).toBe(false);
+    expect(bad((r) => (r.messages[0].text = 'x'.repeat(1000)))).toBe(true);
+    expect(bad((r) => (r.messages[0].text = 'x'.repeat(1001)))).toBe(false);
+    expect(bad((r) => (r.messages[0].why = 'y'.repeat(81)))).toBe(false);
+    expect(bad((r) => (r.messages[0].subject = 's'.repeat(161)))).toBe(false);
+    expect(bad((r) => (r.messages[0].url = 'https://claude.ai/code/x'))).toBe(false);
+    expect(bad((r) => delete r.messages[0].at)).toBe(false);
+    expect(bad((r) => (r.group = 'local'))).toBe(false);
+    expect(checkMessage('mac_to_server', snapshot({ ...snap, flags: { ...snap.flags, alerts_off: 'yes' } })).ok).toBe(false);
+    // Every invalid snapshot case fails here too.
+    for (const c of read('invalid', 'snapshot.json')) expect(checkMessage('mac_to_server', snapshot(c.value)).ok, c.why).toBe(false);
+  });
+
   it('refuses an event of the other direction, and what is not a message', () => {
     expect(checkMessage('mac_to_server', { event: 'welcome', success: true, payload: { phones: 0, watching: false } }).ok).toBe(false);
     expect(checkMessage('phone_to_server', [1]).ok).toBe(false);

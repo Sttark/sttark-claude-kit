@@ -7,7 +7,9 @@
 // code. Pure: no database, no DOM.
 
 export type Level = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-export type Group = 'needs_you' | 'working' | 'waiting' | 'held';
+/** The four groups, and idle: a session that needs nothing now but has a
+ *  message kept in the Kit in the last 24 hours (only those go up). */
+export type Group = 'needs_you' | 'working' | 'waiting' | 'held' | 'idle';
 export type MacState = 'live' | 'updating' | 'asleep' | 'quit' | 'not_heard';
 
 export type Wait = {
@@ -21,6 +23,12 @@ export type Wait = {
   failing: boolean;
   failing_since: number | null;
 };
+
+/** A message the session or the Kit would have sent to the person (email,
+ *  Chat, a text, a notice), kept in the Kit instead: Alerts are off in Reach
+ *  me by on the Mac, or for this session. why is the Mac's words for that.
+ *  No link and no address ever comes up. */
+export type KeptMessage = { at: number; subject: string; text: string; why: string };
 
 export type Row = {
   id: string;
@@ -51,6 +59,8 @@ export type Row = {
   waits: Wait[];
   hold: { hold: boolean; at: number | null; percent: number | null; limit: string; since: number | null; until: number | null; agents: number } | null;
   limit_mode: { mode: 'follow' | 'credits' | 'hold'; at: number | null };
+  /** At most 3, newest first; only when there is one. */
+  messages?: KeptMessage[];
 };
 
 export type Bar = { kind: string; name: string; percent: number; resets: number | null };
@@ -60,7 +70,9 @@ export type Snapshot = {
   v: 1;
   at: number;
   mac: { name: string; kit: string; tz: string; account: string };
-  flags: { paused: boolean; credits_all: boolean };
+  /** alerts_off: true only while Alerts are off in Reach me by on that Mac
+   *  (absent from a Kit before it, and while they are on). */
+  flags: { paused: boolean; credits_all: boolean; alerts_off?: boolean };
   reach: string[];
   usage: Usage;
   rows: Row[];
@@ -215,11 +227,12 @@ export function noticesOf(k: Kit, ui: Ui): Notices {
   return { state: n?.mine?.on ? 'on' : 'off', since: n?.mine?.since ?? null, problem: null, device: 'phone' };
 }
 
-export const GROUPS: { key: Group; label: string; icon: 'bell' | 'activity' | 'hourglass' | 'circle-pause'; col: string }[] = [
+export const GROUPS: { key: Group; label: string; icon: 'bell' | 'activity' | 'hourglass' | 'circle-pause' | 'mail'; col: string }[] = [
   { key: 'needs_you', label: 'Needs you', icon: 'bell', col: 'Waiting for' },
   { key: 'working', label: 'Claude working', icon: 'activity', col: 'Working for' },
   { key: 'waiting', label: 'Waiting on someone else', icon: 'hourglass', col: 'Deadline' },
   { key: 'held', label: 'Held at usage limit', icon: 'circle-pause', col: 'Goes on' },
+  { key: 'idle', label: 'Idle with a message', icon: 'mail', col: 'Message' },
 ];
 
 export const LEVELS: { key: Level; label: string }[] = [
@@ -238,11 +251,12 @@ export const isLive = (m: MacInfo) => m.state === 'live';
 export const multi = (k: Kit) => k.macs.length > 1;
 export const macById = (k: Kit, id: string) => k.macs.find((m) => m.id === id);
 export const liveMacs = (k: Kit) => k.macs.filter(isLive);
-/** Macs that are not live: their sessions leave the four groups. */
+/** Macs that are not live: their sessions leave the groups. */
 export const awayMacs = (k: Kit) => k.macs.filter((m) => !isLive(m));
 
 /** The rows of these Macs, each group in time order: the longest waiting
- *  or working first, the nearest deadline or end of hold first. */
+ *  or working first, the nearest deadline or end of hold first, the newest
+ *  kept message first. */
 export function rowsOf(k: Kit, macs: MacInfo[]): Placed[] {
   const out: Placed[] = [];
   for (const mac of macs) {
@@ -250,7 +264,7 @@ export function rowsOf(k: Kit, macs: MacInfo[]): Placed[] {
     if (!snap) continue;
     for (const row of snap.rows) out.push({ row, mac, snap });
   }
-  const order = (p: Placed) => p.row.time_at ?? Number.MAX_SAFE_INTEGER;
+  const order = (p: Placed) => (p.row.group === 'idle' ? -(p.row.time_at ?? 0) : (p.row.time_at ?? Number.MAX_SAFE_INTEGER));
   return out.sort((a, b) => order(a) - order(b));
 }
 export const liveRows = (k: Kit) => rowsOf(k, liveMacs(k));

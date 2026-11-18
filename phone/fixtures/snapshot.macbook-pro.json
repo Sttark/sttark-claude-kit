@@ -9,7 +9,8 @@
   },
   "flags": {
     "paused": false,
-    "credits_all": false
+    "credits_all": false,
+    "alerts_off": true
   },
   "reach": [
     "chat",
@@ -64,7 +65,15 @@
       "limit_mode": {
         "mode": "follow",
         "at": null
-      }
+      },
+      "messages": [
+        {
+          "at": 1794586140,
+          "subject": "Plan ready for your go-ahead",
+          "text": "The plan for the order page login is ready: 4 steps, about 2 hours of work.\nIt changes the sign-in form and adds a reset link.\n\nOpen the session to approve it or to ask for changes.",
+          "why": "alerts are off"
+        }
+      ]
     },
     {
       "id": "session_01SamplePressColor",
@@ -369,6 +378,86 @@
         "mode": "hold",
         "at": 60
       }
+    },
+    {
+      "id": "session_01SampleFreightQuotes",
+      "cse": "session_01SampleFreightQuotes",
+      "sid": null,
+      "group": "idle",
+      "title": "Freight quotes",
+      "sub": "Message: Freight quotes are in",
+      "sub_strong": null,
+      "sub_warn": null,
+      "late": false,
+      "time_at": 1794585300,
+      "url": "https://claude.ai/code/session_01SampleFreightQuotes",
+      "session": {
+        "level": "medium",
+        "manual": false,
+        "reason": "Supplier and freight emails",
+        "needs_you": false,
+        "why": null,
+        "waiting_since": null,
+        "turn_at": null
+      },
+      "background": null,
+      "waits": [],
+      "hold": null,
+      "limit_mode": {
+        "mode": "follow",
+        "at": null
+      },
+      "messages": [
+        {
+          "at": 1794585300,
+          "subject": "Freight quotes are in",
+          "text": "Three forwarders answered for the laminator crate (2.4 x 1.6 x 1.9 m, 1,850 kg):\n\n1. Ocean, door to door, 34 days: $2,180\n2. Ocean express, 22 days: $2,940\n3. Air, 6 days: $7,950\n\nOcean express is the fastest at a fair price. Reply in the session with the one to book.",
+          "why": "alerts are off"
+        },
+        {
+          "at": 1794569400,
+          "subject": "Crate size from the supplier",
+          "text": "The supplier sent the crate size: 2.4 x 1.6 x 1.9 m, 1,850 kg. I asked three forwarders for quotes. I will tell you when they answer.",
+          "why": "alerts are off"
+        }
+      ]
+    },
+    {
+      "id": "session_01SampleDoorLog",
+      "cse": "session_01SampleDoorLog",
+      "sid": null,
+      "group": "idle",
+      "title": "Door log export",
+      "sub": "Message: Door log export is ready",
+      "sub_strong": null,
+      "sub_warn": null,
+      "late": false,
+      "time_at": 1794579600,
+      "url": "https://claude.ai/code/session_01SampleDoorLog",
+      "session": {
+        "level": "low",
+        "manual": false,
+        "reason": "One export",
+        "needs_you": false,
+        "why": null,
+        "waiting_since": null,
+        "turn_at": null
+      },
+      "background": null,
+      "waits": [],
+      "hold": null,
+      "limit_mode": {
+        "mode": "follow",
+        "at": null
+      },
+      "messages": [
+        {
+          "at": 1794579600,
+          "subject": "Door log export is ready",
+          "text": "The door log for October is ready: 1,214 entries, one tab per door. Open the session to get the spreadsheet.",
+          "why": "alerts are off"
+        }
+      ]
     }
   ],
   "archived_rev": "a1b2c3d4e5f60718",

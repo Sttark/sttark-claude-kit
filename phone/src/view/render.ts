@@ -18,6 +18,7 @@ import {
   levelLabel,
   limitChoices,
   limitValue,
+  liveMacs,
   liveRows,
   macById,
   multi,
@@ -323,6 +324,31 @@ function changesHtml(k: Kit, cse: string): string {
   );
 }
 
+/** The messages the Kit kept for this session instead of sending them,
+ *  newest first, each with its subject, time and words (their line breaks
+ *  kept), then one line on why: the newest one's reason, in the Mac's
+ *  words. Alerts off is the person's choice, so the line is steel, never a
+ *  warning. */
+function messagesHtml(k: Kit, row: Row, tz: string): string {
+  const list = row.messages ?? [];
+  if (!list.length) return '';
+  const why = lowerFirst(noStop(list[0].why.trim()));
+  return (
+    `<section class="sec msgs" aria-labelledby="msgs-h"><h2 class="sub-h" id="msgs-h">Messages</h2>` +
+    list
+      .map((m) => {
+        const text = m.text.replace(/^\n+|\s+$/g, '');
+        return (
+          `<article class="card msg"><div class="msg-subj">${esc(m.subject)}</div><div class="msg-at">${esc(whenFull(m.at, k.now, tz))}</div>` +
+          (text ? `<p class="msg-text">${esc(text)}</p>` : '') +
+          `</article>`
+        );
+      })
+      .join('') +
+    `<p class="why">${esc(`${why ? `Not sent: ${why} on your Mac.` : 'Not sent.'} Messages stay here and in the Kit on your Mac.`)}</p></section>`
+  );
+}
+
 function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
   const p = findRow(k, cse);
   if (!p) {
@@ -343,9 +369,11 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
         ? chip('info', 'Claude working')
         : row.group === 'held'
           ? chip('', 'Held')
-          : failing
-            ? chip('warn', 'Check failing')
-            : chip('', 'Waiting');
+          : row.group === 'idle'
+            ? chip('', 'Idle')
+            : failing
+              ? chip('warn', 'Check failing')
+              : chip('', 'Waiting');
   let html = crumbs(back.href, back.label) + `<div class="title-row"><h1 class="page-title">${esc(row.title)}</h1>${head}</div>`;
   if (multi(k)) html += `<p class="page-sub">On ${esc(mac.name)}</p>`;
   if (ro) html += `<div class="card away-head">${ic('moon')}<span><b>${esc(awayHead(mac))}</b> Actions work when this Mac is back.</span></div>`;
@@ -355,6 +383,8 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
   // An answer shows where it was asked, or at the top when that part is gone.
   if (r && (r.sec === 'top' || (r.sec === 'waits' && !waitsHere) || (r.sec === 'effort' && !effortHere) || (r.sec === 'limit' && ro))) html += resultHtml(r);
   html += openLink(row.url, 'btn full', true);
+  // Reading the message is why the person opened the page: right under Open in Claude.
+  html += messagesHtml(k, row, tz);
 
   if (row.group === 'needs_you') {
     html +=
@@ -379,7 +409,15 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
     const many = row.waits.length > 1;
     html +=
       `<section class="sec" aria-labelledby="waits-h"><div class="sub-h"><h2 class="l" id="waits-h">Waits on ${esc(waitsInWords(row.waits))}</h2>${infoBtn(ui, 'waits', 'About these waits')}</div>` +
-      noteHtml(ui, 'waits', `It comes back when any one wait ends: when the thing occurs, or at its deadline. Then it tells you the way you set in Reach me by on your Mac.${many ? ' Its other waits stay open.' : ''}`) +
+      noteHtml(
+        ui,
+        'waits',
+        `It comes back when any one wait ends: when the thing occurs, or at its deadline. ${
+          snap.flags.alerts_off
+            ? 'Then its message stays in the Kit on this session, since alerts are off in Reach me by on your Mac.'
+            : 'Then it tells you the way you set in Reach me by on your Mac.'
+        }${many ? ' Its other waits stay open.' : ''}`,
+      ) +
       resultAt(ui, cse, 'waits') +
       row.waits.map((w) => waitCard(k, w, ro, ui, tz, now)).join('');
     if (!ro) {
@@ -806,6 +844,20 @@ function pageMac(k: Kit, id: string, ui: Ui): Drawn {
 
 const WHEN_AWAY = 'one notice when a session waits 10 min for you and you are away from your Mac';
 
+/** "MacBook Pro", "MacBook Pro and Mac mini", "A, B and C". */
+const andList = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+/** Under Needs you notices, when every live Mac has Alerts off in Reach me
+ *  by: those Macs send no notice (their messages stay in the Kit). Quiet
+ *  words, no warning: alerts off is the person's choice. */
+function alertsOffLine(k: Kit): string {
+  const live = liveMacs(k);
+  if (!live.length || !live.every((m) => k.snaps[m.id]?.flags.alerts_off === true)) return '';
+  const one = live.length === 1;
+  const who = `${andList(live.map((m) => m.name))} ${one ? 'sends' : 'send'}`;
+  return `<p class="why" id="notices-alerts">${esc(`${who} no notices while ${one ? 'its' : 'their'} alerts are off in Reach me by on the Mac.`)}</p>`;
+}
+
 /** The line under Needs you notices: what this phone gets now, or what keeps
  *  it from getting them and what to do. */
 function noticesLine(k: Kit, n: Notices): string {
@@ -844,11 +896,12 @@ function noticesHtml(k: Kit, ui: Ui): string {
     ? `<div class="note result fail" role="status">${ic('circle-alert')}<div><b>Notices did not change.</b> ${esc(n.problem)}</div>` +
       `<button type="button" class="x" data-act="notices-clear" aria-label="Close">${ic('x')}</button></div>`
     : '';
+  const alerts = alertsOffLine(k);
   return (
     `<section class="m-sec" aria-labelledby="notices-h"><h2 class="sec" id="notices-h">Notices</h2>` +
     `<div class="card set-row" id="notices" data-state="${esc(n.state)}"><span class="s-l">Needs you notices<small id="notices-line">${noticesLine(k, n)}</small></span>` +
-    `<button type="button" class="switch" role="switch" aria-checked="${on}" aria-label="Needs you notices" aria-describedby="notices-line" data-act="notices" data-k="notices"` +
-    `${can ? '' : ' aria-disabled="true"'}${busy ? ' aria-busy="true"' : ''}><span class="track"></span></button></div>${problem}</section>`
+    `<button type="button" class="switch" role="switch" aria-checked="${on}" aria-label="Needs you notices" aria-describedby="notices-line${alerts ? ' notices-alerts' : ''}" data-act="notices" data-k="notices"` +
+    `${can ? '' : ' aria-disabled="true"'}${busy ? ' aria-busy="true"' : ''}><span class="track"></span></button></div>${alerts}${problem}</section>`
   );
 }
 

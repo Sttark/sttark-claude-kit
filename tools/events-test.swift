@@ -210,6 +210,24 @@ import Foundation
         let cx = Events.kitLine(f.string(from: Date()) + " checkin error: KeyError: 'sessions'", names)
         check(cx?.kind == .problem && cx?.text == "A progress check-in failed", "an error is a problem")
 
+        // Reach me by's alerts off: what was kept in the Kit, the reminder and the Kit's own notice that did not show.
+        // Each is a plain row, not a warning: alerts off is a choice. With alerts on and no way checked, a warning.
+        let nk = Events.kitLine(f.string(from: Date()) + " notify Press color kept a1b2c3d4e5f6: alerts are off | PR #12 merged", names)
+        check(nk?.name == "Press color" && nk?.session == "cse_01AAAtest1" && nk?.kind == .wait && nk?.level == .info
+              && nk?.text == "Message kept in the Kit, not sent: PR #12 merged"
+              && nk?.detail.first == "Not sent: alerts are off. It is on the session's panel on the Sessions page.",
+              "a message kept in the Kit: its session, its subject, and why it was not sent")
+        let nw = Events.kitLine(f.string(from: Date()) + " notify Press color kept a1b2c3d4e5f7: no way is checked under Reach me by | PR #12 merged", names)
+        check(nw?.level == .warn && nw?.text == "Message kept in the Kit, not sent: PR #12 merged", "kept with no way checked is a warning")
+        let rk = Events.kitLine(f.string(from: Date()) + " app    waiting notice skipped: Press color: alerts are off", names)
+        check(rk?.name == "Press color" && rk?.session == "cse_01AAAtest1" && rk?.text == "No reminder: alerts are off" && rk?.level == .info,
+              "a Needs you reminder that alerts off kept back")
+        let ak = Events.kitLine(f.string(from: Date()) + " app    notice not shown, alerts are off: Sttark Claude Kit 1.300 didn't install | Click to try again.", names)
+        check(ak?.kind == .app && ak?.level == .info && ak?.text == "Notice not shown, alerts are off: Sttark Claude Kit 1.300 didn't install"
+              && ak?.detail == ["Click to try again."], "the Kit's own notice that alerts off kept back")
+        let wk = Events.kitLine(f.string(from: Date()) + " wait   07f324 cse_01AAAtes \"Press color\" sent no message after coming back; the Kit kept one in the Kit app (alerts are off)", names)
+        check(wk?.text == "It sent no message after coming back; the Kit kept one here", "the Kit's own message after a wait, kept")
+
         print(failed == 0 ? "all passed" : "\(failed) failed")
         exit(failed == 0 ? 0 : 1)
     }

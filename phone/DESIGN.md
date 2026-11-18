@@ -84,7 +84,7 @@ The contract is in this folder and is the source of truth for every message: `as
 - A ping every 25 seconds keeps the socket and the router's mapping open. It carries no data.
 - Before sleep, quit or an update the Kit sends `bye` with why (`sleep`, `quit`, `update`).
 
-**What.** The same rows the window draws: `Inbox.snapshot()`, reduced to the four groups the phone shows (Needs you, Claude working, Waiting on someone else, Held at usage limit). Idle and On this Mac only sessions are not sent, nor is a row with no Remote Control id (a held or waiting session that runs only in Terminal), since the schema needs each row's `cse` and claude.ai link. Each label is cut to 160 characters on the Mac, and the server's schema refuses any field it does not know.
+**What.** The same rows the window draws: `Inbox.snapshot()`, reduced to the four groups the phone shows (Needs you, Claude working, Waiting on someone else, Held at usage limit), and the idle sessions that have a message kept in the Kit in the last 24 hours (Idle with a message). Other idle sessions and On this Mac only sessions are not sent, nor is a row with no Remote Control id (a held or waiting session that runs only in Terminal), since the schema needs each row's `cse` and claude.ai link. Each label is cut to 160 characters on the Mac, and the server's schema refuses any field it does not know.
 
 | Field | What it is | Where the window gets it today |
 |---|---|---|
@@ -92,11 +92,12 @@ The contract is in this folder and is the source of truth for every message: `as
 | `mac.name`, `mac.kit`, `mac.tz` | Mac name, Kit version, time zone | |
 | `mac.account` | Short hash of the Claude Code login, to merge usage across Macs | `Reach.loginEmail` (`~/.claude.json`) |
 | `flags.paused`, `flags.credits_all` | Auto effort off; Use credits at the usage limit | `Inbox.Snapshot.paused`, `.creditsAll` (`paused`, `limit_credits_all`) |
+| `flags.alerts_off` | Sent, as true, only while Alerts are off in Reach me by: nothing alerts outside the Kit, and each message is kept in it. Absent: on | Reach me by's Alerts switch |
 | `reach` | The names of the Reach me by ways only | `Reach.summary()` (`reach.ways`) |
 | `usage.at`, `usage.bars[]` (`kind`, `name`, `percent`, `resets`) | The 5-hour and weekly bars | `Usage.read()` (`usage.json`) |
 | `usage.reached` (`name`, `until`) | At the limit now | `Limit.reached` |
 | `rows[].id`, `cse`, `sid` | Row id, Remote Control id, Claude Code session id | `Inbox.Row.id`, `.target` |
-| `rows[].group`, `title`, `sub`, `sub_strong`, `sub_warn`, `late` | Group and the row's words | `Inbox.snapshot()` |
+| `rows[].group`, `title`, `sub`, `sub_strong`, `sub_warn`, `late` | Group and the row's words. `idle`: a session the Claude app lists that needs nothing now but has a message kept in the Kit in the last 24 hours; its `sub` is "Message: " and the subject, its `time_at` when the newest one came | `Inbox.snapshot()` |
 | `rows[].time_at` | What the time column counts from or to | `waitingSince`, turn or background start, `wait.by`, `hold.until` |
 | `rows[].url` | The claude.ai link that Open in Claude uses | `Inbox.Row.url` |
 | `rows[].session` (`level`, `manual`, `reason`, `needs_you`, `why`, `waiting_since`, `turn_at`) | Effort and why it needs you | `State.sessions()` (`sessions[cse]`, `.app`, `app_list`) |
@@ -105,11 +106,14 @@ The contract is in this folder and is the source of truth for every message: `as
 | `rows[].waits[]` (`id`, `kind`, `what`, `from`, `why`, `by`, `checks`, `failing`, `failing_since`) | Each wait, its deadline and how the Kit checks it | `Waits.list()` (`state.waits`), `Inbox.checks()` |
 | `rows[].hold` (`hold`, `at`, `percent`, `limit`, `since`, `until`, `agents`) | Held at the limit, or at its own percentage | `Limit.waiting` (`limit_pauses` with a live process) |
 | `rows[].limit_mode` (`mode`, `at`) | At the usage limit setting | `Limit.mode(target)` (`limit_modes`) |
+| `rows[].messages[]` (`at`, `subject`, `text`, `why`) | Optional, on a row of any group: at most 3 messages, newest first, from the last 24 hours, that the session (`claude-notify`) or the Kit would have sent and kept in the Kit instead. `text` at most 1000 characters with its line breaks; `why` is the Mac's words for why it was not sent ("alerts are off", "alerts are off for this session") | The messages the Kit kept |
 | `archived_rev`, `archived_count` | The archived list's version and length; the list itself goes up only when the server asks (section 13) | `archived.json` (`rev`, `items`) |
 
-**Never leaves the Mac.** Prompts, replies, transcript lines, file contents, and the log. File and folder paths: transcripts, working folders, the server's folder. An archived session's folder goes up as its own name only (for example `src`), never the path. A wait's target (Gmail thread id, pull request), its check script and its output. A check-prompt's question: the phone shows "A yes/no check" unless the session gave `--what`. An email wait's sender address: `from` gets its domain only (sessions give `--from` as a full address). The Reach me by address, phone number and Chat webhook. Tokens and the Keychain. Idle and On this Mac only sessions.
+**Never leaves the Mac.** Prompts, replies, transcript lines, file contents, and the log. File and folder paths: transcripts, working folders, the server's folder. An archived session's folder goes up as its own name only (for example `src`), never the path. A wait's target (Gmail thread id, pull request), its check script and its output. A check-prompt's question: the phone shows "A yes/no check" unless the session gave `--what`. An email wait's sender address: `from` gets its domain only (sessions give `--from` as a full address). The Reach me by address, phone number and Chat webhook. Tokens and the Keychain. Idle sessions with no kept message, and On this Mac only sessions. A kept message's link, and any address it would have gone to.
 
 Some labels are short lines the Kit or Claude wrote about the work. They are not prompt or reply text, and the window already shows them: the effort reason, why a session needs you, an agent's task, a wait's what and why, and a progress check-in (a Haiku summary of the work's steps, told to name no file path or id).
+
+A kept message's subject and text do go up (the last 24 hours, at most 3 per session). The session or the Kit wrote it to be sent to the person by email, Chat or a text, so it is not reply text; with Alerts off it stays in the Kit, and the phone is where the person reads it. Its link does not go up.
 
 **What the server keeps.** Only the last snapshot of each Mac, replaced each time, and deleted when the Mac is removed. No history of snapshots.
 
@@ -170,19 +174,20 @@ The Mac always sends a new snapshot after, so the phone draws the truth.
 6. A visible phone page gets no push. The page already shows it.
 7. Each push has the tag `needs-<cse>`, so a newer one replaces the old one. The server keeps the person, session and waiting time for 2 days, so a reconnect or two Macs never send it twice.
 8. Notices can be turned off per phone in Menu.
+9. Alerts off in Reach me by on a Mac: that Mac sends no `remind` and shows no Mac notice; the message is kept in the Kit and shows on the session (section 3, `rows[].messages`). When every live Mac has Alerts off, Menu says so in one quiet line under the notices switch.
 
 A subscription belongs to the address it was made at (its service worker is that address's). When the Kit moves, no page at the new address can turn the old one off, and a phone with notices on at both would get each notice twice. So at start the server ends each subscription made at another address, with a record, and the person turns notices on again at the new address.
 
 ## 6. Several Macs, sign out, a Mac that is away
 
-**Several Macs.** Link each one. Rows of all live Macs go into the same four groups. A row shows its Mac's name only when the person has more than one Mac. Usage shows one block per Claude account (the account hash), from the newest read. Menu > Macs lists each Mac, its state and when it was last seen.
+**Several Macs.** Link each one. Rows of all live Macs go into the same groups. A row shows its Mac's name only when the person has more than one Mac. Usage shows one block per Claude account (the account hash), from the newest read. Menu > Macs lists each Mac, its state and when it was last seen.
 
 **A Mac that is away.** The server knows each socket.
 - Live: connected, heard from in the last 60 seconds.
 - Updating: after `bye update`, for up to 2 minutes; no alarm.
 - Asleep: after `bye sleep`. Kit quit: after `bye quit`. Not heard from: 60 seconds of silence with no `bye`.
 
-A Mac that is not live is never drawn as live. Its sessions leave the four groups (a sleeping Mac runs nothing). One row stands for it under "Macs away": "Mac mini: asleep since 6:12 PM. 4 sessions then." A tap shows its last list, headed "As of 6:12 PM", in gray, with no buttons and the line "Actions work when this Mac is back." Its usage says "Read 6:12 PM". Open in Claude still works, since the session lives in the Claude app.
+A Mac that is not live is never drawn as live. Its sessions leave the groups (a sleeping Mac runs nothing). One row stands for it under "Macs away": "Mac mini: asleep since 6:12 PM. 4 sessions then." A tap shows its last list, headed "As of 6:12 PM", in gray, with no buttons and the line "Actions work when this Mac is back." Its usage says "Read 6:12 PM". Open in Claude still works, since the session lives in the Claude app.
 
 **Sign out.** Menu > **Sign out** ends this phone's sign-in and deletes its push subscription. Menu > Macs > **Sign out everywhere** ends every sign-in and push subscription of the person. Neither removes a Mac.
 
@@ -323,7 +328,7 @@ Everything else follows the guide: the black top bar with the Sttark mark, "Clau
 
 | Tab | What it shows |
 |---|---|
-| Sessions | The four groups (Needs you, Claude working, Waiting on someone else, Held at usage limit), then "Macs away"; a compact 5-hour and weekly strip above the tab bar |
+| Sessions | The four groups (Needs you, Claude working, Waiting on someone else, Held at usage limit), then Idle with a message (an idle session with a message kept in the Kit; its page shows the messages under Open in Claude), then "Macs away"; a compact 5-hour and weekly strip above the tab bar |
 | Archived | Archived sessions, newest first, with a search field (section 13) |
 | Usage | The 5-hour and weekly bars with reset times and the 60% and 80% marks, the held sessions and when each goes on, and By session: each session's share of your use in a period (section 14) |
 

@@ -56,6 +56,7 @@ DRY = bool(os.environ.get('STTARK_WAIT_DRY'))
 PR_EVERY = 300      # seconds between reads of one pull request
 RETRY = 600         # seconds before trying again to bring back a session that didn't come back
 FALLBACK = 900      # seconds after bringing a session back with no claude-notify from it: the Kit sends a message
+                    # (kept in the Kit app instead when alerts are off: notify.py held())
 MAIL_EVERY = 300    # seconds between reads of a mailbox the Kit reads directly (claude-mail): free, at any hour
 STARTING = 120      # seconds after the Kit starts a session in which it is not started again: its first prompt runs
 
@@ -655,7 +656,14 @@ def fallback(w, what, late):
     else:
         body += ' It could not come back by itself; open it to go on.'
     return n.send(('No answer: ' if late else '') + describe(w), body, w.get('url', ''),
-                  title=w.get('title', ''), url=w.get('session_url', ''), cse=w.get('cse', ''))
+                  title=w.get('title', ''), url=w.get('session_url', ''), cse=w.get('cse', ''), source='kit')
+
+
+def sent_words(res):
+    """How the Kit's own message went, for the log: "sent one", or "kept one in the Kit app (alerts are off)"."""
+    if res and res[0][0] == load('notify').IN_KIT:
+        return 'kept one in the Kit app (%s)' % res[0][1][1]
+    return 'sent one'
 
 
 def notified_since(w, since):
@@ -698,8 +706,8 @@ def check(only=None, by=None):
         if w.get('stage') == 'back':  # brought back: the session should have told the person
             if now - w.get('back_at', 0) > FALLBACK:
                 if not notified_since(w, w['back_at']) and not DRY:
-                    fallback(w, w.get('what', ''), w.get('late', False))
-                    log('%s %s "%s" sent no message after coming back; the Kit sent one' % (wid, w.get('cse', '')[:12], w.get('title', '')))
+                    res = fallback(w, w.get('what', ''), w.get('late', False))
+                    log('%s %s "%s" sent no message after coming back; the Kit %s' % (wid, w.get('cse', '')[:12], w.get('title', ''), sent_words(res)))
                 change(lambda s: (s.get('waits') or {}).pop(wid, None))
             result = 'back'
             continue
@@ -777,8 +785,9 @@ def check(only=None, by=None):
             result = 'brought'
         else:
             w['stage'] = 'out'
-            fallback(w, what, late)
-            log('%s sent the message from the Kit; the session did not come back' % wid)
+            res = fallback(w, what, late)
+            log('%s %s the message from the Kit; the session did not come back' % (
+                wid, 'kept' if sent_words(res).startswith('kept') else 'sent'))
             change(lambda s: (s.get('waits') or {}).pop(wid, None))
             result = 'sent'
         ids = w.get('found_ids') or [(w.get('found') or {}).get('id')]
