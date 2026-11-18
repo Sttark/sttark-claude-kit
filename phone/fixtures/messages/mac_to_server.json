@@ -600,6 +600,21 @@
     }
   },
   {
+    "event": "result",
+    "success": true,
+    "payload": {
+      "id": "act-0007",
+      "reason": "ok",
+      "words": "Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app.",
+      "before": {
+        "alerts": true
+      },
+      "after": {
+        "alerts": false
+      }
+    }
+  },
+  {
     "event": "remind",
     "success": true,
     "payload": {

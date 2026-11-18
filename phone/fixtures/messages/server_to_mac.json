@@ -143,6 +143,22 @@
     "event": "action",
     "success": true,
     "payload": {
+      "id": "act-0007",
+      "act": "set_alerts",
+      "args": {
+        "cse": "session_01SamplePowderWatch",
+        "alerts": false
+      },
+      "by": {
+        "email": "person@sttark.com",
+        "name": "Sample Person"
+      }
+    }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
       "id": "act-0006",
       "act": "unarchive",
       "args": {

@@ -550,6 +550,17 @@ main:has(.strip) {
 .lvl.manual {
   border-style: dashed;
 }
+/* A session whose alerts are off: a bell with a line through it after its
+   name; its shape says it, and words for screen readers go with it. */
+.alerts-off {
+  display: inline-flex;
+  flex: none;
+  color: var(--ink);
+}
+.alerts-off svg.i {
+  width: 16px;
+  height: 16px;
+}
 .sub {
   overflow: hidden;
   color: var(--steel);
@@ -642,6 +653,7 @@ main:has(.strip) {
 .stale .ck svg.i,
 .stale .time,
 .stale .lvl,
+.stale .alerts-off,
 .stale .grp-h,
 .stale .grp-h svg.i {
   color: var(--steel);

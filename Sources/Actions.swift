@@ -1,8 +1,8 @@
 import Foundation
 
 /// Every action the window runs on a session, in one place, so the phone runs the same code (phone/DESIGN.md,
-/// section 4, and the actions in phone/asyncapi.yaml): bring_back, stop_waits, set_level, set_auto, set_limit and
-/// unarchive. Each one:
+/// section 4, and the actions in phone/asyncapi.yaml): bring_back, stop_waits, set_level, set_auto, set_limit,
+/// set_alerts and unarchive. Each one:
 /// - reads the state again at the moment it runs, never the caller's copy, so a wait that ended or a session that left
 ///   since the caller looked is refused with nothing changed;
 /// - runs off the main thread, and calls `done` on the main thread;
@@ -33,6 +33,7 @@ enum KitActions {
         var limitMode: Limit.Mode? = nil
         var waits: [String]? = nil
         var archived: Bool? = nil
+        var alerts: Bool? = nil
 
         /// As the phone's result sends it (the schema's `state`).
         var json: [String: Any] {
@@ -48,6 +49,7 @@ enum KitActions {
             }
             if let waits { j["waits"] = waits }
             if let archived { j["archived"] = archived }
+            if let alerts { j["alerts"] = alerts }
             return j
         }
     }
@@ -164,6 +166,24 @@ enum KitActions {
             case .hold(let n): words = "It never uses usage credits now. It holds at \(n)%."
             }
             return Result(reason: .ok, words: words, before: before, after: after)
+        }
+    }
+
+    /// The session's alerts: on, it reaches the person the Reach me by ways; off, nothing about it goes out by any way,
+    /// and its messages stay in the Kit app (Alerts). Any session the window or the phone lists, by its Remote Control id.
+    static func setAlerts(cse: String, on: Bool, origin: Origin, done: @escaping (Result) -> Void = { _ in }) {
+        run(done) {
+            let id = Alerts.cse(cse)
+            let what = "turn alerts \(on ? "on" : "off") for \(id)"
+            guard id.hasPrefix("cse_"), let r = row(cse: id) else {
+                return refused(what, origin, Result(reason: .gone, words: Words.sessionGone))
+            }
+            let before = Values(alerts: Alerts.on(id))
+            Alerts.set(id, on: on, title: r.title, by: origin)
+            let after = Values(alerts: Alerts.on(id))
+            return Result(reason: .ok, words: on ? "Alerts are on. This session reaches you the ways set in Reach me by."
+                                                 : "Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app.",
+                          before: before, after: after)
         }
     }
 

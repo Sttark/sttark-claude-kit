@@ -411,6 +411,15 @@ final class KitModel: ObservableObject {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         return snap.rows(g).filter { q.isEmpty || $0.title.lowercased().contains(q) || $0.sub.lowercased().contains(q) }
     }
+
+    /// A session's alerts on or off, from the bell on its row or its Alerts switch. The row shows the new state at once;
+    /// the state file then says what is so.
+    func setAlerts(_ r: Inbox.Row, on: Bool) {
+        guard let c = r.target?.cse else { return }
+        let id = Alerts.cse(c)
+        if on { snap.alertsOff.remove(id) } else { snap.alertsOff.insert(id) }
+        KitActions.setAlerts(cse: id, on: on, origin: .window) { [weak self] _ in self?.changed() }
+    }
 }
 
 /// The 5-hour and weekly limits, from the usage the hooks read (usage.json, at most a minute old while sessions run).
@@ -737,7 +746,9 @@ struct SessionsPage: View {
                             if i > 0 && r.id != model.selected && model.rows(g)[i - 1].id != model.selected {
                                 Hairline().padding(.horizontal, 10)
                             } else if i > 0 { Color.clear.frame(height: 1) }
-                            RowView(row: r, selected: r.id == model.selected).onTapGesture { model.selected = r.id }
+                            RowView(row: r, selected: r.id == model.selected, alerts: model.snap.alerts(r),
+                                    reach: model.snap.reach) { on in model.setAlerts(r, on: on) }
+                                .onTapGesture { model.selected = r.id }
                         }
                     }
                 }
@@ -762,17 +773,20 @@ struct GroupHeader: View {
     let count: Int
     var body: some View {
         ListHeader(icon: group.symbol, title: group.title, count: count, column: group.column,
-                   color: group == .needs ? K.warnMark : group == .working ? K.infoMark : K.steel)
+                   color: group == .needs ? K.warnMark : group == .working ? K.infoMark : K.steel, trailing: RowView.afterTime)
     }
 }
 
-/// A list's group heading: its icon, its name and count, and the time column's name on the right.
+/// A list's group heading: its icon, its name and count, and the time column's name on the right. `trailing`: how far
+/// the rows' time ends from their right edge when they have a column after it (the Sessions page's alerts bell), so the
+/// name stays over the time.
 struct ListHeader: View {
     let icon: String
     let title: String
     let count: Int
     let column: String
     var color = K.steel
+    var trailing: CGFloat = 0
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: icon).font(.system(size: 12 * K.zoom, weight: .medium)).foregroundColor(color)
@@ -780,6 +794,7 @@ struct ListHeader: View {
             Text("\(count)").font(K.font(12))
             Spacer()
             Text(column).font(K.font(12))
+            if trailing > 14 { Color.clear.frame(width: trailing - 14, height: 1) }   // less this row's padding and spacing
         }
         .foregroundColor(K.steel)
         .padding(.horizontal, 8)
@@ -802,32 +817,71 @@ struct LevelChip: View {
 struct RowView: View {
     let row: Inbox.Row
     let selected: Bool
+    /// The session's alerts: on or off, with the bell at the row's end that turns them off or on in one click; nil
+    /// for a row with no Remote Control id, which has no bell. `reach`: Reach me by's settings, for the bell's tip.
+    var alerts: Bool? = nil
+    var reach: Reach.Settings? = nil
+    var setAlerts: (Bool) -> Void = { _ in }
+
+    /// What the bell's tip says: the state, where messages go, and what a click does.
+    static func tip(on: Bool, reach: Reach.Settings?) -> String {
+        guard on else { return "Alerts off: nothing about this session goes out. Its messages stay here, on the session. Click to turn them on." }
+        if let r = reach, !r.alerts { return "Alerts on for this session, but off for every session in Settings. Click to turn this session's off." }
+        if let r = reach, !r.ways.isEmpty { return "Alerts on: this session can reach you by \(Reach.summary(r)). Click to turn them off." }
+        return "Alerts on: this session can reach you. Click to turn them off."
+    }
+
+    /// The bell's column, the space before it, the row's padding after it, and so how far the time ends from the right.
+    static var bellColumn: CGFloat { K.z(26) }
+    static var bellGap: CGFloat { K.z(4) }
+    static var edge: CGFloat { K.z(4) }
+    static var afterTime: CGFloat { bellGap + bellColumn + edge }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(row.title).font(K.font(13.5, true)).lineLimit(1)
-                        if let s = row.session, row.group == .working || row.group == .idle, levelNames[s.level] != nil {
-                            LevelChip(level: s.level, manual: s.manual)
+            HStack(spacing: RowView.bellGap) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(row.title).font(K.font(13.5, true)).lineLimit(1)
+                            if let s = row.session, row.group == .working || row.group == .idle, levelNames[s.level] != nil {
+                                LevelChip(level: s.level, manual: s.manual)
+                            }
                         }
+                        (Text(row.sub) + Text(row.subStrong.isEmpty ? "" : " · ") + Text(row.subStrong).foregroundColor(row.subWarn ? K.warnText : K.ink))
+                            .font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
                     }
-                    (Text(row.sub) + Text(row.subStrong.isEmpty ? "" : " · ") + Text(row.subStrong).foregroundColor(row.subWarn ? K.warnText : K.ink))
-                        .font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 8)
+                    Text(row.time).font(K.font(12, row.late)).foregroundColor(row.late ? K.warnText : K.steel)
                 }
-                Spacer(minLength: 8)
-                Text(row.time).font(K.font(12, row.late)).foregroundColor(row.late ? K.warnText : K.steel)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                // the session's alerts, beside its time: one click turns them off or on
+                if let on = alerts {
+                    Button { setAlerts(!on) } label: {
+                        Image(systemName: on ? "bell" : "bell.slash")
+                            .font(.system(size: 12.5 * K.zoom, weight: on ? .regular : .semibold))
+                            .foregroundColor(on ? K.steel : K.ink)
+                            .frame(width: RowView.bellColumn, height: RowView.bellColumn)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(RowView.tip(on: on, reach: reach))
+                    .accessibilityLabel(on ? "Alerts on" : "Alerts off")
+                    .accessibilityHint(on ? "Turns this session's alerts off." : "Turns this session's alerts on.")
+                } else {
+                    Color.clear.frame(width: RowView.bellColumn, height: 1)
+                }
             }
             // the latest check-in under both, the row's whole width, so more of the note shows
             if let n = row.checkin { CheckinLine(note: n) }
         }
-        .padding(.horizontal, K.z(10))
+        .padding(.leading, K.z(10))
+        .padding(.trailing, RowView.edge)
         .padding(.vertical, K.z(6))
         .frame(minHeight: K.z(44))
         .background(selected ? K.wash : .clear, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
@@ -871,6 +925,7 @@ struct DetailView: View {
                 actions
                 if let s = row.session, row.wait == nil { effort(s) }
                 if let t = row.target { usage(t) }
+                if let on = model.snap.alerts(row) { alerts(on) }
             }
             .padding(K.z(16))
             .textSelection(.enabled)
@@ -916,14 +971,14 @@ struct DetailView: View {
         case .waits:
             if row.waits.count > 1, let w = row.wait {
                 p.append(("Waits on", Inbox.waitsWords(row.waits) + ". It comes back when any one ends, at a reply or at its deadline."))
-                p.append(("Then", DetailView.then(w, model.snap.reach)))
+                p.append(("Then", DetailView.then(w, model.snap.reach, alerts: model.snap.alerts(row) ?? true)))
             } else if let w = row.wait {
                 p.append(("Waits on", w.what + (w.from.isEmpty ? "" : ", from \(w.from)")))
                 if let by = w.by { p.append(("Deadline", Inbox.longDay(by))) }
                 if !w.why.isEmpty { p.append(("Why then", w.why)) }
                 p.append(("Kit checks", Inbox.checks(w)))
                 if !w.failing.isEmpty { p.append(("Check failing", DetailView.failingWords(w))) }
-                p.append(("Then", DetailView.then(w, model.snap.reach)))
+                p.append(("Then", DetailView.then(w, model.snap.reach, alerts: model.snap.alerts(row) ?? true)))
             }
         case .held:
             if let h = row.hold {
@@ -950,13 +1005,14 @@ struct DetailView: View {
     }
 
     /// What happens when a wait ends: the session comes back and tells the person the ways checked, or, with alerts
-    /// off, its message stays on the session here.
-    static func then(_ w: Waits.Wait, _ r: Reach.Settings) -> String {
+    /// off (for every session, or this session's own), its message stays on the session here.
+    static func then(_ w: Waits.Wait, _ r: Reach.Settings, alerts: Bool = true) -> String {
         let out = r.alerts && !r.ways.isEmpty
         if w.cse.isEmpty {
             return out ? "You get a message by \(Reach.summary(r)); open the session yourself."
                        : "The Kit keeps its message here; open the session yourself."
         }
+        if !alerts { return "Comes back to your list; its alerts are off, so its message stays here, on the session." }
         return "Comes back to your list; " + Reach.then(r) + "."
     }
 
@@ -1161,6 +1217,31 @@ struct DetailView: View {
             .labelsHidden()
             .pickerStyle(.menu)
             Text(usageWords(mode)).font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 20)
+    }
+
+    /// The session's alerts, the same switch as the bell on its row: on, it reaches the person the Reach me by ways; off,
+    /// nothing about it goes out.
+    func alerts(_ on: Bool) -> some View {
+        let pick = Binding<Bool>(get: { on }, set: { model.setAlerts(row, on: $0) })
+        let ways = model.snap.reach.ways
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label { Text("Alerts").font(K.font(12.5, true)) } icon: {
+                    Image(systemName: on ? "bell" : "bell.slash").font(.system(size: 12 * K.zoom)).foregroundColor(on ? K.steel : K.ink)
+                }
+                Spacer()
+                Toggle(isOn: pick) { Text(on ? "On" : "Off").font(K.font(12.5)) }
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .accessibilityLabel("Alerts")
+                    .help(on ? "Turn off to keep this session's messages here, on the session." : "Turn on to let this session reach you again.")
+            }
+            Text(!on ? "Off: nothing about this session goes out, not even a Needs you reminder. Its messages stay here, on the session."
+                 : !model.snap.reach.alerts ? "On, but Alerts are off for every session under Reach me by in Settings, so its messages stay here."
+                 : ways.isEmpty ? "On, but no way is checked under Reach me by in Settings."
+                 : "On: it reaches you by \(Reach.summary(model.snap.reach)), as set under Reach me by in Settings.")
+                .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 20)
     }

@@ -404,6 +404,9 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       case 'auto':
         if (row?.session) act('auto', 'effort', 'set_auto', { cse: row.cse, on: row.session.manual });
         return;
+      case 'alerts':
+        if (row) act('alerts', 'alerts', 'set_alerts', { cse: row.cse, alerts: row.alerts === false });
+        return;
       case 'unarchive':
         if (view.page === 'archived-item') act('unarchive', 'top', 'unarchive', { cse: view.cse });
         return;

@@ -61,7 +61,16 @@ export type Row = {
   limit_mode: { mode: 'follow' | 'credits' | 'hold'; at: number | null };
   /** At most 3, newest first; only when there is one. */
   messages?: KeptMessage[];
+  /** The session's alerts: false when the person turned them off for it.
+   *  A Kit from before the switch sends none: on. */
+  alerts?: boolean;
 };
+
+/** A session's alerts are on unless its Mac says they are off. */
+export const alertsOn = (row: Row) => row.alerts !== false;
+
+/** The Reach me by ways, as the Kit's Settings name them. */
+export const REACH_WAYS = { email: 'Email', push: 'Claude app', chat: 'Google Chat', text: 'Text message', mac: 'Mac notice' } as const;
 
 export type Bar = { kind: string; name: string; percent: number; resets: number | null };
 export type Usage = { at: number | null; bars: Bar[]; reached: { name: string; until: number | null } | null };
@@ -214,7 +223,7 @@ export type Ui = {
 };
 
 export type Reason = 'ok' | 'gone' | 'not_now' | 'not_here' | 'bad' | 'offline' | 'timeout' | 'denied';
-export type Result = { scope: string; sec: 'top' | 'waits' | 'effort' | 'limit'; reason: Reason; words: string };
+export type Result = { scope: string; sec: 'top' | 'waits' | 'effort' | 'limit' | 'alerts'; reason: Reason; words: string };
 
 export const emptyUi = (): Ui => ({ notes: [], sending: null, result: null, confirm: null, q: '', find: false, notices: null });
 

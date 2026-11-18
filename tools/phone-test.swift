@@ -446,8 +446,10 @@ import Foundation
             return got
         }
         let by: [String: Any] = ["email": "kip.valve@sttark.com", "name": "Kip Valve"]
-        let refused = [("an act that is not one of the six", ["id": "t1", "act": "rm_rf", "args": ["cse": "cse_x"], "by": by]),
+        let refused = [("an act that is not one of the seven", ["id": "t1", "act": "rm_rf", "args": ["cse": "cse_x"], "by": by]),
                        ("Auto as a number, not true or false", ["id": "t2", "act": "set_auto", "args": ["cse": "cse_x", "on": 1], "by": by]),
+                       ("alerts with Auto's on, not alerts", ["id": "t7", "act": "set_alerts", "args": ["cse": "cse_x", "on": false], "by": by]),
+                       ("alerts as a number", ["id": "t8", "act": "set_alerts", "args": ["cse": "cse_x", "alerts": 0], "by": by]),
                        ("Stop waiting with 21 waits", ["id": "t3", "act": "stop_waits", "args": ["waits": (0..<21).map { "w\($0)" }], "by": by]),
                        ("a hold with no percent", ["id": "t4", "act": "set_limit", "args": ["cse": "cse_x", "sid": NSNull(), "mode": "hold", "at": NSNull()], "by": by]),
                        ("a level that does not exist", ["id": "t5", "act": "set_level", "args": ["cse": "cse_x", "level": "huge"], "by": by]),
@@ -632,6 +634,39 @@ import Foundation
               notify(["Laminator quote", "The supplier answered."], session: "session_01PhoneOrderLogin") == 0
               && Kept.of("cse_01PhoneOrderLogin").first?.subject == "Laminator quote" && Kept.of("cse_01PhoneOrderLogin").first?.why == "alerts are off")
         try? FileManager.default.removeItem(at: Kept.file)
+
+        // one session's own alerts off, with Reach me by's alerts on: no reminder for it, on this Mac or the phone, and
+        // its message is kept on it, the same way, with its own reason
+        State.change { s in
+            s["reach_sent"] = [String: Any]()
+            s["reach"] = ["ways": ["chat"], "email": "", "chat": "https://chat.googleapis.com/v1/spaces/x"]
+        }
+        let shownBefore = shown.count
+        Alerts.set("cse_01PhoneOrderLogin", on: false, title: "Order page login", by: .window)
+        reply("cse_01PhoneOrderLogin", ago: 880)
+        PhoneLink.atMac = { true }
+        Waiting.notifyDue()
+        reply("cse_01PhoneOrderLogin", ago: 900)
+        PhoneLink.atMac = { false }
+        Waiting.notifyDue()
+        check("its alerts off: no reminder at the Mac or away, and the log says why", shown.count == shownBefore
+              && log().contains("waiting notice skipped: Order page login: its alerts are off"))
+        check("its alerts off: claude-notify keeps the message on the session, with its reason, and exits 0",
+              notify(["Order page", "The login works."], session: "session_01PhoneOrderLogin") == 0
+              && Waiting.reachSent()["cse_01PhoneOrderLogin"] == nil
+              && Kept.of("cse_01PhoneOrderLogin").first?.subject == "Order page"
+              && Kept.of("cse_01PhoneOrderLogin").first?.why == "this session's alerts are off")
+        let events = Events.read(kitLog: logURL)
+        check("the Events page: the alerts turned off, the reminder skipped, the message kept",
+              events.contains { $0.text == "Alerts turned off" && $0.session == "cse_01PhoneOrderLogin" && $0.detail.first?.hasPrefix("From the Kit window.") == true }
+              && events.contains { $0.text == "No reminder: its alerts are off" && $0.name == "Order page login" }
+              && events.contains { $0.text.hasPrefix("Message kept in the Kit, not sent") && $0.session == "cse_01PhoneOrderLogin"
+                                   && $0.detail.first?.contains("this session's alerts are off") == true })
+        try? FileManager.default.removeItem(at: Kept.file)
+        Alerts.set("cse_01PhoneOrderLogin", on: true, title: "Order page login", by: .phone)
+        reply("cse_01PhoneOrderLogin", ago: 920)
+        Waiting.notifyDue()
+        check("its alerts on again: the reminder comes again", shown.count == shownBefore + 1)
         UserDefaults.standard.removeObject(forKey: "waitingTold")
     }
 
@@ -1306,6 +1341,7 @@ enum E2E {
             ("set an effort level", "set_level", ["cse": "cse_01PhoneKitDesign", "level": "high"], "ok"),
             ("Auto on", "set_auto", ["cse": "cse_01PhonePressColor", "on": true], "ok"),
             ("At the usage limit: hold at 70%", "set_limit", ["cse": "cse_01PhoneNozzle", "sid": NSNull(), "mode": "hold", "at": 70], "ok"),
+            ("Alerts off", "set_alerts", ["cse": "cse_01PhoneNozzle", "alerts": false], "ok"),
             ("Stop, one wait", "stop_waits", ["waits": ["d4e5f6"]], "ok"),
             ("Bring it back now", "bring_back", ["wait": "b8c9d0"], "ok"),
             ("Bring it back, from Archived", "unarchive", ["cse": "cse_01PhoneWeeklyPlan"], "ok"),
@@ -1328,7 +1364,12 @@ enum E2E {
         let events = Events.read(kitLog: logURL).filter { $0.kind == .phone && $0.text.hasPrefix("From the phone: ") }
         check("the Events page shows each action under Kit on your phone (\(events.count))", events.count >= actions.count - 1
               && events.contains { $0.text == "From the phone: Effort is High now. Auto is off for this session." && $0.detail.first?.contains(person) == true })
-        check("the phone's session page gets a record of each change", page.payloads("record").contains { $0["act"] as? String == "set_level" && $0["reason"] as? String == "ok" })
+        check("the phone's session page gets a record of each change", page.payloads("record").contains { $0["act"] as? String == "set_level" && $0["reason"] as? String == "ok" }
+              && page.payloads("record").contains { $0["act"] as? String == "set_alerts" && $0["words"] as? String == "Turned alerts off from the phone." })
+        check("alerts off from the phone: kept by the session's id, and its row on the phone says so",
+              Alerts.off().contains("cse_01PhoneNozzle") && wait(10) {
+                  (page.lastSnapshot(mac)?["rows"] as? [[String: Any]])?.first { $0["cse"] as? String == "cse_01PhoneNozzle" }?["alerts"] as? Bool == false
+              })
         check("after the actions the Kit is still connected", PhoneLink.status.connected)
 
         // ---- Needs you reminders: where they go, end to end ----

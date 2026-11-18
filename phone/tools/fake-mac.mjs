@@ -402,6 +402,16 @@ export class FakeMac {
           row.limit_mode = mode;
         });
       }
+      case 'set_alerts': {
+        const row = byCse(args.cse);
+        if (!row) return out('gone', W.sessionGone);
+        const words = args.alerts
+          ? 'Alerts are on. This session reaches you the ways set in Reach me by.'
+          : 'Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app.';
+        return out('ok', words, { alerts: row.alerts !== false }, { alerts: args.alerts }, () => {
+          row.alerts = args.alerts;
+        });
+      }
       case 'unarchive': {
         const item = this.archived.find((i) => i.cse === args.cse);
         if (!item) return byCse(args.cse) ? out('gone', W.notArchived) : out('not_here', W.notHere);
@@ -411,7 +421,7 @@ export class FakeMac {
             id: item.cse, cse: item.cse, sid: null, group: 'working', title: item.title, sub: 'Brought back from the archive',
             sub_strong: null, sub_warn: null, late: false, time_at: now, url: item.url,
             session: { level: 'medium', manual: false, reason: null, needs_you: false, why: null, waiting_since: null, turn_at: now },
-            background: null, waits: [], hold: null, limit_mode: { mode: 'follow', at: null },
+            background: null, waits: [], hold: null, limit_mode: { mode: 'follow', at: null }, alerts: true,
           });
         });
       }

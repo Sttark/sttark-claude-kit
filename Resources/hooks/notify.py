@@ -38,6 +38,11 @@ shows on the message's session and the phone gets for the last 24 hours, and a l
 message (wait.py after a wait, watch.py for a reply it could not bring back), so nothing alerts outside the Kit app: no
 mail, Chat, text, Mac notice, and no PushNotification step for the session. claude-notify then exits 0 and prints one line that tells
 the session the person reads it in the Kit app, so it does not try another way.
+
+Each session's alerts are on unless the person turned them off for that session: the bell on its row in the Kit
+window, or the Alerts switch on its page on the phone. Off is alerts_off[<cse>] in the state file, by the session's
+Remote Control id, so it lasts through archive, unarchive and restarts (Alerts in Sources/Reach.swift); held() then
+keeps every message about that session ("this session's alerts are off"), and the Needs you reminder skips it.
 """
 import base64, fcntl, importlib.util, json, os, re, subprocess, sys, time, urllib.request, uuid
 
@@ -104,11 +109,13 @@ def held(cse='', ways=None, state=None):
     place that decides, for every message the Kit or a session sends (send() asks it first). `ways`: the ways the
     caller would use (None: the ones checked). Reasons, in the words the window, the phone and the log show:
       'alerts are off'                        Reach me by's Alerts switch is off
-      'no way is checked under Reach me by'   on, with nothing checked
-    A session's own alerts switch adds its reason here, before the check of the ways."""
+      "this session's alerts are off"         the session's own alerts switch is off (alerts_off)
+      'no way is checked under Reach me by'   on, with nothing checked"""
     st = state if state is not None else peek()
     if not alerts_on(st):
         return 'alerts are off'
+    if alerts_off(cse, st):
+        return "this session's alerts are off"
     if not [w for w in (ways if ways is not None else settings(st)['ways']) if w in WAYS]:
         return 'no way is checked under Reach me by'
     return ''
@@ -156,6 +163,19 @@ def kept_line(why):
     """The one line claude-notify prints when it kept the message: the session must not try another way."""
     return ('Kept in the Sttark Claude Kit app, on this session (%s): the person reads it there. It went no other way, '
             'and that is done: do not send it another way.' % why)
+
+
+def cse_of(sid):
+    """A Remote Control id as the state file keys it: session_X is cse_X."""
+    sid = sid or ''
+    return 'cse_' + sid.split('_', 1)[1] if sid.startswith('session_') else sid
+
+
+def alerts_off(cse, state=None):
+    """True when the person turned this session's alerts off (alerts_off[<cse>] in the state file, which the Kit window
+    and the phone write): nothing about it goes out by any way."""
+    off = (state if state is not None else peek()).get('alerts_off')
+    return bool(cse) and isinstance(off, dict) and cse_of(cse) in off
 
 
 def mark_sent(cse, now=None):

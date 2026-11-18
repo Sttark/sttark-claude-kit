@@ -106,7 +106,8 @@ The contract is in this folder and is the source of truth for every message: `as
 | `rows[].waits[]` (`id`, `kind`, `what`, `from`, `why`, `by`, `checks`, `failing`, `failing_since`) | Each wait, its deadline and how the Kit checks it | `Waits.list()` (`state.waits`), `Inbox.checks()` |
 | `rows[].hold` (`hold`, `at`, `percent`, `limit`, `since`, `until`, `agents`) | Held at the limit, or at its own percentage | `Limit.waiting` (`limit_pauses` with a live process) |
 | `rows[].limit_mode` (`mode`, `at`) | At the usage limit setting | `Limit.mode(target)` (`limit_modes`) |
-| `rows[].messages[]` (`at`, `subject`, `text`, `why`) | Optional, on a row of any group: at most 3 messages, newest first, from the last 24 hours, that the session (`claude-notify`) or the Kit would have sent and kept in the Kit instead. `text` at most 1000 characters with its line breaks; `why` is the Mac's words for why it was not sent ("alerts are off", "alerts are off for this session") | The messages the Kit kept |
+| `rows[].messages[]` (`at`, `subject`, `text`, `why`) | Optional, on a row of any group: at most 3 messages, newest first, from the last 24 hours, that the session (`claude-notify`) or the Kit would have sent and kept in the Kit instead. `text` at most 1000 characters with its line breaks; `why` is the Mac's words for why it was not sent ("alerts are off", "this session's alerts are off") | The messages the Kit kept |
+| `rows[].alerts` | The session's alerts: `false` when the person turned them off for it. Optional: a Kit from before the switch sends none, which reads as on | `Alerts.on(cse)` (`alerts_off`) |
 | `archived_rev`, `archived_count` | The archived list's version and length; the list itself goes up only when the server asks (section 13) | `archived.json` (`rev`, `items`) |
 
 **Never leaves the Mac.** Prompts, replies, transcript lines, file contents, and the log. File and folder paths: transcripts, working folders, the server's folder. An archived session's folder goes up as its own name only (for example `src`), never the path. A wait's target (Gmail thread id, pull request), its check script and its output. A check-prompt's question: the phone shows "A yes/no check" unless the session gave `--what`. An email wait's sender address: `from` gets its domain only (sessions give `--from` as a full address). The Reach me by address, phone number and Chat webhook. Tokens and the Keychain. Idle sessions with no kept message, and On this Mac only sessions. A kept message's link, and any address it would have gone to.
@@ -131,11 +132,12 @@ A kept message's subject and text do go up (the last 24 hours, at most 3 per ses
 | Effort level | `set_level {cse, level}` | `setLevel(cse:level:origin:)` | `effort-hook.py --set <cse> <level> --by <origin>`: Manual, then `apply_flag_settings` |
 | Auto | `set_auto {cse, on}` | `setAuto(cse:on:origin:)` | `State.setManual`: `sessions[cse].manual` |
 | At the usage limit | `set_limit {cse, sid, mode, at}` | `setLimit(cse:sid:mode:origin:)` | `Limit.setMode`: `limit_modes` |
+| Alerts | `set_alerts {cse, alerts}` | `setAlerts(cse:on:origin:)` | `Alerts.set`: `alerts_off[cse]`, which `notify.py` and `Waiting.notifyDue` read |
 | Bring it back (archived) | `unarchive {cse}` | `unarchive(cse:origin:)` (section 13) | `wait.py --unarchive <cse> --by <origin>`, then the existing `bring_back(w, None)` |
 | Open in Claude | none | `Waiting.open` | The phone opens the claude.ai link. Nothing runs on the Mac |
 | Use credits at the usage limit | none | `Menu.toggleCredits` | Read only on the phone: "Change it in Settings on your Mac" |
 
-No other action exists. The server sends no free text, no command and no prompt. A server that someone broke into can do only these seven things, and only to linked Macs, and each one is in the Mac's log.
+No other action exists. The server sends no free text, no command and no prompt. A server that someone broke into can do only these eight things, and only to linked Macs, and each one is in the Mac's log.
 
 **The flow.**
 1. The phone sends `action` with an id, the Mac, the action and the snapshot time it saw. The button says "Sending...".
@@ -170,7 +172,7 @@ The Mac always sends a new snapshot after, so the phone draws the truth.
 2. Same moment as today's Mac notice: once per reply, when a session that needs you has waited 10 minutes (`Waiting.notifyDue` with `waitingTold`).
 3. One place, chosen by the Mac. If the person is at the Mac (screen on and unlocked, input in the last 2 minutes), the Mac notice shows. If they are away, the phone push goes out. Never both. With no linked phone, or no socket, the Mac notice shows as today. The Mac knows how many phones can get a push from `welcome`'s `phones`, then from each `phones` message when it changes (a phone turns notices on or off, signs out, or its push service says it is gone).
 4. The Claude app's own push (`inputNeededNotifEnabled`) comes the moment Claude asks. The Kit's comes 10 minutes later and only if the session is still not opened, so it is a reminder, not a repeat.
-5. Reach me by: a session that sent a Reach me by message in the last 30 minutes gets no reminder, on the phone or the Mac. `notify.py` records the time in `reach_sent[cse]` in the state file.
+5. Reach me by: a session that sent a Reach me by message in the last 30 minutes gets no reminder, on the phone or the Mac. `notify.py` records the time in `reach_sent[cse]` in the state file. A session whose alerts the person turned off (`alerts_off[cse]`) gets none either: its row in Needs you is the reminder.
 6. A visible phone page gets no push. The page already shows it.
 7. Each push has the tag `needs-<cse>`, so a newer one replaces the old one. The server keeps the person, session and waiting time for 2 days, so a reconnect or two Macs never send it twice.
 8. Notices can be turned off per phone in Menu.

@@ -254,6 +254,58 @@ enum Reach {
     }
 }
 
+/// Each session's alerts: on unless the person turned them off for that session, with the bell on its row in the window
+/// (or its Alerts switch) or on its page on the phone (KitActions.setAlerts). Off is `alerts_off[<cse>]` in the state
+/// file, by the session's Remote Control id, so it lasts through archive, unarchive, a Kit restart and a Mac restart;
+/// a new session starts on. With alerts off, nothing about the session goes out by any Reach me by way: notify.py keeps
+/// claude-notify's message, and the Kit's own when its wait ends (wait.py) or a reply comes (watch.py), in the Kit app,
+/// and the Needs you reminder goes neither to this Mac nor to the phone (Waiting.notifyDue).
+enum Alerts {
+    static let key = "alerts_off"
+
+    /// A Remote Control id as the state file keys it: session_X is cse_X.
+    static func cse(_ id: String) -> String { id.hasPrefix("session_") ? "cse_" + id.dropFirst(8) : id }
+
+    /// The sessions whose alerts are off, by Remote Control id.
+    static func off(_ state: [String: Any]? = nil) -> Set<String> {
+        Set(((state ?? State.read())[key] as? [String: Any] ?? [:]).keys)
+    }
+
+    /// Whether a session's alerts are on. A row with no Remote Control id has no switch, so it counts as on.
+    static func on(_ id: String, in state: [String: Any]? = nil) -> Bool {
+        id.isEmpty || !off(state).contains(cse(id))
+    }
+
+    /// An entry is dropped when its session was not used for this long and has no open wait, so the list stays short.
+    static let keepDays: Double = 90
+
+    /// Turns a session's alerts on or off, with who asked and the session's name then, for the log and the Events page.
+    /// Returns false when it was that way already.
+    @discardableResult
+    static func set(_ id: String, on: Bool, title: String, by origin: KitActions.Origin) -> Bool {
+        let c = cse(id)
+        guard c.hasPrefix("cse_") else { return false }
+        var changed = false
+        State.change { s in
+            var all = s[key] as? [String: Any] ?? [:]
+            guard (all[c] == nil) != on else { return }
+            changed = true
+            let now = Date().timeIntervalSince1970
+            if on { all.removeValue(forKey: c) }
+            else { all[c] = ["at": now, "by": origin.rawValue, "title": title] as [String: Any] }
+            let sessions = s["sessions"] as? [String: Any] ?? [:]
+            let waiting = Set((s["waits"] as? [String: Any] ?? [:]).values.compactMap { ($0 as? [String: Any])?["cse"] as? String })
+            for (k, v) in all where k != c && !waiting.contains(k) {
+                let used = max(Limit.num((v as? [String: Any])?["at"]) ?? 0, Limit.num((sessions[k] as? [String: Any])?["at"]) ?? 0)
+                if now - used > keepDays * 86400 { all.removeValue(forKey: k) }
+            }
+            s[key] = all
+        }
+        if changed { logLine("notify", "alerts \(on ? "on" : "off") for \(c) \"\(title)\" (\(origin.rawValue))") }
+        return changed
+    }
+}
+
 /// Waits a session handed to the Kit with claude-wait (Resources/hooks/wait.py), so the person can archive the session.
 /// wait.py --check runs every minute and brings the session back when the thing happens or at its deadline.
 enum Waits {

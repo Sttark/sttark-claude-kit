@@ -784,9 +784,9 @@ enum PhoneLink {
     // MARK: actions from the phone
 
     /// The words for each action in the log and on the Events page.
-    static let acts = ["bring_back", "stop_waits", "set_level", "set_auto", "set_limit", "unarchive"]
+    static let acts = ["bring_back", "stop_waits", "set_level", "set_auto", "set_limit", "set_alerts", "unarchive"]
 
-    /// One action from the phone (server_to_mac.action): only the six the contract names, each run by its KitActions
+    /// One action from the phone (server_to_mac.action): only the seven the contract names, each run by its KitActions
     /// function with the origin phone. That function reads the state again when it runs, runs off the main thread,
     /// and answers on it. `reply` gets the whole result message; a `phone` line in the log says who asked and how it went.
     static func act(_ p: [String: Any], reply: @escaping ([String: Any]) -> Void) {
@@ -830,6 +830,9 @@ enum PhoneLink {
         case "set_auto":
             guard !session.isEmpty, let on = strictBool(args["on"]) else { return bad() }
             KitActions.setAuto(cse: session, on: on, origin: .phone, done: done)
+        case "set_alerts":
+            guard !session.isEmpty, let on = strictBool(args["alerts"]) else { return bad() }
+            KitActions.setAlerts(cse: session, on: on, origin: .phone, done: done)
         case "set_limit":
             guard !session.isEmpty else { return bad() }
             var sid: String?

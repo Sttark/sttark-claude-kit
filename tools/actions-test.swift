@@ -157,6 +157,41 @@ import Foundation
         r = act("set_limit hold 0") { KitActions.setLimit(cse: "cse_IDLE", sid: nil, mode: .hold(0), origin: .phone, done: $0) }
         check("hold at 0%: bad, nothing changed", r.reason == .bad && Limit.mode(Limit.Target(sid: "sid-idle-1", cse: "cse_IDLE", title: "")) == .credits)
 
+        // set_alerts
+        func alertsOff() -> [String: [String: Any]] { Limit.dicts(State.read()["alerts_off"]) }
+        State.change { s in   // an entry for a session not used in 100 days: the next change drops it
+            s["alerts_off"] = ["cse_OLD": ["at": now - 100 * 86400, "by": "window", "title": "Old one"]]
+        }
+        r = act("set_alerts cse_IDLE off (window)") { KitActions.setAlerts(cse: "cse_IDLE", on: false, origin: .window, done: $0) }
+        check("set_alerts off: ok, before and after, kept by its Remote Control id with who asked and its name",
+              r.reason == .ok && r.before?.alerts == true && r.after?.alerts == false
+              && alertsOff()["cse_IDLE"]?["by"] as? String == "window" && alertsOff()["cse_IDLE"]?["title"] as? String == "Order page"
+              && r.words == "Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app.")
+        check("set_alerts: an entry of a session not used for 90 days is dropped", alertsOff()["cse_OLD"] == nil)
+        check("set_alerts: the notify line says the window", log().contains("notify alerts off for cse_IDLE \"Order page\" (window)"))
+        r = act("set_alerts off while it waits, by its session_ id (phone)") { KitActions.setAlerts(cse: "session_WAIT", on: false, origin: .phone, done: $0) }
+        check("a session that waits: ok, kept as cse_", r.reason == .ok && alertsOff()["cse_WAIT"]?["by"] as? String == "phone"
+              && log().contains("notify alerts off for cse_WAIT \"Supplier reply\" (phone)"))
+        let before = log().components(separatedBy: "\n").count
+        r = act("set_alerts off again") { KitActions.setAlerts(cse: "cse_WAIT", on: false, origin: .window, done: $0) }
+        check("set_alerts to what it is now: ok, no write and no log line", r.reason == .ok && r.before == r.after
+              && log().components(separatedBy: "\n").count == before)
+        let snap = Inbox.snapshot(hours: 24)
+        let idleRow = snap.rows.first { $0.id == "cse_IDLE" }, waitRow = snap.rows.first { $0.target?.cse == "cse_WAIT" }
+        check("the window's rows: both off; a row with no Remote Control id has no switch",
+              idleRow.flatMap(snap.alerts) == false && waitRow.flatMap(snap.alerts) == false
+              && snap.alerts(Inbox.Row(id: "local:x", group: .local, title: "x", sub: "", time: "")) == nil)
+        check("the phone's row says alerts false", waitRow.flatMap { Phone.row($0, group: "waiting", state: State.read()) }?["alerts"] as? Bool == false)
+        r = act("set_alerts cse_IDLE on (phone)") { KitActions.setAlerts(cse: "cse_IDLE", on: true, origin: .phone, done: $0) }
+        check("set_alerts on: ok, its entry is gone, and the line says the phone", r.reason == .ok && r.after?.alerts == true
+              && alertsOff()["cse_IDLE"] == nil && log().contains("notify alerts on for cse_IDLE \"Order page\" (phone)")
+              && r.words == "Alerts are on. This session reaches you the ways set in Reach me by.")
+        r = act("set_alerts for a session in no group") { KitActions.setAlerts(cse: "cse_NONE", on: false, origin: .phone, done: $0) }
+        check("alerts for a session in no group: gone, nothing stored", r.reason == .gone && r.words == W.sessionGone && alertsOff()["cse_NONE"] == nil)
+        r = act("set_alerts for an id that is not a Remote Control id") { KitActions.setAlerts(cse: "sid-idle-1", on: false, origin: .window, done: $0) }
+        check("not a Remote Control id: gone, nothing stored", r.reason == .gone && alertsOff().count == 1)
+        check("the phone's state: alerts", (KitActions.Values(alerts: false).json["alerts"] as? Bool) == false)
+
         // unarchive
         r = act("unarchive cse_A (phone)") { KitActions.unarchive(cse: "cse_A", origin: .phone, done: $0) }
         check("unarchive: ok, wait.py --unarchive ran (dry)", r.reason == .ok && r.words.contains("would bring cse_A back")

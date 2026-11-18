@@ -10,7 +10,7 @@
     "words": { "type": "string", "maxLength": 160, "description": "One short line for the person." },
     "empty": { "type": "object", "additionalProperties": false, "properties": {} },
 
-    "act": { "enum": ["bring_back", "stop_waits", "set_level", "set_auto", "set_limit", "unarchive"], "description": "The only actions that exist. The server sends no free text, no command and no prompt." },
+    "act": { "enum": ["bring_back", "stop_waits", "set_level", "set_auto", "set_limit", "set_alerts", "unarchive"], "description": "The only actions that exist. The server sends no free text, no command and no prompt." },
     "args": {
       "oneOf": [
         { "$ref": "#/$defs/args.bring_back" },
@@ -18,6 +18,7 @@
         { "$ref": "#/$defs/args.set_level" },
         { "$ref": "#/$defs/args.set_auto" },
         { "$ref": "#/$defs/args.set_limit" },
+        { "$ref": "#/$defs/args.set_alerts" },
         { "$ref": "#/$defs/args.unarchive" }
       ]
     },
@@ -35,6 +36,7 @@
         "at": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 }
       }
     },
+    "args.set_alerts": { "type": "object", "additionalProperties": false, "required": ["cse", "alerts"], "description": "The session's alerts. true: it reaches the person the Reach me by ways. false: nothing about it goes out, and its messages stay in the Kit app. Named alerts, not on, so its shape differs from set_auto's for the oneOf in args.", "properties": { "cse": { "$ref": "#/$defs/id" }, "alerts": { "type": "boolean" } } },
     "args.unarchive": { "type": "object", "additionalProperties": false, "required": ["cse"], "description": "Bring an archived session back on the same link.", "properties": { "cse": { "$ref": "#/$defs/id" } } },
     "act_args": {
       "description": "Pairs each act with its own args.",
@@ -44,6 +46,7 @@
         { "if": { "properties": { "act": { "const": "set_level" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.set_level" } } } },
         { "if": { "properties": { "act": { "const": "set_auto" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.set_auto" } } } },
         { "if": { "properties": { "act": { "const": "set_limit" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.set_limit" } } } },
+        { "if": { "properties": { "act": { "const": "set_alerts" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.set_alerts" } } } },
         { "if": { "properties": { "act": { "const": "unarchive" } }, "required": ["act"] }, "then": { "properties": { "args": { "$ref": "#/$defs/args.unarchive" } } } }
       ]
     },
@@ -59,7 +62,8 @@
           "properties": { "mode": { "enum": ["follow", "credits", "hold"] }, "at": { "type": ["integer", "null"], "minimum": 1, "maximum": 100 } }
         },
         "waits": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/id" } },
-        "archived": { "type": "boolean" }
+        "archived": { "type": "boolean" },
+        "alerts": { "type": "boolean", "description": "The session's alerts: on (true) or off." }
       }
     },
     "success_matches_reason": {

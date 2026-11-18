@@ -9,7 +9,9 @@ import {
   FALLBACK_WORDS,
   GROUPS,
   LEVELS,
+  REACH_WAYS,
   STATE_WORD,
+  alertsOn,
   archivedOf,
   awayMacs,
   findArchived,
@@ -147,14 +149,18 @@ function rowSub(k: Kit, p: Placed): string {
 const checkinOf = (row: Row) => (row.group === 'working' && row.checkin?.note ? row.checkin : null);
 /** "Check-in 12 min ago", "Check-in just now". */
 const checkinAge = (at: number, now: number) => (now - at < 60 ? 'Check-in just now' : `Check-in ${span(now - at)} ago`);
+/** After the name of a session whose alerts are off: a bell with a line
+ *  through it, with its words for screen readers. */
+const ALERTS_OFF = `<span class="alerts-off">${ic('bell-off')}<span class="vh">Alerts off</span></span>`;
 
 function sessionRow(k: Kit, p: Placed, from: string, stale: boolean): string {
   const { row, snap } = p;
   const now = stale ? snap.at : k.now;
   const lvl = row.group === 'working' && row.session?.level ? `<span class="lvl${row.session.manual ? ' manual' : ''}">${esc(levelLabel(row.session.level))}</span>` : '';
+  const off = alertsOn(row) ? '' : ALERTS_OFF;
   const ck = checkinOf(row);
   return (
-    `<li><a class="row" href="${esc(sessionHref(k, row.cse, from))}"><div class="row-main"><div class="name-line"><span class="name">${esc(row.title)}</span>${lvl}</div>` +
+    `<li><a class="row" href="${esc(sessionHref(k, row.cse, from))}"><div class="row-main"><div class="name-line"><span class="name">${esc(row.title)}</span>${lvl}${off}</div>` +
     `<div class="sub">${rowSub(k, p)}</div>` +
     `</div><span class="time${row.late && !stale ? ' late' : ''}">${esc(rowTime(row, now, snap.mac.tz))}</span>` +
     // under the name and the time, the row's whole width, so more of the note shows
@@ -381,7 +387,7 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
   const waitsHere = row.group === 'waiting' && row.waits.length > 0;
   const r = ui.result && ui.result.scope === cse ? ui.result : null;
   // An answer shows where it was asked, or at the top when that part is gone.
-  if (r && (r.sec === 'top' || (r.sec === 'waits' && !waitsHere) || (r.sec === 'effort' && !effortHere) || (r.sec === 'limit' && ro))) html += resultHtml(r);
+  if (r && (r.sec === 'top' || (r.sec === 'waits' && !waitsHere) || (r.sec === 'effort' && !effortHere) || ((r.sec === 'limit' || r.sec === 'alerts') && ro))) html += resultHtml(r);
   html += openLink(row.url, 'btn full', true);
   // Reading the message is why the person opened the page: right under Open in Claude.
   html += messagesHtml(k, row, tz);
@@ -481,6 +487,27 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
       `</select>${ic('chevron-down')}</div>` +
       resultAt(ui, cse, 'limit') +
       `<p class="why">${esc(settings)}</p></section>`;
+  }
+
+  // Alerts: whether this session may reach the person the Reach me by ways.
+  const on = alertsOn(row);
+  if (ro) {
+    html += `<section class="sec" aria-labelledby="al-h"><h2 class="sub-h" id="al-h">Alerts</h2><div class="card readout"><span>${on ? 'On' : 'Off'}</span></div></section>`;
+  } else {
+    const ways = snap.reach.map((w) => REACH_WAYS[w as keyof typeof REACH_WAYS] ?? w);
+    const list = ways.length > 1 ? `${ways.slice(0, -1).join(', ')} and ${ways[ways.length - 1]}` : ways[0];
+    html +=
+      `<section class="sec" aria-labelledby="al-h"><div class="eff-h"><h2 class="sub-h" id="al-h">Alerts</h2>` +
+      `<button type="button" class="switch" role="switch" aria-checked="${on}" aria-labelledby="al-h" data-act="alerts" data-k="alerts"${ui.sending ? ' aria-disabled="true"' : ''}>` +
+      `${ui.sending === 'alerts' ? 'Sending...' : on ? 'On' : 'Off'} <span class="track"></span></button></div>` +
+      resultAt(ui, cse, 'alerts') +
+      `<p class="why">${esc(
+        !on
+          ? 'Off: nothing about this session goes out, not even a Needs you notice. Its messages stay in the Kit app on your Mac.'
+          : list
+            ? `On: it reaches you by ${list}, as set in Reach me by on your Mac.`
+            : 'On, but no way is checked in Reach me by on your Mac.',
+      )}</p></section>`;
   }
   html += changesHtml(k, cse);
   return { title: row.title, tab: back.tab, status: 200, html };
