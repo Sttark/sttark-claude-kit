@@ -553,7 +553,35 @@ enum Events {
             e.kind = .wait
             named(rest)   // the session's name in quotes; its id in the line is cut short, as in a wait line
             let after = rest.firstIndex(of: ":").map { String(rest[rest.index(after: $0)...]).trimmingCharacters(in: .whitespaces) } ?? ""
-            if rest.contains(" brought back for ") {
+            // The check of a broad match (a new message on a channel that carries other work too):
+            // "skip|checked <cse> "<name>" <from>: [not] about this session's work: <first words> | <why>"
+            func checkDetail(_ marker: String) {
+                let (main, _, why) = split(rest)
+                guard let r = main.range(of: marker) else { return }
+                let head = main[..<r.lowerBound]
+                if let q = quoted(String(head)), let end = head.range(of: "\"\(q)\"") {
+                    let from = head[end.upperBound...].trimmingCharacters(in: .whitespaces)
+                    if !from.isEmpty { e.detail.append("From: " + from + ".") }
+                }
+                let words = main[r.upperBound...].trimmingCharacters(in: .whitespaces)
+                if !words.isEmpty { e.detail.append("Message: \u{201C}" + words.prefix(160) + "\u{201D}") }
+                if !why.isEmpty { e.detail.append("Why: " + why.prefix(200)) }
+            }
+            if rest.hasPrefix("skip ") && rest.contains(": not about this session's work: ") {
+                e.text = "Not brought back: a new message was about other work"
+                checkDetail(": not about this session's work: ")
+                e.detail.append("The reply watch asked Haiku, because mail from this sender or a post in this Chat space can be about other work.")
+            } else if rest.hasPrefix("checked ") && rest.contains(": about this session's work: ") {
+                e.kind = .check; e.routine = true
+                e.text = "A new message is about its work"
+                checkDetail(": about this session's work: ")
+            } else if rest.contains(" could not check a message (") {
+                e.kind = .problem; e.level = .warn
+                e.text = "The reply watch could not check a message, so it brought the session back"
+                e.detail.append(String(rest.prefix(300)))
+            } else if rest.contains(" waits for the usage hold to end before the check") {
+                e.routine = true; e.text = "New messages wait for the usage hold to end before their check"
+            } else if rest.contains(" brought back for ") {
                 e.kind = .restart
                 e.text = "Brought back: new messages came in from someone it contacted"
                 if !after.isEmpty { e.detail.append("Messages: " + after.prefix(300)) }

@@ -18,17 +18,29 @@ one gchat_search_messages per space). An Asana comment comes as Asana's own noti
 A new message counts for a session when it is from an address or a domain the session wrote to, in a thread it
 used, an Asana notice for its task, or a post in its space; newer than that contact and than the session's watch
 (for a session with an open wait, its oldest open wait: so the first read after an update looks back to then); not
-from the person; not one the session has already read (its id is in the session's records) or been told about. One
-message goes to one session: the closest match (a task or a thread before an address, an address before a domain),
-then the newest contact. A domain match from an automatic sender (no-reply and the like) does not count. The
-session comes back the way a wait brings it back, with the messages and one question: does this need action?
+from the person; not one the session has already read (its id is in the session's records) or been told about. A
+domain match from an automatic sender (no-reply and the like) does not count.
+
+Two kinds of match. A narrow one is a reply in an email thread the session used, a comment on an Asana task it
+commented on or made, or a Chat reply in the thread of the session's own post: it always brings the session back,
+and it goes to that one session (a task before a thread, then the newest contact). A broad one is mail from an
+address, a domain or a form's site the session wrote to, in a new thread, or a post in a Chat space it posted in
+that is not in its post's thread: such a channel carries other work too, so before it brings a session back, one
+Haiku call (MODEL, no tools, hooks off) reads the session's name, its first prompt, what it sent on that channel and
+the new message, and answers YES or NO: is the message about that session's work? Every session with a broad match
+is asked, and only those with YES come back. A NO is logged ("skip ... not about this session's work") and shows on
+the Events page; a call that fails brings the session back all the same, so nothing is lost. The call waits while
+the account is held at the usage limit. The session comes back the way a wait brings it back, with the messages
+and one question: does this need action?
 
     watch.py --list      what the Kit watches now, for each session (claude-wait --watching runs this)
 
 Logged with lines starting "watch". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
-STTARK_WAIT_DRY=1 reads and decides, prints what it would bring back, and brings nothing back.
+STTARK_WAIT_DRY=1 reads and decides, prints what it would bring back, and brings nothing back (the Haiku call still
+runs). STTARK_WATCH_MODEL is a command that stands in for the Haiku call: the question on its input, the answer on
+its output.
 """
-import calendar, email.utils, glob, html, importlib.util, json, mmap, os, re, sys, time, urllib.parse
+import calendar, email.utils, glob, html, importlib.util, json, mmap, os, re, subprocess, sys, time, urllib.parse
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 KIT = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
@@ -49,6 +61,26 @@ MAX_TERMS = 30      # terms in one Gmail search; more go in another search of th
 MAX_SPACES = 10     # Chat spaces read in one run
 WR = 'mcp__claude_ai_Sttark_Workrouter__'
 ME = None           # the person's address; tests set it
+NARROW = 3          # a match this strong or stronger (a thread, an Asana task, a Chat thread) needs no check
+MODEL = 'claude-haiku-5-5'   # the check of a broad match
+JUDGE_TIMEOUT = 30  # seconds the check may take
+CHECKS_A_MINUTE = 8  # checks in one minute check at most (each takes a few seconds, under the wait lock); the rest wait
+BUDGET = [CHECKS_A_MINUTE]
+SAID = 1500         # characters kept of what the session sent
+STUB = os.environ.get('STTARK_WATCH_MODEL', '')
+JUDGE = """You check one new message for a person who runs many Claude Code sessions. Each session does one piece \
+of work. The session below once sent a message on a channel (an email address, a company's domain, a web form's \
+site, or a Google Chat space or direct message) that also carries other work. Now a new message came on that \
+channel. Decide if the new message is about this session's work. Only YES brings the session back.
+
+YES: it answers or follows up on what the session sent, or it is about the same thing (the same item, order, \
+quote, ticket, question or project), also in part. A short reply that could answer the session's message (thanks, \
+ok, a yes or no, a number, a time) is YES. A receipt, ticket notice or automatic reply for what the session sent \
+is YES.
+NO: it is clearly about something else: other work, another topic, a newsletter or sales mail, a new question \
+that has no link to the session's work.
+
+Answer on one line: YES or NO, then " - " and the reason in 15 words or fewer."""
 
 # --- small helpers ----------------------------------------------------------------------------------------------
 
@@ -261,8 +293,27 @@ def keep_input(name, inp):
     if name == 'Bash':
         return {'command': (inp.get('command') or '')[:20000]}
     if 'Google_Chat' in name:
-        return {'space': ' '.join(re.findall(r'spaces/[A-Za-z0-9_-]+', json.dumps(inp)))}
-    return {k: inp[k] for k in ('to', 'cc', 'bcc', 'task_gid') if k in inp}
+        raw = json.dumps(inp)
+        return {'space': ' '.join(re.findall(r'spaces/[A-Za-z0-9_-]+', raw)),
+                'threads': re.findall(r'spaces/[A-Za-z0-9_-]+/threads/([A-Za-z0-9_-]+)', raw),
+                'text': str(inp.get('messageText') or inp.get('text') or '')[:SAID]}
+    out = {k: inp[k] for k in ('to', 'cc', 'bcc', 'task_gid', 'subject') if k in inp}
+    if inp.get('body'):
+        out['body'] = str(inp['body'])[:SAID]
+    return out
+
+
+def said_of(subject, body):
+    """What the session sent, as the check of a broad match reads it: the subject, then the text."""
+    s = re.sub(r'\s+', ' ', ('%s: %s' % (subject, body) if subject and body else subject or body or '')).strip()
+    return s[:SAID]
+
+
+def chat_thread(name):
+    """The thread of a Chat message from its name: spaces/S/messages/T.M is in thread T, and a reply in it when M is
+    not T (a post that starts a thread, and every post in a direct message, is T.T)."""
+    m = re.search(r'/messages/([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$', name or '')
+    return (m.group(1), m.group(1) != m.group(2)) if m else ('', False)
 
 
 def scan_lines(lines, st, me_, own):
@@ -350,11 +401,15 @@ def facts(name, inp, text, err, at, st, me_, own):
             return []
         out = []
         who = r.get('to') or inp.get('to') or ''
+        said = said_of(r.get('subject') or inp.get('subject') or '', inp.get('body') or '')
         for a in addrs(inp.get('to'), inp.get('cc'), inp.get('bcc'), r.get('to')):
             if a != me_:
                 out += mail_keys(a, at, me_, 'draft', own, who=who if a in who.lower() else '')
         if r.get('thread_id'):
             out.append(key('thread', r['thread_id'], at, me_, 'draft', subject=r.get('subject', ''), who=who))
+        for k in out:
+            if said:
+                k['said'] = said
         return out
     if tool == 'gmail_read_message':
         r = loads(text)
@@ -369,7 +424,12 @@ def facts(name, inp, text, err, at, st, me_, own):
         t = loads(text).get('task') or {}
         return [key('asana', str(t['gid']), at, me_, 'task', who=t.get('name', ''))] if t.get('gid') else []
     if tool == 'send_message' and 'Google_Chat' in name:
-        return [key('chat', s, at, '', 'post') for s in (inp.get('space') or '').split() if s]
+        # the post's thread: the one it was sent to, or the one the created message names
+        threads = list(inp.get('threads') or []) + [m.group(1) for m in re.finditer(
+            r'spaces/[A-Za-z0-9_-]+/(?:threads/|messages/)([A-Za-z0-9_-]+)', text or '')]
+        return [key('chat', s, at, '', 'post', said=said_of('', inp.get('text') or ''),
+                    threads=list(dict.fromkeys(threads))[:20])
+                for s in (inp.get('space') or '').split() if s]
     return []
 
 
@@ -531,6 +591,8 @@ def wait_facts(cmd, text, at, me_, own):
         if args[0] != 'email-reply':
             continue
         box = (opt(args, '--mailbox') or me_).lower()
+        said = said_of(opt(args, '--what'), opt(args, '--why'))
+        n0 = len(out)
         pos, skip = [], False
         for x in args[1:]:
             if skip:
@@ -550,6 +612,9 @@ def wait_facts(cmd, text, at, me_, own):
                     out += mail_keys(sender(x), at, box, 'wait', own)
                 elif '.' in x and site(x) and site(x) not in own and site(x) not in FREE:
                     out.append(key('domain', site(x), at, box, 'wait'))
+        for k in out[n0:]:
+            if said:
+                k['said'] = 'An email reply wait: ' + said
     return out
 
 
@@ -564,6 +629,7 @@ def window_facts(cmd, text, at, st, me_, own):
     for u in [a[1] for a in cw if len(a) > 1 and a[0] == 'go' and re.match(r'https?://', a[1])]:
         if u != page:
             st.pop('before', None)  # a new page: what it says before a click starts again
+            st.pop('said', None)
         page = u
         note_site(st, u)
     for line in (text or '').splitlines():
@@ -585,20 +651,27 @@ def window_facts(cmd, text, at, st, me_, own):
     typed = [a for a in addrs(cmd) if site(a) in own] if js else []
     if typed:
         st['typed'] = [st.get('site', ''), typed[-1]]
+    words = prose(js) if js else ''
+    if words:
+        st['said'] = words  # the text typed on this page, for the send that follows
+    said = st.get('said', '')
     clicked = bool(js) and bool(CLICK.search(js)) and bool(SEND.search(js))
     if clicked and h.endswith('chat.google.com') or (clicked and h == 'mail.google.com' and '/chat' in page):
         m = CHAT_SPACE.search(page)
         if m and re.search(r'(?i)send', js):
-            out.append(key('chat', 'spaces/' + m.group(1), at, '', 'post'))
+            out.append(key('chat', 'spaces/' + m.group(1), at, '', 'post', said=said))
+            st.pop('said', None)
         return out
     if clicked and h == 'mail.google.com':
         if re.search(r'(?i)\bsend\b', js):
             for a in addrs(cmd):
                 if a != me_ and site(a) != 'google.com':
-                    out += mail_keys(a, at, me_, 'email', own)
+                    out += [dict(k, said=said) if said else k for k in mail_keys(a, at, me_, 'email', own)]
+            st.pop('said', None)
         return out
     if clicked and s in MESSENGERS and re.search(r'(?i)send', js):
-        out.append(key('domain', s, at, '*', 'messenger'))
+        out.append(key('domain', s, at, '*', 'messenger', said=said))
+        st.pop('said', None)
         return out
     done = {m.group(0).lower() for m in DONE.finditer(text or '')}
     armed = st.get('armed')
@@ -611,13 +684,54 @@ def window_facts(cmd, text, at, st, me_, own):
     if done - set(st.get('before') or []) and target and target not in own and target not in NOT_SITES:
         t = st.get('typed') or ['', '']
         box = t[1] if t[1] and t[0] in ('', target) else me_
-        out.append(key('domain', target, at, box, 'form'))
+        out.append(key('domain', target, at, box, 'form', said=said and 'A web form: ' + said))
         st.pop('armed', None)
     else:
         armed['n'] = armed.get('n', 4) - 1
         if armed['n'] <= 0:
             st.pop('armed', None)
     return out
+
+
+CODE = re.compile(r'=>|document\.|querySelector|\bfunction\b|\breturn\b|[{}]|\]\s*\[|getAttribute|innerText|'
+                  r'\.click\(|\b(?:const|let|var) \w|\$\(')
+
+
+def literals(code, depth=0):
+    """The text of each string in code: in quotes or back quotes, and again in a string that is code itself (the
+    shell's quotes around a page's code)."""
+    out, i, n = [], 0, len(code)
+    while i < n:
+        q = code[i]
+        if q not in '"\'`':
+            i += 1
+            continue
+        j, buf = i + 1, []
+        while j < n and code[j] != q:
+            if code[j] == '\\' and j + 1 < n:
+                buf.append({'n': '\n', 't': ' '}.get(code[j + 1], code[j + 1]))
+                j += 2
+            else:
+                buf.append(code[j])
+                j += 1
+        s = ''.join(buf)
+        out.append(s)
+        if depth < 2 and CODE.search(s):
+            out += literals(s, depth + 1)
+        i = j + 1
+    return out
+
+
+def prose(code):
+    """The longest text in a page's code that reads as words, not code: what the session typed (a Chat post, a mail,
+    a form's message). '' when there is none."""
+    best = ''
+    for s in literals(code or ''):
+        s = re.sub(r'\s+', ' ', s).strip()
+        if len(s) > len(best) and len(s) >= 30 and s.count(' ') >= 4 and not CODE.search(s) and \
+                sum(c.isalpha() for c in s) >= len(s) / 2:
+            best = s
+    return best[:SAID]
 
 
 def note_site(st, url):
@@ -636,6 +750,9 @@ def merge(keys, new):
     for k in keys:
         if k['k'] == new['k'] and k['v'] == new['v'] and k.get('box') == new.get('box'):
             first = min(k.get('first', k['at']), new.get('first', new['at']))
+            threads = list(dict.fromkeys((k.get('threads') or []) + (new.get('threads') or [])))[-20:]
+            if threads:
+                k['threads'] = new['threads'] = threads
             if new['at'] >= k['at']:
                 how = k['how'] if new['how'] == 'read' and k['how'] != 'read' else new['how']  # a read never weakens it
                 k.update(new)
@@ -813,46 +930,74 @@ def chat_of(space, m):
 
 # --- matching -----------------------------------------------------------------------------------------------------
 
-def best_session(msg, box, sess, me_):
-    """(strength, contact time, cse, key) of the session a message belongs to, or None."""
+def mail_match(msg, box, e, me_):
+    """(strength, contact time, key) of a session's closest contact for a mail, or None: 4 its Asana task and 3 a
+    thread it used (narrow), 2 an address and 1 a domain it wrote to (broad)."""
     a = sender(msg.get('from'))
-    if not a or a == me_ or a == box:
+    if not a or a == me_ or a == box or msg['at'] <= e.get('floor', 0):
         return None
     d = a.split('@')[1]
     best = None
-    for cse, e in sess.items():
-        if msg['at'] <= e.get('floor', 0):
+    for k in e['keys']:
+        if k.get('first', k['at']) >= msg['at'] or (k.get('box') not in (box, '*')):
             continue
-        for k in e['keys']:
-            if k.get('first', k['at']) >= msg['at'] or (k.get('box') not in (box, '*')):
-                continue
-            s = 0
-            if k['k'] == 'asana':
-                s = 4 if msg.get('gid') and msg['gid'] == k['v'] else 0
-            elif k['k'] == 'thread':
-                s = 3 if msg.get('thread_id') == k['v'] and not (k['how'] == 'read' and AUTO.match(a.split('@')[0])) else 0
-            elif k['k'] == 'addr':
-                s = 2 if a == k['v'] else 0
-            elif k['k'] == 'domain' and (d == k['v'] or d.endswith('.' + k['v'])):
-                if k['how'] == 'messenger':
-                    s = 1 if NOTICE.search(msg.get('subject') or '') else 0
-                else:
-                    s = 0 if AUTO.match(a.split('@')[0]) else 1
-            if s and (best is None or (s, k['at']) > best[:2]):
-                best = (s, k['at'], cse, k)
+        s = 0
+        if k['k'] == 'asana':
+            s = 4 if msg.get('gid') and msg['gid'] == k['v'] else 0
+        elif k['k'] == 'thread':
+            s = 3 if msg.get('thread_id') == k['v'] and not (k['how'] == 'read' and AUTO.match(a.split('@')[0])) else 0
+        elif k['k'] == 'addr':
+            s = 2 if a == k['v'] else 0
+        elif k['k'] == 'domain' and (d == k['v'] or d.endswith('.' + k['v'])):
+            if k['how'] == 'messenger':
+                s = 1 if NOTICE.search(msg.get('subject') or '') else 0
+            else:
+                s = 0 if AUTO.match(a.split('@')[0]) else 1
+        if s and (best is None or (s, k['at']) > best[:2]):
+            best = (s, k['at'], k)
     return best
 
 
-def best_chat(msg, sess):
+def chat_match(msg, e):
+    """(strength, contact time, key) of a session's post in a Chat message's space, or None: 3 for a reply in the
+    thread of its post (narrow), 1 for any other post in the space (broad)."""
+    if msg['at'] <= e.get('floor', 0):
+        return None
+    thread, reply = chat_thread(msg.get('id'))
     best = None
-    for cse, e in sess.items():
-        if msg['at'] <= e.get('floor', 0):
-            continue
-        for k in e['keys']:
-            if k['k'] == 'chat' and k['v'] == msg['space'] and k.get('first', k['at']) < msg['at'] and \
-                    (best is None or k['at'] > best[1]):
-                best = (3, k['at'], cse, k)
+    for k in e['keys']:
+        if k['k'] == 'chat' and k['v'] == msg['space'] and k.get('first', k['at']) < msg['at']:
+            s = 3 if reply and thread in (k.get('threads') or []) else 1
+            if best is None or (s, k['at']) > best[:2]:
+                best = (s, k['at'], k)
     return best
+
+
+def sessions_for(msg, box, sess, me_):
+    """The sessions a message goes to, [(strength, contact time, cse, key)]: the closest narrow match alone (a task
+    before a thread, then the newest contact), else every session with a broad match, newest contact first; each
+    of those is checked before it comes back."""
+    found = []
+    for cse, e in sess.items():
+        b = chat_match(msg, e) if msg['kind'] == 'chat' else mail_match(msg, box, e, me_)
+        if b:
+            found.append((b[0], b[1], cse, b[2]))
+    narrow = [f for f in found if f[0] >= NARROW]
+    if narrow:
+        return [max(narrow, key=lambda f: f[:2])]
+    return sorted(found, key=lambda f: -f[1])
+
+
+def learn_post(e, msg):
+    """The session's own post came back in a read: keep its thread (a reply in it is narrow) and its text (what the
+    check of a broad match reads) on the session's key for that space."""
+    thread, _ = chat_thread(msg.get('id'))
+    for k in e['keys']:
+        if k['k'] == 'chat' and k['v'] == msg.get('space'):
+            if thread and thread not in (k.get('threads') or []):
+                k['threads'] = ((k.get('threads') or []) + [thread])[-20:]
+            if msg.get('text') and msg['at'] >= k.get('said_at', 0):
+                k['said'], k['said_at'] = said_of('', msg['text']), msg['at']
 
 
 def seen(e, msg, cache):
@@ -1030,26 +1175,30 @@ def check(wm=None, now=None):
     taken = set()  # a message one session got (or was told about) never goes to another
     for x in (W.get('sessions') or {}).values():
         taken.update(x.get('told') or [])
+        taken.update(x.get('skipped') or [])
         taken.update(m.get('id') for m in x.get('pending') or [])
     for box, m in found:
         try:
             if not m.get('id') or not m.get('at') or m['id'] in taken:
                 continue
-            if m['kind'] == 'chat' and chat.get('me') and m.get('from') == chat['me']:
-                continue  # the person's own post
-            b = best_chat(m, sess) if m['kind'] == 'chat' else best_session(m, box, sess, me_)
-            if not b:
-                continue
-            e = sess[b[2]]
-            if m['kind'] == 'chat' and own_post(e, m, cache):
-                if m.get('from'):
+            if m['kind'] == 'chat':
+                mine = [e for e in sess.values() if any(k['k'] == 'chat' and k['v'] == m['space'] for k in e['keys'])
+                        and own_post(e, m, cache)]
+                for e in mine:
+                    learn_post(e, m)
+                if mine and m.get('from'):
                     chat['me'] = m['from']  # its sender is the person: their other posts never count either
-                continue
-            if seen(e, m, cache):
-                continue
+                if mine or (chat.get('me') and m.get('from') == chat['me']):
+                    continue  # the session's own post, or the person's
+            for strength, _, cse, k in sessions_for(m, box, sess, me_):
+                if seen(sess[cse], m, cache):
+                    continue
+                one = dict(m, box=box if m['kind'] == 'mail' else '', why='it is a reply in the thread of your post in '
+                           'this Chat space' if k['k'] == 'chat' and strength >= NARROW else why_of(k))
+                if strength < NARROW:  # broad: checked before it brings the session back
+                    one.update(broad=True, said=k.get('said', ''))
+                picked.setdefault(cse, {})[m['id']] = one
             taken.add(m['id'])
-            m.update(box=box if m['kind'] == 'mail' else '', why=why_of(b[3]))
-            picked.setdefault(b[2], {})[m['id']] = m
         except Exception as x:  # one odd message never stops the others
             log('could not match a message (%s): %s: %s' % (m.get('id', '?'), type(x).__name__, str(x)[:160]))
     for cse, ms in picked.items():
@@ -1134,6 +1283,7 @@ def deliver(W, wm, sess, cache, now):
     """Brings each session with new messages back once, with all of them. A session in a turn is tried again the
     next minute; one that read them by itself meanwhile is not brought back. What each one got is saved at once,
     so a failure with the next never brings it back twice."""
+    BUDGET[0] = CHECKS_A_MINUTE
     for cse, e in sess.items():
         try:
             deliver_one(wm, cse, e, cache, now)
@@ -1142,17 +1292,123 @@ def deliver(W, wm, sess, cache, now):
         save(W)
 
 
+def first_prompt(e):
+    """The person's first prompt in the session, read once from the start of its transcript and kept in watch.json."""
+    if e.get('first_prompt') is None:
+        text = ''
+        try:
+            with open(e['transcript'], 'rb') as f:
+                for i, raw in enumerate(f):
+                    if i > 5000:
+                        break
+                    if not USER.search(raw, 0, 800) or b'tool_result' in raw:
+                        continue
+                    try:
+                        x = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if isinstance(x, dict) and person_prompt(x):
+                        c = (x.get('message') or {}).get('content')
+                        text = text_of(c) if isinstance(c, list) else c
+                        break
+        except OSError:
+            return ''
+        e['first_prompt'] = re.sub(r'\s+', ' ', NOTE.sub('', text or '')).strip()[:SAID]
+    return e['first_prompt']
+
+
+NOTE = re.compile(r'<(system-reminder|local-command-[a-z-]+|command-[a-z-]+)>.*?</\1>', re.S)
+
+
+def gist(m, n=80):
+    """The first words of a message, for the log and the Events page."""
+    t = m.get('text') if m['kind'] == 'chat' else ' '.join(x for x in (m.get('subject'), m.get('snippet')) if x)
+    return re.sub(r'\s+', ' ', t or '').strip()[:n]
+
+
+def question(e, m):
+    """What the check of a broad match reads: the session, what it sent on the channel, and the new message."""
+    how = re.sub(r'\byour\b', "the session's", re.sub(r'\byou\b', 'the session', m.get('why') or ''))
+    if m['kind'] == 'chat':
+        new = 'A post in the Google Chat space or direct message, from %s:\n%s' % (m.get('from') or 'someone', m.get('text', ''))
+    else:
+        new = 'Mail from %s, subject "%s":\n%s' % (m.get('from', ''), m.get('subject', ''), m.get('snippet', ''))
+    return '\n'.join([
+        'Session name: ' + (e.get('title') or '(none)'),
+        "The person's first prompt in the session: " + (first_prompt(e) or '(not on record)'),
+        'The channel: %s.' % how,
+        'What the session sent on it: ' + (m.get('said') or '(its text is not on record)'),
+        '', 'The new message. ' + new, '',
+        "Is the new message about this session's work?"])
+
+
+def ask(text, claude):
+    """(about its work, why) from one Haiku call (MODEL, no tools, hooks off, outside any session, as the Kit's other
+    checks call); raises with why when there is no clear YES or NO. STTARK_WATCH_MODEL stands in for it in tests."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('CLAUDE_CODE_', 'CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT'))}
+    env['EFFORT_JUDGE'] = '1'
+    cmd = [STUB] if STUB else [claude, '-p', '--model', MODEL, '--effort', 'low', '--no-session-persistence',
+                               '--strict-mcp-config', '--tools', '', '--settings', '{"disableAllHooks":true}',
+                               '--system-prompt', JUDGE]
+    r = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=JUDGE_TIMEOUT, env=env, cwd='/tmp')
+    out = (r.stdout or '').strip()
+    if r.returncode and not out:
+        raise RuntimeError('exit %d: %s' % (r.returncode, re.sub(r'\s+', ' ', r.stderr or '').strip()[:160]))
+    a = re.match(r'[\W_]*(YES|NO)\b[\s\W]*(.*)', out, re.I | re.S)
+    if not a:
+        raise RuntimeError('no YES or NO in the answer: %s' % re.sub(r'\s+', ' ', out)[:80])
+    return a.group(1).upper() == 'YES', re.sub(r'\s+', ' ', a.group(2)).strip()[:200]
+
+
+def check_broad(wm, cse, e, title, m):
+    """Asks whether a broad match is about the session's work, and keeps the answer on the message (verdict): yes,
+    no, or error (the call failed: it comes back all the same, so nothing is lost)."""
+    who = '%s in Chat' % (m.get('from') or 'someone') if m['kind'] == 'chat' else m.get('from') or 'someone'
+    try:
+        yes, why = ask(question(e, m), getattr(wm, 'CLAUDE', ''))
+    except Exception as x:
+        m['verdict'] = 'error'
+        log('%s "%s" could not check a message (%s: %s); it comes back for it all the same: %s: %s' % (
+            cse[:12], title, type(x).__name__, str(x)[:120], who, gist(m)))
+        return
+    m['verdict'] = 'yes' if yes else 'no'
+    if yes:
+        log('checked %s "%s" %s: about this session\'s work: %s | %s' % (cse[:12], title, who, gist(m), why))
+    else:
+        log('skip %s "%s" %s: not about this session\'s work: %s | %s' % (cse[:12], title, who, gist(m), why))
+
+
 def deliver_one(wm, cse, e, cache, now):
     """One session's new messages: bring it back with them, or keep them for its next minute."""
     pend = [m for m in e.get('pending') or [] if not seen(e, m, cache)]
     e['pending'] = pend
     if not pend:
         return
+    title = e.get('title') or cse[-6:]
+    todo = [m for m in pend if m.get('broad') and not m.get('verdict')]
+    if todo:
+        if held():  # the check is a model call: it waits for the usage hold to end, and the messages with it
+            if now - e.get('held_said', 0) > 900:
+                log('%s "%s" waits for the usage hold to end before the check of %d new message%s'
+                    % (cse[:12], title, len(todo), '' if len(todo) == 1 else 's'))
+                e['held_said'] = now
+            return
+        for m in todo:
+            if BUDGET[0] <= 0:
+                break
+            BUDGET[0] -= 1
+            check_broad(wm, cse, e, title, m)
+        if any(not m.get('verdict') for m in todo):
+            return  # more checks than one minute holds: the rest next minute, then the session comes back once
+        # skipped, not told: a wait of the session's own still sees the message, and decides for itself
+        e['skipped'] = (e.get('skipped', []) + [m['id'] for m in pend if m.get('verdict') == 'no'])[-500:]
+        e['pending'] = pend = [m for m in pend if m.get('verdict') != 'no']
+        if not pend:
+            return
     # A wait brought it back moments ago: it reads its first prompt now, so these wait for that turn to end.
     if any(w.get('cse') == cse and w.get('stage') == 'back' and time.time() - w.get('back_at', 0) < 180
            for w in (wm.peek().get('waits') or {}).values()):
         return
-    title = e.get('title') or cse[-6:]
     what = '; '.join('%s "%s"' % (m['from'] or 'Chat', (m.get('subject') or m.get('text') or '')[:60]) for m in pend[:3])
     if DRY:
         print('would wake %s (%s) with %d new: %s' % (title, cse, len(pend), what))

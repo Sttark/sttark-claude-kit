@@ -170,6 +170,19 @@ import Foundation
         let wn = Events.kitLine(f.string(from: Date()) + " watch  f46255ef contacted utility.example (a web form) with no reply wait: noted for the next prompt", names)
         check(wn?.name == "Press color" && wn?.kind == .check && wn?.text == "Contacted someone and set no wait for the answer",
               "the reply wait check names the session")
+        // The check of a broad match: a skip shows, with who, the first words and why; a yes is routine; a failed
+        // check is a problem.
+        let ws = Events.kitLine(f.string(from: Date()) + " watch  skip cse_01AAAtes \"Press color\" Jo Sample in Chat: not about this session's work: Lunch is here in the break room | Lunch, not the press color", names)
+        check(ws?.name == "Press color" && ws?.session == "cse_01AAAtest1" && ws?.kind == .wait && ws?.routine == false
+              && ws?.text == "Not brought back: a new message was about other work"
+              && ws?.detail.prefix(3) == ["From: Jo Sample in Chat.", "Message: \u{201C}Lunch is here in the break room\u{201D}", "Why: Lunch, not the press color"],
+              "a message the check found to be about other work: one row, with who, the first words and why")
+        let wy = Events.kitLine(f.string(from: Date()) + " watch  checked cse_01AAAtes \"Press color\" Sam <help@utility.example>: about this session's work: Re: color | It answers the question", names)
+        check(wy?.name == "Press color" && wy?.kind == .check && wy?.routine == true && wy?.text == "A new message is about its work",
+              "a message the check found to be about its work is a routine check")
+        let wx = Events.kitLine(f.string(from: Date()) + " watch  cse_01AAAtes \"Press color\" could not check a message (RuntimeError: exit 1: ); it comes back for it all the same: Sam: Re: color", names)
+        check(wx?.kind == .problem && wx?.level == .warn && wx?.text == "The reply watch could not check a message, so it brought the session back",
+              "a check that failed is a problem, and says the session came back")
         // The progress check-ins (checkin.py): one row a check-in under its session, with the note in the detail; a
         // summary that failed, a test run, a hold and the end of the work.
         let ck = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" shown in the Kit | Build the color page, working 45 min | It finished the page and opened pull request 12. Next it checks the links.", names)
