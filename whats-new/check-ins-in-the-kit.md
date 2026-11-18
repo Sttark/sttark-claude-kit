@@ -12,4 +12,4 @@ Progress check-ins now show on the session's row in the Kit, and never come as a
 - Select the session to read all of the note, and see each check-in on the **Events** page.
 - To stop them, turn off **Progress check-ins in the Kit** in **Settings** under **Sessions**.
 
-![The Claude working group: the HVAC updates row with its two agents, and under them its check-in from 1 minute ago.](check-ins-in-the-kit.png)
+![The Claude working group: the Slitter blade change row with its two agents, and under them its check-in from 1 minute ago.](check-ins-in-the-kit.png)

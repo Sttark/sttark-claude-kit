@@ -161,7 +161,7 @@ The 5-hour and weekly usage show at the bottom of the sidebar, with when each re
 - **Bring it back** unarchives the session and starts it again on the same link, with its whole conversation, the way a wait brings a session back (see [Reach me by](#reach-me-by)). Nothing is sent to it: it waits for you in your list. The Kit says so when it is back, with **Show it** to open it on the Sessions page, or why it did not come back. From then on the Kit keeps it running, as the other sessions.
 - The list is up to date within about 15 seconds while this Mac's server runs, and covers the archived ones among your account's 500 most recent sessions. With no server, it is read every 10 minutes and when you open the page, and covers your 500 most recent archived sessions.
 
-![The Archived page's search for laminator: no archived session matches, so the Waiting on someone else group shows the Laminator quote session, which waits on 2 email replies, with a line that says these are on the Sessions page and a click shows one there](docs/window-archived-search.png)
+![The Archived page's search for core: no archived session matches, so the Waiting on someone else group shows the Core supplier quote session, which waits on 2 email replies, with a line that says these are on the Sessions page and a click shows one there](docs/window-archived-search.png)
 
 *Drawn by the app's own code, with sample sessions. The same in dark mode, with dark colors.*
 
@@ -219,7 +219,7 @@ The 5-hour and weekly usage show at the bottom of the sidebar, with when each re
 
 *Drawn by the app's own code, with sample events. The same in dark mode, with dark colors.*
 
-- **One row for each thing the Kit did:** its time, an icon for its kind, the session's name and one sentence, for example **Press color: Held: the 5-hour limit is at 80%. Goes on 2:40 PM**. Rows are grouped by day.
+- **One row for each thing the Kit did:** its time, an icon for its kind, the session's name and one sentence, for example **Ink reorder: Held: the 5-hour limit is at 80%. Goes on 2:40 PM**. Rows are grouped by day.
 - **Problems stand out.** A warning is a yellow row and an error is a red row. A problem that occurs again is one row a day, with how many times it occurred that day, at the time it last occurred. The status line under the title says how many problems occurred in the last day.
 - **Click a row** to see more: why the Kit chose an effort level, the start of the prompt, a deadline, or from when to when a problem occurred.
 - **Click a session's name** to open that session on the Sessions page. When the session is not on that page, the click shows only that session's events.
@@ -253,7 +253,7 @@ For support, every decision goes into `~/Library/Logs/sttark-claude-kit.log`, on
 | `phone` | Kit on your phone: the link page and the link, each connection (a failed one once for each new reason), `bye`, a removal, the switch turned off, and each action from the phone, with who asked and how it went (`action set_level cse_… by name@sttark.com: ok: Effort is High now. …`). Also each Needs you reminder that went to your phone (`reminder to your phone: Order page login`), one that could not go and showed on this Mac instead, and how many of your phones get notices when that changes. |
 | `rules` | The Sttark app rules: added to a session, or the saved copy refreshed. |
 | `wait` | Waits handed to the Kit: each one set, the answer of each email or Haiku check (`checked: NO, no reply yet`), each check that failed and why (for example, the Workrouter connector did not load), and each session brought back. Also each session brought back from the Archived page (`brought back from the archive (window)`), and why one was not. **Bring it back now**, **Stop waiting** and **Stop** end with who asked, `(window)` or `(phone)`. |
-| `notify` | Reach me by: each message `claude-notify` sent, each way, and how it went; or a message kept in the Kit, not sent (`notify <session> kept <id>: alerts are off \| <subject>`, or `this session's alerts are off` for a session whose own alerts are off); and each session's alerts turned off or on, with where it came from (`notify alerts off for cse_… "Powder watch" (window)`). |
+| `notify` | Reach me by: each message `claude-notify` sent, each way, and how it went; or a message kept in the Kit, not sent (`notify <session> kept <id>: alerts are off \| <subject>`, or `this session's alerts are off` for a session whose own alerts are off); and each session's alerts turned off or on, with where it came from (`notify alerts off for cse_… "Film price watch" (window)`). |
 | `checkin` | Progress check-ins: each one written, with its subject and note (`checkin cse_… "Order page" shown in the Kit \| Build the order form, working 45 min \| It finished …`), and a summary that failed (`; no summary (…)`); once for each run of work, that the session holds at its usage limit; and the end of the work with how many there were. |
 | `watch` | Replies with no wait: each read of a mailbox (`you@… read (no model): 3 new messages, 1 for a session`, on a change, else once an hour), a read that failed and why, each session brought back for new messages and what came, one in a turn that comes back later, and the working rules' reply wait check (`… contacted utility.example (a web form) with no reply wait: noted for the next prompt`). |
 | `ste` | The working rules' check of a finished reply: ok, noted for the session's next prompt, or error. |
@@ -619,7 +619,7 @@ To keep track of your sessions in the Kit alone, turn off **Alerts** at the top 
 
 Some sessions must not reach you, such as a watch that you check yourself. Turn off the alerts of one session, and nothing about it goes out by any way, while the other sessions reach you as before. Its work and its waits go on as before.
 
-![The Waiting on someone else rows, each with a bell at its end. Powder watch has a bell with a line through it, and its Alerts switch is off: its messages stay in the Kit app](whats-new/session-alerts.png)
+![The Waiting on someone else rows, each with a bell at its end. Film price watch has a bell with a line through it, and its Alerts switch is off: its messages stay in the Kit app](whats-new/session-alerts.png)
 
 *Drawn by `tools/screenshot.swift`, with sample sessions. The same in dark mode, with dark colors.*
 
@@ -628,7 +628,7 @@ Some sessions must not reach you, such as a watch that you check yourself. Turn 
 - **It stays as you set it:** the Kit keeps the choice by the session's link (`alerts_off` in the state file), so it stays when you archive the session and bring it back, and when the Kit or the Mac starts again. A new session starts with its alerts on.
 - **With Alerts off in Reach me by,** nothing goes out for any session. Each session keeps its own switch for when you turn **Alerts** on again.
 - **Not the Kit's:** the Claude app's own notice when Claude asks you something comes from Claude Code's own setting (`inputNeededNotifEnabled`), for every session, so it still comes.
-- Each change is logged, with where it came from: `notify alerts off for cse_… "Powder watch" (window)`.
+- Each change is logged, with where it came from: `notify alerts off for cse_… "Film price watch" (window)`.
 
 ### Kept in the Kit app
 
@@ -671,7 +671,7 @@ A session that contacted someone comes back when the answer comes, also when it 
 
 A session that hands a long build to an agent in the background goes quiet: you see nothing new until the agent finishes, often an hour later. While a session's work runs, the Kit writes a short note on how it goes, every 15 minutes, and shows the last one on the session's row: under **Claude working** in the window, and on your phone. It never comes as an alert: no email, text, Google Chat message, Claude app push or Mac notice, whatever **Reach me by** says.
 
-![The Claude working group: the HVAC updates row with its two agents, and under them its check-in from 1 minute ago](whats-new/check-ins-in-the-kit.png)
+![The Claude working group: the Slitter blade change row with its two agents, and under them its check-in from 1 minute ago](whats-new/check-ins-in-the-kit.png)
 
 *Drawn by the app's own code, with sample sessions.*
 
