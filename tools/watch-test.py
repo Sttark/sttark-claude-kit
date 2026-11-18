@@ -15,6 +15,12 @@ made-up sessions and transcripts, a JSON file for the Keychain (STTARK_MAIL_KEYS
 - delivery: a session in a turn is tried again; one that read the message by itself is not brought back; one the
   Kit started moments ago (a wait brought it back) waits for that turn; a wait never ends on a message the watch
   brought the session back for, and the watch skips one a wait ended on;
+- narrow and broad matches, with a stand-in for the Haiku check (STTARK_WATCH_MODEL): a reply in a draft's thread, a
+  comment on an Asana task and a Chat reply in the thread of the session's post come back with no check; a post in a
+  direct message or a room, mail from the same sender in a new thread, from the domain and from a form's site are
+  checked, and only a YES comes back; a NO is logged and sends nothing; two sessions are each asked; a check that
+  fails comes back all the same; the check waits at a usage hold, and holds 8 checks a minute; the check reads the
+  session's name, its first prompt, the text it typed and sent, and the new message;
 - the Stop check: a web form or a draft with only a time wait is noted, with the command to set; a reply wait is not;
 - only a command the shell runs counts: claude-window or claude-wait named in a here-document (an agent that edits a
   test), in quotes or in a commit message is no contact and no wait; one run by a variable set to its path, with
@@ -155,6 +161,26 @@ os.chmod(fake, os.stat(fake).st_mode | stat.S_IEXEC)
 wait.CLAUDE = fake
 os.environ['FAKE_DIR'] = d
 json.dump({}, open(os.path.join(d, 'answers.json'), 'w'))
+# a stand-in for the Haiku check of a broad match: each rule [session name, words in the new message, answer], the
+# first that fits; YES when none does. FAIL exits 1, as a call that fails.
+judge = os.path.join(d, 'judge')
+open(judge, 'w').write('''#!/usr/bin/python3
+import json, os, sys
+q = sys.stdin.read()
+open(os.environ['FAKE_DIR'] + '/asked', 'a').write(q + '\\n=====\\n')
+name = q.split('\\n')[0]
+new = q.split('The new message.')[-1]
+for who, words, answer in json.load(open(os.environ['FAKE_DIR'] + '/judge.json')):
+    if who in name and words in new:
+        if answer == 'FAIL':
+            sys.exit(1)
+        print(answer)
+        sys.exit(0)
+print('YES - it answers the session')
+''')
+os.chmod(judge, os.stat(judge).st_mode | stat.S_IEXEC)
+watch.STUB = judge
+json.dump([], open(os.path.join(d, 'judge.json'), 'w'))
 
 def fresh():
     """A watch with no state yet, as on the first check after an update."""
@@ -451,6 +477,9 @@ watch.check(wait, TA)
 mail('m-d1', 'thrd1', 'Sam <help@utilitysample.example>', 'Re: [Ticket 1]', TA + 100, 'One more thing')
 mail('m-d2', 'thrwater000001', 'Ops <ops@utilitysample.example>', 'Re: Water', TA + 100, 'Water is on')
 del calls[:]
+# m-d1 is a broad match for both sessions (the form's site, and the domain of the other's draft): each is asked
+json.dump([['Water question', 'One more thing', 'NO - it is about the site form, not the water question']],
+          open(os.path.join(d, 'judge.json'), 'w'))
 watch.check(wait, TA + 301)
 W = watch.peek()
 check('a session in a turn: its messages wait, and it is tried again each minute', set(calls) == {CSE1, CSE2}
@@ -494,6 +523,147 @@ happened, what = wait.check_email_reply(q2)
 check('a wait that ends keeps every message it found, for the watch to skip', happened and set(q2.get('found_ids') or []) >= {'m-d2', 'm-d1'})
 watch.mark_told(CSE2, ['m-new'])
 check('and the watch skips a message a wait brought its session back for', 'm-new' in watch.told(CSE2))
+check('a message a check said is about other work is not told: a wait of the session still sees it',
+      'm-d1' in (watch.peek()['sessions'][CSE2].get('skipped') or []) and 'm-d1' not in watch.told(CSE2)
+      and "skip %s \"Water question\" Sam <help@utilitysample.example>: not about this session's work: Re: [Ticket 1] One more thing"
+      % CSE2[:12] in open(os.environ['STTARK_KIT_LOG']).read())
+
+# --- narrow and broad matches: a broad one is checked (a stand-in for Haiku) before it brings a session back ----------
+lt = time.localtime(NOW)
+TB = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday + 1, 12, 0, 0, 0, 0, -1))  # noon tomorrow: Chat is read then
+ROOM, DM = 'spaces/ROOMtest01', 'spaces/DMtest0001'
+TPA, TPB, TPC = (os.path.join(PROJ, x + '.jsonl') for x in ('chairs', 'die', 'laminator'))
+TPD, TPE, TPF = (os.path.join(PROJ, x + '.jsonl') for x in ('ink', 'install', 'glue'))
+# A: posts in a direct message from the browser; the text is typed from a file the command writes
+write(TPA, person('Find 12 matching chairs on casters for the meeting room', T0)
+      + use('Bash', {'command': 'claude-window go "https://mail.google.com/chat/u/0/#chat/dm/DMtest0001"'}, T0 + 10,
+            'Chat\nhttps://mail.google.com/chat/u/0/#chat/dm/DMtest0001')
+      + use('Bash', {'command': "cat > /tmp/t.js <<'EOF'\n(()=>{const t=\"Our meeting room chairs creak, so I found 12 "
+                                "matching chairs on casters. Which do you like?\";\nconst e=document.querySelector("
+                                "\"[contenteditable=true]\"); e.focus(); document.execCommand(\"insertText\",false,t); "
+                                "return e.innerText})()\nEOF\nclaude-window js \"$(cat /tmp/t.js)\""}, T0 + 20, 'ok')
+      + use('Bash', {'command': 'claude-window js \'(()=>{[...document.querySelectorAll("button")].find(b=>b.getAttribute('
+                                '"aria-label")==="Send message").click(); return "sent"})()\''}, T0 + 30, 'sent'))
+# B: posts in a room with the Chat connector; the created message names its thread
+write(TPB, person('Ask the press team to check the die for job 4417', T0)
+      + use('mcp__claude_ai_Google_Chat__send_message', {'conversationId': ROOM, 'messageText':
+            'Can someone check the die for job 4417 before the press run?'}, T0 + 10,
+            json.dumps({'messageId': ROOM + '/messages/t5.t5', 'threadId': ROOM + '/threads/t5'})))
+# C and E: drafts to the same supplier, one to the rep, one to the installs desk
+write(TPC, person('Get a quote for the 13 inch laminator', T0) + use(WR + 'gmail_create_draft', {
+    'to': 'rep@suppliersample.example', 'subject': 'Laminator quote', 'body': 'Please quote the 13 inch laminator.'}, T0 + 10,
+    json.dumps({'draft_id': 'r-l', 'thread_id': 'thrlam01', 'to': 'rep@suppliersample.example', 'subject': 'Laminator quote'})))
+write(TPE, person('Book the laminator install', T0) + use(WR + 'gmail_create_draft', {
+    'to': 'installs@suppliersample.example', 'subject': 'Install date'}, T0 + 20,
+    json.dumps({'draft_id': 'r-i', 'thread_id': 'thrinst01', 'to': 'installs@suppliersample.example', 'subject': 'Install date'})))
+# D: a web form on a site (the utility's form, made the ink maker's) and an Asana comment
+write(TPD, person('Ask the ink maker about the white ink', T0) + [
+    json.loads(l) for l in open(AG).read().replace('utilitysample', 'inksample').splitlines()[1:9]]
+    + use(WR + 'asana_add_comment', {'task_gid': '1300000000000001'}, T0 + 300, '{"comment_added":true}'))
+# F: a draft whose check fails
+write(TPF, person('Order glue', T0) + use(WR + 'gmail_create_draft', {'to': 'orders@gluesample.example', 'subject': 'Glue'},
+                                          T0 + 10, json.dumps({'draft_id': 'r-g', 'thread_id': 'thrglue01', 'to': 'orders@gluesample.example'})))
+CA, CB, CC, CD, CE, CF = ('cse_01BroadTest%07d' % i for i in range(6))
+names = {CA: ('Meeting room chairs', TPA), CB: ('Die check', TPB), CC: ('Laminator quote', TPC), CD: ('Ink question', TPD),
+         CE: ('Laminator install', TPE), CF: ('Glue order', TPF)}
+json.dump({'sessions': {c: {'transcript': tp, 'title': t} for c, (t, tp) in names.items()},
+           'waits': {'w%d' % i: {'id': 'w%d' % i, 'kind': 'at', 'at': TB + 86400, 'cse': c, 'transcript': names[c][1],
+                                 'set_at': TB - 7200, 'title': names[c][0]} for i, c in enumerate(names)}},
+          open(os.path.join(KIT, 'state.json'), 'w'))
+fresh()
+MAIL[:] = []
+mail('m-l1', 'thrlam01', 'Rep <rep@suppliersample.example>', 'Re: Laminator quote', TB - 3000, 'Here is the quote')
+mail('m-l2', 'thrhol', 'Rep <rep@suppliersample.example>', 'Holiday hours', TB - 2900, 'We close for the holiday')
+mail('m-l3', 'thrrev', 'Sales <sales@suppliersample.example>', 'Your laminator quote, revised', TB - 2800, 'New price')
+mail('m-f1', 'thrink', 'Help <help@inksample.example>', 'Your question', TB - 2700, 'About the white ink: it ships Monday')
+mail('m-a1', 'thrasn', 'Wil via Asana <no-reply@asana.com>', 'New comment on: White ink', TB - 2600,
+     body='Reply in Asana: https://app.asana.com/1/31841170284884/task/1300000000000001/comment/9')
+mail('m-g1', 'thrglue2', 'Orders <orders@gluesample.example>', 'Order shipped', TB - 2500, 'Your glue shipped')
+
+
+def post(space, mid, sender, text, at):
+    return {'name': '%s/messages/%s' % (space, mid), 'sender': sender, 'text': text, 'createTime': iso(at)}
+
+
+json.dump({DM: {'messages': [
+    post(DM, 'c0.c0', 'Person Sample', 'Our meeting room chairs creak, so I found 12 matching chairs on casters. Which do you like?', TB - 5000),
+    post(DM, 'c1.c1', 'Jo Sample', 'I think 12 is right, and the mesh ones look good.', TB - 2000),
+    post(DM, 'c2.c2', 'Jo Sample', 'Two other things for the building: the front windows are cloudy, and the lobby lights are out.', TB - 1900)]},
+    ROOM: {'messages': [
+    post(ROOM, 't5.r1', 'Lee Sample', 'Checked it, it is fine.', TB - 1800),
+    post(ROOM, 't6.t6', 'Lee Sample', 'Lunch is here.', TB - 1700)]}}, open(os.path.join(d, 'answers.json'), 'w'))
+os.environ['FAKE_SKIP'] = ''
+json.dump([['Meeting room chairs', 'windows', 'NO - it is about the windows and the lights, not the chairs'],
+           ['Die check', 'Lunch', 'NO - lunch, not the die'],
+           ['Laminator', 'Holiday hours', 'NO - a notice about hours'],
+           ['Laminator install', 'revised', 'NO - about the quote, not the install'],
+           ['Glue order', '', 'FAIL']], open(os.path.join(d, 'judge.json'), 'w'))
+open(os.path.join(d, 'asked'), 'w').close()
+brought = []
+wait.bring_back = lambda w, prompt: brought.append((w['cse'], prompt)) or True
+logpos = os.path.getsize(os.environ['STTARK_KIT_LOG'])
+watch.CHECKS_A_MINUTE = 20  # this read has 9 checks; the cap of one minute is tested below
+watch.check(wait, TB)
+asked = open(os.path.join(d, 'asked')).read()
+logged = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+back = {c: p for c, p in brought}
+
+
+def came(cse, *ids):
+    """Brought back with these messages (a Chat post's id is its name's end)."""
+    told = watch.told(cse)
+    return cse in back and all(any(t == i or t.endswith('/' + i) for t in told) for i in ids)
+
+
+check('narrow: a reply in the draft\'s thread, an Asana comment on its task and a Chat reply in its post\'s thread '
+      'bring the session back with no check', came(CC, 'm-l1') and came(CD, 'm-a1') and came(CB, 't5.r1')
+      and 'Here is the quote' not in asked and 'White ink' not in asked and 'Checked it' not in asked)
+check('the Chat reply in the thread counts as a reply in the thread of its post',
+      'a reply in the thread of your post' in back.get(CB, ''))
+check('broad, a direct message: the reply about the chairs is asked about and brings it back; the post about the '
+      'windows does not', came(CA, 'c1.c1') and not came(CA, 'c2.c2') and 'cloudy' not in back.get(CA, '')
+      and 'the mesh ones' in asked)
+check('the check reads the session\'s name, its first prompt, what it sent and the new message',
+      'Session name: Meeting room chairs' in asked and 'Find 12 matching chairs on casters for the meeting room' in asked
+      and 'What the session sent on it: Our meeting room chairs creak, so I found 12 matching chairs' in asked
+      and 'the front windows are cloudy' in asked)
+check('a session\'s own post is no new message, and teaches the watch its text and thread',
+      'c0.c0' not in json.dumps(watch.peek()['sessions'][CA].get('skipped')) and 'Which do you like' not in back.get(CA, '')
+      and [k.get('threads') for k in watch.peek()['sessions'][CA]['keys'] if k['k'] == 'chat'] == [['c0']])
+check('broad, a room: a new post outside the thread is asked about and skipped', CB in back and 'Lunch' not in back[CB]
+      and 'Lunch is here' in asked)
+check('broad, mail from the same sender in a new thread, and from a form\'s site: asked about',
+      'Holiday hours' in asked and came(CD, 'm-f1') and 'About the white ink' in asked and 'Holiday hours' not in back.get(CC, ''))
+check('two sessions match one message: each is asked, and only the one with YES comes back',
+      asked.count('Your laminator quote, revised') == 2 and came(CC, 'm-l3') and CE not in back)
+check('a NO: no bring-back, no message, one log line with the first words, for the Events page',
+      "skip %s \"Meeting room chairs\" Jo Sample in Chat: not about this session's work: Two other things for the building"
+      % CA[:12] in logged and 'it is about the windows and the lights' in logged and 'message failed' not in logged
+      and 'sent you the message' not in logged)
+check('a check that fails brings the session back all the same, and says so', came(CF, 'm-g1')
+      and '"Glue order" could not check a message' in logged)
+del brought[:]
+mail('m-l4', 'thrl4', 'Rep <rep@suppliersample.example>', 'The laminator ships Friday', TB + 400, 'Ships Friday')
+watch.held = lambda: True
+watch.check(wait, TB + 600)
+held_log = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+check('at the usage hold the check waits, and the message with it', brought == [] and 'ships Friday' not in
+      open(os.path.join(d, 'asked')).read() and '"Laminator quote" waits for the usage hold to end' in held_log)
+watch.held = lambda: False
+watch.check(wait, TB + 660)
+check('then it is checked once for each session it matches, and they come back', sorted(c for c, _ in brought) == [CC, CE]
+      and open(os.path.join(d, 'asked')).read().count('ships Friday') == 2)
+del brought[:]
+mail('m-g2', 'thrg2', 'Orders <orders@gluesample.example>', 'Glue invoice', TB + 700, 'Invoice 1')
+mail('m-g3', 'thrg3', 'Orders <orders@gluesample.example>', 'Glue tracking', TB + 710, 'Tracking 2')
+json.dump([['Glue order', 'Glue', 'YES - the glue order']], open(os.path.join(d, 'judge.json'), 'w'))
+watch.CHECKS_A_MINUTE = 1
+watch.check(wait, TB + 960)
+first = list(brought)
+watch.check(wait, TB + 1020)
+watch.CHECKS_A_MINUTE = 20
+check('more checks than a minute holds: the rest wait for the next minute, then the session comes back once with all',
+      first == [] and [c for c, _ in brought] == [CF] and 'Glue invoice' in brought[0][1] and 'Glue tracking' in brought[0][1])
 
 # --- the Stop check ---------------------------------------------------------------------------------------------------
 TP3 = os.path.join(PROJ, 'stop.jsonl')
