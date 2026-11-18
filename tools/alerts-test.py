@@ -3,11 +3,11 @@
 notify.py dry (STTARK_NOTIFY_DRY: nothing is sent) and nothing brought back:
 - claude-notify in a session whose alerts are off: no way at all, exit 0, words that tell the session the person reads
   it in the Kit app, a "kept" line in the log, no reach_sent; the same command in a session whose alerts are on goes
-  as before; a session_ id counts as its cse_ id; a check-in (quiet) for it goes no way either;
+  as before; a session_ id counts as its cse_ id;
 - wait.py: the Kit's own message when a session that came back sent none (FALLBACK), and when it could not come back,
   is kept, and its log line says so; a kept message from the session counts as its message, so no FALLBACK follows;
-- the reply watch's message for a session that could not come back is kept, and its log line says so;
-- the progress check-ins skip a session whose alerts are off, once, with no model call.
+- the reply watch's message for a session that could not come back is kept, and its log line says so.
+(Progress check-ins never alert: they show only in the Kit app, so the switch has nothing to stop there.)
 Run from the repo root: /usr/bin/python3 tools/alerts-test.py"""
 import importlib.util, json, os, subprocess, sys, tempfile, time
 
@@ -80,10 +80,10 @@ check('alerts on: the same command goes the ways picked, as before', code == 0 a
 check('alerts_off reads a session_ id as its cse_ id, and an empty id as on',
       n.alerts_off('session_01PowderWatch') and n.alerts_off('cse_01PowderWatch') and not n.alerts_off('cse_01OrderPage')
       and not n.alerts_off(''))
-quiet = n.send('Powder watch: Check the resort, working 20 min', 'It reads the snow report.', title='Powder watch',
-               url='https://claude.ai/code/session_01PowderWatch', cse='cse_01PowderWatch', quiet=True)
-check('a check-in for it (quiet) goes no way, and logs nothing itself: %r' % quiet,
-      [w for w, (ok, _) in quiet if ok] == [] and [w for w, _ in quiet] == ['email', 'chat'] and log().count(' kept: ') == 1)
+direct = n.send('Snow report', 'It reads the snow report.', title='Powder watch',
+                url='https://claude.ai/code/session_01PowderWatch', cse='cse_01PowderWatch')
+check('send() itself, with the session given: kept, no way: %r' % direct,
+      direct == [(n.KEPT, (True, n.KEPT_WORDS))] and log().count(' kept: ') == 2)
 
 # --- wait.py: the Kit's own message ------------------------------------------------------------------------------------
 w = load('wait')
@@ -154,18 +154,6 @@ e = {'pending': [{'id': 'm1', 'kind': 'mail', 'from': 'snow.example', 'subject':
 wt.deliver_one(Back, 'cse_01PowderWatch', e, {}, time.time())
 check('the reply watch: it could not come back, so the Kit kept the message in the Kit app',
       'could not come back; the Kit kept the message in the Kit app, since its alerts are off' in log())
-
-# --- progress check-ins -------------------------------------------------------------------------------------------------
-c = load('checkin')
-c.DRY = c.NO_MODEL = False
-calls = []
-c.summary = lambda *a, **k: calls.append(a) or 'a note'
-run = {'start': NOW - 1800, 'files': {}}
-x = state()['sessions']['cse_01PowderWatch']
-c.send(run, 'cse_01PowderWatch', x, state(), 'Powder watch', [{'kind': 'agent', 'start': NOW - 1800, 'path': '/x', 'what': 'Check'}], NOW)
-c.send(run, 'cse_01PowderWatch', x, state(), 'Powder watch', [{'kind': 'agent', 'start': NOW - 1800, 'path': '/x', 'what': 'Check'}], NOW + 60)
-check('a check-in for a session whose alerts are off: skipped, logged once, no model call',
-      log().count('checkin cse_01PowderWatch "Powder watch" skipped: its alerts are off') == 1 and not calls)
 
 print('all passed' if not fails else '%d failed' % fails)
 sys.exit(1 if fails else 0)
