@@ -20,7 +20,9 @@ screen or server of this Mac is touched, no model is called and nothing is sent.
   when the work changes; when the work ends it comes back (`work done`); after 2 hours it comes back, and its own
   message says what stopped; a list the session did not get yet goes in that message too; a turn still waits as
   before; an archived session's own copy is ended, and the message says so;
-- claude-wait --now while the work runs: the wait comes back when the work ends, and the person reads why.
+- claude-wait --now while the work runs: the wait comes back when the work ends, and the person reads why;
+- a note of the person's own reply (watch.py) goes the same two ways, once: with the next prompt, or in a
+  bring-back's message (`watch  told`).
 Run from the repo root: /usr/bin/python3 tools/work-test.py"""
 import importlib.util, io, json, os, shutil, subprocess, sys, tempfile, time
 from contextlib import redirect_stdout
@@ -276,6 +278,17 @@ if fake:
     check('once: the list is gone, and a `work told` line says so', not (state()['sessions'][CSE2].get('stopped'))
           and any(l.startswith('work   told %s "Bottle labels" what stopped at ' % CSE2) and 'with its next prompt' in l for l in log_lines()))
     check('the prompt after that carries nothing more', 'Work of this session stopped' not in prompt(CSE2, 'Thanks', tp2))
+    # a note of the person's own reply where it watches (watch.py queue_note()) goes the same way, once
+    state(lambda s: s['sessions'][CSE2].update(replied=[{
+        'at': time.time(), 'ids': ['m-own'], 'title': 'Bottle labels', 'where': 'in the email thread "Bottle labels proof"',
+        'text': '[Sttark Claude Kit] The person replied themselves, after your last turn, in a place this session '
+                'watches:\n- In the email thread "Bottle labels proof", Wed Nov 18 2:30 PM: "The proof is approved."'}]))
+    got = prompt(CSE2, 'Any news on the labels?', tp2)
+    check("a note of the person's own reply goes with the next prompt, once, with a `watch  told` line",
+          'The person replied themselves' in got and '"The proof is approved."' in got
+          and not state()['sessions'][CSE2].get('replied') and 'The person replied themselves' not in prompt(CSE2, 'Thanks', tp2)
+          and any(l.startswith('watch  told %s "Bottle labels" of your reply in the email thread "Bottle labels proof", '
+                               'with its next prompt' % CSE2) for l in log_lines('watch  ')), got[:300])
 
     # after the handover only the server's copy runs: what the ended Kit's copy wrote last is not its work, also when
     # that copy wrote it after the server's copy started (the server's copy runs nothing, so a bring-back need not wait)
@@ -439,6 +452,18 @@ wm.bring_back(dict(W6), None)
 check('a bring-back with no message (the Archived page) leaves the list for the next prompt',
       bool(state()['sessions'][CSE6].get('stopped')))
 state(lambda s: s['sessions'][CSE6].pop('stopped', None))
+
+# a note of the person's own reply (watch.py queue_note()) that the session did not get yet goes in the bring-back's
+# message too, once
+OWN = ('[Sttark Claude Kit] The person replied themselves, after your last turn, in a place this session watches:\n'
+       '- In the email thread "Labels proof", Wed Nov 18 2:30 PM: "The proof is approved."')
+state(lambda s: s['sessions'][CSE6].update(replied=[{'at': time.time(), 'ids': ['m-own'], 'title': 'Labels quote',
+                                                     'where': 'in the email thread "Labels proof"', 'text': OWN}]))
+try_back()
+check("a note of the person's own reply goes in the bring-back's message, and is gone after, with a `watch  told` line",
+      OWN in STARTS[-1] and not state()['sessions'][CSE6].get('replied') and any(
+          l.startswith('watch  told %s "Labels quote" of your reply in the email thread "Labels proof"' % CSE6)
+          and l.endswith("in the Kit's message") for l in log_lines('watch  ')))
 
 # what runs can't be read: the minute check's view of the session decides, as before
 real_copy_work = e2.copy_work

@@ -136,11 +136,26 @@ function rowTime(row: Row, now: number, tz: string): string {
   return when(row.time_at, now, tz);
 }
 
-function rowSub(k: Kit, p: Placed): string {
-  const { row, mac } = p;
+/** When the person replied themselves where a row's item is about, or
+ *  null: an idle row's newest kept message (it is handled), or the newest
+ *  reply in a wait's thread (the wait still waits for the other person). */
+export function repliedOf(row: Row): number | null {
+  if (row.group === 'idle') return row.messages?.[0]?.replied ?? null;
+  if (row.group === 'waiting') {
+    const at = row.waits.reduce((a, w) => Math.max(a, w.replied ?? 0), 0);
+    return at || null;
+  }
+  return null;
+}
+
+function rowSub(k: Kit, p: Placed, now: number): string {
+  const { row, mac, snap } = p;
   let out = '';
   if (row.sub_warn) out += `<span class="warn">${esc(row.sub_warn)}</span> · `;
   if (multi(k)) out += `<span class="mac">${esc(mac.name)}</span> · `;
+  // first, so the line's end never cuts it: the person answered it, so it no longer reads as open
+  const rep = repliedOf(row);
+  if (rep) out += `<span class="rep">You replied ${esc(whenFull(rep, now, snap.mac.tz))}</span> · `;
   return out + esc(row.sub);
 }
 
@@ -161,7 +176,7 @@ function sessionRow(k: Kit, p: Placed, from: string, stale: boolean): string {
   const ck = checkinOf(row);
   return (
     `<li><a class="row" href="${esc(sessionHref(k, row.cse, from))}"><div class="row-main"><div class="name-line"><span class="name">${esc(row.title)}</span>${lvl}${off}</div>` +
-    `<div class="sub">${rowSub(k, p)}</div>` +
+    `<div class="sub">${rowSub(k, p, now)}</div>` +
     `</div><span class="time${row.late && !stale ? ' late' : ''}">${esc(rowTime(row, now, snap.mac.tz))}</span>` +
     // under the name and the time, the row's whole width, so more of the note shows
     (ck ? `<div class="ck">${ic('message-square-text')}<span class="ck-text"><span class="ck-age">${esc(checkinAge(ck.at, now))}:</span> ${esc(ck.note)}</span></div>` : '') +
@@ -305,6 +320,8 @@ function waitCard(k: Kit, w: Wait, ro: boolean, ui: Ui, tz: string, now: number)
   const by = w.by ? `Deadline ${when(w.by, now, tz)} · ${until(w.by, now)}` : 'No deadline';
   return (
     `<div class="card wait"><div><div class="w-what">${esc(w.what)}</div><div class="w-by">${esc(by)}</div>` +
+    // the person replied in its thread themselves: the wait goes on, for the other person's reply
+    (w.replied ? `<div class="w-rep">${esc(`You replied ${whenFull(w.replied, now, tz)}. It still waits for their reply.`)}</div>` : '') +
     (w.checks ? `<div class="w-how">${esc(w.checks)}</div>` : '') +
     (w.failing ? `<div class="w-fail">Check failing${w.failing_since ? ` since ${esc(whenFull(w.failing_since, k.now, tz))}` : ''}</div>` : '') +
     `</div>` +
@@ -347,6 +364,8 @@ function messagesHtml(k: Kit, row: Row, tz: string): string {
         return (
           `<article class="card msg"><div class="msg-subj">${esc(m.subject)}</div><div class="msg-at">${esc(whenFull(m.at, k.now, tz))}</div>` +
           (text ? `<p class="msg-text">${esc(text)}</p>` : '') +
+          // the person answered it themselves, where it is about: it is handled (a status, with its words)
+          (m.replied ? `<div class="msg-rep">${chip('good', `You replied ${whenFull(m.replied, k.now, tz)}`)}</div>` : '') +
           `</article>`
         );
       })

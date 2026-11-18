@@ -197,6 +197,87 @@ enum Events {
         return out
     }
 
+    /// Where the person replied, as the reply watch logs it (`in the email thread "Lunch"`, `in the thread of its Chat
+    /// post`, `in a Chat space it posted in`, `on its Asana task 1220…`), in words with no id: `in the email thread
+    /// “Lunch”`, `on its Asana task`.
+    static func placeWords(_ place: String) -> String {
+        var p = place.trimmingCharacters(in: .whitespaces)
+        p = p.replacingOccurrences(of: #" \d{6,}$"#, with: "", options: .regularExpression)   // an Asana task's id: in the detail as a link
+        if let a = p.firstIndex(of: "\""), let b = p[p.index(after: a)...].firstIndex(of: "\"") {
+            p = String(p[..<a]) + "\u{201C}" + p[p.index(after: a)..<b] + "\u{201D}" + p[p.index(after: b)...]
+        }
+        return p
+    }
+
+    /// The reply watch saw the person's own reply where a session watches or waits (watch.py):
+    /// `replied <cse> "<title>" <where>, <time>: <their first words> | <what the Kit did>; <what the Kit did>`.
+    /// One row: what they replied and where, then each thing the Kit did, as a sentence. A bring-back with a note is a
+    /// row of Sessions started again; the rest are Waits and messages. Nothing about it alerts anyone.
+    static func ownReply(_ rest: String, _ e: inout KitEvent) {
+        e.kind = .wait
+        // what the Kit did: after the " | " that starts one of its phrases (the person's words may hold a " | " too)
+        let starts = ["its message in the Kit", "its wait ", "noted for", "brought back", "would come back", "not told", "comes back"]
+        var main = rest, did = ""
+        var from = rest.startIndex
+        while let r = rest.range(of: " | ", range: from..<rest.endIndex) {
+            if starts.contains(where: { rest[r.upperBound...].hasPrefix($0) }) {
+                main = String(rest[..<r.lowerBound]); did = String(rest[r.upperBound...]); break
+            }
+            from = r.upperBound
+        }
+        // after the session's name in quotes: where, then the time of the reply, then the person's first words
+        var tail = main
+        if let a = main.firstIndex(of: "\""), let b = main[main.index(after: a)...].firstIndex(of: "\"") {
+            tail = String(main[main.index(after: b)...]).trimmingCharacters(in: .whitespaces)
+        }
+        var place = tail, at = "", words = ""
+        if let t = tail.range(of: #", ((?:[A-Z][a-z]{2} (?:\d{1,2} )?)?\d{1,2}:\d\d [AP]M): "#, options: .regularExpression) {
+            place = String(tail[..<t.lowerBound])
+            at = String(tail[t]).trimmingCharacters(in: CharacterSet(charactersIn: ", :"))
+            words = String(tail[t.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        let task = place.range(of: #"\d{6,}$"#, options: .regularExpression).map { String(place[$0]) }
+        let whereWords = placeWords(place)
+        let brought = did.contains("brought back with a note")
+        e.kind = brought ? .restart : .wait
+        e.text = (brought ? "Brought back with a note: you replied " : "You replied ") + whereWords
+        if !words.isEmpty {
+            e.detail.append((at.isEmpty ? "You wrote: " : "At \(at) you wrote: ") + "\u{201C}" + words.prefix(160) + "\u{201D}")
+        } else if !at.isEmpty {
+            e.detail.append("You replied at \(at).")
+        }
+        if let g = task { e.detail.append("Asana task: https://app.asana.com/0/0/\(g)") }
+        var told = false
+        for raw in did.components(separatedBy: "; ") {
+            let x = raw.trimmingCharacters(in: .whitespaces)
+            let shows = x.range(of: "You replied ").map { String(x[$0.upperBound...]).replacingOccurrences(of: #" and still waits.*$"#, with: "", options: .regularExpression) } ?? ""
+            if x.hasPrefix("its message in the Kit") {
+                let subject = x.firstIndex(of: "\"").flatMap { a in x[x.index(after: a)...].firstIndex(of: "\"").map { String(x[x.index(after: a)..<$0]) } } ?? ""
+                e.detail.append("Its message in the Kit" + (subject.isEmpty ? "" : ", \u{201C}\(subject)\u{201D},")
+                                + " now shows \u{201C}You replied \(shows)\u{201D}: it is handled.")
+            } else if x.hasPrefix("its wait ") {
+                e.detail.append("Its email reply wait shows \u{201C}You replied \(shows)\u{201D} and still waits for the other person: your own reply does not end it.")
+            } else if x.hasPrefix("noted for") {
+                told = true
+                e.detail.append("The session gets a note about it with its next prompt.")
+            } else if x.hasPrefix("brought back with a note") {
+                told = true
+                let why = x.range(of: ": ").map { String(x[$0.upperBound...]) } ?? ""
+                e.detail.append("The Kit brought it back with a note" + (why.isEmpty ? "." : ", since \(why)."))
+            } else if x.hasPrefix("would come back") {
+                told = true
+                e.detail.append("Test run: it would come back with a note.")
+            } else if x.hasPrefix("not told") {
+                e.detail.append("Not told: it had a turn after your reply.")
+            } else if !x.isEmpty {
+                e.detail.append(x.prefix(1).uppercased() + x.dropFirst() + (x.hasSuffix(".") ? "" : "."))
+            }
+        }
+        if told { e.detail.append("No alert, and no message to anyone.") }
+        // the Kit only noted that it saw it: nothing changed for the session
+        if did.trimmingCharacters(in: .whitespaces).hasPrefix("not told") && !did.contains(";") { e.routine = true }
+    }
+
     static func kitLine(_ line: String, _ names: Names) -> KitEvent? {
         guard line.count > 20, let t = stamp.date(from: String(line.prefix(19))) else { return nil }
         let body = line.dropFirst(20)
@@ -567,7 +648,33 @@ enum Events {
                 if !words.isEmpty { e.detail.append("Message: \u{201C}" + words.prefix(160) + "\u{201D}") }
                 if !why.isEmpty { e.detail.append("Why: " + why.prefix(200)) }
             }
-            if rest.hasPrefix("skip ") && rest.contains(": not about this session's work: ") {
+            if rest.hasPrefix("replied ") {   // the person's own reply where the session watches or waits
+                ownReply(rest, &e)
+            } else if rest.hasPrefix("told ") && rest.contains(" of your reply ") {
+                e.routine = true
+                let inMessage = rest.hasSuffix(", in the Kit's message")
+                e.text = inMessage ? "Told of your reply, in the Kit's message" : "Told of your reply, with its next prompt"
+                if let r = rest.range(of: " of your reply ") {
+                    var place = String(rest[r.upperBound...])
+                    if let c = place.range(of: ", ", options: .backwards) { place = String(place[..<c.lowerBound]) }
+                    let words = Events.placeWords(place)
+                    if !words.isEmpty { e.detail.append("Where: " + words + ".") }
+                }
+                e.detail.append("No alert, and no message to anyone.")
+            } else if rest.hasPrefix("skip ") && rest.contains(" you in Chat: not about this session's work: ") {
+                e.text = "Your Chat post was about other work, so the session was not told"
+                let (main, _, why) = split(rest)
+                if let r = main.range(of: ": not about this session's work: ") {
+                    let words = main[r.upperBound...].trimmingCharacters(in: .whitespaces)
+                    if !words.isEmpty { e.detail.append("You wrote: \u{201C}" + words.prefix(160) + "\u{201D}") }
+                }
+                if !why.isEmpty { e.detail.append("Why: " + why.prefix(200)) }
+                e.detail.append("The reply watch asked Haiku, because your post was in a Chat space the session posted in, not in the thread of its post.")
+            } else if rest.hasPrefix("checked ") && rest.contains(" you in Chat: about this session's work: ") {
+                e.kind = .check; e.routine = true
+                e.text = "Your Chat post is about its work"
+                checkDetail(": about this session's work: ")
+            } else if rest.hasPrefix("skip ") && rest.contains(": not about this session's work: ") {
                 e.text = "Not brought back: a new message was about other work"
                 checkDetail(": not about this session's work: ")
                 e.detail.append("The reply watch asked Haiku, because mail from this sender or a post in this Chat space can be about other work.")

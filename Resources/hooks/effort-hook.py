@@ -939,6 +939,31 @@ def take_stopped(cse, how, only=None):
     return [n['text'] for n in got]
 
 
+REPLIED_DAYS = 14  # days a note of the person's own reply waits for the session's next prompt
+
+
+def pending_replied(cse):
+    """Notes of the person's own replies where the session watches (watch.py queue_note()) that it has not had yet:
+    the texts, oldest first."""
+    x = (peek().get('sessions') or {}).get(cse) or {}
+    return [n['text'] for n in x.get('replied') or [] if time.time() - n.get('at', 0) < REPLIED_DAYS * 86400]
+
+
+def take_replied(cse, how, only=None):
+    """The session gets the notes now (`how`: with its next prompt, or in the Kit's own message): they go, logged once
+    each (`watch  told`). `only`: the texts it got (pending_replied() read before), when a note may come meanwhile."""
+    with state() as s:
+        x = s['sessions'].get(cse) or {}
+        every = x.pop('replied', None) or []
+        got = [n for n in every if time.time() - n.get('at', 0) < REPLIED_DAYS * 86400 and (only is None or n['text'] in only)]
+        rest = [n for n in every if only is not None and n['text'] not in only]
+        if rest:
+            x['replied'] = rest
+    for n in got:
+        log(f'watch  told {cse} "{n.get("title") or ""}" of your reply {n.get("where") or "where it watches"}, {how}')
+    return [n['text'] for n in got]
+
+
 def copies(cse, cid, rows=None):
     """The Claude Code processes that run a session now, {pid: kind}: 'server' (the server's child for it, with
     --sdk-url .../sessions/<cse> or --session-id <cse>), 'kit' (claude --resume <cid>, in a kit- screen), or 'other'
@@ -2264,6 +2289,8 @@ def main():
         rules = [r for key, r in (('claude_window', BROWSER_RULE), ('file_links', FILE_RULE)) if peek().get(key)]
         if sid and pending_stopped(sid):  # work the Kit ended in this session: it hears once which, to resume it
             rules += take_stopped(sid, 'with its next prompt')
+        if sid and pending_replied(sid):  # the person replied themselves where it watches: it hears once, no alert
+            rules += take_replied(sid, 'with its next prompt')
         if rules:
             print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': '\n\n'.join(rules)}}))
     if event == 'PreToolUse':  # a subagent is about to start; any session, Remote Control or not

@@ -44,6 +44,9 @@ and its message tells the session what stopped. A session that can't come back (
 this Mac) gets the message straight from the Kit instead.
 After the waits, each minute, the reply watch (watch.py) brings a session back when an answer comes from someone
 it contacted, also when it set no wait for it; a wait never ends on a message the watch already brought it for.
+An email reply wait never ends on the person's own message either: when the person replies in its thread themselves,
+the reply watch puts `replied` on the wait ({at, where, id}: its row says "You replied <time>"), and it still waits for
+the other person. A wait that brings its session back notes its thread for the watch (watch.py note_back()).
 Then a prompt the person sent from a new session to an open one that does the same work (same-work.py) goes to that
 session, when it waited for the session's turn to end; bring_back() is its start too.
 Then, with the wait lock free and in a process of their own, the progress check-ins (checkin.py) tell the person how
@@ -601,7 +604,8 @@ def bring_back(w, prompt=None):
         if e.work_ids(work):
             ended, why = work, 'archived'
     pending = e.pending_stopped(cse) if prompt else []  # work the Kit ended before (a handover): the session hears now
-    told = pending + ([e.stopped_notice(ended, why, time.time(), '%d hours' % (HOLD_MAX // 3600))] if prompt and ended else [])
+    replied = [r for r in (e.pending_replied(cse) if prompt else []) if r not in prompt]  # the person's own replies
+    told = pending + replied + ([e.stopped_notice(ended, why, time.time(), '%d hours' % (HOLD_MAX // 3600))] if prompt and ended else [])
     if told:
         prompt = '\n\n'.join([prompt] + told)
     cid = os.path.basename(tp)[:-len('.jsonl')]
@@ -628,6 +632,8 @@ def bring_back(w, prompt=None):
         e.note_stopped(cse, w.get('title', ''), ended, why, in_message=bool(prompt))
     if pending:
         e.take_stopped(cse, "in the Kit's message", only=pending)
+    if replied:
+        e.take_replied(cse, "in the Kit's message", only=replied)
     return True
 
 
@@ -710,8 +716,19 @@ def unarchive(cse, by='window'):
     return 0
 
 
+def threads(w):
+    """The email threads of an email reply wait: the one it waits on, and the one its reply came in."""
+    if w.get('kind') != 'email-reply':
+        return []
+    return [t for t in dict.fromkeys([w.get('target'), (w.get('found') or {}).get('thread_id')]) if t]
+
+
 def fallback(w, what, late):
-    """The Kit's own message, when the session couldn't come back or didn't tell the person."""
+    """The Kit's own message, when the session couldn't come back or didn't tell the person. Kept in the Kit, it is
+    about the wait's email thread, so the person's own reply there marks it handled (watch.py)."""
+    th = threads(w)
+    about = {'at': w.get('back_at') or time.time(), 'places': ['mail:%s:%s' % (mailbox(w), t) for t in th],
+             'what': describe(w)} if th else None
     n = load('notify')
     body = what[0].upper() + what[1:] + '.'
     if late:
@@ -722,7 +739,7 @@ def fallback(w, what, late):
     else:
         body += ' It could not come back by itself; open it to go on.'
     return n.send(('No answer: ' if late else '') + describe(w), body, w.get('url', ''),
-                  title=w.get('title', ''), url=w.get('session_url', ''), cse=w.get('cse', ''), source='kit')
+                  title=w.get('title', ''), url=w.get('session_url', ''), cse=w.get('cse', ''), source='kit', about=about)
 
 
 def sent_words(res):
@@ -856,6 +873,11 @@ def check(only=None, by=None):
             upd.update(stage='back', back_at=time.time(), what=what, late=late)
             change(save)
             result = 'brought'
+            try:  # its thread, if it has one: a message the session keeps now is about it, and the person's reply counts
+                load('watch').note_back(w.get('cse'), w.get('transcript'), mailbox(w) if threads(w) else '', threads(w),
+                                        w.get('subject', ''))
+            except Exception as e:
+                log('%s could not note its bring-back for the reply watch: %s: %s' % (wid, type(e).__name__, str(e)[:160]))
         else:
             w['stage'] = 'out'
             res = fallback(w, what, late)

@@ -126,6 +126,9 @@ session: no claude-notify.
 in"), read each one in full and decide if it needs action. If it does, go on with the work, then send the person one \
 message with claude-notify, as above. If it does not (a receipt, an automatic reply, or a thing you already did), end \
 the turn with one line that says why, with no claude-notify.
+- When the Kit says the person replied themselves (a note that starts "[Sttark Claude Kit] The person replied \
+themselves"), the item that waited on that reply is done: mark it handled in your notes and your status table. \
+Send no claude-notify for it, and do not ask the person about it.
 - Repo work: pull latest from remote before you work, and read the project docs before you change anything. The \
 projects have history.
 - UI and layout: function over form. Usability is king. See it rendered before calling it done.

@@ -22,13 +22,19 @@ export type Wait = {
   checks: string | null;
   failing: boolean;
   failing_since: number | null;
+  /** On an email reply: when the person replied in its thread themselves.
+   *  The wait goes on: it still waits for the other person. A Kit from
+   *  before it sends none. */
+  replied?: number;
 };
 
 /** A message the session or the Kit would have sent to the person (email,
  *  Chat, a text, a notice), kept in the Kit instead: Alerts are off in Reach
  *  me by on the Mac, or for this session. why is the Mac's words for that.
- *  No link and no address ever comes up. */
-export type KeptMessage = { at: number; subject: string; text: string; why: string };
+ *  replied: when the person answered it themselves, where it is about (the
+ *  same email thread, Chat space or Asana task); it is handled then. No link
+ *  and no address ever comes up. */
+export type KeptMessage = { at: number; subject: string; text: string; why: string; replied?: number };
 
 export type Row = {
   id: string;

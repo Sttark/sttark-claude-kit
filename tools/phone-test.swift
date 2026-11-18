@@ -35,7 +35,7 @@ import Foundation
     /// Planted in places that must never leave the Mac.
     static let markers = ["PROMPTMARK", "REPLYMARK", "TRANSCRIPTMARK", "PATHMARK", "TARGETMARK", "SCRIPTMARK", "OUTPUTMARK",
                           "QUESTIONMARK", "REACHMARK", "SUBJECTMARK", "FAILMARK", "DOINGMARK", "SNIPPETMARK", "LOGMARK",
-                          "IDLEMARK", "LOCALMARK", "NOTEMARK"]
+                          "IDLEMARK", "LOCALMARK", "NOTEMARK", "MSGIDMARK"]
     /// The day the fixtures' times are moved to (the contract's own fixtures use it too).
     static let fixtureNow = 1_794_587_400
 
@@ -131,12 +131,14 @@ import Foundation
               obj(retry["session"])["level"] as? String == "medium" && isNull(lam["session"]) && isNull(powder["session"]))
         check("two email replies, one check failing: a warning, not bold", lam["sub"] as? String == "2 email replies"
               && lam["sub_warn"] as? String == "1 check failing" && isNull(lam["sub_strong"]))
-        let e1 = wait(lam, "b2c3d4"), e2 = wait(lam, "c3d4e5")
+        let e1 = wait(lam, "b2c3d4"), e2 = wait(lam, "c3d4e5"), proof0 = row("cse_01PhoneProof")
         check("an email reply: what, from, why, deadline and how it is checked (every 30 min after 3 hours)",
               e1["kind"] as? String == "email-reply" && e1["what"] as? String == "Supplier's reply to the deposit email" && e1["from"] as? String == "supplier.example"
               && e1["why"] as? String == "They said 2 workdays; later misses this week's slot" && int(e1["by"]) == now + 3 * 86400
               && e1["checks"] as? String == "Your email, for mail from supplier.example, every 30 min, 7 AM to 9 PM"
               && e1["failing"] as? Bool == false && isNull(e1["failing_since"]))
+        check("a wait whose thread the person replied in: when, and nothing else of it; the other wait none",
+              int(e1["replied"]) == now - 1500 && e2["replied"] == nil && wait(proof0, "e1f2a3")["replied"] == nil)
         check("a failing check: since when, never why; hourly after a day; no --what gives Email reply",
               e2["failing"] as? Bool == true && int(e2["failing_since"]) == now - 7200 && e2["what"] as? String == "Email reply"
               && e2["checks"] as? String == "Your email, every 1 hr, 7 AM to 9 PM" && isNull(e2["from"]))
@@ -358,7 +360,8 @@ import Foundation
         let keptItems: [[String: Any]] = [
             keptItem("a00000000001", "cse_01PhoneUnseen", "IDLEMARK unread reply", ago: 900, "PR merged",
                      "It merged.\n\nMail from sales@supplier.example came too; the notes are in /Users/sample/PATHMARK/notes.md."),
-            keptItem("a00000000002", "cse_01PhoneUnseen", "IDLEMARK unread reply", ago: 600, "Deploy done", "It is live. Nothing needed from you."),
+            keptItem("a00000000002", "cse_01PhoneUnseen", "IDLEMARK unread reply", ago: 600, "Deploy done", "It is live. Nothing needed from you.")
+                .merging(["replied": ["at": now - 450, "where": "the email thread \"SUBJECTMARK deploy\"", "id": "MSGIDMARK02"]]) { $1 },
             keptItem("a00000000003", "cse_01PhoneOrderLogin", "Order page login", ago: 300, "One question", String(repeating: "Long words. ", count: 120)),
             keptItem("a00000000004", "cse_01PhoneOrderLogin", "Order page login", ago: 2 * 86400, "Old one", "Two days old: not sent up."),
             keptItem("a00000000005", "cse_01PhoneIdle", "IDLEMARK quarterly notes", ago: 3 * 86400, "Older", "An idle session with an old message stays on the Mac."),
@@ -379,6 +382,9 @@ import Foundation
               unseenMsgs.map { $0["subject"] as? String ?? "" } == ["Deploy done", "PR merged"] && int(unseenMsgs.first?["at"]) == now - 600
               && unseenMsgs.dropFirst().first?["text"] as? String == "It merged.\n\nMail from supplier.example came too; the notes are in notes.md."
               && unseenMsgs.allSatisfy { $0["why"] as? String == "alerts are off" && $0["link"] == nil })
+        check("a message the person replied to themselves: when goes up (never where, or which message); the row's line stays",
+              int(unseenMsgs.first?["replied"]) == now - 450 && unseenMsgs.dropFirst().first?["replied"] == nil
+              && unseen["sub"] as? String == "Message: Deploy done")
         check("a row in another group gets its messages of the last day only, the text cut to 1000",
               orderKept["group"] as? String == "needs_you" && orderMsgs.count == 1 && orderMsgs[0]["subject"] as? String == "One question"
               && ((orderMsgs[0]["text"] as? String)?.unicodeScalars.count ?? 0) <= 1000 && (orderMsgs[0]["text"] as? String ?? "").hasSuffix("…")
@@ -678,7 +684,7 @@ import Foundation
 
     /// The snapshot with each time moved back by `shift` seconds: the fixture reads the same on every run.
     static func moved(_ v: Any, by shift: Int, key: String = "") -> Any {
-        let times: Set<String> = ["at", "resets", "until", "time_at", "waiting_since", "turn_at", "since", "by", "failing_since"]
+        let times: Set<String> = ["at", "resets", "until", "time_at", "waiting_since", "turn_at", "since", "by", "failing_since", "replied"]
         if let d = v as? [String: Any] { return d.reduce(into: [String: Any]()) { $0[$1.key] = moved($1.value, by: shift, key: $1.key) } }
         if let a = v as? [Any] { return a.map { moved($0, by: shift) } }
         if times.contains(key), let n = v as? NSNumber, !(v is Bool), n.intValue >= 1_000_000_000 { return n.intValue - shift }
@@ -885,7 +891,9 @@ enum Sample {
             wait("b2c3d4", "email-reply", cse: "cse_01PhoneLaminator", "Laminator quote", why: "They said 2 workdays; later misses this week's slot",
                  by: 3 * 86400, setAgo: 5 * 3600,
                  extra: ["target": "18cTARGETMARK01", "from": "Dana Sales <dana.sales@supplier.example>", "what": "Supplier's reply to the deposit email",
-                         "subject": "SUBJECTMARK deposit"]),
+                         "subject": "SUBJECTMARK deposit",
+                         // the person replied in its thread themselves (watch.py): when goes up, never where or which message
+                         "replied": ["at": now - 1500, "where": "the email thread \"SUBJECTMARK deposit\"", "id": "MSGIDMARK01"]]),
             wait("e1f2a3", "email-reply", cse: "cse_01PhoneProof", "Label proof", why: "They sign off within a day", by: 86400, setAgo: 1800,
                  extra: ["target": "18cTARGETMARK04", "from": "buyer@customer.example", "what": "Customer's go-ahead on the label proof"]),
             wait("c3d4e5", "email-reply", cse: "cse_01PhoneLaminator", "Laminator quote", why: "Same supplier, the older thread",

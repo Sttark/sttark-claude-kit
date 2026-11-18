@@ -37,7 +37,9 @@ shows on the message's session and the phone gets for the last 24 hours, and a l
 <why> | <subject>" for the Events page. send() takes that path by itself, for claude-notify and the Kit's own
 message (wait.py after a wait, watch.py for a reply it could not bring back), so nothing alerts outside the Kit app: no
 mail, Chat, text, Mac notice, and no PushNotification step for the session. claude-notify then exits 0 and prints one line that tells
-the session the person reads it in the Kit app, so it does not try another way.
+the session the person reads it in the Kit app, so it does not try another way. A kept message made in a turn the Kit
+started for a reply or a wait is `about` that email thread, Chat space or Asana task (watch.py about()); when the person
+replies there themselves, the reply watch marks it handled (mark_replied(): `replied`, "You replied <time>").
 
 Each session's alerts are off unless the person turned them on for that session: the bell on its row in the Kit
 window, or the Alerts switch on its page on the phone. A choice by hand is alerts[<cse>] = {"on": true or false, ...} in
@@ -122,16 +124,24 @@ def held(cse='', ways=None, state=None):
     return ''
 
 
-def keep_in_kit(subject, body, link='', title='', url='', cse='', why='alerts are off', source='session', now=None):
+def keep_in_kit(subject, body, link='', title='', url='', cse='', why='alerts are off', source='session', now=None,
+                about=None):
     """KEPT IN THE KIT APP: the one path for a message that does not go out (see held()). It goes into kept.json in the
     Kit's folder, under its lock, with the session it belongs to, and the window shows it on that session (the Sessions
     page) and the phone on the session's page; entries older than KEPT_DAYS go. `source`: 'session' (claude-notify) or
-    'kit' (the Kit's own message: wait.py, watch.py). Logs "notify <name> kept <id>: <why> | <subject>" for the Events
-    page; wait.py reads that line as the session's message. Returns the message's id."""
+    'kit' (the Kit's own message: wait.py, watch.py). `about`: what the message is about, {at, places, what}: the
+    places (an email thread, a Chat space, an Asana task) the Kit brought the session back for in the turn that keeps it
+    (watch.py about(), when the caller gives none); the person's own reply there later marks it handled
+    (mark_replied()). Logs "notify <name> kept <id>: <why> | <subject>" for the Events page; wait.py reads that line as
+    the session's message. Returns the message's id."""
     now = float(now or time.time())
     kid = uuid.uuid4().hex[:12]
     item = {'id': kid, 'at': round(now, 3), 'cse': cse or '', 'title': title or '', 'subject': subject.strip(),
             'body': body.strip(), 'link': link or '', 'url': url or '', 'from': source, 'why': why}
+    if about is None and cse:
+        about = about_of(cse, now)
+    if about and about.get('places'):
+        item['about'] = about
     os.makedirs(KIT, exist_ok=True)
     with open(KEPT + '.lock', 'w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -147,6 +157,46 @@ def keep_in_kit(subject, body, link='', title='', url='', cse='', why='alerts ar
         os.replace(tmp, KEPT)
     log('%s kept %s: %s | %s' % ((title or '-')[:40], kid, why, subject.strip()[:80]))
     return kid
+
+
+def about_of(cse, now):
+    """What a message the session keeps now is about, from the reply watch (watch.py about()); None when it can't say."""
+    try:
+        spec = importlib.util.spec_from_file_location('watch', os.path.join(HERE, 'watch.py'))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m.about(cse, now)
+    except Exception:
+        return None
+
+
+def mark_replied(place, at, where, mid, cse='', dry=False):
+    """THE PERSON REPLIED (watch.py): they wrote in `place` themselves (an email thread 'mail:<box>:<thread>', a Chat
+    space 'chat:<space>', an Asana task 'asana:<gid>') at `at`. Each message of the session `cse` kept in the Kit about
+    that place (its `about`), from a bring-back before the reply, and not marked yet, gets `replied` = {at, where, id}:
+    the window and the phone show "You replied <time>" on it, as handled. Returns [(id, subject)]; `dry` only says."""
+    out = []
+    if not os.path.exists(KEPT):
+        return out
+    with open(KEPT + '.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            items = json.load(open(KEPT)).get('items') or []
+        except (OSError, ValueError, AttributeError):
+            return out
+        for x in items:
+            ab = x.get('about') if isinstance(x, dict) else None
+            if (isinstance(ab, dict) and place in (ab.get('places') or []) and at > (ab.get('at') or 0)
+                    and not x.get('replied') and (not cse or x.get('cse') == cse)):
+                out.append((x.get('id', ''), x.get('subject') or ''))
+                if not dry:
+                    x['replied'] = {'at': round(float(at), 3), 'where': where, 'id': mid}
+        if out and not dry:
+            tmp = KEPT + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump({'items': items}, f, indent=1)
+            os.replace(tmp, KEPT)
+    return out
 
 
 def kept(cse=None, now=None):
@@ -392,20 +442,21 @@ def by_app(ways, m, r):
     return res
 
 
-def send(subject, body, link='', ways=None, title=None, url=None, cse='', source='session'):
+def send(subject, body, link='', ways=None, title=None, url=None, cse='', source='session', about=None):
     """`url` is the session's claude.ai link and `cse` its Remote Control id. In the message, 'url' is the
     open_link page link (for a computer), 'web' the claude.ai link (for a phone), and 'cse' the id the Mac
     notice opens directly.
     When held() gives a reason, nothing goes out: keep_in_kit() keeps it, and the answer is one
     [(IN_KIT, (True, <why>))]. `source` names the sender for keep_in_kit(): 'session' (claude-notify) or 'kit' (the
-    Kit's own message: wait.py after a wait, watch.py for a reply it could not bring back)."""
+    Kit's own message: wait.py after a wait, watch.py for a reply it could not bring back); `about`, what it is about
+    (keep_in_kit())."""
     r = settings()
     ways = [w for w in (ways or r['ways']) if w in WAYS]
     if title is None:
         title, url, cse = session()
     why = held(cse, ways)
     if why:
-        keep_in_kit(subject, body, link, title or '', url or '', cse or '', why, source)
+        keep_in_kit(subject, body, link, title or '', url or '', cse or '', why, source, about=about)
         return [(IN_KIT, (True, why))]
     m = {'subject': subject.strip(), 'body': body.strip(), 'link': link, 'title': title or '',
          'url': open_link(cse, url), 'web': url or '', 'cse': cse or ''}

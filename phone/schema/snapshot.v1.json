@@ -190,7 +190,8 @@
         "at": { "$ref": "#/$defs/time", "description": "When it would have been sent." },
         "subject": { "$ref": "#/$defs/label", "description": "Its subject, as it would have been sent." },
         "text": { "type": "string", "maxLength": 1000, "description": "Its words, with their line breaks; cut to 1000 characters on the Mac. Never its link." },
-        "why": { "type": "string", "maxLength": 80, "description": "The Mac's words for why it was not sent: alerts are off, alerts are off for this session." }
+        "why": { "type": "string", "maxLength": 80, "description": "The Mac's words for why it was not sent: alerts are off, alerts are off for this session." },
+        "replied": { "$ref": "#/$defs/time", "description": "Optional: when the person replied, themselves, where this message is about (the same email thread, Chat space or Asana task). The message is handled; the page says You replied and the time. Never where, or what they wrote. A Kit from before it sends none." }
       }
     },
     "wait": {
@@ -206,7 +207,8 @@
         "by": { "$ref": "#/$defs/time_or_null", "description": "The deadline." },
         "checks": { "$ref": "#/$defs/label_or_null", "description": "How the Kit checks it, in words: Your email, every 30 min, 7 AM to 9 PM." },
         "failing": { "type": "boolean" },
-        "failing_since": { "$ref": "#/$defs/time_or_null" }
+        "failing_since": { "$ref": "#/$defs/time_or_null" },
+        "replied": { "$ref": "#/$defs/time", "description": "Optional, on an email reply: when the person replied in its thread themselves. Their own reply does not end the wait; it still waits for the other person. Never the thread, or what they wrote. A Kit from before it sends none." }
       }
     }
   }

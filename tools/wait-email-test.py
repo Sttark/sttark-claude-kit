@@ -8,7 +8,10 @@
 import importlib.util, json, os, stat, sys, tempfile
 
 d = tempfile.mkdtemp()
-os.environ.update(STTARK_KIT_DIR=d + '/kit', STTARK_KIT_LOG=d + '/log')
+# STTARK_MAIL_KEYS: an empty stand-in for the Keychain, so a Mac that reads its own mailbox (claude-mail sign-in) tests
+# the Workrouter check too, and never reads its real sign-in
+open(d + '/keys.json', 'w').write('{}')
+os.environ.update(STTARK_KIT_DIR=d + '/kit', STTARK_KIT_LOG=d + '/log', STTARK_MAIL_KEYS=d + '/keys.json')
 here = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location('wait', os.path.join(here, '../Resources/hooks/wait.py'))
 w = importlib.util.module_from_spec(spec)

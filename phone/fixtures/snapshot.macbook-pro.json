@@ -249,7 +249,8 @@
           "by": 1794837600,
           "checks": "Your email, every 30 min, 7 AM to 9 PM",
           "failing": false,
-          "failing_since": null
+          "failing_since": null,
+          "replied": 1794583800
         },
         {
           "id": "w03",
@@ -421,7 +422,8 @@
           "at": 1794585300,
           "subject": "Freight quotes are in",
           "text": "Three forwarders answered for the laminator crate (2.4 x 1.6 x 1.9 m, 1,850 kg):\n\n1. Ocean, door to door, 34 days: $2,180\n2. Ocean express, 22 days: $2,940\n3. Air, 6 days: $7,950\n\nOcean express is the fastest at a fair price. Reply in the session with the one to book.",
-          "why": "alerts are off"
+          "why": "alerts are off",
+          "replied": 1794586500
         },
         {
           "at": 1794569400,

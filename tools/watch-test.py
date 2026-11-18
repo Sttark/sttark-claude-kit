@@ -24,7 +24,14 @@ made-up sessions and transcripts, a JSON file for the Keychain (STTARK_MAIL_KEYS
 - the Stop check: a web form or a draft with only a time wait is noted, with the command to set; a reply wait is not;
 - only a command the shell runs counts: claude-window or claude-wait named in a here-document (an agent that edits a
   test), in quotes or in a commit message is no contact and no wait; one run by a variable set to its path, with
-  code from a file the same command writes, is.
+  code from a file the same command writes, is;
+- the person's own replies, from the case that asked for it (with made-up names): the watch brings a session back for
+  a new thread, its note kept in the Kit is about that thread, and the person's own reply there, in the same read,
+  marks the note You replied and brings the session back with a note (no alert); a draft is no reply; once only; a
+  kept message in a turn for a wait with no thread is about no place; an email reply wait stays open, shows You
+  replied and brings its session back the first time, a later reply only notes it for the next prompt, which gets it
+  once; a reply before the session's last turn ended is not told; Chat (in the thread of its post with no check, else
+  checked) and Asana (the person's own comment, never the session's own or someone else's) go in one note.
 Run from the repo root: /usr/bin/python3 tools/watch-test.py"""
 import base64, contextlib, importlib.util, io, json, os, re, stat, sys, tempfile, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -64,14 +71,17 @@ def mail(mid, tid, sender, subject, at, snippet='', body=''):
 
 
 def search(q, box):
-    """What Gmail answers for a watch search: after:, -from:me and the {...} group of from: and subject: terms."""
+    """What Gmail answers for a watch search: after:, -from:me and the {...} group of from: and subject: terms; or,
+    for the person's own replies, from:<address> before the group and -in:drafts."""
     after = int(re.search(r'after:(\d+)', q).group(1))
     group = re.search(r'\{(.*)\}', q)
     src = group.group(1) if group else q.replace('-from:me', '')
     terms = [(k, v.strip('()')) for k, v in re.findall(r'(from|subject):("[^"]*"|\S+)', src)]
+    own = re.search(r'(?:^|\s)from:(\S+@\S+)\s', q.split('{')[0] + ' ') if group else None
     out = []
     for m in sorted(MAIL, key=lambda m: -m['at']):
-        if m['at'] <= after or box in m['from'].lower():
+        if m['at'] <= after or (own.group(1).lower() not in m['from'].lower() or m.get('draft') if own
+                                else box in m['from'].lower()):
             continue
         if terms and not any((k == 'from' and v.lower() in m['from'].lower()) or
                              (k == 'subject' and v.strip('"').lower() in m['subject'].lower()) for k, v in terms):
@@ -110,13 +120,17 @@ class Google(BaseHTTPRequestHandler):
             if start + n < len(hits):
                 body['nextPageToken'] = str(start + n)
             return self.answer(body)
-        m = [x for x in MAIL if u.path == base + '/' + x['id']][0]
-        headers = [{'name': 'From', 'value': m['from']}, {'name': 'To', 'value': ME}, {'name': 'Subject', 'value': m['subject']},
-                   {'name': 'Date', 'value': rfc(m['at'])}]
-        body = {'id': m['id'], 'threadId': m['thread_id'], 'internalDate': str(m['at'] * 1000), 'snippet': m['snippet'],
-                'payload': {'headers': headers, 'mimeType': 'text/plain',
-                            'body': {'data': base64.urlsafe_b64encode(m['body'].encode()).decode()}}}
-        self.answer(body)
+        def message(m):
+            headers = [{'name': 'From', 'value': m['from']}, {'name': 'To', 'value': ME},
+                       {'name': 'Subject', 'value': m['subject']}, {'name': 'Date', 'value': rfc(m['at'])}]
+            return {'id': m['id'], 'threadId': m['thread_id'], 'internalDate': str(m['at'] * 1000), 'snippet': m['snippet'],
+                    'payload': {'headers': headers, 'mimeType': 'text/plain',
+                                'body': {'data': base64.urlsafe_b64encode(m['body'].encode()).decode()}}}
+        if u.path.startswith('/gmail/v1/users/me/threads/'):  # a wait's read of its thread: oldest first
+            tid = urllib.parse.unquote(u.path.rsplit('/', 1)[1])
+            return self.answer({'messages': [message(x) for x in sorted(MAIL, key=lambda x: x['at'])
+                                             if x['thread_id'] == tid and not x.get('draft')]})
+        self.answer(message([x for x in MAIL if u.path == base + '/' + x['id']][0]))
 
 
 server = HTTPServer(('127.0.0.1', 0), Google)
@@ -149,7 +163,7 @@ answers = json.load(open(os.environ['FAKE_DIR'] + '/answers.json'))
 print(json.dumps({'type': 'system', 'subtype': 'init', 'mcp_servers': [], 'tools': []}))
 for n, line in enumerate(re.findall(r'^\\d+\\. (\\S+) (\\{.*\\})$', p, re.M)):
     name, args = line[0], json.loads(line[1])
-    key = args.get('query') or args.get('space_id')
+    key = args.get('query') or args.get('space_id') or args.get('task_gid') or name
     if os.environ.get('FAKE_SKIP') and os.environ['FAKE_SKIP'] in name:
         continue
     print(json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'id': 't%d' % n, 'name': name, 'input': args}]}}))
@@ -350,10 +364,14 @@ check('the form\'s answer, a ticket notice from a no-reply sender, and the reply
 check('a newsletter from the domain, mail before the watch, mail it already read (by id, or quoted in a wait\'s '
       'prompt), a colleague\'s mail in another thread, or a messenger platform\'s sales mail: nothing',
       not any(x in json.dumps(picked) for x in ('m-auto', 'm-early', 'm-ack', 'm-quoted', 'm-team2', 'm-ali2')))
-check('the read: one search for the mailbox with every session\'s terms, after the oldest open wait, and one for '
-      'Asana\'s notices', len(g['queries']) == 2 and 'from:utilitysample.example' in g['queries'][0]
+check('the read: one search for the mailbox with every session\'s terms, after the oldest open wait, one for '
+      'Asana\'s notices, and one for the person\'s own replies in the threads it watches (never a draft)',
+      len(g['queries']) == 3 and 'from:utilitysample.example' in g['queries'][0]
       and 'from:kingsample.example' in g['queries'][0] and 'subject:"Closing for Unit 4"' in g['queries'][0]
-      and 'after:%d' % (T0 + 400) in g['queries'][0] and g['queries'][1] == 'after:%d from:no-reply@asana.com' % (T0 + 400))
+      and 'after:%d' % (T0 + 400) in g['queries'][0] and g['queries'][1] == 'after:%d from:no-reply@asana.com' % (T0 + 400)
+      and g['queries'][2].startswith('after:%d from:%s -in:drafts {' % (T0 + 400, ME))
+      and 'subject:"Closing for Unit 4"' in g['queries'][2] and 'subject:"Wire request"' in g['queries'][2]
+      and 'from:utilitysample' not in g['queries'][2])
 W = watch.peek()
 check('the floor: the oldest open wait for a session with one, the watch\'s start for one with none',
       W['sessions'][CSE1]['floor'] == T0 + 400 and W['sessions'][CSE2]['floor'] == NOW)
@@ -419,8 +437,14 @@ W0 = {}
 sess = watch.watched(W0, wait, NOON, ME, own)
 ks = [k for e in sess.values() for k in e['keys'] if k['k'] != 'chat']
 since = int(max(min(e['floor'] for e in sess.values()), NOON - watch.BACK_DAYS * 86400))
+mine_t = {}  # the threads where the person's own reply counts, for its search
+for e in sess.values():
+    for (b, tid), subj in watch.watch_places(e, [], ME)[0].items():
+        if b == ME:
+            mine_t[tid] = mine_t.get(tid) or subj
+oq = watch.own_queries(mine_t, since, ME)
 with open(os.path.join(d, 'want'), 'w') as f:
-    for q in watch.queries(ks, since):
+    for q in watch.queries(ks, since) + oq:
         f.write(json.dumps({'query': q}) + '\n')
     f.write(json.dumps({'space_id': 'spaces/AAAAtest01'}) + '\n')
 answers()
@@ -429,9 +453,12 @@ fresh()
 with contextlib.redirect_stdout(io.StringIO()):
     picked = watch.check(wait, NOON)
 prompts = open(os.path.join(d, 'prompts')).read()
-check('one Haiku run for every session: gmail_search with include_body, and one gchat_search_messages per space',
-      prompts.count('Make each of these tool calls') == 1 and prompts.count('gmail_search {') == len(watch.queries(ks, since))
-      and '"include_body": true' in prompts and 'gchat_search_messages {"space_id": "spaces/AAAAtest01"' in prompts)
+check('one Haiku run for every session: gmail_search with include_body (the person\'s own replies too), one '
+      'gchat_search_messages per space, and the comments of each Asana task a session touched this week',
+      prompts.count('Make each of these tool calls') == 1 and len(oq) == 1
+      and prompts.count('gmail_search {') == len(watch.queries(ks, since)) + 1
+      and '"include_body": true' in prompts and 'gchat_search_messages {"space_id": "spaces/AAAAtest01"' in prompts
+      and 'asana_get_task_stories {"task_gid": "1200000000000001", "limit": 5}' in prompts and 'asana_whoami {}' in prompts)
 check('the form\'s answer through Workrouter, an Asana notice for its task (the id in the notice), a Chat reply',
       {'m-ans', 'm-asana', 'spaces/AAAAtest01/messages/m9'} <= set(picked.get(CSE1, {})))
 check('an Asana notice for another task, the session\'s own Chat post (with a non-ASCII dash), and the person\'s '
@@ -733,5 +760,186 @@ write(TP7, person('Ask the supplier', NOW - 100) + use('Bash', {'command': (
     NOW - 90, 'sent'))
 check('a real send by a variable set to claude-window\'s path, with its code in a file the command writes, counts',
       [m['v'] for m in watch.missing_wait(TP7, 'sid-7', {})] == ['alibaba.com'])
+
+# --- the person's own replies ------------------------------------------------------------------------------------------
+# The case that asked for it, with made-up names: the watch brings a session back for a supplier's "Lunch" mail (a new
+# thread, from an address it wrote to), the session keeps a note in the Kit (its alerts are off), and the person
+# replies in that thread themselves 3 minutes after the session's turn ended. A mailbox this Mac reads (no model).
+notify = load('notify')
+effort = load('effort-hook')
+json.dump({ME: '1//rt'}, open(KEYS, 'w'))
+wait._direct.clear()
+fresh()
+open(os.path.join(KIT, 'kept.json'), 'w').write('{"items": []}')
+R = time.time()
+TPL = os.path.join(PROJ, 'lunch.jsonl')
+write(TPL, person('Get the 13 inch laminator quote from the supplier', R - 10800)
+      + use(WR + 'gmail_create_draft', {'to': 'Rep <rep@lunchsample.example>', 'subject': 'Laminator quote',
+                                        'body': 'Please quote the 13 inch laminator.'}, R - 10790,
+            json.dumps({'draft_id': 'r-q', 'thread_id': 'thrquote01', 'to': 'Rep <rep@lunchsample.example>',
+                        'subject': 'Laminator quote'})))
+CL, CJ = 'cse_01OwnReplyLunch0001', 'cse_01OwnReplyJob00002'
+TPJ = os.path.join(PROJ, 'job.jsonl')
+write(TPJ, person('Send the proof for press job 4417', R - 9000))
+st = {'sessions': {CL: {'transcript': TPL, 'title': 'Laminator quote'}, CJ: {'transcript': TPJ, 'title': 'Press job 4417'}},
+      'waits': {'jobw01': {'id': 'jobw01', 'kind': 'email-reply', 'target': 'thrjob0001', 'subject': 'Press job 4417 proof',
+                           'cse': CJ, 'transcript': TPJ, 'set_at': R - 8000, 'by': R + 86400, 'title': 'Press job 4417',
+                           'why': 'Fri: the customer approves the proof'},
+                'clw001': {'id': 'clw001', 'kind': 'at', 'at': R + 86400, 'cse': CL, 'transcript': TPL, 'set_at': R - 5000,
+                           'title': 'Laminator quote', 'why': 'Mon: ask the supplier again'}}}
+json.dump(st, open(os.path.join(KIT, 'state.json'), 'w'))
+MAIL[:] = []
+mail('m-lunch', 'thrlunch01', 'Rep <rep@lunchsample.example>', 'Lunch', R - 1200,
+     'Would you like to get lunch next week to talk about the laminator?')
+json.dump([], open(os.path.join(d, 'judge.json'), 'w'))
+brought = []
+wait.bring_back = lambda w, prompt: brought.append((w['cse'], prompt)) or True
+logpos = os.path.getsize(os.environ['STTARK_KIT_LOG'])
+watch.check(wait, R - 900)
+W = watch.peek()
+check('own replies, the case: the supplier\'s new thread brings the session back, and the Kit keeps that thread for it',
+      [c for c, _ in brought] == [CL] and W['sessions'][CL]['back'][-1]['places'] == ['mail:%s:thrlunch01' % ME]
+      and W['sessions'][CL]['back'][-1]['mail'] == [[ME, 'thrlunch01', 'Lunch']])
+# its turn: the Kit's prompt, then claude-notify, kept in the Kit (its alerts are off); the turn ends at R - 860
+write(TPL, person(brought[0][1], R - 890) + [{'type': 'assistant', 'timestamp': iso(R - 860), 'message': {'content': [
+    {'type': 'text', 'text': 'Kept a note for the person.'}]}}], 'a')
+res = notify.send('Supplier asks you to lunch next week', 'The supplier rep asks for lunch next week. Tell me a day, or '
+                  'reply yourself.', title='Laminator quote', url='https://claude.ai/code/session_01Lunch', cse=CL)
+kept = json.load(open(os.path.join(KIT, 'kept.json')))['items']
+check('the note the session keeps in that turn is about that thread',
+      res[0][0] == notify.IN_KIT and kept[-1]['about']['places'] == ['mail:%s:thrlunch01' % ME]
+      and kept[-1]['about']['at'] == R - 900 and not kept[-1].get('replied'))
+mail('m-mine', 'thrlunch01', 'Person Sample <%s>' % ME, 'Re: Lunch', R - 680,
+     'Tuesday works for me, at noon. On Wed, Nov 18, 2026 at 2:20 PM Rep <rep@lunchsample.example> wrote: Would you like')
+mail('m-draft', 'thrlunch01', 'Person Sample <%s>' % ME, 'Re: Lunch', R - 670, 'A draft the person did not send')
+MAIL[-1]['draft'] = True
+del brought[:]
+watch.check(wait, R - 590)
+kept = json.load(open(os.path.join(KIT, 'kept.json')))['items']
+logged = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+check('the person\'s own reply in that thread, read in the same search: the kept note shows You replied, with when',
+      (kept[-1].get('replied') or {}).get('at') == int(R - 680) and kept[-1]['replied']['id'] == 'm-mine'
+      and kept[-1]['replied']['where'] == 'the email thread "Lunch"'
+      and any(q.startswith('after:') and 'from:%s -in:drafts' % ME in q and 'subject:"Lunch"' in q for q in g['queries']))
+check('the kept note depends on it, so the session comes back at once with a note, and no alert: where, when, the '
+      'first lines (not the quote), and that it marks the item handled', [c for c, _ in brought] == [CL]
+      and brought[0][1].startswith('[Sttark Claude Kit] The person replied themselves, after your last turn')
+      and 'In the email thread "Lunch", ' in brought[0][1] and '"Tuesday works for me, at noon."' in brought[0][1]
+      and 'claude-mail read %s m-mine' % ME in brought[0][1] and 'do not send claude-notify' in brought[0][1]
+      and 'You replied' in brought[0][1] and 'wrote:' not in brought[0][1])
+check('one log line, for the Events page: where, when, the first words and what the Kit did',
+      'watch  replied %s "Laminator quote" in the email thread "Lunch", ' % CL[:12] in logged
+      and ': Tuesday works for me, at noon. | its message in the Kit "Supplier asks you to lunch next week" now shows '
+          'You replied ' in logged and '; brought back with a note: a message kept in the Kit depends on it' in logged)
+check('a draft in the thread is no reply', 'm-draft' not in json.dumps(watch.peek()['sessions'][CL]))
+del brought[:]
+watch.check(wait, R - 280)
+check('once: the next read tells nothing again', brought == [] and open(os.environ['STTARK_KIT_LOG']).read()[logpos:].count('watch  replied') == 1)
+# a wait with no thread (a pull request) brings it back later: a message kept in that turn is about no place
+watch.note_back(CL, TPL)
+write(TPL, person('[Sttark Claude Kit] A wait you handed to the Kit has ended. Pull request x/y#1 was merged.', time.time()), 'a')
+notify.send('The fix merged', 'Pull request x/y#1 merged.', title='Laminator quote', url='', cse=CL)
+check('a message kept in a turn the Kit started for a wait with no thread is about no place',
+      'about' not in json.load(open(os.path.join(KIT, 'kept.json')))['items'][-1])
+
+# an email reply wait's thread: the reply does not end the wait; its row says so, and the wait brings the session back
+write(TPJ, [{'type': 'assistant', 'timestamp': iso(R - 7990), 'message': {'content': [{'type': 'text', 'text': 'Waiting.'}]}}], 'a')
+mail('m-job', 'thrjob0001', 'Person Sample <%s>' % ME, 'Re: Press job 4417 proof', R - 200, 'I called them; they approve it today.')
+del brought[:]
+watch.check(wait, R + 30)
+st = json.load(open(os.path.join(KIT, 'state.json')))
+happened, _ = wait.check_mailbox(dict(st['waits']['jobw01'], set_at=R - 8000), ME)
+check('a reply wait: the person\'s reply in its thread puts You replied on it, and it still waits for the other person',
+      (st['waits']['jobw01'].get('replied') or {}).get('at') == int(R - 200) and st['waits']['jobw01'].get('stage') != 'back'
+      and not happened)
+check('the wait depends on it: the session comes back with the note, which says the wait stays open',
+      [c for c, _ in brought] == [CJ] and 'Your email reply wait jobw01 stays open' in brought[0][1]
+      and 'its wait jobw01 shows You replied' in open(os.environ['STTARK_KIT_LOG']).read())
+mail('m-job2', 'thrjob0001', 'Person Sample <%s>' % ME, 'Re: Press job 4417 proof', R + 100, 'And the plates are ready.')
+write(TPJ, [{'type': 'assistant', 'timestamp': iso(R + 40), 'message': {'content': [{'type': 'text', 'text': 'Noted.'}]}}], 'a')
+del brought[:]
+watch.check(wait, R + 340)
+st = json.load(open(os.path.join(KIT, 'state.json')))
+note = (st['sessions'].get(CJ) or {}).get('replied') or []
+check('a later reply there: the wait shows the newer time, and nothing depends on it now, so a note waits for its '
+      'next prompt instead', brought == [] and st['waits']['jobw01']['replied']['at'] == int(R + 100) and len(note) == 1
+      and 'And the plates are ready.' in note[0]['text'])
+effort.STATE = os.path.join(KIT, 'state.json')
+effort.LOG = os.environ['STTARK_KIT_LOG']
+got = effort.take_replied(CJ, 'with its next prompt') if effort.pending_replied(CJ) else []
+check('the next prompt gets it once, and the log says so', len(got) == 1 and 'And the plates are ready.' in got[0]
+      and not effort.pending_replied(CJ) and 'watch  told %s "Press job 4417" of your reply in the email thread "Press job 4417 proof", '
+      'with its next prompt' % CJ in open(os.environ['STTARK_KIT_LOG']).read())
+# a reply before the session's last turn ended: it may know already, so it is not told
+mail('m-early2', 'thrquote01', 'Person Sample <%s>' % ME, 'Re: Laminator quote', R + 360, 'Any news on the quote?')
+write(TPL, [{'type': 'assistant', 'timestamp': iso(R + 380), 'message': {'content': [{'type': 'text', 'text': 'Working.'}]}}], 'a')
+del brought[:]
+watch.check(wait, R + 650)
+check('a reply before the session\'s last turn ended: not told, and logged so', brought == []
+      and not (json.load(open(os.path.join(KIT, 'state.json')))['sessions'].get(CL) or {}).get('replied')
+      and '"Laminator quote" in the email thread "Laminator quote", ' in open(os.environ['STTARK_KIT_LOG']).read()
+      and 'not told: it had a turn since your reply' in open(os.environ['STTARK_KIT_LOG']).read())
+
+# Chat and Asana, through the Workrouter run: the person's own post in the thread of the session's post (no check), a
+# post elsewhere in a direct message it posted in (checked: yes, then no), and their own comment on its Asana task
+lt = time.localtime(NOW)
+TD = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday + 2, 12, 0, 0, 0, 0, -1))  # noon the day after tomorrow
+OWNDM, OWNROOM = 'spaces/DMown0001', 'spaces/ROOMown01'
+TPG = os.path.join(PROJ, 'chatown.jsonl')
+write(TPG, person('Ask Jo for the 13 inch laminator quote, and the press team about the die', TD - 6000)
+      + use('mcp__claude_ai_Google_Chat__send_message', {'conversationId': OWNDM, 'messageText':
+            'Can you send the 13 inch laminator quote by Friday, please?'}, TD - 5000,
+            json.dumps({'messageId': OWNDM + '/messages/d1.d1'}))
+      + use('mcp__claude_ai_Google_Chat__send_message', {'conversationId': OWNROOM, 'messageText':
+            'Can someone check the die for job 4417 before the press run?'}, TD - 4990,
+            json.dumps({'messageId': OWNROOM + '/messages/t7.t7', 'threadId': OWNROOM + '/threads/t7'}))
+      + use(WR + 'asana_add_comment', {'task_gid': '1300000000000077', 'text': 'Please check the die for job 4417 before Friday.'},
+            TD - 4980, '{"comment_added":true}')
+      + [{'type': 'assistant', 'timestamp': iso(TD - 4900), 'message': {'content': [{'type': 'text', 'text': 'Asked.'}]}}])
+CG = 'cse_01OwnReplyChat00003'
+json.dump({'sessions': {CG: {'transcript': TPG, 'title': 'Laminator and die'}},
+           'waits': {'cgw001': {'id': 'cgw001', 'kind': 'at', 'at': TD + 86400, 'cse': CG, 'transcript': TPG,
+                                'set_at': TD - 7000, 'title': 'Laminator and die', 'why': 'Fri: ask again'}}},
+          open(os.path.join(KIT, 'state.json'), 'w'))
+json.dump({}, open(KEYS, 'w'))
+wait._direct.clear()
+fresh()
+MAIL[:] = []
+json.dump({OWNDM: {'messages': [
+    post(OWNDM, 'd1.d1', 'Person Sample', 'Can you send the 13 inch laminator quote by Friday, please?', TD - 5000),
+    post(OWNDM, 'd2.d2', 'Person Sample', 'Also, the quote should include the install.', TD - 2000),
+    post(OWNDM, 'd3.d3', 'Person Sample', 'Lunch at noon?', TD - 1900)]},
+    OWNROOM: {'messages': [
+    post(OWNROOM, 't7.t7', 'Person Sample', 'Can someone check the die for job 4417 before the press run?', TD - 4990),
+    post(OWNROOM, 't7.r2', 'Person Sample', 'Never mind, I checked it myself. It is fine.', TD - 1800)]},
+    '1300000000000077': {'comments': [
+        {'comment_id': 'c3', 'author': 'Lee Sample', 'text': 'ok', 'created_at': iso(TD - 1400)},
+        {'comment_id': 'c2', 'author': 'Person Sample', 'text': 'Done, the die is fine.', 'created_at': iso(TD - 1500)},
+        {'comment_id': 'c1', 'author': 'Person Sample', 'text': 'Please check the die for job 4417 before Friday.',
+         'created_at': iso(TD - 4980)}]},
+    (WR + 'asana_whoami')[:40]: {'gid': '1', 'name': 'Person Sample'}}, open(os.path.join(d, 'answers.json'), 'w'))
+os.environ['FAKE_SKIP'] = ''
+json.dump([['Laminator and die', 'Lunch at noon', 'NO - lunch, not the quote or the die']], open(os.path.join(d, 'judge.json'), 'w'))
+open(os.path.join(d, 'asked'), 'w').close()
+logpos = os.path.getsize(os.environ['STTARK_KIT_LOG'])
+del brought[:]
+watch.check(wait, TD)
+logged = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+asked = open(os.path.join(d, 'asked')).read()
+note = (json.load(open(os.path.join(KIT, 'state.json')))['sessions'].get(CG) or {}).get('replied') or []
+check('Chat: the person\'s reply in the thread of the session\'s post counts with no check; a post elsewhere in the '
+      'space is checked first, as the person\'s own', 'Never mind' not in asked and 'Also, the quote' in asked
+      and 'from the person themselves' in asked and 'Lunch at noon' in asked)
+check('Chat and Asana: one note for the next prompt with each reply of the person\'s that counts, and nothing that '
+      'brings it back', brought == [] and len(note) == 1 and 'Never mind, I checked it myself' in note[0]['text']
+      and 'Also, the quote should include the install.' in note[0]['text'] and 'Done, the die is fine.' in note[0]['text']
+      and 'https://app.asana.com/0/0/1300000000000077' in note[0]['text'] and 'Lunch at noon' not in note[0]['text'])
+check('not the session\'s own post or comment, and not someone else\'s comment',
+      'Can you send the 13 inch' not in note[0]['text'] and 'Please check the die' not in note[0]['text']
+      and '"ok"' not in note[0]['text'])
+check('the log: a line for each that counts, and a skip line for the post about other work',
+      logged.count('watch  replied %s' % CG[:12]) == 3 and 'in the thread of its Chat post' in logged
+      and 'in a Chat space it posted in' in logged and 'on its Asana task 1300000000000077' in logged
+      and 'skip %s "Laminator and die" you in Chat: not about this session\'s work: Lunch at noon?' % CG[:12] in logged)
 print('%d failed' % fails if fails else 'all passed')
 sys.exit(1 if fails else 0)

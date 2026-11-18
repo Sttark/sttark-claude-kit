@@ -573,7 +573,8 @@ main:has(.strip) {
   color: var(--warn-text);
   font-weight: 600;
 }
-.sub .mac {
+.sub .mac,
+.sub .rep {
   color: var(--ink);
 }
 /* A working row's latest progress check-in: its age, then the note, on one line. */
@@ -933,7 +934,17 @@ main > div > h1.page-title,
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* The person replied to it themselves: a good status chip under its words. */
+.msg-rep {
+  margin-top: 8px;
+}
 .w-by {
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 18px;
+}
+/* The person replied in the wait's thread; it still waits for the other person. */
+.w-rep {
   margin-top: 4px;
   font-size: 14px;
   line-height: 18px;

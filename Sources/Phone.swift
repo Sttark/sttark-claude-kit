@@ -102,10 +102,13 @@ enum Phone {
 
     /// The messages kept in the Kit for a row's session in the last day (Kept), newest first, at most 3: the subject
     /// and words a session (or the Kit) wrote to send the person, and why they did not go. Never a link or an address.
+    /// `replied`, only on a message the person answered themselves: when (never where, or what they wrote).
     static func messages(_ r: Inbox.Row) -> [[String: Any]] {
         r.kept.filter { -$0.at.timeIntervalSinceNow < Kept.recent }.prefix(3).map { m in
-            ["at": time(m.at), "subject": cut(plain(m.subject).nilIfEmpty ?? "A message"), "text": cutText(plain(m.body), 1000),
-             "why": cut(m.why, 80)]
+            var x: [String: Any] = ["at": time(m.at), "subject": cut(plain(m.subject).nilIfEmpty ?? "A message"),
+                                    "text": cutText(plain(m.body), 1000), "why": cut(m.why, 80)]
+            if let at = time(m.replied) as? Int { x["replied"] = at }   // optional: a Kit from before it sends none
+            return x
         }
     }
 
@@ -185,9 +188,12 @@ enum Phone {
         safe.from = sender(w.from)   // also in how the Kit checks it: "Your email, for mail from supplier.com, …"
         safe.mailbox = w.mailbox.isEmpty ? "" : "A shared mailbox"   // its address stays on the Mac
         let failing = !w.failing.isEmpty
-        return ["id": wid, "kind": w.kind, "what": cut(what(w, raw)), "from": label(safe.from), "why": label(w.why),
-                "by": time(w.by), "checks": label(Inbox.checks(safe)), "failing": failing,
-                "failing_since": failing ? time(w.failingSince) : NSNull()]
+        var x: [String: Any] = ["id": wid, "kind": w.kind, "what": cut(what(w, raw)), "from": label(safe.from), "why": label(w.why),
+                                "by": time(w.by), "checks": label(Inbox.checks(safe)), "failing": failing,
+                                "failing_since": failing ? time(w.failingSince) : NSNull()]
+        // optional: the person replied in its thread themselves (when only; the thread stays on the Mac). The wait goes on
+        if let at = time(w.replied) as? Int { x["replied"] = at }
+        return x
     }
 
     /// Who an email reply is from, as the phone gets it: the domain of an address ("Dana <dana@supplier.com>" is
