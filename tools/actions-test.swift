@@ -157,40 +157,83 @@ import Foundation
         r = act("set_limit hold 0") { KitActions.setLimit(cse: "cse_IDLE", sid: nil, mode: .hold(0), origin: .phone, done: $0) }
         check("hold at 0%: bad, nothing changed", r.reason == .bad && Limit.mode(Limit.Target(sid: "sid-idle-1", cse: "cse_IDLE", title: "")) == .credits)
 
-        // set_alerts
-        func alertsOff() -> [String: [String: Any]] { Limit.dicts(State.read()["alerts_off"]) }
+        // set_alerts: every session starts off; each choice by hand is kept, on or off
+        func alerts() -> [String: [String: Any]] { Limit.dicts(State.read()["alerts"]) }
+        let fresh = Inbox.snapshot(hours: 24)
+        check("a session with no choice starts off, in the window and on the phone",
+              fresh.rows.first { $0.id == "cse_IDLE" }.flatMap(fresh.alerts) == false && !Alerts.on("cse_IDLE")
+              && fresh.rows.first { $0.id == "cse_IDLE" }.flatMap { Phone.row($0, group: "idle", state: State.read()) }?["alerts"] as? Bool == false)
         State.change { s in   // an entry for a session not used in 100 days: the next change drops it
-            s["alerts_off"] = ["cse_OLD": ["at": now - 100 * 86400, "by": "window", "title": "Old one"]]
+            s["alerts"] = ["cse_OLD": ["on": true, "at": now - 100 * 86400, "by": "window", "title": "Old one"]]
         }
-        r = act("set_alerts cse_IDLE off (window)") { KitActions.setAlerts(cse: "cse_IDLE", on: false, origin: .window, done: $0) }
-        check("set_alerts off: ok, before and after, kept by its Remote Control id with who asked and its name",
-              r.reason == .ok && r.before?.alerts == true && r.after?.alerts == false
-              && alertsOff()["cse_IDLE"]?["by"] as? String == "window" && alertsOff()["cse_IDLE"]?["title"] as? String == "Order page"
-              && r.words == "Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app.")
-        check("set_alerts: an entry of a session not used for 90 days is dropped", alertsOff()["cse_OLD"] == nil)
-        check("set_alerts: the notify line says the window", log().contains("notify alerts off for cse_IDLE \"Order page\" (window)"))
-        r = act("set_alerts off while it waits, by its session_ id (phone)") { KitActions.setAlerts(cse: "session_WAIT", on: false, origin: .phone, done: $0) }
-        check("a session that waits: ok, kept as cse_", r.reason == .ok && alertsOff()["cse_WAIT"]?["by"] as? String == "phone"
-              && log().contains("notify alerts off for cse_WAIT \"Supplier reply\" (phone)"))
-        let before = log().components(separatedBy: "\n").count
-        r = act("set_alerts off again") { KitActions.setAlerts(cse: "cse_WAIT", on: false, origin: .window, done: $0) }
+        r = act("set_alerts cse_IDLE on (window)") { KitActions.setAlerts(cse: "cse_IDLE", on: true, origin: .window, done: $0) }
+        check("set_alerts on: ok, before and after, kept by its Remote Control id with who asked and its name",
+              r.reason == .ok && r.before?.alerts == false && r.after?.alerts == true
+              && alerts()["cse_IDLE"]?["on"] as? Bool == true
+              && alerts()["cse_IDLE"]?["by"] as? String == "window" && alerts()["cse_IDLE"]?["title"] as? String == "Order page"
+              && r.words == "Alerts are on. This session reaches you the ways set in Reach me by.")
+        check("set_alerts: an entry of a session not used for 90 days is dropped", alerts()["cse_OLD"] == nil)
+        check("set_alerts: the notify line says the window", log().contains("notify alerts on for cse_IDLE \"Order page\" (window)"))
+        r = act("set_alerts on while it waits, by its session_ id (phone)") { KitActions.setAlerts(cse: "session_WAIT", on: true, origin: .phone, done: $0) }
+        check("a session that waits: ok, kept as cse_", r.reason == .ok && alerts()["cse_WAIT"]?["by"] as? String == "phone"
+              && log().contains("notify alerts on for cse_WAIT \"Supplier reply\" (phone)"))
+        var before = log().components(separatedBy: "\n").count
+        r = act("set_alerts on again") { KitActions.setAlerts(cse: "cse_WAIT", on: true, origin: .window, done: $0) }
         check("set_alerts to what it is now: ok, no write and no log line", r.reason == .ok && r.before == r.after
-              && log().components(separatedBy: "\n").count == before)
+              && alerts()["cse_WAIT"]?["by"] as? String == "phone" && log().components(separatedBy: "\n").count == before)
         let snap = Inbox.snapshot(hours: 24)
         let idleRow = snap.rows.first { $0.id == "cse_IDLE" }, waitRow = snap.rows.first { $0.target?.cse == "cse_WAIT" }
-        check("the window's rows: both off; a row with no Remote Control id has no switch",
-              idleRow.flatMap(snap.alerts) == false && waitRow.flatMap(snap.alerts) == false
+        check("the window's rows: both on; a row with no Remote Control id has no switch",
+              idleRow.flatMap(snap.alerts) == true && waitRow.flatMap(snap.alerts) == true
               && snap.alerts(Inbox.Row(id: "local:x", group: .local, title: "x", sub: "", time: "")) == nil)
-        check("the phone's row says alerts false", waitRow.flatMap { Phone.row($0, group: "waiting", state: State.read()) }?["alerts"] as? Bool == false)
-        r = act("set_alerts cse_IDLE on (phone)") { KitActions.setAlerts(cse: "cse_IDLE", on: true, origin: .phone, done: $0) }
-        check("set_alerts on: ok, its entry is gone, and the line says the phone", r.reason == .ok && r.after?.alerts == true
-              && alertsOff()["cse_IDLE"] == nil && log().contains("notify alerts on for cse_IDLE \"Order page\" (phone)")
-              && r.words == "Alerts are on. This session reaches you the ways set in Reach me by.")
-        r = act("set_alerts for a session in no group") { KitActions.setAlerts(cse: "cse_NONE", on: false, origin: .phone, done: $0) }
-        check("alerts for a session in no group: gone, nothing stored", r.reason == .gone && r.words == W.sessionGone && alertsOff()["cse_NONE"] == nil)
-        r = act("set_alerts for an id that is not a Remote Control id") { KitActions.setAlerts(cse: "sid-idle-1", on: false, origin: .window, done: $0) }
-        check("not a Remote Control id: gone, nothing stored", r.reason == .gone && alertsOff().count == 1)
+        check("the phone's row says alerts true", waitRow.flatMap { Phone.row($0, group: "waiting", state: State.read()) }?["alerts"] as? Bool == true)
+        r = act("set_alerts cse_IDLE off (phone)") { KitActions.setAlerts(cse: "cse_IDLE", on: false, origin: .phone, done: $0) }
+        check("set_alerts off: ok, kept as off by hand, and the line says the phone", r.reason == .ok && r.after?.alerts == false
+              && alerts()["cse_IDLE"]?["on"] as? Bool == false && log().contains("notify alerts off for cse_IDLE \"Order page\" (phone)")
+              && r.words == "Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app.")
+        before = log().components(separatedBy: "\n").count
+        Alerts.set("cse_FRESH", on: false, title: "Fresh one", by: .window)
+        check("off by hand for a session that has no choice: kept as off, no log line, since nothing changed",
+              alerts()["cse_FRESH"]?["on"] as? Bool == false && log().components(separatedBy: "\n").count == before)
+        r = act("set_alerts for a session in no group") { KitActions.setAlerts(cse: "cse_NONE", on: true, origin: .phone, done: $0) }
+        check("alerts for a session in no group: gone, nothing stored", r.reason == .gone && r.words == W.sessionGone && alerts()["cse_NONE"] == nil)
+        r = act("set_alerts for an id that is not a Remote Control id") { KitActions.setAlerts(cse: "sid-idle-1", on: true, origin: .window, done: $0) }
+        check("not a Remote Control id: gone, nothing stored", r.reason == .gone && alerts().count == 3)
         check("the phone's state: alerts", (KitActions.Values(alerts: false).json["alerts"] as? Bool) == false)
+
+        // the old store (alerts_off: only the sessions turned off) moves once: its entries stay off, a session whose last
+        // change in the log is "on" stays on, every other session is off
+        let saved = State.read()["alerts"]
+        State.change { s in
+            s.removeValue(forKey: "alerts")
+            s["alerts_off"] = ["cse_MUTED": ["at": now - 60, "by": "window", "title": "Powder watch"]]
+        }
+        let oldLog = tmp.appendingPathComponent("old.log")
+        try! ["2026-11-18 10:43:20 notify alerts off for cse_BACKON \"Conference Chairs\" (window)",
+              "2026-11-18 10:43:21 notify alerts on for cse_BACKON \"Conference Chairs\" (window)",
+              "2026-11-18 10:50:00 notify alerts on for cse_MUTED \"Powder watch\" (phone)",
+              "2026-11-18 10:51:00 notify alerts off for cse_MUTED \"Powder watch\" (phone)",
+              "2026-11-18 11:00:00 notify alerts on for cse_THENOFF \"Order page\" (phone)",
+              "2026-11-18 11:00:05 notify alerts off for cse_THENOFF \"Order page\" (phone)",
+              "2026-11-18 11:05:00 app    sessions: cse_UNTOUCHED \"Never touched\" listed"].joined(separator: "\n")
+            .write(to: oldLog, atomically: true, encoding: .utf8)
+        let moved = Alerts.migrate(log: oldLog)
+        let st = State.read()
+        check("migrate: the old entry stays off, the session turned on by hand stays on, the old key is gone (\(String(describing: moved)))",
+              moved?.off == 1 && moved?.on == 1 && st["alerts_off"] == nil
+              && alerts()["cse_MUTED"]?["on"] as? Bool == false && alerts()["cse_MUTED"]?["title"] as? String == "Powder watch"
+              && alerts()["cse_BACKON"]?["on"] as? Bool == true && alerts()["cse_BACKON"]?["by"] as? String == "window"
+              && Alerts.on("cse_BACKON", in: st) && !Alerts.on("cse_MUTED", in: st))
+        check("migrate: a session whose last change was off, and one never touched, have no choice, so they are off",
+              alerts()["cse_THENOFF"] == nil && alerts()["cse_UNTOUCHED"] == nil
+              && !Alerts.on("cse_THENOFF", in: st) && !Alerts.on("cse_UNTOUCHED", in: st))
+        check("migrate: once only, and a log line says what it kept", Alerts.migrate(log: oldLog) == nil
+              && log().contains("notify alerts of each session are off unless turned on: kept 1 turned off and 1 turned on by hand"))
+        let moveEvent = Events.read(kitLog: logFile).first { $0.text == "Alerts of each session are off until you turn them on" }
+        check("migrate: the Events page shows the move as a routine row, not a problem",
+              moveEvent?.routine == true && moveEvent?.kind == .wait
+              && moveEvent?.detail == ["Your choices stay: kept 1 turned off and 1 turned on by hand. Every other session's alerts are off."])
+        State.change { s in s["alerts"] = saved }
 
         // unarchive
         r = act("unarchive cse_A (phone)") { KitActions.unarchive(cse: "cse_A", origin: .phone, done: $0) }

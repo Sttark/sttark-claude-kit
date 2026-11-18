@@ -17,7 +17,9 @@ os.environ.update(STTARK_KIT_DIR=d, STTARK_KIT_LOG=LOG, STTARK_NOTIFY_DRY='1')
 
 
 def state(reach):
-    json.dump({'reach': reach, 'sessions': {CSE: {'title': 'Order page', 'url': 'https://claude.ai/code/session_01Test'}}},
+    # the session's own alerts turned on by hand (each session starts off; tools/alerts-test.py tests that switch)
+    json.dump({'reach': reach, 'sessions': {CSE: {'title': 'Order page', 'url': 'https://claude.ai/code/session_01Test'}},
+               'alerts': {CSE: {'on': True, 'by': 'window', 'title': 'Order page'}}},
               open(os.path.join(d, 'state.json'), 'w'))
 
 
@@ -90,9 +92,12 @@ assert w.notified_since({'title': 'Order page'}, 0), 'a kept message counts as t
 
 # held(): the one place that decides
 n = load('notify')
-assert n.held(CSE, ['email'], {'reach': {'alerts': False}}) == 'alerts are off'
-assert n.held(CSE, ['email'], {'reach': {}}) == ''
-assert n.held(CSE, [], {'reach': {}}) == 'no way is checked under Reach me by'
+ON = {CSE: {'on': True}}
+assert n.held(CSE, ['email'], {'reach': {'alerts': False}, 'alerts': ON}) == 'alerts are off'
+assert n.held(CSE, ['email'], {'reach': {}, 'alerts': ON}) == ''
+assert n.held(CSE, [], {'reach': {}, 'alerts': ON}) == 'no way is checked under Reach me by'
+assert n.held(CSE, ['email'], {'reach': {}}) == "this session's alerts are off", 'each session starts off'
+assert n.held('', ['email'], {'reach': {}}) == '', 'no session: no switch'
 assert n.alerts_on({}) and n.alerts_on({'reach': {'alerts': True}}) and not n.alerts_on({'reach': {'alerts': False}})
 
 # old entries go

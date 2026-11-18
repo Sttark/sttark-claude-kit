@@ -2,7 +2,7 @@
 // this Mac's own state:
 //   docs/menu.png             the menu: what needs you, one row for each other group, one group's submenu open
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected, each row with
-//                             its alerts bell (two sessions have their alerts off)
+//                             its alerts bell (off, as each session starts; two sessions have their alerts turned on)
 //   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
 //   docs/window-archived-search.png  the Archived page's search, which finds an archived session that waits
 //   docs/window-usage.png     the window's Usage page, 7 days, the biggest session selected with its days and models
@@ -267,8 +267,8 @@ import SwiftUI
                       to: "whats-new/check-ins-in-the-kit" + (look ? "-dark" : "") + ".png")
             w.setFrame(wide, display: true)
             ShotWindow.check("the window's size again")
-            // the session alerts note's picture: a group's rows, each with its bell, the one with its alerts off
-            // selected, and that session's Alerts switch from its panel
+            // the alerts-start-off note's picture: a group's rows, each with its bell (off, as each session starts, and
+            // the one turned on), the first one that is off selected, and that session's Alerts switch from its panel
             let waitRows = model.snap.rows(.waits)
             if let off = waitRows.first(where: { model.snap.alerts($0) == false }) {
                 let aw = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 252), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -285,7 +285,7 @@ import SwiftUI
                     Spacer(minLength: 0)
                 }.padding(.horizontal, 14).frame(width: 440, height: 252, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
                 aw.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
-                Shot.capture(aw, to: "whats-new/session-alerts" + (look ? "-dark" : "") + ".png")
+                Shot.capture(aw, to: "whats-new/session-alerts-start-off" + (look ? "-dark" : "") + ".png")
                 aw.close()
             }
             model.selected = before
@@ -600,14 +600,14 @@ enum Sample {
                        "why": "The supplier sets new prices each month", "by": now + 40 * 86400, "set_at": now - 86400,
                        "cse": "cse_01Sample12", "title": "Film price watch", "session_url": "https://claude.ai/code/session_sample12"],
         ]
-        // two sessions whose alerts the person turned off: the long film price watch, and an idle rename
-        let alertsOff: [String: Any] = [
-            "cse_01Sample12": ["at": now - 2 * 86400, "by": "window", "title": "Film price watch"],
-            "cse_01Sample9": ["at": now - 3 * 3600, "by": "phone", "title": "Rename report columns"],
+        // each session's alerts start off; the person turned on two: the supplier's reply and the order page login
+        let alerts: [String: Any] = [
+            "cse_01Sample10": ["on": true, "at": now - 5 * 3600, "by": "window", "title": "Core supplier quote"],
+            "cse_01Sample1": ["on": true, "at": now - 3 * 3600, "by": "phone", "title": "Order page login"],
         ]
         let state: [String: Any] = [
             "paused": false, "limit_credits_all": false, "limit_modes": modes, "limit_pauses": pauses, "sessions": sessions,
-            "alerts_off": alertsOff,
+            "alerts": alerts,
             "waits": waits, "reach": ["ways": ["chat"], "email": "name@sttark.com", "chat": "https://chat.googleapis.com/v1/spaces/sample"],
             "whats_new_seen": [String](),
             "models": [["id": "claude-sonnet-5-5", "label": "Sonnet 5.5"], ["id": "claude-haiku-5-5", "label": "Haiku 5.5"]],

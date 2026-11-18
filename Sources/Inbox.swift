@@ -102,13 +102,13 @@ enum Inbox {
         var reach = Reach.Settings(ways: [], email: "", phone: "", chat: "")
         var creditsAll = false
         var paused = false
-        /// The sessions whose alerts the person turned off, by Remote Control id (Alerts).
-        var alertsOff: Set<String> = []
+        /// The sessions whose alerts the person turned on, by Remote Control id (Alerts); every other session's are off.
+        var alertsOn: Set<String> = []
         func rows(_ g: Group) -> [Row] { rows.filter { $0.group == g } }
         /// A row's alerts: on or off, or nil for a row with no Remote Control id, which has no switch.
         func alerts(_ r: Row) -> Bool? {
             guard let c = r.target?.cse, c.hasPrefix("cse_") || c.hasPrefix("session_") else { return nil }
-            return !alertsOff.contains(Alerts.cse(c))
+            return alertsOn.contains(Alerts.cse(c))
         }
         func count(_ g: Group) -> Int { rows.lazy.filter { $0.group == g }.count }
 
@@ -134,7 +134,7 @@ enum Inbox {
         snap.reach = Reach.settings(state)
         snap.creditsAll = state["limit_credits_all"] as? Bool ?? false
         snap.paused = state["paused"] as? Bool ?? false
-        snap.alertsOff = Alerts.off(state)
+        snap.alertsOn = Alerts.turnedOn(state)
         let raw = state["sessions"] as? [String: [String: Any]] ?? [:]
         let sessions = State.sessions(hours: 24)
         let kept = Dictionary(grouping: Kept.all(), by: \.cse)

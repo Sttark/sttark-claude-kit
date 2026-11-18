@@ -1,7 +1,10 @@
 #!/usr/bin/python3
 """Tests each session's own alerts switch in the hooks, on copies: a test folder and log (STTARK_KIT_DIR,
 STTARK_KIT_LOG), notify.py dry (STTARK_NOTIFY_DRY: nothing is sent) and nothing brought back. A session whose alerts
-are off takes the one path for a message that does not go out, notify.py held() and keep_in_kit(), with its own reason:
+are off, as every session's are until the person turns them on, takes the one path for a message that does not go
+out, notify.py held() and keep_in_kit(), with its own reason:
+- which sessions are off: one with no choice (a new one too) and one turned off by hand; on only when turned on by hand;
+  an id that is not a Remote Control id has no switch;
 - claude-notify in that session: no way at all, exit 0, the kept line that tells the session the person reads it in
   the Kit app, the message in kept.json on that session with its reason, a "kept" line in the log, no reach_sent; the
   same command in a session whose alerts are on goes as before; a session_ id counts as its cse_ id; Reach me by's own
@@ -67,8 +70,17 @@ def notify(*args, session=None):
 write({'sessions': {'cse_01OrderPage': {'title': 'Order page', 'url': 'https://claude.ai/code/session_01OrderPage', 'at': NOW},
                     'cse_01PowderWatch': {'title': 'Powder watch', 'url': 'https://claude.ai/code/session_01PowderWatch', 'at': NOW}},
        'reach': {'ways': ['email', 'chat'], 'email': 'name@sttark.com', 'chat': 'https://chat.googleapis.com/v1/spaces/sample'},
-       'alerts_off': {'cse_01PowderWatch': {'at': NOW - 60, 'by': 'window', 'title': 'Powder watch'}}})
+       'alerts': {'cse_01OrderPage': {'on': True, 'at': NOW - 120, 'by': 'window', 'title': 'Order page'}}})
 n = load('notify')
+
+# --- which sessions are off --------------------------------------------------------------------------------------
+check('no choice is off: a session the person never touched, and a new one',
+      n.alerts_off('cse_01PowderWatch') and n.alerts_off('cse_01BrandNew'))
+check('on only when turned on by hand; off by hand stays off',
+      not n.alerts_off('cse_01OrderPage')
+      and n.alerts_off('cse_01OrderPage', {'alerts': {'cse_01OrderPage': {'on': False, 'by': 'phone'}}}))
+check('the old store (alerts_off, only the sessions turned off) turns nothing on',
+      n.alerts_off('cse_01OrderPage', {'alerts_off': {'cse_01X': {}}}) and n.alerts_off('cse_01X', {'alerts_off': {'cse_01X': {}}}))
 
 # --- claude-notify ------------------------------------------------------------------------------------------------
 code, out = notify('Snow report', '14 in fell overnight.', session='session_01PowderWatch')
@@ -85,9 +97,9 @@ check('its alerts off: no reach_sent, so nothing says the person was told', 'rea
 code, out = notify('Order page', 'The login works.', session='session_01OrderPage')
 check('alerts on: the same command goes the ways picked, as before', code == 0 and 'Email: would mail name@sttark.com' in out
       and 'Google Chat: would post' in out and 'cse_01OrderPage' in (state().get('reach_sent') or {}))
-check('alerts_off reads a session_ id as its cse_ id, and an empty id as on',
+check('alerts_off reads a session_ id as its cse_ id; an empty id, or one that is not a Remote Control id, has no switch',
       n.alerts_off('session_01PowderWatch') and n.alerts_off('cse_01PowderWatch') and not n.alerts_off('cse_01OrderPage')
-      and not n.alerts_off(''))
+      and not n.alerts_off('session_01OrderPage') and not n.alerts_off('') and not n.alerts_off('sid-1234'))
 check('held(): its own reason; none for a session with alerts on; none for no session',
       n.held('cse_01PowderWatch') == WHY and n.held('cse_01OrderPage') == '' and n.held('') == '')
 s = state()
@@ -125,7 +137,7 @@ def back(wid, cse, title, back_at):
 
 s = state()
 s['sessions']['cse_01SnowPlan'] = {'title': 'Snow plan', 'url': 'https://claude.ai/code/session_01SnowPlan', 'at': NOW}
-s['alerts_off']['cse_01SnowPlan'] = {'at': NOW, 'by': 'phone', 'title': 'Snow plan'}
+s['alerts']['cse_01SnowPlan'] = {'on': False, 'at': NOW, 'by': 'phone', 'title': 'Snow plan'}
 # Powder watch came back before its kept claude-notify above; Snow plan came back 15 minutes ago and said nothing
 s['waits'] = {'p1': back('p1', 'cse_01PowderWatch', 'Powder watch', NOW - 1000),
               'p2': back('p2', 'cse_01SnowPlan', 'Snow plan', time.time() - w.FALLBACK - 5)}

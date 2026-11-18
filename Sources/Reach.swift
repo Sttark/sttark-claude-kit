@@ -254,34 +254,42 @@ enum Reach {
     }
 }
 
-/// Each session's alerts: on unless the person turned them off for that session, with the bell on its row in the window
-/// (or its Alerts switch) or on its page on the phone (KitActions.setAlerts). Off is `alerts_off[<cse>]` in the state
-/// file, by the session's Remote Control id, so it lasts through archive, unarchive, a Kit restart and a Mac restart;
-/// a new session starts on. With alerts off, nothing about the session goes out by any Reach me by way: notify.py held()
-/// gives "this session's alerts are off", so claude-notify's message and the Kit's own (wait.py, watch.py) are kept on
-/// the session, as with Reach me by's Alerts switch off (Kept), and the Needs you reminder goes neither to this Mac nor
-/// to the phone (Waiting.notifyDue).
+/// Each session's alerts: off unless the person turned them on for that session, with the bell on its row in the window
+/// (or its Alerts switch) or on its page on the phone (KitActions.setAlerts). Each choice by hand, on or off, is
+/// `alerts[<cse>] = {on, at, by, title}` in the state file, by the session's Remote Control id, so it lasts through
+/// archive, unarchive, a Kit restart and a Mac restart. A session with no choice, a new one too, is off: nothing about it
+/// goes out by any Reach me by way. notify.py held() gives "this session's alerts are off", so claude-notify's message and
+/// the Kit's own (wait.py, watch.py) are kept on the session, as with Reach me by's Alerts switch off (Kept), and the
+/// Needs you reminder goes neither to this Mac nor to the phone (Waiting.notifyDue). A session with no Remote Control id
+/// has no switch, so nothing holds it back.
 enum Alerts {
-    static let key = "alerts_off"
+    static let key = "alerts"
+    /// The store from when a session started on: `alerts_off[<cse>]`, only the sessions turned off. migrate() moves it
+    /// to `alerts` once.
+    static let oldKey = "alerts_off"
 
     /// A Remote Control id as the state file keys it: session_X is cse_X.
     static func cse(_ id: String) -> String { id.hasPrefix("session_") ? "cse_" + id.dropFirst(8) : id }
 
-    /// The sessions whose alerts are off, by Remote Control id.
-    static func off(_ state: [String: Any]? = nil) -> Set<String> {
-        Set(((state ?? State.read())[key] as? [String: Any] ?? [:]).keys)
+    /// The sessions whose alerts the person turned on, by Remote Control id.
+    static func turnedOn(_ state: [String: Any]? = nil) -> Set<String> {
+        Set(((state ?? State.read())[key] as? [String: Any] ?? [:]).compactMap { k, v in
+            (v as? [String: Any])?["on"] as? Bool == true ? k : nil
+        })
     }
 
-    /// Whether a session's alerts are on. A row with no Remote Control id has no switch, so it counts as on.
+    /// Whether a session's alerts are on: only when the person turned them on. A row with no Remote Control id has no
+    /// switch, so it counts as on.
     static func on(_ id: String, in state: [String: Any]? = nil) -> Bool {
-        id.isEmpty || !off(state).contains(cse(id))
+        let c = cse(id)
+        return !c.hasPrefix("cse_") || turnedOn(state).contains(c)
     }
 
     /// An entry is dropped when its session was not used for this long and has no open wait, so the list stays short.
     static let keepDays: Double = 90
 
     /// Turns a session's alerts on or off, with who asked and the session's name then, for the log and the Events page.
-    /// Returns false when it was that way already.
+    /// The choice is kept either way; returns false (and writes no log line) when the alerts were that way already.
     @discardableResult
     static func set(_ id: String, on: Bool, title: String, by origin: KitActions.Origin) -> Bool {
         let c = cse(id)
@@ -289,11 +297,11 @@ enum Alerts {
         var changed = false
         State.change { s in
             var all = s[key] as? [String: Any] ?? [:]
-            guard (all[c] == nil) != on else { return }
-            changed = true
+            let was = (all[c] as? [String: Any])?["on"] as? Bool
+            guard was != on else { return }
+            changed = (was == true) != on
             let now = Date().timeIntervalSince1970
-            if on { all.removeValue(forKey: c) }
-            else { all[c] = ["at": now, "by": origin.rawValue, "title": title] as [String: Any] }
+            all[c] = ["on": on, "at": now, "by": origin.rawValue, "title": title] as [String: Any]
             let sessions = s["sessions"] as? [String: Any] ?? [:]
             let waiting = Set((s["waits"] as? [String: Any] ?? [:]).values.compactMap { ($0 as? [String: Any])?["cse"] as? String })
             for (k, v) in all where k != c && !waiting.contains(k) {
@@ -304,6 +312,48 @@ enum Alerts {
         }
         if changed { logLine("notify", "alerts \(on ? "on" : "off") for \(c) \"\(title)\" (\(origin.rawValue))") }
         return changed
+    }
+
+    /// Once, at the first launch with the old store in the state (`alerts_off`: only the sessions turned off, so a
+    /// session with no entry there was on by default or turned on by hand). Its entries stay off, chosen by hand. A
+    /// session whose last change in the log is "alerts on for" was turned on by hand, so it stays on. Every other
+    /// session made no choice, so it is off from now on. Returns how many choices it kept, or nil with no old store.
+    @discardableResult
+    static func migrate(log: URL = logURL) -> (off: Int, on: Int)? {
+        guard State.read()[oldKey] != nil else { return nil }
+        // the last change of each session: "2026-11-18 10:43:21 notify alerts on for cse_01… "Name" (window)"
+        var last: [String: (on: Bool, at: Double, title: String, by: String)] = [:]
+        let text = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        if text.contains(" alerts on for cse_") {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            let re = try! NSRegularExpression(pattern: #"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) notify +alerts (on|off) for (cse_\w+) "(.*)" \((window|phone)\)$"#,
+                                              options: .anchorsMatchLines)
+            let ns = text as NSString
+            for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                let g = { (i: Int) in ns.substring(with: m.range(at: i)) }
+                last[g(3)] = (g(2) == "on", f.date(from: g(1))?.timeIntervalSince1970 ?? 0, g(4), g(5))
+            }
+        }
+        var kept = (off: 0, on: 0)
+        State.change { s in
+            guard s[oldKey] != nil else { return }
+            let old = s[oldKey] as? [String: Any] ?? [:]
+            var all = s[key] as? [String: Any] ?? [:]
+            for (c, v) in old where all[c] == nil {
+                var x = v as? [String: Any] ?? [:]
+                x["on"] = false
+                all[c] = x
+                kept.off += 1
+            }
+            for (c, l) in last where l.on && old[c] == nil && all[c] == nil {
+                all[c] = ["on": true, "at": l.at, "by": l.by, "title": l.title] as [String: Any]
+                kept.on += 1
+            }
+            s[key] = all
+            s.removeValue(forKey: oldKey)
+        }
+        logLine("notify", "alerts of each session are off unless turned on: kept \(kept.off) turned off and \(kept.on) turned on by hand")
+        return kept
     }
 }
 

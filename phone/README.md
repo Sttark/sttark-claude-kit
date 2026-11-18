@@ -13,7 +13,7 @@ What it serves (under `BASE_PATH`, Environment below):
 
 | Path | What |
 |---|---|
-| `/` | **Sessions**, the first of three tabs: the four groups (Needs you first; a working row shows its last progress check-in under it; a bell with a line through it after the name of a session whose alerts are off), Idle with a message, Macs away, the usage strip. `?q=` searches the names; `?find=1` shows the search field |
+| `/` | **Sessions**, the first of three tabs: the four groups (Needs you first; a working row shows its last progress check-in under it; a bell with a line through it after the name of a session whose alerts are off, as each session starts until the person turns them on), Idle with a message, Macs away, the usage strip. `?q=` searches the names; `?find=1` shows the search field |
 | `/s/<cse>` | **One session**: what it does (with its last progress check-in while it works), Open in Claude, the messages the Kit kept for it while alerts are off, its waits (Stop, Bring it back now, Stop waiting), effort and Auto, At the usage limit, its Alerts switch, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
 | `/archived` | **Archived**, grouped by day; `?q=` searches names and folders, and also finds the sessions under Waiting on someone else, in their own group (a row opens it under Sessions) |
 | `/archived/<cse>` | One archived session, with **Bring it back** |

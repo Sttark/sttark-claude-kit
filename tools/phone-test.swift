@@ -910,6 +910,12 @@ enum Sample {
         let state: [String: Any] = [
             "paused": false, "limit_credits_all": false, "sessions": sessions, "app_list": appList, "limit_pauses": pauses, "limit_modes": modes,
             "waits": waits,
+            // each session's alerts start off: the person turned on the three the reminder and message tests use, and
+            // turned one off by hand; every other session has no choice, so its alerts are off
+            "alerts": ["cse_01PhoneOrderLogin": ["on": true, "at": now - 3600, "by": "window", "title": "Order page login"],
+                       "cse_01PhoneNozzle": ["on": true, "at": now - 3600, "by": "window", "title": "Nozzle check page"],
+                       "cse_01PhoneKitDesign": ["on": true, "at": now - 3600, "by": "phone", "title": "Sttark Claude Kit"],
+                       "cse_01PhoneCiWatch": ["on": false, "at": now - 7200, "by": "phone", "title": "CI watch"]],
             "reach": ["ways": ["chat", "email", "mac", "text", "bogus"], "email": "reachmark.person@sttark.com", "phone": "+1 864 555 0100 REACHMARK",
                       "chat": "https://chat.googleapis.com/v1/spaces/REACHMARK"],
             "keep": ["env": "env_01Sample", "alone": ["cse_01PhoneLaminator": ["transcript": projects.appendingPathComponent("alone.jsonl").path,
@@ -1367,7 +1373,7 @@ enum E2E {
         check("the phone's session page gets a record of each change", page.payloads("record").contains { $0["act"] as? String == "set_level" && $0["reason"] as? String == "ok" }
               && page.payloads("record").contains { $0["act"] as? String == "set_alerts" && $0["words"] as? String == "Turned alerts off from the phone." })
         check("alerts off from the phone: kept by the session's id, and its row on the phone says so",
-              Alerts.off().contains("cse_01PhoneNozzle") && wait(10) {
+              !Alerts.on("cse_01PhoneNozzle") && wait(10) {
                   (page.lastSnapshot(mac)?["rows"] as? [[String: Any]])?.first { $0["cse"] as? String == "cse_01PhoneNozzle" }?["alerts"] as? Bool == false
               })
         check("after the actions the Kit is still connected", PhoneLink.status.connected)
