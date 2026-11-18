@@ -5,13 +5,14 @@ import SwiftUI
 /// never shown as raw lines: each line becomes one sentence about one session, under the session's name.
 struct KitEvent: Identifiable, Equatable {
     enum Kind: String, CaseIterable {
-        case effort, limit, restart, name, wait, phone, update, check, app, problem
+        case effort, limit, restart, name, same, wait, phone, update, check, app, problem
         var title: String {
             switch self {
             case .effort: return "Effort and permissions"
             case .limit: return "Usage limit"
             case .restart: return "Sessions started again"
             case .name: return "Session names"
+            case .same: return "Same work"
             case .wait: return "Waits and messages"
             case .phone: return "Kit on your phone"
             case .update: return "Updates"
@@ -26,6 +27,7 @@ struct KitEvent: Identifiable, Equatable {
             case .limit: return "pause.circle"
             case .restart: return "arrow.clockwise.circle"
             case .name: return "tag"
+            case .same: return "arrow.triangle.merge"
             case .wait: return "hourglass"
             case .phone: return "iphone"
             case .update: return "arrow.down.circle"
@@ -540,6 +542,73 @@ enum Events {
             } else {
                 e.text = "Reply watch: " + rest.prefix(160)
             }
+        case "same":   // One session for the same work (same-work.py): a new session's first prompt, the question, the answer
+            e.kind = .same
+            var body = rest
+            if first.hasPrefix("cse_") || first.hasPrefix("session_") { who(first); body = String(rest.dropFirst(first.count + 1)) }
+            // a line about the open session the prompt goes to: "<cse> "<name>" got the first prompt of <cse>…"
+            if body.hasPrefix("\""), let q = quoted(body) {
+                e.name = e.name ?? q; e.session = e.session ?? names.cseByName[q]
+                body = String(body.dropFirst(q.count + 2)).trimmingCharacters(in: .whitespaces)
+            }
+            let fromName: String? = body.range(of: #" of (cse|session)_[A-Za-z0-9]+"#, options: .regularExpression)
+                .flatMap { names.resolve(String(body[$0].dropFirst(4))).name }
+            let from = fromName.map { "From the new session \u{201C}\($0)\u{201D}." }
+            let dry = body.hasSuffix(" (dry: nothing sent)")
+            var main = body, prompt = ""
+            if let r = body.range(of: " | ") { main = String(body[..<r.lowerBound]); prompt = String(body[r.upperBound...]) }
+            func after(_ mark: String) -> String? { main.range(of: mark).map { String(main[$0.upperBound...]) } }
+            if main.hasPrefix("asks: ") {
+                let t = quoted(main) ?? "another session"
+                e.text = "Same work as \u{201C}\(t)\u{201D}: Claude asks where the prompt goes"
+                if let s = main.range(of: "\", started "), let end = main.range(of: " (", range: s.upperBound..<main.endIndex) {
+                    e.detail.append("\u{201C}\(t)\u{201D} started " + main[s.upperBound..<end.lowerBound] + ". The question offers Send to and Keep here.")
+                }
+                if let r = main.range(of: "s) - ") { e.detail.append("Why: " + main[r.upperBound...] + ".") }
+            } else if main.hasPrefix("no match among ") {
+                e.routine = true; e.text = "Same work check: no open session does this work"
+                if let n = main.split(separator: " ").dropFirst(3).first { e.detail.append("Compared with \(n) open session\(n == "1" ? "" : "s").") }
+                if let r = main.range(of: "s) - ") { e.detail.append("Why: " + main[r.upperBound...] + ".") }
+            } else if let why = after("no match: ") {
+                e.routine = true; e.text = "Same work check: no other open session to compare"
+                e.detail.append(why.prefix(1).uppercased() + why.dropFirst() + ".")
+            } else if let why = after("not checked: ") {
+                e.routine = true; e.text = "Same work check skipped"
+                e.detail.append(why.prefix(1).uppercased() + why.dropFirst() + ".")
+            } else if let why = after("check failed: ") {
+                e.kind = .problem; e.level = .warn; e.text = "The same work check could not run"
+                e.detail.append(String(why.prefix(300)))
+            } else if main.hasPrefix("keeps its first prompt here") {
+                e.text = "The prompt stays here: Keep here" + (quoted(main).map { ", not \u{201C}\($0)\u{201D}" } ?? "")
+            } else if main.hasPrefix("answered the same work question") {
+                e.text = "The same work question got another answer; nothing was sent"
+                if let a = after("sends nothing: ") { e.detail.append("Answer: \u{201C}" + a + "\u{201D}") }
+            } else if main.hasPrefix("got the first prompt of ") {
+                e.routine = dry
+                e.text = (main.contains(", which waited ") ? "Got a new session's first prompt after its turn ended"
+                          : "Got a new session's first prompt (Send to)") + (dry ? " (test run)" : "")
+                if let w = after(", which waited ") { e.detail.append("It waited " + w.replacingOccurrences(of: " (dry: nothing sent)", with: "") + ".") }
+                e.detail.append("It runs here as the person's own message.")
+            } else if main.hasPrefix("gets the first prompt of ") {
+                if let why = after("it could not start now: ") {
+                    e.level = .warn; e.text = "A new session's first prompt waits: this session could not start"
+                    e.detail.append(why.prefix(1).uppercased() + why.dropFirst() + ". The Kit tries again each minute.")
+                } else {
+                    e.text = "A new session's first prompt waits for the turn to end"
+                }
+            } else if main.hasPrefix("could not start for the first prompt of ") {
+                e.level = .warn; e.text = "A new session's first prompt waits: this session could not start"
+                if let r = main.range(of: #"_[A-Za-z0-9]+: "#, options: .regularExpression) { e.detail.append(String(main[r.upperBound...])) }
+            } else if main.hasPrefix("could not get the first prompt of ") || main.hasPrefix("never got the first prompt of ") {
+                e.kind = .problem; e.level = .warn
+                e.text = main.hasPrefix("never") ? "A new session's first prompt never went" : "A new session's first prompt could not go"
+                if let r = main.range(of: #"_[A-Za-z0-9]+: "#, options: .regularExpression) { e.detail.append(String(main[r.upperBound...])) }
+            } else {
+                e.kind = .problem; e.level = .warn; e.text = "The same work check failed"
+                e.detail.append(String(rest.prefix(300)))
+            }
+            if let from, e.text.contains("new session") { e.detail.append(from) }
+            promptDetail(prompt)
         case "checkin":   // the progress check-ins (checkin.py): a note on a session's long work, shown in the Kit app
             e.kind = .wait
             if first.hasPrefix("cse_") { who(first) }

@@ -41,6 +41,8 @@ would be held. It is then one of the keep check's chats on their own (keep.alone
 (no link, or its conversation isn't on this Mac) gets the message straight from the Kit instead.
 After the waits, each minute, the reply watch (watch.py) brings a session back when an answer comes from someone
 it contacted, also when it set no wait for it; a wait never ends on a message the watch already brought it for.
+Then a prompt the person sent from a new session to an open one that does the same work (same-work.py) goes to that
+session, when it waited for the session's turn to end; bring_back() is its start too.
 Then, with the wait lock free and in a process of their own, the progress check-ins (checkin.py) tell the person how
 a session's long work goes.
 Logged with lines starting "wait". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
@@ -801,6 +803,11 @@ def check(only=None, by=None):
             load('watch').check(Self())
         except Exception as e:
             log('the reply watch failed: %s: %s' % (type(e).__name__, str(e)[:200]))
+        try:  # a prompt the person sent from a new session to an open one that does the same work (same-work.py),
+            # which waits for that session's turn to end
+            load('same-work').deliver()
+        except Exception as e:
+            log('the same work prompts failed: %s: %s' % (type(e).__name__, str(e)[:200]))
         lock.close()  # free for Bring it back now (--now) while the progress check-ins start (checkins())
     return result
 

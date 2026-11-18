@@ -18,6 +18,9 @@ session's own setting are settings it reads, not hook changes.
 The browser guard (browser-guard.py) also goes in with the effort hook, always: a PreToolUse entry for Bash and the
 Claude in Chrome and Control Chrome tools, and a UserPromptSubmit entry for the person's opt-in. It reads the
 "Claude window in Chrome" switch itself on each call, since a session keeps the hooks it started with.
+The same work check (same-work.py) also goes in with the effort hook, always: a UserPromptSubmit entry (it looks only
+at a session's first prompt) and a PostToolUse entry for AskUserQuestion (the answer to its question). It reads the
+"One session for the same work" switch itself on each call, for the same reason.
 --defaults turns on Claude Code's phone notices (inputNeededNotifEnabled: a notice when Claude waits on you;
 agentPushNotifEnabled: Claude may send one, which claude-notify's "Claude app" way needs) when the key is missing;
 a value the person set, true or false, is never changed.
@@ -182,6 +185,33 @@ def set_guard(hooks, on):
             hooks.pop(event, None)
 
 
+SAME = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'same-work.py')
+SAME_ASK = 30      # seconds: a first prompt's check, one short Haiku call beside the effort check
+SAME_ANSWER = 90   # seconds: the answer "Send to", which starts the other session with the prompt (wait.py bring_back())
+
+
+def is_same(cmd):
+    return 'same-work.py' in cmd
+
+
+def set_same(hooks, on):
+    """One session for the same work: on every message (it looks only at a session's first, and asks Claude to ask
+    the person when an open session does that work), and after AskUserQuestion (the person's answer: the prompt goes
+    to that session, or stays)."""
+    for event in ('UserPromptSubmit', 'PostToolUse'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_same(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            h = {'type': 'command', 'command': f'"{SAME}"', 'timeout': SAME_ASK if event == 'UserPromptSubmit' else SAME_ANSWER}
+            groups.append({'hooks': [h]} if event == 'UserPromptSubmit' else {'matcher': 'AskUserQuestion', 'hooks': [h]})
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
 def set_links(on):
     """claude-limit-wait and claude-limit-mode (links to limit-hook.py), claude-notify (notify.py), claude-wait (wait.py),
     claude-migrate (migrate.py) and claude-mail (mail.py) in ~/.local/bin, next to claude. Removed on --remove, only
@@ -330,6 +360,7 @@ def main():
                           'working': has(s, 'UserPromptSubmit', is_working) and has(s, 'Stop', is_working),
                           'limit': has(s, 'PreToolUse', is_limit),
                           'guard': has(s, 'PreToolUse', is_guard) and has(s, 'UserPromptSubmit', is_guard),
+                          'same_work': has(s, 'UserPromptSubmit', is_same) and has(s, 'PostToolUse', is_same),
                           'remote_control_at_startup': s.get('remoteControlAtStartup'),
                           'no_archive': all(t in ((s.get('permissions') or {}).get('deny') or []) for t in NO_ARCHIVE)}))
         return
@@ -402,6 +433,7 @@ def main():
     set_rules(hooks, not remove)
     set_limit(hooks, not remove)
     set_guard(hooks, not remove)
+    set_same(hooks, not remove)
     set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     set_rc_startup(s, not remove)

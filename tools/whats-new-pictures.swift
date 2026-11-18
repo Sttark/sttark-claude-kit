@@ -11,6 +11,7 @@
 //   whats-new/reply-watch.png         a still: what a session contacted, what the Kit watches, and the session back
 //   whats-new/parallel-agents.png     a still: one build divided into agents that run at once; new work gets a new agent
 //   whats-new/progress-check-ins.png  a still: a note every 15 minutes while an agent works, none at the end, and one note
+//   whats-new/same-work.png           a still: a new session's first prompt, and the question Claude asks first, with its answers
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
 //   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
@@ -494,6 +495,55 @@ func checkinsPicture() -> NSBitmapImageRep {
     }
 }
 
+// MARK: one session for the same work
+
+/// A still: the first prompt of a new session, and the one question Claude asks first because an open session already
+/// does that work: the session's name and age, and the two answers with the words the question gives them.
+func sameWorkPicture() -> NSBitmapImageRep {
+    func tall(_ s: String, _ size: CGFloat, bold: Bool = false, width w: CGFloat) -> CGFloat {
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = 2
+        return ceil(NSAttributedString(string: s, attributes: [.font: font(size, bold), .paragraphStyle: para])
+            .boundingRect(with: NSSize(width: w, height: 400), options: [.usesLineFragmentOrigin]).height)
+    }
+    return frame(280) {
+        // the person's first prompt in the new session
+        let p = "Add a due date filter to the Press 2 job board"
+        let pw = width(p, size: 14) + 28
+        let pr = NSRect(x: W - 16 - pw, y: 8, width: pw, height: 30)
+        card(pr, fill: C.infoSoft, border: C.infoBorder, radius: 10)
+        text(p, pr.minX + 14, pr.minY + 6, size: 14)
+        text("New session", 16, pr.minY + 7, size: 13, color: C.steel)
+        // the one question Claude asks first, measured so the card fits its words
+        let q = "This looks like the same work as \u{201C}Press 2 job board\u{201D}, a session that started 2 hours ago. Where do you want this prompt?"
+        let options = [("Send to Press 2 job board", "The Kit sends your prompt to that session, as if you typed it there."),
+                       ("Keep here", "This session does the work. The Kit does not ask again.")]
+        let cx: CGFloat = 16, cw = W - 32, top: CGFloat = 48, inner = cw - 24
+        let qh = tall(q, 13.5, bold: true, width: inner)
+        let heights = options.map { 24 + tall($0.1, 12.5, width: inner - 40) + 7 }
+        let ch = 40 + qh + 8 + heights.reduce(0, +) + CGFloat(options.count - 1) * 4 + 10
+        card(NSRect(x: cx, y: top, width: cw, height: ch), radius: 8)
+        let tag = "Same work"   // the question's header: a label, so no status dot
+        let tr = NSRect(x: cx + 12, y: top + 10, width: width(tag, size: 12.5, bold: true) + 20, height: 22)
+        card(tr, fill: C.infoSoft, border: C.infoBorder, radius: 11)
+        text(tag, tr.minX + 10, tr.minY + 3, size: 12.5, bold: true, color: C.infoText)
+        text(q, cx + 12, top + 40, size: 13.5, bold: true, width: inner)
+        var y = top + 40 + qh + 8
+        for ((label, words), h) in zip(options, heights) {
+            let r = NSRect(x: cx + 12, y: y, width: inner, height: h)
+            card(r, radius: 6)
+            C.gray.setStroke()
+            let ring = NSBezierPath(ovalIn: NSRect(x: r.minX + 11, y: r.minY + 8, width: 13, height: 13))
+            ring.lineWidth = 1.5
+            ring.stroke()
+            text(label, r.minX + 32, r.minY + 5, size: 13.5, bold: true)
+            text(words, r.minX + 32, r.minY + 24, size: 12.5, color: C.steel, width: inner - 40)
+            y += h + 4
+        }
+        assert(top + ch <= 276, "the question's card must fit the picture")
+    }
+}
+
 func png(_ rep: NSBitmapImageRep, to path: String) {
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     print("wrote \(path)")
@@ -516,4 +566,5 @@ for dark in [false, true] {
     if wanted("parallel-agents") { png(parallelAgentsPicture(), to: "whats-new/parallel-agents" + (dark ? "-dark.png" : ".png")) }
     if wanted("reply-watch") { png(replyWatchPicture(), to: "whats-new/reply-watch" + (dark ? "-dark.png" : ".png")) }
     if wanted("progress-check-ins") { png(checkinsPicture(), to: "whats-new/progress-check-ins" + (dark ? "-dark.png" : ".png")) }
+    if wanted("same-work") { png(sameWorkPicture(), to: "whats-new/same-work" + (dark ? "-dark.png" : ".png")) }
 }
