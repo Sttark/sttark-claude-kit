@@ -210,6 +210,47 @@ import Foundation
         let cx = Events.kitLine(f.string(from: Date()) + " checkin error: KeyError: 'sessions'", names)
         check(cx?.kind == .problem && cx?.text == "A progress check-in failed", "an error is a problem")
 
+        // One session for the same work (same-work.py): the question under the new session, the prompt under the open
+        // session it went to, the checks that find nothing as routine rows, and what failed as problems
+        var sn = names
+        sn.byCse["cse_01NEWtest3"] = "Color page"; sn.cseByName["Color page"] = "cse_01NEWtest3"
+        func same(_ s: String) -> KitEvent? { Events.kitLine(f.string(from: Date()) + " same   " + s, sn) }
+        let sa = same("cse_01NEWtest3 asks: same work as cse_01AAAtest1 \"Press color\", started 2 hours ago (1.8s) - the same press color page | Add a gray balance chart to the color page")
+        check(sa?.kind == .same && sa?.session == "cse_01NEWtest3" && sa?.name == "Color page" && sa?.routine == false
+              && sa?.text == "Same work as \u{201C}Press color\u{201D}: Claude asks where the prompt goes"
+              && sa?.detail.contains("\u{201C}Press color\u{201D} started 2 hours ago. The question offers Send to and Keep here.") == true
+              && sa?.detail.contains("Why: the same press color page.") == true
+              && sa?.detail.contains("Prompt: \u{201C}Add a gray balance chart to the color page\u{201D}") == true,
+              "the question: under the new session, the open session named, with its age, why and the prompt")
+        let sg = same("cse_01AAAtest1 \"Press color\" got the first prompt of cse_01NEWtest3: the person chose Send to")
+        check(sg?.kind == .same && sg?.session == "cse_01AAAtest1" && sg?.name == "Press color" && sg?.level == .info
+              && sg?.text == "Got a new session's first prompt (Send to)"
+              && sg?.detail.contains("From the new session \u{201C}Color page\u{201D}.") == true,
+              "Send to: a row under the open session that got the prompt, with the new session named")
+        let sq = same("cse_01AAAtest1 \"Press color\" gets the first prompt of cse_01NEWtest3 when its turn ends: the person chose Send to")
+        let sw = same("cse_01AAAtest1 \"Press color\" got the first prompt of cse_01NEWtest3, which waited 12 minutes")
+        check(sq?.text == "A new session's first prompt waits for the turn to end" && sq?.level == .info
+              && sw?.text == "Got a new session's first prompt after its turn ended" && sw?.detail.first == "It waited 12 minutes.",
+              "a session in a turn: the prompt waits, then goes, each a row")
+        let sk = same("cse_01NEWtest3 keeps its first prompt here: the person chose Keep here, not \"Press color\"")
+        check(sk?.session == "cse_01NEWtest3" && sk?.text == "The prompt stays here: Keep here, not \u{201C}Press color\u{201D}", "Keep here is a row")
+        let sn1 = same("cse_01NEWtest3 no match among 3 open session(s) (1.6s) - a new topic | Order more ink")
+        let sn2 = same("cse_01NEWtest3 no match: no other session is open on this Mac | Order more ink")
+        let sn3 = same("cse_01NEWtest3 not checked: its first prompt is one word, too little to compare | hello")
+        check(sn1?.routine == true && sn1?.text == "Same work check: no open session does this work"
+              && sn1?.detail.contains("Compared with 3 open sessions.") == true && sn1?.detail.contains("Why: a new topic.") == true
+              && sn2?.routine == true && sn2?.detail.first == "No other session is open on this Mac."
+              && sn3?.routine == true && sn3?.text == "Same work check skipped", "a check that finds nothing is a routine row")
+        let sf = same("cse_01NEWtest3 check failed: RuntimeError: exit 1: overloaded | Order more ink")
+        let sl = same("cse_01AAAtest1 \"Press color\" could not start for the first prompt of cse_01NEWtest3: its copy in the server did not stop; the Kit tries again each minute")
+        let sd = same("cse_01AAAtest1 \"Press color\" never got the first prompt of cse_01NEWtest3: it is in a turn; dropped after 7 days")
+        let se = same("error: JSONDecodeError: Expecting value")
+        check(sf?.kind == .problem && sf?.level == .warn && sl?.kind == .same && sl?.level == .warn
+              && sl?.detail.first == "its copy in the server did not stop; the Kit tries again each minute"
+              && sd?.kind == .problem && sd?.text == "A new session's first prompt never went" && se?.kind == .problem,
+              "a check that failed, a start that failed and a prompt dropped are warnings")
+        check(![sa, sg, sq, sw, sk, sn1, sf, sl, sd].contains { ($0?.text ?? "cse_").contains("cse_") }, "no ids in the sentences")
+
         // Reach me by's alerts off: what was kept in the Kit, the reminder and the Kit's own notice that did not show.
         // Each is a plain row, not a warning: alerts off is a choice. With alerts on and no way checked, a warning.
         let nk = Events.kitLine(f.string(from: Date()) + " notify Press color kept a1b2c3d4e5f6: alerts are off | PR #12 merged", names)

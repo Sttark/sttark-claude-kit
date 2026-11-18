@@ -522,6 +522,7 @@ enum Sample {
             (61, "agent  cse_01Sample4 general-purpose ->xhigh (2.2s) xhigh - A new page design with judgment calls. | Design the job rows"),
             (60, "agent  cse_01Sample4 fork low->high (2.0s) high - Code changes across a few files. | Build the press filters"),
             (52, "change cse_01Sample3 medium->low (2.1s) low - Routine edit with a clear plan. | Fix the typo in the dock door work order"),
+            (44, "same   cse_01Sample4 \"Press 2 job board\" got the first prompt of cse_01Sample13: the person chose Send to"),
             (41, "wait   07f324 cse_01Sample5 \"Slitter blade change\" set: a reply from the blade supplier, by Mon 9:00 AM | they answer overnight"),
             (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a new job board. | Add a job board for Press 2"),
             (21, "limit  hold   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM (Bash)"),

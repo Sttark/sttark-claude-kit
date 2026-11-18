@@ -1650,6 +1650,9 @@ struct SettingsPage: View {
             toggle("Name sessions automatically", "A short handle for each session's project or area. Never changes a name you set.",
                    f.names) { c?.toggleNames() }
             Hairline()
+            toggle("One session for the same work", "When a new session's first prompt is the work of an open session, Claude asks to send it there.",
+                   f.sameWork, help: "At a new session's first prompt only, while other sessions are open on this Mac: one short Haiku call compares them. Send to puts your prompt in that session as if you typed it there; Keep here goes on in the new session. No session is archived.") { c?.toggleSameWork() }
+            Hairline()
             toggle("Progress check-ins in the Kit", "While a session works 15 min or more: a short note on its row here and on your phone. No alerts.",
                    f.checkins, help: "Every 15 minutes: what got done, what is next, and anything it is stuck on, with its age. It shows in Sessions and in Kit on your phone, never as a message or notice. Turn it off to save the short Haiku calls.") { c?.toggleCheckins() }
             Hairline()
