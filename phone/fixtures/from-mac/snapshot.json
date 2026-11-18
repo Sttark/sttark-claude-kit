@@ -21,6 +21,7 @@
   "rows": [
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneOrderLogin",
       "group": "needs_you",
       "hold": null,
@@ -50,6 +51,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneNozzle",
       "group": "needs_you",
       "hold": null,
@@ -79,6 +81,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneBinLabels",
       "group": "needs_you",
       "hold": null,
@@ -108,6 +111,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhonePressColor",
       "group": "working",
       "hold": null,
@@ -142,6 +146,10 @@
         "since": 1794586860,
         "what": "Photos of the B unit heads"
       },
+      "checkin": {
+        "at": 1794586980,
+        "note": "It read the photos of the A unit heads and found two blocked nozzles. Next it reads the B unit photos."
+      },
       "cse": "cse_01PhoneHvac",
       "group": "working",
       "hold": null,
@@ -171,6 +179,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneKitDesign",
       "group": "working",
       "hold": null,
@@ -205,6 +214,7 @@
         "since": 1794587160,
         "what": "Watch the release build"
       },
+      "checkin": null,
       "cse": "cse_01PhoneCiWatch",
       "group": "working",
       "hold": null,
@@ -234,6 +244,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhonePressCheck",
       "group": "waiting",
       "hold": null,
@@ -267,6 +278,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneProof",
       "group": "waiting",
       "hold": null,
@@ -300,6 +312,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneRetry",
       "group": "waiting",
       "hold": null,
@@ -352,6 +365,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneLaminator",
       "group": "waiting",
       "hold": null,
@@ -396,6 +410,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneParts",
       "group": "waiting",
       "hold": null,
@@ -429,6 +444,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhonePrice",
       "group": "waiting",
       "hold": null,
@@ -462,6 +478,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhonePowder",
       "group": "waiting",
       "hold": null,
@@ -495,6 +512,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneInventory",
       "group": "held",
       "hold": {
@@ -532,6 +550,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneSiteMap",
       "group": "held",
       "hold": {
@@ -569,6 +588,7 @@
     },
     {
       "background": null,
+      "checkin": null,
       "cse": "cse_01PhoneUsageReport",
       "group": "held",
       "hold": {

@@ -803,19 +803,23 @@ struct RowView: View {
     let row: Inbox.Row
     let selected: Bool
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(row.title).font(K.font(13.5, true)).lineLimit(1)
-                    if let s = row.session, row.group == .working || row.group == .idle, levelNames[s.level] != nil {
-                        LevelChip(level: s.level, manual: s.manual)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(row.title).font(K.font(13.5, true)).lineLimit(1)
+                        if let s = row.session, row.group == .working || row.group == .idle, levelNames[s.level] != nil {
+                            LevelChip(level: s.level, manual: s.manual)
+                        }
                     }
+                    (Text(row.sub) + Text(row.subStrong.isEmpty ? "" : " · ") + Text(row.subStrong).foregroundColor(row.subWarn ? K.warnText : K.ink))
+                        .font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
                 }
-                (Text(row.sub) + Text(row.subStrong.isEmpty ? "" : " · ") + Text(row.subStrong).foregroundColor(row.subWarn ? K.warnText : K.ink))
-                    .font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 8)
+                Text(row.time).font(K.font(12, row.late)).foregroundColor(row.late ? K.warnText : K.steel)
             }
-            Spacer(minLength: 8)
-            Text(row.time).font(K.font(12, row.late)).foregroundColor(row.late ? K.warnText : K.steel)
+            // the latest check-in under both, the row's whole width, so more of the note shows
+            if let n = row.checkin { CheckinLine(note: n) }
         }
         .padding(.horizontal, K.z(10))
         .padding(.vertical, K.z(6))
@@ -824,6 +828,19 @@ struct RowView: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// A working session's latest progress check-in on its row: its age, then the note, on one line.
+struct CheckinLine: View {
+    let note: Checkins.Note
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: "text.bubble").font(.system(size: 11 * K.zoom)).foregroundColor(K.infoMark)
+            (Text(note.age + ": ").foregroundColor(K.steel) + Text(note.text).foregroundColor(K.ink))
+                .font(K.font(12)).lineLimit(1).truncationMode(.tail)
+        }
+        .help(note.text)
     }
 }
 
@@ -848,6 +865,7 @@ struct DetailView: View {
                     }
                 }
                 facts
+                if let n = row.checkin { checkin(n) }
                 waitList
                 actions
                 if let s = row.session, row.wait == nil { effort(s) }
@@ -1032,6 +1050,26 @@ struct DetailView: View {
             model.moveNote = (ok, words, Date())
             model.changed()
         }
+    }
+
+    /// A working session's latest progress check-in, whole, with when the Kit wrote it.
+    func checkin(_ n: Checkins.Note) -> some View {
+        let ago = Waiting.ago(n.at)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Last check-in").font(K.font(12.5, true))
+                Spacer()
+                Text((ago == "just now" ? "Just now" : ago + " ago") + ", at " + Limit.clock(n.at)).font(K.font(12)).foregroundColor(K.steel)
+            }
+            Box {
+                Text(n.text).font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+            }
+            Text("A new one every 15 min while the work runs. Each one is also on the Events page.")
+                .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 20)
     }
 
     func effort(_ s: Session) -> some View {
@@ -1424,13 +1462,6 @@ struct SettingsPage: View {
             }
             .controlSize(K.control)
             .padding(.horizontal, 12).padding(.vertical, 9)
-            Hairline()
-            let (desc, warn) = Checkins.words(on: f.checkins, ways: f.reach.ways)
-            SettingRow(title: "Progress check-ins", desc: desc, warn: warn) {
-                Toggle("Progress check-ins", isOn: Binding(get: { f.checkins }, set: { _ in c?.toggleCheckins(); model.changed() }))
-                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
-            }
-            .help("What got done, what is next, and anything it is stuck on, the ways checked above. None for shorter work, and none when the work ends.")
         }
     }
 
@@ -1489,6 +1520,9 @@ struct SettingsPage: View {
             Hairline()
             toggle("Name sessions automatically", "A short handle for each session's project or area. Never changes a name you set.",
                    f.names) { c?.toggleNames() }
+            Hairline()
+            toggle("Progress check-ins in the Kit", "While a session works 15 min or more: a short note on its row here and on your phone. No alerts.",
+                   f.checkins, help: "Every 15 minutes: what got done, what is next, and anything it is stuck on, with its age. It shows in Sessions and in Kit on your phone, never as a message or notice. Turn it off to save the short Haiku calls.") { c?.toggleCheckins() }
             Hairline()
             toggle("Sttark working rules", "Rules in front of every prompt; a Simplified Technical English check on every reply.",
                    f.workingRules) { c?.toggleWorkingRules() }

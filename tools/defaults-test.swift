@@ -34,9 +34,20 @@ import Foundation
               !Checkins.on && KitDefaults.turnedOff("checkins") && State.read()["checkins"] as? Bool == false)
         Checkins.set(true)
         check("check-ins on again: the record is gone", Checkins.on && State.read()["checkins"] as? Bool == true)
-        check("check-ins: Settings warns when no way checked can send them",
-              !Checkins.words(on: true, ways: ["email", "push"]).1 && Checkins.words(on: true, ways: ["push"]) == ("Claude app can't send them. Check another way above.", true)
-              && Checkins.words(on: true, ways: []) == ("Check a way above to get them.", true) && !Checkins.words(on: false, ways: []).1)
+        // the notes the Kit app shows: only the latest of a run that goes on; none while the switch is off
+        let t = Date().timeIntervalSince1970
+        let runs: [String: Any] = ["sessions": [
+            "cse_now": ["start": t - 1800, "note_at": t - 720, "note": " It finished the page. Next it checks the links. "],
+            "cse_old": ["start": t - 300, "note_at": t - 2000, "note": "A note of a run that ended."],
+            "cse_ended": ["sent": t - 600],
+            "cse_empty": ["start": t - 1800, "note_at": t - 60, "note": ""],
+        ]]
+        try? JSONSerialization.data(withJSONObject: runs).write(to: Checkins.file)
+        let notes = Checkins.latest(["checkins": true])
+        check("check-ins: the latest note of the run that goes on, and its age",
+              notes.keys.sorted() == ["cse_now"] && notes["cse_now"]?.text == "It finished the page. Next it checks the links."
+              && notes["cse_now"]?.age == "Check-in 12 min ago" && Checkins.latest([:]).count == 1)
+        check("check-ins: none while the switch is off", Checkins.latest(["checkins": false]).isEmpty)
         UserDefaults.standard.removeObject(forKey: KitDefaults.offKey)
 
         let settings = dir.appendingPathComponent(".claude/settings.json")

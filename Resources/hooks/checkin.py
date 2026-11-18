@@ -1,7 +1,8 @@
 #!/usr/bin/python3
 """Progress check-ins: while a session's work runs a long time (an agent of it still works in the background, or its
-own turn still runs), the Kit sends the person one short note every 15 minutes, the way they picked under Reach me
-by. wait.py --check starts it every minute, after the waits and the reply watch; there is nothing else to start.
+own turn still runs), the Kit writes one short note on it every 15 minutes, which the Kit app shows on the session's
+row: the window's Sessions page and Kit on your phone. It never goes out as an alert (no Reach me by way, no Mac
+notice). wait.py --check starts it every minute, after the waits and the reply watch; there is nothing else to start.
 
 What runs, with no model call: each agent of the session that Claude Code has not marked finished (effort-hook.py
 running_agents(), the same count as the window's Claude working group: not a foreground agent unless its turn runs,
@@ -12,8 +13,8 @@ A run of work: from when the check sees work in the session (at most 2 minutes b
 the oldest piece of work) until it sees none for GAP (5 minutes), so a minute the check missed (a late read of the
 session) does not end it, or until the check did not see it at all for LOST (20 minutes: the Mac slept).
 
-When: one message a session, for all its work, once the person has heard nothing for EVERY (15 minutes) while the
-run goes on: EVERY after the latest of the run's start, the person's last prompt in the session (asked_at, from the
+When: one note a session, for all its work, once there has been no news of it for EVERY (15 minutes) while the run
+goes on: EVERY after the latest of the run's start, the person's last prompt in the session (asked_at, from the
 effort hook), the session's own Reach me by message (reach_sent) and the last check-in. A turn with no agent in the
 background counts only after it has run TURN_MIN, so the short turn in which the session reports its agents' results
 brings no note. None for shorter work, and none when the work ends: the session tells the person itself.
@@ -21,27 +22,25 @@ brings no note. None for shorter work, and none when the work ends: the session 
 What: one Haiku call (MODEL, through Claude Code with no tools and hooks off, as the Kit's other side calls) reads
 only what the session's record and its agents' records gained since the last check-in (the first one: since the run
 started), the agents that ran between two check-ins too, and writes 2 or 3 short sentences: what got done, what it
-does next, and what it is stuck on. The subject is the session's name, the oldest agent's description and how long
-the run has gone on; the message links to the session. No check-in while the session holds at its usage limit. With
-no new step, no call, and a second such check-in in a row is skipped; when the call fails, the note gives the steps
-and how many failed.
+does next, and what it is stuck on. The subject is the oldest agent's description and how long the run has gone on.
+No check-in while the session holds at its usage limit. With no new step, no call, and a second such check-in in a
+row is skipped; when the call fails, the note gives the steps and how many failed.
 
-How it goes out: notify.py send(), the ways claude-notify uses, less the Claude app, which only a session can send. A
-check-in is not the session's own message: it is not noted in reach_sent (a Needs you reminder still comes), and its
-log line starts "checkin", not "notify".
+Where it shows: checkins.json in the Kit's folder keeps, per session in the last day, its run, where it stopped
+reading each record, and the latest note of the run (note, note_at). The app reads it (Checkins.latest()) for the
+row in Claude working and its side panel, and sends it to the phone with the row; a run that ends drops its note, so
+the line goes away when the work ends. Each note is also a log line starting "checkin", one row on the Events page.
 
 The switch: "checkins" in the state file, false when the person turns Progress check-ins off in Settings (the app
-writes it). checkins.json in the Kit's folder keeps, per session in the last day, its run, its last check-in and where
-it stopped reading each record.
+writes it).
 
     checkin.py --check      the minute check (wait.py --check starts it in a process of its own)
     checkin.py --list       the work that runs now in each session, and when its next check-in is due
 
-Logged with lines starting "checkin". A test never sends and never calls the model: STTARK_KIT_DIR (a test folder)
-or STTARK_CHECKIN_DRY, STTARK_WAIT_DRY or STTARK_NOTIFY_DRY writes each message, prints it and sends nothing, in this
-process, and saves nothing; only STTARK_CHECKIN_DRY calls the model then (a dry run on real records).
-STTARK_CHECKIN_MODEL is a command that stands in for the Haiku call: the work on its input, the note on its output.
-STTARK_KIT_LOG points the log at a test file.
+A test never saves and never calls the model: STTARK_KIT_DIR (a test folder) or STTARK_CHECKIN_DRY, STTARK_WAIT_DRY
+or STTARK_NOTIFY_DRY writes each note, prints it and saves nothing, in this process; only STTARK_CHECKIN_DRY calls the
+model then (a dry run on real records). STTARK_CHECKIN_MODEL is a command that stands in for the Haiku call: the work
+on its input, the note on its output. STTARK_KIT_LOG points the log at a test file.
 """
 import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time
 
@@ -68,8 +67,8 @@ STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')  # the Kit's 
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
 
 ASK = """You write a short progress note for a person. One of their Claude Code sessions has worked for a long \
-time, often through agents that run in the background, and the person has heard nothing. You get what the session \
-and its agents did since the last note: the task of each, its steps (the tool calls, and the ones that failed) and \
+time, often through agents that run in the background. The note shows on the session's row in the person's list of \
+sessions, so they see how the work goes at a glance. You get what the session and its agents did since the last note: the task of each, its steps (the tool calls, and the ones that failed) and \
 what it wrote.
 
 Write 2 or 3 short sentences, 50 words at most in all, each with its subject ("It", "The agent"):
@@ -394,8 +393,7 @@ def plain(parts, window):
 
 
 def subject(work, age):
-    """"Build the SDS pages, working 45 min"; "... and 1 more agent, ..."; "Working 45 min" for a turn alone. The
-    session's name goes in front of it when it is sent."""
+    """"Build the SDS pages, working 45 min"; "... and 1 more agent, ..."; "Working 45 min" for a turn alone."""
     agents = [w for w in work if w['kind'] == 'agent']
     if not agents:
         return 'Working %s' % words(age)
@@ -479,13 +477,8 @@ def on(st):
     return st.get('checkins', True) is not False
 
 
-def ways_for(n, st):
-    """The ways a check-in goes: the person's Reach me by ways, less the Claude app, which only a session can send."""
-    return [w for w in n.settings(st)['ways'] if w in n.WAYS and w != 'push']
-
-
 def once(c, why, line):
-    """Logs a reason not to send once for each run of work."""
+    """Logs a reason not to write a note once for each run of work."""
     if c.get('said') != why:
         c['said'] = why
         log(line)
@@ -517,8 +510,9 @@ def check(now=None):
 
 
 def end_run(c):
-    """A run of work ended: no message; the record keeps only when the last check-in went."""
-    for k in ('start', 'seen', 'idle', 'n', 'files', 'said', 'empty'):
+    """A run of work ended: no note; its last note goes too (the Kit app shows a note only while its work runs), and
+    the record keeps only when the last check-in was written."""
+    for k in ('start', 'seen', 'idle', 'n', 'files', 'said', 'empty', 'note', 'note_at', 'subject'):
         c.pop(k, None)
 
 
@@ -526,7 +520,7 @@ def run(now=None):
     now = now or time.time()
     st = read_json(STATE)
     if not on(st):
-        return  # the records stay, so turning it on again sends no note sooner than one was due
+        return  # the records stay, so turning it on again writes no note sooner than one was due
     first = not os.path.exists(FILE)  # the first check on this Mac: work that runs counts from its start
     C = read_json(FILE)
     before = json.dumps(C, sort_keys=True)
@@ -554,9 +548,9 @@ def run(now=None):
         title = (x.get('title') or (x.get('app') or {}).get('title') or 'Session ' + cse[-6:]).strip().replace('"', "'")
         c = runs.get(cse)
         if c and c.get('start') and ((c.get('idle') and now - c['idle'] >= GAP) or now - c.get('seen', now) >= LOST):
-            # no work for GAP while the check ran, or the check did not see the run for LOST: it ended, with no message
+            # no work for GAP while the check ran, or the check did not see the run for LOST: it ended, with no note
             if c.get('n'):
-                log('%s "%s" work ended after %s; %d check-in%s sent' % (
+                log('%s "%s" work ended after %s; %d check-in%s' % (
                     cse, title, words(c.get('seen', c['start']) - c['start']), c['n'], '' if c['n'] == 1 else 's'))
             end_run(c)
         if not work:
@@ -574,12 +568,12 @@ def run(now=None):
         if not due(c, x, st, work, now):
             continue
         try:
-            send(c, cse, x, st, title, work, now)
+            write(c, cse, x, title, work, now)
         except Exception as w:
             log('%s "%s" error: %s: %s' % (cse, title, type(w).__name__, str(w)[:200]))
             c['sent'] = now  # tried: the next one in EVERY, not each minute
         if not DRY:
-            save(C)  # at once: a check-in that went is never sent again because a later step failed
+            save(C)  # at once: the app shows the new note, and a later step that fails never writes it again
     for cse in [k for k in runs if k not in looked]:  # archived, quiet for a day, or gone from the state file
         runs.pop(cse)
     for cse in [k for k in errors if k not in looked]:
@@ -589,14 +583,15 @@ def run(now=None):
 
 
 def quiet_since(c, x, st, cse):
-    """Since when the person has heard nothing: the later of the run's start, their last prompt in the session, the
-    last check-in, and the last message the session sent them itself (claude-notify notes it in reach_sent)."""
+    """Since when there has been no news of the work: the later of the run's start, the person's last prompt in the
+    session, the last check-in, and the last message the session sent them itself (claude-notify notes it in
+    reach_sent)."""
     told = (st.get('reach_sent') or {}).get(cse)
     return max(c['start'], x.get('asked_at') or 0, c.get('sent') or 0, told if isinstance(told, (int, float)) else 0)
 
 
 def due(c, x, st, work, now):
-    """A check-in is due: the person has heard nothing for EVERY, and the work is an agent in the background, or a turn
+    """A check-in is due: no news for EVERY, and the work is an agent in the background, or a turn
     that has run TURN_MIN (not the short turn in which the session reports what its agents did, also when it waits
     on an agent of its own)."""
     if now - quiet_since(c, x, st, x.get('cse') or '') < EVERY:
@@ -604,19 +599,9 @@ def due(c, x, st, work, now):
     return any((w['kind'] == 'agent' and not w.get('fg')) or now - w['start'] >= TURN_MIN for w in work)
 
 
-def send(c, cse, x, st, title, work, now):
-    """One check-in for the session, unless it holds at its usage limit or no way can send one (each logged once
-    for each run of work)."""
-    n = load('notify')
-    if DRY:
-        n.DRY = True
-    ways = ways_for(n, st)
-    if not ways:
-        picked = n.settings(st)['ways']
-        once(c, 'app' if picked else 'none', '%s "%s" not sent: %s' % (
-            cse, title, 'Reach me by has only the Claude app, which only a session can send' if picked
-            else 'no way is checked under Reach me by'))
-        return
+def write(c, cse, x, title, work, now):
+    """One check-in for the session, kept in its record for the Kit app to show (`note`, `note_at`), unless it holds
+    at its usage limit (logged once for each run of work). It goes out no way: no Reach me by, no Mac notice."""
     tp = x.get('transcript') or ''
     try:
         held = load('limit-hook').held(os.path.basename(tp)[:-len('.jsonl')], tp, cse)
@@ -648,25 +633,18 @@ def send(c, cse, x, st, title, work, now):
     else:
         body = plain(parts, window)  # nothing new to read: no model call
     c['empty'] = not any(p['lines'] for p in parts)
-    url = x.get('url') or (x.get('app') or {}).get('url') or ''
-    # the subject starts with the session's name in every way (Google Chat and a text show only the subject first);
-    # the log line, under the session's name already, keeps the rest
-    res = n.send('%s: %s' % (title, subj), body, ways=ways, title=title, url=url, cse=cse, quiet=True)
     for p in parts:
         c['files'][p['path']] = p['place']
     c['sent'], c['n'] = now, c.get('n', 0) + 1
-    # the line: <session> "<name>" <status> | <subject> | <note>; the status is "sent by <ways>", then "; not by <way>
-    # (<why>)" and "; no summary (<why>)" when they apply (the Events page reads it this way)
+    c['note'], c['note_at'], c['subject'] = body, now, subj
+    # the line: <session> "<name>" <status> | <subject> | <note>; the status is "shown in the Kit", then "; no
+    # summary (<why>)" when it applies (the Events page reads it this way)
     clean = lambda s: one_line(s, 400).replace(' | ', ' / ').replace('; ', ', ')
-    name = lambda w: n.NAMES.get(w, w)
-    ok = [name(w) for w, (good, _) in res if good]
     if DRY:
-        status = ['would send (dry)']
-        print('would send for %s "%s": %s\n%s' % (cse, title, subj, body))
-    elif ok:
-        status = ['sent by ' + ', '.join(ok)] + ['not by %s (%s)' % (name(w), clean(said)[:160]) for w, (good, said) in res if not good]
+        status = ['written (dry)']
+        print('would show for %s "%s": %s\n%s' % (cse, title, subj, body))
     else:
-        status = ['not sent (%s)' % ', '.join('%s: %s' % (name(w), clean(said)[:160]) for w, (_, said) in res)]
+        status = ['shown in the Kit']
     if why:
         status.append('no summary (%s)' % clean(why)[:160])
     log('%s "%s" %s | %s | %s' % (cse, title, '; '.join(status), clean(subj), clean(body)))
@@ -684,7 +662,7 @@ def listing(now=None):
         if 'tasks' not in found:
             found['tasks'] = e.open_tasks()
         return found['tasks']
-    print('Progress check-ins are %s.' % ('on' if on(st) else 'off (Settings > Reach me by)'))
+    print('Progress check-ins are %s.' % ('on' if on(st) else 'off (Settings > Sessions)'))
     shown = 0
     for cse, x in candidates(st, now):
         work = work_of(e, cse, x, st, now, tasks)

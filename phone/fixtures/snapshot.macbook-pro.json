@@ -76,7 +76,7 @@
       "sub_strong": "High",
       "sub_warn": null,
       "late": false,
-      "time_at": 1794586560,
+      "time_at": 1794585480,
       "url": "https://claude.ai/code/session_01SamplePressColor",
       "session": {
         "level": "high",
@@ -85,9 +85,13 @@
         "needs_you": false,
         "why": null,
         "waiting_since": null,
-        "turn_at": 1794586560
+        "turn_at": 1794585480
       },
       "background": null,
+      "checkin": {
+        "note": "It finished the matte profile and printed the test strip, and the blues match the reference. Next it checks the reds against the proof.",
+        "at": 1794587280
+      },
       "waits": [],
       "hold": null,
       "limit_mode": {

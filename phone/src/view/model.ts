@@ -44,6 +44,10 @@ export type Row = {
     turn_at: number | null;
   } | null;
   background: { agents: number; bash: number; what: string; since: number | null } | null;
+  /** The latest progress check-in of the work that runs now (Claude working
+   *  only): the Kit's short note and when it wrote it. A Kit from before it
+   *  sends none. */
+  checkin?: { note: string; at: number } | null;
   waits: Wait[];
   hold: { hold: boolean; at: number | null; percent: number | null; limit: string; since: number | null; until: number | null; agents: number } | null;
   limit_mode: { mode: 'follow' | 'credits' | 'hold'; at: number | null };

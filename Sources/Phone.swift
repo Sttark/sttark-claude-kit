@@ -126,6 +126,12 @@ enum Phone {
         if let b = r.background {
             x["background"] = ["agents": clamp(b.agents, 0, 100), "bash": clamp(b.bash, 0, 100), "what": cut(b.what), "since": time(b.since)] as [String: Any]
         }
+        // the latest progress check-in of its work (Claude working only): the Kit's short note, never transcript text
+        if let n = r.checkin, !cut(n.text, 400).isEmpty, let at = time(n.at) as? Int {
+            x["checkin"] = ["note": cut(n.text, 400), "at": at] as [String: Any]
+        } else {
+            x["checkin"] = NSNull()
+        }
         if let h = r.hold {
             x["hold"] = ["hold": h.hold, "at": (1...100).contains(h.at) ? h.at : NSNull(),
                          "percent": h.percent.map { clamp($0, 0, 1000) as Any } ?? NSNull(), "limit": cut(limitName(h.limit), 60),

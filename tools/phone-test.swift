@@ -100,6 +100,11 @@ import Foundation
               int(bg["agents"]) == 2 && int(bg["bash"]) == 0 && bg["what"] as? String == "Photos of the B unit heads" && int(bg["since"]) == now - 540
               && hvac["sub"] as? String == "2 agents working · Photos of the B unit heads" && int(hvac["time_at"]) == now - 540)
         check("a background command", int(obj(ci["background"])["bash"]) == 1 && ci["sub"] as? String == "1 background command · Watch the release build")
+        check("the latest progress check-in of the work that runs: its note and when it was written",
+              obj(hvac["checkin"])["note"] as? String == "It read the photos of the A unit heads and found two blocked nozzles. Next it reads the B unit photos."
+              && int(obj(hvac["checkin"])["at"]) == now - 420)
+        check("no check-in for a run that has none (a note of a run that ended stays on the Mac), nor for other groups",
+              isNull(design["checkin"]) && isNull(press["checkin"]) && rows.filter { $0["group"] as? String != "working" }.allSatisfy { isNull($0["checkin"]) })
         check("in a turn: turn_at and the time are when the turn started; no background",
               int(obj(design["session"])["turn_at"]) == now - 360 && int(design["time_at"]) == now - 360 && isNull(design["background"])
               && isNull(obj(hvac["session"])["turn_at"]))
@@ -831,6 +836,16 @@ enum Sample {
         try? ("2026-11-15 10:02:48 change cse_01PhoneOrderLogin high->xhigh (2.2s) xhigh - LOGMARK | PROMPTMARK fix the login\n"
               + "2026-11-15 10:03:00 wait   e5f6a7 checked: NO, OUTPUTMARK\n").write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
         try? #"{"cse_01PhoneOrderLogin": [{"note": "NOTEMARK REPLYMARK"}]}"#.write(to: kit.appendingPathComponent("working-notes.json"), atomically: true, encoding: .utf8)
+        // the progress check-ins (checkin.py): HVAC's run has a note; Kit design's note is of a run that ended before
+        // this one started, so it stays on the Mac, as do the places each record was read to
+        let checkins: [String: Any] = ["sessions": [
+            "cse_01PhoneHvac": ["start": now - 1500, "seen": now - 30, "sent": now - 420, "n": 1, "note_at": now - 420,
+                                "note": "It read the photos of the A unit heads and found two blocked nozzles. Next it reads the B unit photos.",
+                                "subject": "Photos of the B unit heads, working 18 min",
+                                "files": [projects.appendingPathComponent("TRANSCRIPTMARK.jsonl").path: [1200, 5]]],
+            "cse_01PhoneKitDesign": ["start": now - 360, "seen": now - 30, "sent": now - 2000, "note_at": now - 2000, "note": "NOTEMARK an old run"],
+        ], "errors": [String: Any]()]
+        try! JSONSerialization.data(withJSONObject: checkins).write(to: kit.appendingPathComponent("checkins.json"))
         let queue = kit.appendingPathComponent("notify-queue")
         try? FileManager.default.createDirectory(at: queue, withIntermediateDirectories: true)
         try? #"{"subject": "REPLYMARK", "body": "NOTEMARK", "phone": "REACHMARK", "ways": ["text"]}"#.write(to: queue.appendingPathComponent("x.json.hold"), atomically: true, encoding: .utf8)

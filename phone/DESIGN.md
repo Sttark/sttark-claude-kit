@@ -101,6 +101,7 @@ The contract is in this folder and is the source of truth for every message: `as
 | `rows[].url` | The claude.ai link that Open in Claude uses | `Inbox.Row.url` |
 | `rows[].session` (`level`, `manual`, `reason`, `needs_you`, `why`, `waiting_since`, `turn_at`) | Effort and why it needs you | `State.sessions()` (`sessions[cse]`, `.app`, `app_list`) |
 | `rows[].background` (`agents`, `bash`, `what`, `since`) | What still runs after the turn | `Inbox.background()` |
+| `rows[].checkin` (`note`, `at`) | Optional. The last progress check-in of the work that runs (Claude working only): the Kit's 2 or 3 sentences, cut to 400 characters, and when it wrote them. Null when there is none, and when the work ends; a Kit from before it sends none | `Checkins.latest()` (`checkins.json`, which `checkin.py` writes) |
 | `rows[].waits[]` (`id`, `kind`, `what`, `from`, `why`, `by`, `checks`, `failing`, `failing_since`) | Each wait, its deadline and how the Kit checks it | `Waits.list()` (`state.waits`), `Inbox.checks()` |
 | `rows[].hold` (`hold`, `at`, `percent`, `limit`, `since`, `until`, `agents`) | Held at the limit, or at its own percentage | `Limit.waiting` (`limit_pauses` with a live process) |
 | `rows[].limit_mode` (`mode`, `at`) | At the usage limit setting | `Limit.mode(target)` (`limit_modes`) |
@@ -108,7 +109,7 @@ The contract is in this folder and is the source of truth for every message: `as
 
 **Never leaves the Mac.** Prompts, replies, transcript lines, file contents, and the log. File and folder paths: transcripts, working folders, the server's folder. An archived session's folder goes up as its own name only (for example `src`), never the path. A wait's target (Gmail thread id, pull request), its check script and its output. A check-prompt's question: the phone shows "A yes/no check" unless the session gave `--what`. An email wait's sender address: `from` gets its domain only (sessions give `--from` as a full address). The Reach me by address, phone number and Chat webhook. Tokens and the Keychain. Idle and On this Mac only sessions.
 
-Some labels are short lines the Kit or Claude wrote about the work. They are not prompt or reply text, and the window already shows them: the effort reason, why a session needs you, an agent's task, a wait's what and why.
+Some labels are short lines the Kit or Claude wrote about the work. They are not prompt or reply text, and the window already shows them: the effort reason, why a session needs you, an agent's task, a wait's what and why, and a progress check-in (a Haiku summary of the work's steps, told to name no file path or id).
 
 **What the server keeps.** Only the last snapshot of each Mac, replaced each time, and deleted when the Mac is removed. No history of snapshots.
 

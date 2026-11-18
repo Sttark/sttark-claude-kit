@@ -170,8 +170,21 @@ import Foundation
         let wn = Events.kitLine(f.string(from: Date()) + " watch  f46255ef contacted utility.example (a web form) with no reply wait: noted for the next prompt", names)
         check(wn?.name == "Press color" && wn?.kind == .check && wn?.text == "Contacted someone and set no wait for the answer",
               "the reply wait check names the session")
-        // The progress check-ins (checkin.py): one row a check-in under its session, with the note in the detail; a way
-        // that failed, no way to send, a hold, a test run and the end of the work.
+        // The progress check-ins (checkin.py): one row a check-in under its session, with the note in the detail; a
+        // summary that failed, a test run, a hold and the end of the work.
+        let ck = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" shown in the Kit | Build the color page, working 45 min | It finished the page and opened pull request 12. Next it checks the links.", names)
+        check(ck?.name == "Press color" && ck?.session == "cse_01AAAtest1" && ck?.kind == .wait && ck?.level == .info && ck?.routine == false
+              && ck?.text == "Progress check-in: Build the color page, working 45 min"
+              && ck?.detail == ["\u{201C}It finished the page and opened pull request 12. Next it checks the links.\u{201D}"],
+              "a check-in kept in the Kit: its subject, the note in the detail")
+        let cks = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" shown in the Kit; no summary (exit 1: overloaded) | Working 20 min | It made 12 steps since the last note.", names)
+        check(cks?.level == .info && cks?.text == "Progress check-in: Working 20 min"
+              && cks?.detail.contains { $0.hasPrefix("Haiku gave no summary (exit 1: overloaded)") } == true, "a summary that failed shows in the row")
+        let ckd = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" written (dry) | Working 20 min | It made 3 steps.", names)
+        let cke = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" work ended after 1 hr 31 min; 6 check-ins", names)
+        check(ckd?.routine == true && ckd?.text == "Progress check-in written, not kept (test run): Working 20 min"
+              && cke?.routine == true && cke?.text == "Long work ended after 1 hr 31 min; 6 check-ins", "a test run and the end of the work are routine rows")
+        // lines from before check-ins stayed in the Kit app (they went the Reach me by ways) still read
         let cs = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" sent by Email, Google Chat | Build the color page, working 45 min | It finished the page and opened pull request 12. Next it checks the links.", names)
         check(cs?.name == "Press color" && cs?.session == "cse_01AAAtest1" && cs?.kind == .wait && cs?.level == .info && cs?.routine == false
               && cs?.text == "Progress check-in sent by Email, Google Chat: Build the color page, working 45 min"
