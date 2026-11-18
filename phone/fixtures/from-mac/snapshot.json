@@ -20,6 +20,7 @@
   ],
   "rows": [
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneOrderLogin",
@@ -50,6 +51,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneNozzle",
@@ -80,6 +82,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneBinLabels",
@@ -110,6 +113,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhonePressColor",
@@ -140,6 +144,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": {
         "agents": 2,
         "bash": 0,
@@ -178,6 +183,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneKitDesign",
@@ -208,6 +214,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": {
         "agents": 0,
         "bash": 1,
@@ -243,6 +250,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhonePressCheck",
@@ -277,6 +285,7 @@
       ]
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneProof",
@@ -311,6 +320,7 @@
       ]
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneRetry",
@@ -364,6 +374,7 @@
       ]
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneLaminator",
@@ -409,6 +420,7 @@
       ]
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneParts",
@@ -443,6 +455,7 @@
       ]
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhonePrice",
@@ -477,6 +490,7 @@
       ]
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhonePowder",
@@ -511,6 +525,7 @@
       ]
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneInventory",
@@ -549,6 +564,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneSiteMap",
@@ -587,6 +603,7 @@
       "waits": []
     },
     {
+      "alerts": true,
       "background": null,
       "checkin": null,
       "cse": "cse_01PhoneUsageReport",

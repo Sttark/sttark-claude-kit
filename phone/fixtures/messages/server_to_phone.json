@@ -676,6 +676,27 @@
     }
   },
   {
+    "event": "record",
+    "success": true,
+    "payload": {
+      "at": 1794587520,
+      "mac": "mac_7Hq2Lx9Kp4",
+      "mac_name": "MacBook Pro",
+      "cse": "session_01SamplePowderWatch",
+      "session_title": "Powder watch",
+      "act": "set_alerts",
+      "by_name": "Sample Person",
+      "reason": "ok",
+      "words": "Turned alerts off from the phone.",
+      "before": {
+        "alerts": true
+      },
+      "after": {
+        "alerts": false
+      }
+    }
+  },
+  {
     "event": "error",
     "success": false,
     "payload": {

@@ -450,6 +450,8 @@ function describe(act: string, args: any): string {
       return args.on ? 'Turned Auto on from the phone.' : 'Turned Auto off from the phone.';
     case 'set_limit':
       return `Set At the usage limit to ${args.mode === 'follow' ? 'Same as Settings' : args.mode === 'credits' ? 'Always use credits' : `Never use credits; hold at ${args.at}%`} from the phone.`;
+    case 'set_alerts':
+      return args.alerts ? 'Turned alerts on from the phone.' : 'Turned alerts off from the phone.';
     case 'stop_waits':
       return args.waits.length === 1 ? 'Stopped waiting from the phone.' : `Stopped ${args.waits.length} waits from the phone.`;
     case 'bring_back':

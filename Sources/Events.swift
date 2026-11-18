@@ -581,6 +581,15 @@ enum Events {
                 e.text = "A progress check-in failed"
                 e.detail.append(String(after.prefix(300)))
             }
+        case "notify" where rest.hasPrefix("alerts on for ") || rest.hasPrefix("alerts off for "):
+            // "alerts off for cse_… "Order page" (window)": the person turned a session's alerts off or on (Alerts.set)
+            let on = rest.hasPrefix("alerts on")
+            if let id = words.dropFirst(3).first { who(id) }
+            named(rest)
+            e.kind = .wait
+            e.text = on ? "Alerts turned on" : "Alerts turned off"
+            e.detail.append((rest.hasSuffix("(phone)") ? "From your phone. " : "From the Kit window. ")
+                            + (on ? "It reaches you the ways set in Reach me by." : "Nothing about it goes out; its messages are kept on the session."))
         case "notify":
             e.kind = .wait
             // kept in the Kit app (notify.py keep_in_kit()): "<name> kept <id>: <why> | <subject>"
@@ -636,11 +645,15 @@ enum Events {
                 e.text = "Notice not shown, alerts are off: " + (r.map { String(x[..<$0.lowerBound]) } ?? String(x))
                 if let r { e.detail = [String(x[r.upperBound...])] }
             } else if rest.hasPrefix("waiting notice skipped: ") {
-                // "waiting notice skipped: Order page login: it sent a Reach me by message in the last 30 min"
+                // "waiting notice skipped: Order page login: it sent a Reach me by message in the last 30 min", or
+                // "…: its alerts are off"
                 let body = rest.dropFirst(24)
-                let q = body.range(of: ": it sent").map { String(body[..<$0.lowerBound]) } ?? String(body)
+                let off = body.hasSuffix(": its alerts are off")
+                let q = (body.range(of: ": it sent") ?? body.range(of: ": its alerts are off")).map { String(body[..<$0.lowerBound]) } ?? String(body)
                 e.name = q; e.session = names.cseByName[q]
-                e.kind = .wait; e.text = "No reminder: it sent you a Reach me by message in the last 30 minutes"
+                e.kind = .wait
+                e.text = off ? "No reminder: its alerts are off" : "No reminder: it sent you a Reach me by message in the last 30 minutes"
+                if off { e.detail = ["It has waited on you for 10 minutes. It shows under Needs you on the Sessions page."] }
             } else if rest.hasPrefix("window:") || tag == "window" || rest.hasPrefix("what's new") {
                 e.routine = true
                 e.text = tag == "window" ? rest.replacingOccurrences(of: "Claude window: ", with: "Claude window in Chrome ") : rest.prefix(1).uppercased() + rest.dropFirst()
@@ -691,7 +704,8 @@ enum Events {
                 if head.count > 1, head[1] != "-" { who(head[1]) }
                 e.text = "From the phone: " + (said.isEmpty ? "the Kit did not run it" : said)
                 let asked = ["bring_back": "Bring it back now", "stop_waits": "Stop waiting", "set_level": "an effort level",
-                             "set_auto": "Auto effort", "set_limit": "At the usage limit", "unarchive": "Bring it back, from Archived"][String(head.first ?? "")]
+                             "set_auto": "Auto effort", "set_limit": "At the usage limit", "set_alerts": "Alerts",
+                             "unarchive": "Bring it back, from Archived"][String(head.first ?? "")]
                 e.detail = ["Asked by \(asker)" + (asked.map { ", with \($0)" } ?? "") + "."]
                 if reason == "bad" { e.level = .warn }
             } else if rest.hasPrefix("linked to ") {

@@ -55,6 +55,11 @@ describe('Sessions', () => {
     expect(h).toContain('href="/s/session_01SampleOrderLogin"');
     expect(h).toContain('href="https://claude.ai/code/session_01SampleOrderLogin" target="_blank" rel="noopener" aria-label="Open in Claude"');
   });
+  it('marks a row whose alerts are off with a bell with a line through it and its words, and no other row', () => {
+    const h = html({ page: 'sessions' });
+    expect(h.match(/class="alerts-off"/g)?.length).toBe(1);
+    expect(h).toMatch(/>Powder watch<\/span><span class="alerts-off"><svg[^>]*>.*?<\/svg><span class="vh">Alerts off<\/span><\/span>/);
+  });
   it('names the Mac on a row only with more than one Mac', () => {
     expect(html({ page: 'sessions' })).toContain('<span class="mac">MacBook Pro</span>');
     expect(html({ page: 'sessions' }, one())).not.toContain('<span class="mac">');
@@ -141,6 +146,29 @@ describe('One session', () => {
   it('lists its changes from the phone, with the time', () => {
     const k = kit({ records: [{ at: AT, mac: PRO, cse: 'session_01SampleLaminator', act: 'set_level', reason: 'ok', words: 'Set effort to High from the phone.' }] });
     expect(html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' }, k)).toMatch(/Set effort to High from the phone, \d+:\d\d [AP]M/);
+  });
+  it('has the Alerts switch: on with the Reach me by ways, off with where its messages go', () => {
+    // Reach me by's Alerts on, on the Mac
+    const k = kit();
+    delete k.snaps[PRO].flags.alerts_off;
+    const on = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' }, k);
+    expect(on).toMatch(/role="switch" aria-checked="true" aria-labelledby="al-h" data-act="alerts"[^>]*>On </);
+    expect(on).toContain('On: it reaches you by Google Chat and Claude app, as set in Reach me by on your Mac.');
+    const off = html({ page: 'session', cse: 'session_01SamplePowderWatch', from: 'sessions' }, k);
+    expect(off).toMatch(/role="switch" aria-checked="false" aria-labelledby="al-h" data-act="alerts"[^>]*>Off </);
+    expect(off).toContain('Its messages stay here and in the Kit on your Mac.');
+    expect(off).toContain('Then its message stays in the Kit on this session, since its alerts are off.');
+    const sending = html({ page: 'session', cse: 'session_01SamplePowderWatch', from: 'sessions' }, k, { ...emptyUi(), sending: 'alerts' });
+    expect(sending).toMatch(/data-act="alerts"[^>]*>Sending\.\.\. </);
+    // Reach me by's Alerts off on the Mac (the fixture): a session's own switch still shows, and says nothing goes out now
+    expect(html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' })).toContain(
+      'On, but alerts are off for every session in Reach me by on your Mac, so its messages stay in the Kit.',
+    );
+  });
+  it('shows a session of a Mac that is away with its alerts as words, and a Kit from before the switch as on', () => {
+    const h = html({ page: 'session', cse: 'session_01SampleNozzleCheck', from: `mac:${MINI}` });
+    expect(h).not.toContain('data-act="alerts"');
+    expect(h).toMatch(/id="al-h">Alerts<\/h2><div class="card readout"><span>On</);
   });
 });
 

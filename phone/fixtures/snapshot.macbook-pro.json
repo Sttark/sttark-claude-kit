@@ -73,7 +73,8 @@
           "text": "The plan for the order page login is ready: 4 steps, about 2 hours of work.\nIt changes the sign-in form and adds a reset link.\n\nOpen the session to approve it or to ask for changes.",
           "why": "alerts are off"
         }
-      ]
+      ],
+      "alerts": true
     },
     {
       "id": "session_01SamplePressColor",
@@ -106,7 +107,8 @@
       "limit_mode": {
         "mode": "follow",
         "at": null
-      }
+      },
+      "alerts": true
     },
     {
       "id": "session_01SampleHvacUpdates",
@@ -140,7 +142,8 @@
       "limit_mode": {
         "mode": "follow",
         "at": null
-      }
+      },
+      "alerts": true
     },
     {
       "id": "session_01SampleKitDesign",
@@ -169,7 +172,8 @@
       "limit_mode": {
         "mode": "follow",
         "at": null
-      }
+      },
+      "alerts": true
     },
     {
       "id": "session_01SampleUsageRetry",
@@ -210,7 +214,8 @@
       "limit_mode": {
         "mode": "follow",
         "at": null
-      }
+      },
+      "alerts": true
     },
     {
       "id": "session_01SampleLaminator",
@@ -262,7 +267,8 @@
       "limit_mode": {
         "mode": "follow",
         "at": null
-      }
+      },
+      "alerts": true
     },
     {
       "id": "session_01SamplePowderWatch",
@@ -303,7 +309,8 @@
       "limit_mode": {
         "mode": "follow",
         "at": null
-      }
+      },
+      "alerts": false
     },
     {
       "id": "session_01SampleSiteMap",
@@ -340,7 +347,8 @@
       "limit_mode": {
         "mode": "hold",
         "at": 80
-      }
+      },
+      "alerts": true
     },
     {
       "id": "session_01SampleInventoryPhotos",
@@ -377,7 +385,8 @@
       "limit_mode": {
         "mode": "hold",
         "at": 60
-      }
+      },
+      "alerts": true
     },
     {
       "id": "session_01SampleFreightQuotes",
@@ -420,7 +429,8 @@
           "text": "The supplier sent the crate size: 2.4 x 1.6 x 1.9 m, 1,850 kg. I asked three forwarders for quotes. I will tell you when they answer.",
           "why": "alerts are off"
         }
-      ]
+      ],
+      "alerts": true
     },
     {
       "id": "session_01SampleDoorLog",
@@ -457,7 +467,8 @@
           "text": "The door log for October is ready: 1,214 entries, one tab per door. Open the session to get the spreadsheet.",
           "why": "alerts are off"
         }
-      ]
+      ],
+      "alerts": true
     }
   ],
   "archived_rev": "a1b2c3d4e5f60718",

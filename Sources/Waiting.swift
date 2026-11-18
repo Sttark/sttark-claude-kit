@@ -4,7 +4,8 @@ import UserNotifications
 /// "Waiting on you": sessions where Claude finished a reply you haven't read, on any device. Checked every
 /// minute; a reminder comes once per reply after it has waited 10 minutes: this Mac's notice when you are at the Mac,
 /// else a push to your phone when one can get it (PhoneLink.reminderPlace), never both. A session that sent you a Reach
-/// me by message in the last 30 minutes gets none (phone/DESIGN.md section 5).
+/// me by message in the last 30 minutes gets none (phone/DESIGN.md section 5), nor does one whose alerts you turned off
+/// (Alerts).
 enum Waiting {
     static let after: TimeInterval = 10 * 60
     /// No reminder for a session that sent a Reach me by message this recently.
@@ -57,18 +58,25 @@ enum Waiting {
         if !quiet.isEmpty {
             note("waiting notice skipped: \(quiet.map(\.title).joined(separator: ", ")): it sent a Reach me by message in the last 30 min")
         }
-        let remind = due.filter { s in !quiet.contains { $0.id == s.id } }
+        // a session whose alerts the person turned off gets no reminder anywhere, and no other notice names it
+        let off = Alerts.off()
+        let muted = due.filter { s in off.contains(s.id) && !quiet.contains { $0.id == s.id } }
+        if !muted.isEmpty {
+            note("waiting notice skipped: \(muted.map(\.title).joined(separator: ", ")): its alerts are off")
+        }
+        let remind = due.filter { s in !quiet.contains { $0.id == s.id } && !off.contains(s.id) }
         guard !remind.isEmpty else { return }
+        let shown = all.filter { !off.contains($0.id) }
         switch PhoneLink.reminderPlace() {
         case .phone:
             logLine("phone", "reminder to your phone: \(remind.map(\.title).joined(separator: ", "))")
             PhoneLink.remind(remind) { failed in
                 guard !failed.isEmpty else { return }
                 logLine("phone", "reminder did not go to your phone, a Mac notice instead: \(failed.map(\.title).joined(separator: ", "))")
-                showNotice(failed, all)
+                showNotice(failed, shown)
             }
         case .mac:
-            showNotice(remind, all)
+            showNotice(remind, shown)
         }
     }
 

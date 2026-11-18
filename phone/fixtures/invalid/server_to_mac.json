@@ -82,5 +82,43 @@
         "period": "24h"
       }
     }
+  },
+  {
+    "why": "set_alerts with on in place of alerts",
+    "value": {
+      "event": "action",
+      "success": true,
+      "payload": {
+        "id": "act-1",
+        "act": "set_alerts",
+        "args": {
+          "cse": "session_01SamplePowderWatch",
+          "on": false
+        },
+        "by": {
+          "email": "person@sttark.com",
+          "name": "Sample Person"
+        }
+      }
+    }
+  },
+  {
+    "why": "set_alerts with alerts as text",
+    "value": {
+      "event": "action",
+      "success": true,
+      "payload": {
+        "id": "act-1",
+        "act": "set_alerts",
+        "args": {
+          "cse": "session_01SamplePowderWatch",
+          "alerts": "off"
+        },
+        "by": {
+          "email": "person@sttark.com",
+          "name": "Sample Person"
+        }
+      }
+    }
   }
 ]

@@ -13,8 +13,8 @@ What it serves (under `BASE_PATH`, Environment below):
 
 | Path | What |
 |---|---|
-| `/` | **Sessions**, the first of three tabs: the four groups (Needs you first; a working row shows its last progress check-in under it), Idle with a message, Macs away, the usage strip. `?q=` searches the names; `?find=1` shows the search field |
-| `/s/<cse>` | **One session**: what it does (with its last progress check-in while it works), Open in Claude, the messages the Kit kept for it while alerts are off, its waits (Stop, Bring it back now, Stop waiting), effort and Auto, At the usage limit, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
+| `/` | **Sessions**, the first of three tabs: the four groups (Needs you first; a working row shows its last progress check-in under it; a bell with a line through it after the name of a session whose alerts are off), Idle with a message, Macs away, the usage strip. `?q=` searches the names; `?find=1` shows the search field |
+| `/s/<cse>` | **One session**: what it does (with its last progress check-in while it works), Open in Claude, the messages the Kit kept for it while alerts are off, its waits (Stop, Bring it back now, Stop waiting), effort and Auto, At the usage limit, its Alerts switch, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
 | `/archived` | **Archived**, grouped by day; `?q=` searches names and folders, and also finds the sessions under Waiting on someone else, in their own group (a row opens it under Sessions) |
 | `/archived/<cse>` | One archived session, with **Bring it back** |
 | `/usage` | **Usage**: the 5-hour and weekly limits, the sessions held at them, the Use credits setting, and **By session** (The pages, below): `?p=today`, `7d` (the default), `30d` or `custom` with `from` and `to` (days, `2026-11-02`); `?all=1` shows every row |
@@ -245,7 +245,7 @@ allow.
   the person's pages that show its period. A Mac that connects while a page
   shows Usage is asked at once. Sign out closes that sign-in's pages,
   Sign out everywhere every page of the person.
-- **Actions**: only the six of the contract. The server checks that the
+- **Actions**: only the seven of the contract. The server checks that the
   Mac is the person's (else `denied`) and connected and live (else
   `offline` at once; nothing is kept for later), sends it with who asked,
   and waits 20 seconds for `result` (else `timeout`). Each outcome is one
@@ -427,7 +427,7 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   off-roster Mac), a refused unknown field, snapshots to their person only,
   bye and unlink, the page's cookie and Origin, watching, an action and its
   record, one person acting on another's Mac (denied), offline, timeout and
-  a late answer, the six actions only, archived want and delta with a
+  a late answer, the seven actions only, archived want and delta with a
   missing base, Usage by session lists (asked once for a period in the gap,
   kept, sent only to the pages on that period, a Mac that is away gives its
   last one, a Mac that connects is asked, only the newest range of days

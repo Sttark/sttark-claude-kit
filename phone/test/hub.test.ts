@@ -240,6 +240,26 @@ describe('actions', () => {
     }]);
   });
 
+  it('turns a session’s alerts off on its Mac, with its record in words', async () => {
+    const k = linkedMac(ADA);
+    const c = await mac(k);
+    c.send(snap());
+    const p = await phoneOf(ADA);
+    await p.next('snapshot');
+    p.send(action('act-8', k.mac, 'set_alerts', { cse: 'session_01SamplePressColor', alerts: false }));
+    const sent = await c.next('action');
+    expect(sent.payload).toMatchObject({ act: 'set_alerts', args: { cse: 'session_01SamplePressColor', alerts: false }, by: { email: ADA } });
+    c.send({ event: 'result', success: true, payload: { id: sent.payload.id, reason: 'ok', words: 'Alerts are off. Nothing about this session goes out. Its messages stay in the Kit app.', before: { alerts: true }, after: { alerts: false } } });
+    expect((await p.next('action_result')).payload).toMatchObject({ id: 'act-8', reason: 'ok' });
+    expect((await p.next('record')).payload).toMatchObject({ act: 'set_alerts', session_title: 'Press color', words: 'Turned alerts off from the phone.', before: { alerts: true }, after: { alerts: false } });
+    expect(records()[0]).toMatchObject({ action: 'set_alerts', before: '{"alerts":true}', after: '{"alerts":false}', result: 'ok' });
+    // set_auto's args on set_alerts: the server refuses it, and the Mac never hears of it
+    p.send(action('act-9', k.mac, 'set_alerts', { cse: 'session_01SamplePressColor', on: true }));
+    expect((await p.next('error')).payload.code).toBe('bad_message');
+    await sleep(50);
+    expect(c.inbox.filter((m: any) => m.event === 'action')).toEqual([]);
+  });
+
   it("one person acting on another's Mac is denied, and that Mac never hears of it", async () => {
     const kb = linkedMac(BIX);
     const cb = await mac(kb);

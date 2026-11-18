@@ -52,5 +52,19 @@
       },
       "basis": 1794587400
     }
+  },
+  {
+    "event": "action",
+    "success": true,
+    "payload": {
+      "id": "act-0007",
+      "mac": "mac_7Hq2Lx9Kp4",
+      "act": "set_alerts",
+      "args": {
+        "cse": "session_01SamplePowderWatch",
+        "alerts": false
+      },
+      "basis": 1794587400
+    }
   }
 ]

@@ -141,6 +141,7 @@ enum Phone {
             "url": link(r.url, cse: cse),
             "session": NSNull(), "background": NSNull(), "hold": NSNull(),
             "waits": r.waits.compactMap { wait($0, raw[$0.id]) }.prefix(20).map { $0 },
+            "alerts": Alerts.on(cse, in: state),
         ]
         if let s = r.session {
             x["session"] = [

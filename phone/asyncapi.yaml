@@ -158,7 +158,7 @@ components:
       payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.want_usage' }
     server_to_mac.action:
       name: action
-      summary: One of six actions, with who asked. The Mac checks its own state when it runs it and answers with result.
+      summary: One of seven actions, with who asked. The Mac checks its own state when it runs it and answers with result.
       payload: { $ref: './schema/messages.v1.json#/$defs/server_to_mac.action' }
     server_to_mac.error:
       name: error
