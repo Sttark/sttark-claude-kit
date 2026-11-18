@@ -342,6 +342,51 @@ enum Events {
             case "handover": e.text = "The server runs it again, so the Kit closed its own copy"
             default: e.text = "Taken over in another place, so the Kit closed its own copy"; e.level = .warn
             }
+        case "work":   // what runs in a session's copy when the Kit would end it (effort-hook.py running_work()): a
+            // bring-back that waits for it (defer, done), work the Kit ended (kill) and the session told (told).
+            // "work   kill cse_… "Name" handover: 1 agent (a1b2… "Build the page"); the session is told at its next prompt"
+            e.kind = .restart
+            if words.count > 1 { who(words[1]) }
+            named(rest)
+            var after = rest
+            if let q = quoted(rest), let r = rest.range(of: "\"\(q)\" ") { after = String(rest[r.upperBound...]) }
+            let action = String(after.prefix { $0 != " " && $0 != ":" })
+            var list = after.range(of: ": ").map { String(after[$0.upperBound...]) } ?? ""
+            list = list.components(separatedBy: "; ").first ?? list
+            // the agents' and commands' own ids mean nothing to a person: their descriptions stay
+            let plain = list.replacingOccurrences(of: #"\b[A-Za-z0-9]{8,} (?=")"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #""([^"]*)""#, with: "\u{201C}$1\u{201D}", options: .regularExpression)
+            switch String(first) {
+            case "defer":
+                e.text = "Comes back when its work ends"
+                e.detail = ["Still at work: \(plain).",
+                            "Bringing it back would end them, so the Kit tries again each minute. It brings it back when they end, at most 2 hours later."]
+            case "kill":
+                e.level = .warn
+                switch action {
+                case "handover": e.text = "Work stopped: the server took it over"
+                    e.detail = ["The server started its own copy of the session, so the Kit ended the copy it ran, and the work in it."]
+                case "standdown": e.text = "Work stopped: taken over in another place"
+                    e.detail = ["The Kit's copy stood down, so the Kit ended it, and the work in it."]
+                case "archived": e.text = "Work stopped: archived"
+                    e.detail = ["The Kit ended its copy, and the work in it."]
+                case "halt": e.text = "Work stopped: the Mac shut down"
+                    e.detail = ["The Kit ended its copy before the Mac shut down, so the session was not archived."]
+                default: e.text = "Work stopped: brought back after 2 hours"
+                    e.detail = ["The Kit waited 2 hours for the work to end, then brought the session back for what it waited on."]
+                }
+                e.detail.insert("Stopped: \(plain).", at: 0)
+                e.detail.append(rest.contains("told in the Kit's message") ? "The Kit's message tells the session what stopped, with each one's id, so it can go on."
+                                : "The session gets a list of what stopped, with each one's id, at its next prompt, so it can go on.")
+            case "told":
+                e.text = "Told the session what work stopped"
+                e.detail = [after.contains("in the Kit's message") ? "In the message the Kit brought it back with." : "With its next prompt."]
+            case "done":
+                e.routine = true
+                e.text = "Its agents and background commands ended, so the Kit brings it back"
+            default:
+                e.text = "Work: " + rest.prefix(160)
+            }
         case "trust":   // effort-hook.py trust_folder(): a session's folder trusted in Claude Code before the Kit starts it there
             e.kind = .restart
             if let r = rest.range(of: " could not be marked trusted") {

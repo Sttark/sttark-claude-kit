@@ -269,6 +269,31 @@ import Foundation
         let wk = Events.kitLine(f.string(from: Date()) + " wait   07f324 cse_01AAAtes \"Press color\" sent no message after coming back; the Kit kept one in the Kit app (alerts are off)", names)
         check(wk?.text == "It sent no message after coming back; the Kit kept one here", "the Kit's own message after a wait, kept")
 
+        // Work the Kit waits for, or ends, when it would end a session's copy (effort-hook.py running_work(), wait.py)
+        let now = f.string(from: Date())
+        let kd = Events.kitLine(now + " work   defer cse_01AAAtest1 \"Press color\" bring-back waits: 1 agent (a1b2c3d4e5f6a7b8c \"Build the color page\"), 1 background command (b0c7bgbd8 \"Run the tests\"); it tries again each minute, at most 2 hours", names)
+        check(kd?.name == "Press color" && kd?.session == "cse_01AAAtest1" && kd?.kind == .restart && kd?.level == .info
+              && kd?.text == "Comes back when its work ends"
+              && kd?.detail.first == "Still at work: 1 agent (\u{201C}Build the color page\u{201D}), 1 background command (\u{201C}Run the tests\u{201D}).",
+              "a bring-back that waits for the session's work: its session, and what still runs, with no ids")
+        let kk = Events.kitLine(now + " work   kill cse_01AAAtest1 \"Press color\" handover: 1 agent (a1b2c3d4e5f6a7b8c \"Build the color page\"), 1 Monitor (b9x15v33r \"CI checks on the pull request\"); the session is told at its next prompt", names)
+        check(kk?.name == "Press color" && kk?.kind == .restart && kk?.level == .warn && kk?.text == "Work stopped: the server took it over"
+              && kk?.detail.first == "Stopped: 1 agent (\u{201C}Build the color page\u{201D}), 1 Monitor (\u{201C}CI checks on the pull request\u{201D})."
+              && kk?.detail.last?.contains("at its next prompt") == true,
+              "work the Kit ended at a handover is a warning, with what stopped and when the session hears of it")
+        let kh = Events.kitLine(now + " work   kill cse_01AAAtest1 \"Press color\" halt: 2 agents (a1 \"x\"); the session is told at its next prompt", names)
+        let kb = Events.kitLine(now + " work   kill cse_01AAAtest1 \"Press color\" bring-back: 1 agent (a1b2c3d4e5f6a7b8c \"Build the color page\"); the session is told in the Kit's message", names)
+        let ka = Events.kitLine(now + " work   kill cse_01AAAtest1 \"Press color\" archived: 1 agent (a1b2c3d4e5f6a7b8c \"Build the color page\"); the session is told at its next prompt", names)
+        check(kh?.text == "Work stopped: the Mac shut down" && kb?.text == "Work stopped: brought back after 2 hours"
+              && kb?.detail.last?.contains("The Kit's message") == true && ka?.text == "Work stopped: archived",
+              "each reason the Kit ends work reads in plain words")
+        let kt = Events.kitLine(now + " work   told cse_01AAAtest1 \"Press color\" what stopped at 10:41 AM (handover: 2 item(s)), with its next prompt", names)
+        check(kt?.name == "Press color" && kt?.text == "Told the session what work stopped" && kt?.level == .info, "the session told is a row of its own")
+        let kn = Events.kitLine(now + " work   done cse_01AAAtest1 \"Press color\" bring-back waited 12 min; its work ended", names)
+        check(kn?.routine == true, "the end of a wait for the work is a routine row")
+        check(![kd, kk, kh, kb, ka, kt, kn].contains { ($0?.text ?? "").contains("cse_") || ($0?.detail ?? []).joined().contains("a1b2c3d4e5f6a7b8c") },
+              "no session, agent or command id in the rows")
+
         print(failed == 0 ? "all passed" : "\(failed) failed")
         exit(failed == 0 ? 0 : 1)
     }

@@ -572,17 +572,66 @@ def open_tasks():
     return found
 
 
+ENDS_TAIL = 4 * 1024 * 1024  # bytes read back from the end of a record for the work that ended or started in it
+TASK_END = re.compile(rb'<task-id>(\w+)</task-id>(?:(?!<task-id>).){0,800}?<status>(\w+)</status>')
+TASK_STOP = re.compile(rb'"name":"TaskStop","input":\{"(?:task_id|shell_id)":"(\w+)"')
+STAMP = re.compile(rb'"timestamp":"([^"]+)"')
+
+
+def tail_bytes(path, size):
+    """The last `size` bytes of a file, from the start of a line; b'' when it can't be read."""
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, 2)
+            end = f.tell()
+            f.seek(max(0, end - size))
+            data = f.read()
+    except OSError:
+        return b''
+    return data if end <= size else data[data.find(b'\n') + 1:]
+
+
+def ended_tasks(path, tail=ENDS_TAIL, data=None):
+    """The background work a record tells has ended, {agent or task id: when}, from the end of the record (or `data`,
+    that end already read). Claude Code tells a session (or the agent that started it) that an agent, a background
+    command or a Monitor ended with a <task-notification> that has a <status> (completed, failed, killed), and TaskStop
+    stops one. An agent that ends its own work is also marked `finished` in its meta.json; one that was stopped, or
+    failed, is not."""
+    out = {}
+    for raw in (data if data is not None else tail_bytes(path, tail)).split(b'\n'):
+        if b'<status>' not in raw and b'"TaskStop"' not in raw:
+            continue
+        ids = [m.group(1) for m in TASK_END.finditer(raw)] + [m.group(1) for m in TASK_STOP.finditer(raw)]
+        if not ids:
+            continue
+        m = STAMP.search(raw)
+        t = iso_time(m.group(1).decode()) if m else 0
+        for i in ids:
+            out[i.decode()] = max(out.get(i.decode(), 0), t)
+    return out
+
+
+def last_time(path, default=0):
+    """When a record's newest entry was written, from the entry itself: a new copy of a session can write an agent's
+    record again when it starts, which changes the file's time, not its entries'."""
+    found = STAMP.findall(tail_bytes(path, 65536))
+    return max((iso_time(t.decode()) for t in found), default=0) or default
+
+
 def running_agents(tp, running, now=None, foreground=False):
     """The agents of a session (any kind, forks too) still at work: Claude Code marks an agent `finished` in its
-    subagents/agent-<id>.meta.json when it stops, and a foreground agent is part of the turn itself (counted only with
-    `foreground`). One whose record has not changed for BG_QUIET is alive only while a background task of its own
+    subagents/agent-<id>.meta.json when it ends its work, and a foreground agent is part of the turn itself (counted
+    only with `foreground`). One that was stopped (TaskStop) or failed is never marked finished: the session's record
+    says it ended (ended_tasks()), and it is at work again only when its record changed after that (a SendMessage
+    continued it). One whose record has not changed for BG_QUIET is alive only while a background task of its own
     still runs (it waits on that); else it died with its session. `running`: this session's open tasks, from
-    open_tasks(), or a function that gives them, called only when an agent is quiet that long. [{'id', 'path' (its
-    record), 'what' (its description), 'start', 'changed'}], the oldest first. The window's Claude working group
-    (background()) and the progress check-ins (checkin.py) both count agents this way."""
+    open_tasks(), or a function that gives them, called only when an agent is quiet that long. [{'id', 'aid' (the
+    agent's own id, as SendMessage takes it), 'path' (its record), 'what' (its description), 'start', 'changed'}], the
+    oldest first. The window's Claude working group (background()), the progress check-ins (checkin.py) and the
+    check before the Kit ends a session's copy (running_work()) all count agents this way."""
     if not tp.endswith('.jsonl'):
         return []
-    now, out = now or time.time(), []
+    now, out, ended = now or time.time(), [], None
     sub = os.path.join(tp[:-len('.jsonl')], 'subagents')
     try:
         metas = [n for n in os.listdir(sub) if n.endswith('.meta.json')]
@@ -607,7 +656,12 @@ def running_agents(tp, running, now=None, foreground=False):
                 text = b''
             if not any(('"backgroundTaskId":"%s"' % t).encode() in text for t in running):
                 continue
-        out.append({'id': n[:-len('.meta.json')], 'path': path, 'what': m.get('description') or '',
+        aid = n[len('agent-'):-len('.meta.json')] if n.startswith('agent-') else n[:-len('.meta.json')]
+        if ended is None:
+            ended = ended_tasks(tp)
+        if aid in ended and ended[aid] + 5 >= last_time(path, st.st_mtime):
+            continue
+        out.append({'id': n[:-len('.meta.json')], 'aid': aid, 'path': path, 'what': m.get('description') or '',
                     'start': getattr(st, 'st_birthtime', st.st_mtime), 'changed': st.st_mtime,
                     'fg': m.get('requestShape') == 'foreground'})
     return sorted(out, key=lambda a: a['start'])
@@ -629,27 +683,318 @@ def background(tp, running):
         except OSError:
             text = b''
         for t in running:
-            i = text.find(('"backgroundTaskId":"%s"' % t).encode())
-            if i < 0:
+            s = task_start(text, t)
+            if s is None:
                 continue
             bash += 1
-            what, start = '', now
-            line = text[text.rfind(b'\n', 0, i) + 1:text.find(b'\n', i)]
-            try:
-                d = json.loads(line)
-                use = next(b.get('tool_use_id') for b in d['message']['content'] if b.get('type') == 'tool_result')
-                start = calendar.timegm(time.strptime(d.get('timestamp', '')[:19], '%Y-%m-%dT%H:%M:%S'))
-                j = text.rfind(('"id":"%s"' % use).encode(), 0, i)
-                if j >= 0:
-                    call = json.loads(text[text.rfind(b'\n', 0, j) + 1:text.find(b'\n', j)])
-                    what = next(b['input'].get('description') or '' for b in call['message']['content']
-                                if b.get('type') == 'tool_use' and b.get('id') == use)
-            except (ValueError, KeyError, TypeError, StopIteration):
-                pass
-            items.append((start, what or 'Background command'))
+            items.append((s['start'] or now, s['desc'] or 'Background command'))
     if not items:
         return None
     return {'agents': agents, 'bash': bash, 'what': max(items)[1], 'since': min(items)[0]}
+
+
+def task_start(text, t):
+    """Where a record (`text`, its bytes) started background task `t`, a Bash command sent to the background or a
+    Monitor: the tool result names the task. {'start', 'entry' (the copy of the session that wrote it), 'desc' (the
+    call's description), 'command', 'until' (when a Monitor stops by itself; 0 for a command)}, or None."""
+    i = -1
+    for key in ('"backgroundTaskId":"%s"' % t, '"taskId":"%s"' % t):
+        i = text.find(key.encode())
+        if i >= 0:
+            break
+    if i < 0:
+        return None
+    end = text.find(b'\n', i)
+    out = {'start': 0, 'entry': '', 'desc': '', 'command': '', 'until': 0}
+    try:
+        d = json.loads(text[text.rfind(b'\n', 0, i) + 1:end if end >= 0 else len(text)])
+        out['start'], out['entry'] = iso_time(d.get('timestamp')), d.get('entrypoint') or ''
+        r = d.get('toolUseResult') if isinstance(d.get('toolUseResult'), dict) else {}
+        if r.get('taskId') == t:  # a Monitor: it stops at its timeout, unless it was made to last
+            out['until'] = float('inf') if r.get('persistent') else out['start'] + (r.get('timeoutMs') or 300000) / 1000
+        use = next(b.get('tool_use_id') for b in d['message']['content'] if b.get('type') == 'tool_result')
+        j = text.rfind(('"id":"%s"' % use).encode(), 0, i)
+        if j >= 0:
+            call = json.loads(text[text.rfind(b'\n', 0, j) + 1:text.find(b'\n', j)])
+            inp = next(b['input'] for b in call['message']['content'] if b.get('type') == 'tool_use' and b.get('id') == use)
+            out['desc'] = inp.get('description') or ''
+            out['command'] = re.sub(r'\s+', ' ', inp.get('command') or '')[:160]
+    except (ValueError, KeyError, TypeError, AttributeError, StopIteration):
+        pass
+    return out
+
+
+# --- what ending a session's copy would end -------------------------------------------------------------------------
+
+MONITOR_START = re.compile(rb'Monitor started \(task (\w+)')
+COMMAND_START = re.compile(rb'"backgroundTaskId":"(\w+)"')
+CD = re.compile(r'^\s*cd\s+("[^"]+"|\'[^\']+\'|[^\s;&|]+)\s*(?:&&|;)')
+
+
+def hook(name):
+    """Another of the Kit's hook modules, from this folder."""
+    spec = importlib.util.spec_from_file_location(name.replace('-', '_'), os.path.join(HERE, name + '.py'))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def record_facts(path):
+    """What the end of a record says: {'time' (its newest entry), 'entry' (the copy of the session that wrote it: 'cli'
+    for a copy the Kit starts, 'sdk-cli' for the server's), 'cwd', 'folder' (where its last command ran, from the
+    `cd <folder>` it starts with), 'last' (its last step in a few words, as the progress check-ins write it), 'open'
+    (that step had no result yet)}."""
+    f = {'time': 0, 'entry': '', 'cwd': '', 'folder': '', 'last': '', 'open': False}
+    calls, answered = [], set()
+    for raw in tail_bytes(path, 1024 * 1024).split(b'\n'):
+        if not raw.strip() or b'"api-request' in raw[:200]:
+            continue
+        try:
+            x = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(x, dict):
+            continue
+        f['time'] = max(f['time'], iso_time(x.get('timestamp')))
+        f['entry'] = x.get('entrypoint') or f['entry']
+        f['cwd'] = x.get('cwd') or f['cwd']
+        content = (x.get('message') or {}).get('content') if isinstance(x.get('message'), dict) else None
+        for b in content if isinstance(content, list) else []:
+            if isinstance(b, dict) and b.get('type') == 'tool_use':
+                calls.append(b)
+            elif isinstance(b, dict) and b.get('type') == 'tool_result':
+                answered.add(b.get('tool_use_id'))
+    if calls:
+        b = calls[-1]
+        inp = b.get('input') if isinstance(b.get('input'), dict) else {}
+        try:
+            f['last'] = hook('checkin').step(str(b.get('name') or ''), inp)
+        except Exception:
+            f['last'] = str(b.get('name') or '')
+        f['open'] = b.get('id') not in answered
+        # an agent's commands each start in its own folder (an agent's shell does not keep a cd), so the folder its
+        # last command named is the one it worked in
+        bash = next((c for c in reversed(calls) if c.get('name') == 'Bash' and isinstance(c.get('input'), dict)), None)
+        m = CD.match(str(bash['input'].get('command') or '')) if bash else None
+        if m:
+            f['folder'] = os.path.expanduser(m.group(1).strip('"\''))
+    return f
+
+
+def running_work(tp, now=None, tasks=None, entry=None, since=0):
+    """What a session runs that would stop with its Claude Code: its agents still at work (running_agents(), as the
+    window's Claude working group and the progress check-ins count them; foreground ones too), the Bash commands sent
+    to the background that still run, and its Monitors that still watch. `tasks`: the session's background tasks that
+    run now (open_tasks(), read here when None; False: none can be read, so a command counts while no record says it
+    ended). Two copies of a session (the Kit's and the server's) write the same records: `entry` counts only what the
+    copies of one kind wrote last ('cli' for a copy the Kit starts, 'sdk-cli' for the server's; a set for more than one
+    kind), and `since`, the start of the copy, leaves out what an older copy left behind when it ended.
+    {'agents': [...], 'commands': [...], 'monitors': [...]}; each item has 'id' (as SendMessage or TaskStop takes it),
+    'what', 'start' and 'by' (the agent that started it, '' for the session), and an agent also 'path', 'cwd',
+    'folder' and 'last' (record_facts())."""
+    now = now or time.time()
+    out = {'agents': [], 'commands': [], 'monitors': []}
+    if not tp.endswith('.jsonl'):
+        return out
+    cid = os.path.basename(tp)[:-len('.jsonl')]
+    if tasks is None:
+        tasks = open_tasks().get(cid, set())
+    kinds = {entry} if isinstance(entry, str) else set(entry or ())
+
+    def fits(t, e):  # written by this copy, since it started
+        return (not kinds or not e or e in kinds) and (not since or not t or t >= since - 5)
+    agents = running_agents(tp, (lambda: tasks) if tasks is not False else set(), now, foreground=True)
+    for a in agents:
+        f = record_facts(a['path'])
+        if fits(f['time'], f['entry']):
+            out['agents'].append(dict(a, id=a['aid'], by='', cwd=f['cwd'], folder=f['folder'], last=f['last'], open=f['open']))
+    # the records read for background commands and Monitors: the session's own, and those of its agents at work
+    records = [('', tp)] + [(a['aid'], a['path']) for a in agents]
+    seen = set()
+    for by, p in records:
+        tail = tail_bytes(p, ENDS_TAIL)
+        if not tail:
+            continue
+        ended = ended_tasks(p, data=tail)
+        found = [(m.group(1).decode(), 'monitors', tail) for m in MONITOR_START.finditer(tail)]  # each stops in 30 min
+        if tasks is False:
+            found += [(m.group(1).decode(), 'commands', tail) for m in COMMAND_START.finditer(tail)]
+        elif tasks:  # what runs now (a command's file is open), named in a record as sent to the background: a
+            whole = tail  # command in the turn has a file too. The whole record: a command can be older than its end
+            if os.path.getsize(p) > len(tail):
+                try:
+                    whole = open(p, 'rb').read()
+                except OSError:
+                    pass
+            found += [(t, 'commands', whole) for t in sorted(tasks) if ('"backgroundTaskId":"%s"' % t).encode() in whole]
+        for t, kind, text in found:
+            if t in seen or ((kind == 'monitors' or tasks is False) and t in ended):
+                continue
+            s = task_start(text, t)
+            if s is None or not fits(s['start'], s['entry']):
+                continue
+            if kind == 'monitors' and now > s['until'] + 60:
+                continue  # it stopped by itself at its timeout
+            seen.add(t)
+            out[kind].append({'id': t, 'what': s['desc'] or s['command'] or ('a Monitor' if kind == 'monitors' else 'a command'),
+                              'start': s['start'], 'by': by})
+    return out
+
+
+def work_ids(work):
+    return sorted(w['id'] for k in ('agents', 'commands', 'monitors') for w in (work or {}).get(k) or [])
+
+
+def work_words(work):
+    """The work in a log line: '1 agent (a1b2c3d4e5f6a7b8c "Build the order form"), 1 background command (b0c7bgbd8
+    "Run the tests")'."""
+    parts = []
+    for key, one in (('agents', 'agent'), ('commands', 'background command'), ('monitors', 'Monitor')):
+        items = (work or {}).get(key) or []
+        if items:  # no quote or semicolon of a description: the Events page reads the line by them
+            names = ', '.join('%s "%s"' % (w['id'], re.sub(r'\s+', ' ', w['what'])[:60].replace('"', "'").replace(';', ','))
+                              for w in items[:6])
+            parts.append('%d %s%s (%s%s)' % (len(items), one, '' if len(items) == 1 else 's', names, ', ...' if len(items) > 6 else ''))
+    return ', '.join(parts) or 'nothing'
+
+
+STOP_WHY = {
+    'handover': "the server started its own copy of this session, which took the session over, so the Kit ended the "
+                "copy it had started",
+    'standdown': 'this session was taken over in another place, so the Kit ended the copy it had started',
+    'archived': 'this session was archived, so the Kit ended its copy',
+    'halt': 'the Mac shut down, restarted or logged out',
+    'bring-back': 'the Kit brought this session back for what it waited on, and its work had run %s, the most the '
+                  'Kit waits for it',
+}
+
+
+def stopped_notice(work, why, at, waited=''):
+    """What the session is told about work the Kit ended: each agent, background command and Monitor, with its id,
+    what it did, where, and its last step, so the session can resume it (SendMessage) or start it again."""
+    when = time.strftime('%-I:%M %p', time.localtime(at))
+    reason = STOP_WHY.get(why, why)
+    if '%s' in reason:
+        reason = reason % (waited or '2 hours')
+    lines = ['[Sttark Claude Kit] Work of this session stopped at %s: %s. These were still at work, and none of them '
+             'runs now:' % (when, reason)]
+    for a in work.get('agents') or []:
+        line = '- Agent %s, "%s"' % (a['id'], a['what'] or 'an agent')
+        where = a.get('folder') or a.get('cwd')
+        if where:
+            line += ', working in %s' % where
+        if a.get('last'):
+            line += '. Its last step%s: %s' % (', with no result yet' if a.get('open') else '', a['last'])
+        lines.append(line + '. Its record keeps its work: to go on, send it a message with SendMessage (to: %s), or '
+                            'start it again.' % a['id'])
+    for c in work.get('commands') or []:
+        lines.append('- Background command %s, "%s"%s: run it again if you still need it.' % (
+            c['id'], c['what'], ' (started by agent %s)' % c['by'] if c.get('by') else ''))
+    for m in work.get('monitors') or []:
+        lines.append('- Monitor %s, "%s"%s: start it again if you still need the watch.' % (
+            m['id'], m['what'], ' (started by agent %s)' % m['by'] if m.get('by') else ''))
+    lines.append('Before you go on, look at what each one changed (for example git status in its folder). Then resume '
+                 'or start again only what you still need, and say in your reply what stopped and what you did.')
+    return '\n'.join(lines)
+
+
+def note_stopped(cse, title, work, why, in_message=False):
+    """The Kit ended a copy of a session while `work` ran in it: a `work kill` line in the log (the Events page shows
+    it), and the list kept for the session's next prompt (take_stopped()); `in_message`: the Kit's own message that
+    starts the session again says it already (wait.py bring_back())."""
+    now = time.time()
+    log(f'work   kill {cse} "{title}" {why}: {work_words(work)}; the session is told '
+        + ("in the Kit's message" if in_message else 'at its next prompt'))
+    if in_message:
+        return
+    with state() as s:
+        x = s['sessions'].setdefault(cse, {})
+        x['stopped'] = (x.get('stopped') or [])[-4:] + [{'at': now, 'why': why, 'ids': work_ids(work),
+                                                          'text': stopped_notice(work, why, now)}]
+
+
+STOPPED_DAYS = 14  # days a list of stopped work waits for the session's next prompt
+
+
+def pending_stopped(cse):
+    """What the session has not been told yet about work the Kit ended: the texts, oldest first."""
+    x = (peek().get('sessions') or {}).get(cse) or {}
+    return [n['text'] for n in x.get('stopped') or [] if time.time() - n.get('at', 0) < STOPPED_DAYS * 86400]
+
+
+def take_stopped(cse, how, only=None):
+    """The session gets the lists now (`how`: with its next prompt, or in the Kit's own message): they go, logged
+    once each (`work told`). `only`: the texts it got (pending_stopped() read before), when a list may come meanwhile."""
+    with state() as s:
+        x = s['sessions'].get(cse) or {}
+        every = x.pop('stopped', None) or []
+        got = [n for n in every if time.time() - n.get('at', 0) < STOPPED_DAYS * 86400 and (only is None or n['text'] in only)]
+        rest = [n for n in every if only is not None and n['text'] not in only]
+        if rest:
+            x['stopped'] = rest
+        title = x.get('title') or ''
+    for n in got:
+        log(f'work   told {cse} "{title}" what stopped at {time.strftime("%-I:%M %p", time.localtime(n["at"]))} '
+            f'({n["why"]}: {len(n.get("ids") or [])} item(s)), {how}')
+    return [n['text'] for n in got]
+
+
+def copies(cse, cid, rows=None):
+    """The Claude Code processes that run a session now, {pid: kind}: 'server' (the server's child for it, with
+    --sdk-url .../sessions/<cse> or --session-id <cse>), 'kit' (claude --resume <cid>, in a kit- screen), or 'other'
+    (another process that Claude Code's own list of running sessions, ~/.claude/sessions/<pid>.json, names for it)."""
+    rows = rows if rows is not None else ps_rows()
+    srv = re.compile(r'(--sdk-url \S+/v1/code/sessions/|--session-id )' + re.escape(cse or '-') + r'(\s|$)')
+    kit = re.compile(r'--resume ' + re.escape(cid or '-') + r'(\s|$)')
+    out = {}
+    for pid, _, command in rows:
+        if is_claude(command) and cse and srv.search(command):
+            out[pid] = 'server'
+        elif is_claude(command) and cid and kit.search(command):
+            out[pid] = 'kit'
+    live = {pid for pid, _, _ in rows}
+    for f in glob.glob(os.path.join(CLAUDE_DIR, 'sessions', '*.json')):
+        try:
+            d = json.load(open(f))
+            pid = int(d.get('pid') or 0)
+        except (OSError, ValueError, TypeError):
+            continue
+        if cid and d.get('sessionId') == cid and pid in live and pid not in out:
+            out[pid] = 'other'
+    return out
+
+
+def started(pids):
+    """When each process started, {pid: Unix time}, from one ps call."""
+    if not pids:
+        return {}
+    out = {}
+    text = subprocess.run(['ps', '-o', 'pid=,lstart=', '-p', ','.join(map(str, pids))], capture_output=True,
+                          text=True).stdout
+    for line in text.splitlines():
+        parts = line.split(None, 1)
+        try:
+            out[int(parts[0])] = time.mktime(time.strptime(parts[1].strip(), '%a %b %d %H:%M:%S %Y'))
+        except (IndexError, ValueError):
+            pass
+    return out
+
+
+COPY_ENTRY = {'kit': 'cli', 'server': 'sdk-cli'}  # what a copy writes in its records' `entrypoint`
+
+
+def copy_work(tp, cse='', which=None, rows=None, tasks=None):
+    """What would stop if the Kit ended a session's copy now (running_work()): of the Kit's own copy (`which` 'kit'),
+    the server's ('server'), or every copy that runs it (None), from when the oldest of them started, and only what
+    the copies that run now wrote (a copy that ended, say at a handover, left records that look busy for a while).
+    Nothing when no such copy runs. ({work}, {pid: kind} of those copies)."""
+    cid = os.path.basename(tp)[:-len('.jsonl')] if tp.endswith('.jsonl') else ''
+    procs = {p: k for p, k in copies(cse, cid, rows).items() if which in (None, k)}
+    if not procs:
+        return {'agents': [], 'commands': [], 'monitors': []}, procs
+    since = min(started(list(procs)).values() or [0])
+    kinds = set() if 'other' in procs.values() else {COPY_ENTRY[k] for k in procs.values()}
+    return running_work(tp, tasks=tasks, entry=kinds, since=since), procs
 
 
 def open_chats(pages=3):
@@ -903,6 +1248,18 @@ def quit_screen(name):
         subprocess.run(['/usr/bin/screen', '-S', sid, '-X', 'quit'], capture_output=True)
 
 
+def end_kit_copy(cse, a, name):
+    """keep(): quit the Kit's own copy of a chat (quit_screen()), and give what was at work in that copy when it
+    ended (copy_work(): its agents, background commands and Monitors, only the ones that copy runs), or None."""
+    try:
+        work = copy_work(a.get('transcript') or '', cse, 'kit')[0]
+    except Exception as e:
+        work = None
+        log(f'error  {cse} could not read what runs in the Kit\'s copy before it ends: {e!r}'[:300])
+    quit_screen(name)
+    return work if work_ids(work) else None
+
+
 def end_server_copy(sid, wait=10):
     """End the copy of chat `sid` that this Mac's Remote Control server runs (its child with `--sdk-url
     .../sessions/<sid>`, or `--session-id <sid>`), without archiving the chat: with end_copy(). The server counts
@@ -928,6 +1285,20 @@ def halt_copies(prefix='kit-'):
     with open(halt, 'w'):  # keep() starts nothing while the Mac shuts down: a copy started now would get its SIGTERM
         pass
     rows = ps_rows()
+    # when each copy's Claude Code started, read before they end, for what stopped with them (after: nothing waits)
+    kids, cmd = {}, {}
+    for pid, ppid, command in rows:
+        kids.setdefault(ppid, []).append(pid)
+        cmd[pid] = command
+    claude = {}
+    for spid, name in screens.items():
+        todo = list(kids.get(spid, []))
+        while todo:
+            p = todo.pop()
+            todo += kids.get(p, [])
+            if is_claude(cmd.get(p, '')):
+                claude.setdefault(name, []).append(p)
+    begun = started([p for ps in claude.values() for p in ps]) if claude else {}
     killed = end_copy([pid for pid, ppid, _ in rows if ppid in screens], rows) if screens else []
     now, names = time.time(), set(screens.values())
     lock = open(os.path.join(os.path.dirname(STATE), 'keep.lock'), 'w')
@@ -937,13 +1308,24 @@ def halt_copies(prefix='kit-'):
             break
         except OSError:
             time.sleep(0.25)
+    ended = []
     with state() as s:
-        for a in (s.get('keep') or {}).get('alone', {}).values():
-            if 'kit-' + os.path.basename(a.get('transcript') or '')[:8] in names:
+        for cse, a in (s.get('keep') or {}).get('alone', {}).items():
+            name = 'kit-' + os.path.basename(a.get('transcript') or '')[:8]
+            if name in names:
                 a['halted'] = now
+                ended.append((cse, a.get('transcript') or '', a.get('title') or '', name))
     lock.close()
     log(f'halt   the Mac shuts down: ended {len(killed)} Claude Code process(es) of {len(screens)} chat(s) the Kit '
         'runs, so none is archived')
+    for cse, tp, title, name in ended:  # the session hears after the restart what stopped (no lsof: a command counts
+        try:                            # until its record says it ended)
+            since = min([begun[p] for p in claude.get(name, []) if p in begun] or [0])
+            work = running_work(tp, now, tasks=False, entry='cli', since=since)
+            if work_ids(work):
+                note_stopped(cse, title, work, 'halt')
+        except Exception as e:
+            log(f'error  {cse} could not read what stopped in its copy: {e!r}'[:200])
     return 0
 
 
@@ -1480,29 +1862,43 @@ def keep(dry=False, server_down=False):
         cid = os.path.basename(a['transcript'])[:-len('.jsonl')]
         name, title = 'kit-' + cid[:8], a.get('title', '')
         up = f'--resume {cid}' in ps
+        # Each of the three below ends the Kit's copy at once, also while its agents, background commands or Monitors
+        # run (note_stopped() keeps their list for the session's next prompt): once the server runs the chat, the
+        # server's copy holds its connection (the Kit's copy stands down, code 4090) and writes its record, so a copy
+        # kept for its work would answer nothing and write into the same record; one taken over elsewhere is the
+        # same; and an archive is the person's own stop.
         if sid in running:  # the server runs it now: its own copy goes, so reminders reach the server's copy
             if dry:
                 print(f'would hand over {sid} "{title}" to the server' + (f' and quit {name}' if up else ''))
             else:
-                if up:
-                    quit_screen(name)
+                work = end_kit_copy(sid, a, name) if up else None
                 log(f'handover {sid} "{title}" the server runs it now' + (f'; quit its own copy ({name})' if up else ''))
+                if work:
+                    note_stopped(sid, title, work, 'handover')
             alone.pop(sid)
             continue
         if up and stood_down(name):  # taken over elsewhere: open but doing nothing; the server wakes it below
             if dry:
                 print(f'would quit {name}: {sid} "{title}" was taken over elsewhere (code 4090)')
             else:
-                quit_screen(name)
+                work = end_kit_copy(sid, a, name)
                 log(f'standdown {sid} "{title}" its own copy was taken over elsewhere (code 4090); quit {name}')
+                if work:
+                    note_stopped(sid, title, work, 'standdown')
             alone.pop(sid)
             continue
         if status.get(sid) not in ('active', 'archived') or (status.get(sid) == 'archived' and (
                 (up and now - a.get('at', 0) > 120) or (not up and a.get('halted')))):
             if not dry:
-                quit_screen(name)
+                work = None
+                if up:
+                    work = end_kit_copy(sid, a, name)
+                else:
+                    quit_screen(name)
                 log(f'keep   {sid} "{title}" archived or deleted in the Claude app'
                     + ('; stopped it' if up else ' while it was stopped; left it so'))
+                if work and status.get(sid) == 'archived':  # it may come back (a wait, the Archived page)
+                    note_stopped(sid, title, work, 'archived')
             alone.pop(sid)
             continue
         if up or now - a.get('at', 0) < KEEP_RETRY:
@@ -1862,12 +2258,14 @@ def main():
         return
     data = json.load(sys.stdin)
     event = data.get('hook_event_name', 'UserPromptSubmit')
+    sid = session_id(data.get('transcript_path'))
     if event == 'UserPromptSubmit':
         # "Claude window in Chrome" and "Links to files" are on: tell Claude, so no one has to add this to their instructions
         rules = [r for key, r in (('claude_window', BROWSER_RULE), ('file_links', FILE_RULE)) if peek().get(key)]
+        if sid and pending_stopped(sid):  # work the Kit ended in this session: it hears once which, to resume it
+            rules += take_stopped(sid, 'with its next prompt')
         if rules:
             print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': '\n\n'.join(rules)}}))
-    sid = session_id(data.get('transcript_path'))
     if event == 'PreToolUse':  # a subagent is about to start; any session, Remote Control or not
         limit_for(data.get('session_id'), data.get('transcript_path'), sid)
         out = on_agent(data, sid)
