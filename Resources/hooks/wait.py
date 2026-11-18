@@ -838,6 +838,15 @@ def opt(args, name):
     return None
 
 
+def order(item):
+    """The one order of waits, as the window's (Waits.before in Sources/Reach.swift): deadline (none last), then when
+    it was set, then the session's name, then the wait's id. The state keeps waits in a dictionary, so every key is
+    needed: with fewer, two waits with the same deadline change places from one read to the next."""
+    wid, w = item
+    inf = float('inf')
+    return (w.get('by') or w.get('at') or inf, w.get('set_at') or inf, w.get('title') or 'A session', wid)
+
+
 def main():
     args = sys.argv[1:]
     if not args or args[0] in ('-h', '--help'):
@@ -853,7 +862,7 @@ def main():
         return load('watch').listing()
     if args[0] == '--list':
         ws = peek().get('waits') or {}
-        for wid, w in sorted(ws.items(), key=lambda x: x[1].get('by') or x[1].get('at') or 0):
+        for wid, w in sorted(ws.items(), key=order):
             print('%s  %s  %s  by %s  (%s)%s' % (wid, w.get('title') or '-', describe(w),
                                                 clock(w['by']) if w.get('by') else '-', w.get('why', ''),
                                                 '  CHECK FAILING since %s: %s' % (clock(w.get('failing_since') or 0), w['failing'])
