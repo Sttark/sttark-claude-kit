@@ -169,6 +169,8 @@ enum Tokens {
     static let gray = token(0xa3abb2, 0x5b6570)
     static let warnText = token(0x7a5c00, 0xe8c547)
     static let warnMark = token(0xe5b200, 0xe5b200)
+    /// The good status's words and dot (`--good-text`): a thing that is done, such as a message the person replied to.
+    static let goodText = token(0x007a2a, 0x3cc46a)
     static let greenText = token(0x007a2a, 0x00a82d)
     /// Usage by session's second data color, for a session's agents: the info mark mixed 60% with the card ground in
     /// OKLab, as the phone's CSS mixes it (color-mix), so it is a tint of the session's blue in light and in dark.

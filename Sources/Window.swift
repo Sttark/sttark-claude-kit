@@ -463,6 +463,7 @@ enum K {
     static let gray = Color(nsColor: Tokens.gray), green = Color(nsColor: Tokens.green), greenText = Color(nsColor: Tokens.greenText)
     static let greenHover = Color(nsColor: Tokens.greenHover), highlight = Color(nsColor: Tokens.highlight)
     static let warnText = Color(nsColor: Tokens.warnText), warnMark = Color(nsColor: Tokens.warnMark)
+    static let goodText = Color(nsColor: Tokens.goodText)
     static let infoMark = Color(nsColor: Tokens.infoMark), track = Color(nsColor: Tokens.track)
     static let infoText = Color(nsColor: Tokens.infoText), infoSoft = Color(nsColor: Tokens.infoSoft), infoBorder = Color(nsColor: Tokens.infoBorder)
     /// Usage by session's data colors: a session's own use in the brand's blue, its agents' in a tint of it.
@@ -848,7 +849,10 @@ struct RowView: View {
                                 LevelChip(level: s.level, manual: s.manual)
                             }
                         }
-                        (Text(row.sub) + Text(row.subStrong.isEmpty ? "" : " · ") + Text(row.subStrong).foregroundColor(row.subWarn ? K.warnText : K.ink))
+                        // "You replied 2:30 PM" first: the person answered the row's item themselves (a kept message
+                        // is handled; a wait still waits for the other person), so it shows before the line is cut
+                        (Text(row.replied.map { Kept.youReplied($0) + " · " } ?? "").foregroundColor(K.ink)
+                         + Text(row.sub) + Text(row.subStrong.isEmpty ? "" : " · ") + Text(row.subStrong).foregroundColor(row.subWarn ? K.warnText : K.ink))
                             .font(K.font(12)).foregroundColor(K.steel).lineLimit(1).truncationMode(.tail)
                     }
                     Spacer(minLength: 8)
@@ -974,6 +978,7 @@ struct DetailView: View {
                 p.append(("Then", DetailView.then(w, model.snap.reach, alerts: model.snap.alerts(row) ?? true)))
             } else if let w = row.wait {
                 p.append(("Waits on", w.what + (w.from.isEmpty ? "" : ", from \(w.from)")))
+                if let r = w.replied { p.append(("You replied", DetailView.repliedWords(r))) }
                 if let by = w.by { p.append(("Deadline", Inbox.longDay(by))) }
                 if !w.why.isEmpty { p.append(("Why then", w.why)) }
                 p.append(("Kit checks", Inbox.checks(w)))
@@ -1016,6 +1021,12 @@ struct DetailView: View {
         return "Comes back to your list; " + Reach.then(r) + "."
     }
 
+    /// An email reply wait whose thread the person replied in: when, and that the wait goes on. Their own reply does
+    /// not end it; the other person's reply, or the deadline, does.
+    static func repliedWords(_ at: Date) -> String {
+        Limit.clock(at) + ", in its thread. It still waits for their reply, until its deadline."
+    }
+
     /// "Since 8:01 AM: the Workrouter connector did not load … The Kit tries again every 10 min."
     static func failingWords(_ w: Waits.Wait) -> String {
         (w.failingSince.map { "Since \(Limit.clock($0)): " } ?? "") + w.failing + ". The Kit tries again every 10 min; the deadline still brings the session back."
@@ -1038,6 +1049,12 @@ struct DetailView: View {
                             Text(m.body).font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
                             if !m.link.isEmpty, let u = URL(string: m.link) {
                                 Link(destination: u) { Text(m.link).font(K.font(12)).underline().foregroundColor(K.ink).lineLimit(1).truncationMode(.middle) }
+                            }
+                            // the person answered it themselves, where it is about: it is handled
+                            if let r = m.replied {
+                                StatusChip(text: Kept.youReplied(r), good: true)
+                                    .help(Kept.repliedTip(m.repliedWhere))
+                                    .padding(.top, 2)
                             }
                         }
                         .padding(.horizontal, 10)
@@ -1065,6 +1082,9 @@ struct DetailView: View {
                         }
                         if let by = w.by {
                             Text("Deadline " + Inbox.longDay(by)).font(K.font(12.5)).foregroundColor(by < Date() ? K.warnText : K.ink)
+                        }
+                        if let r = w.replied {
+                            Text("You replied " + DetailView.repliedWords(r)).font(K.font(12.5)).fixedSize(horizontal: false, vertical: true)
                         }
                         if !w.why.isEmpty { Text(w.why).font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true) }
                         Text(Inbox.checks(w)).font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
@@ -1291,10 +1311,12 @@ struct TrailingIcon: LabelStyle {
 struct StatusChip: View {
     let text: String
     var warn = false
+    /// A thing that is done, such as a message the person replied to: the good status's dot and words.
+    var good = false
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(warn ? K.warnMark : K.gray).frame(width: 6, height: 6)
-            Text(text).font(K.font(12, true)).foregroundColor(warn ? K.warnText : K.steel).lineLimit(1)
+            Circle().fill(warn ? K.warnMark : good ? K.goodText : K.gray).frame(width: 6, height: 6)
+            Text(text).font(K.font(12, true)).foregroundColor(warn ? K.warnText : good ? K.goodText : K.steel).lineLimit(1)
         }
         .padding(.horizontal, 9)
         .frame(height: 22)

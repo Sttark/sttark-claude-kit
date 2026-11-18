@@ -13,6 +13,7 @@
 //   docs/whats-new.png        the What's new sheet over the window, with this repo's newest notes (at most 4)
 // and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
+// STTARK_SHOT_PANELS=<folder> also draws the whole window with a wait and a message the person replied to selected.
 // The window and the sheet are real windows, kept off every screen and drawn by their own views, so they look as
 // they do on this Mac; nothing shows on the screen and nothing comes to the front (see ShotWindow).
 // The times are drawn in a time zone where it is late morning, so the sample times read the same on every run.
@@ -348,6 +349,43 @@ import SwiftUI
             model.fixedFacts = facts
             model.reloadFacts()
             model.page = .sessions
+            // the own-replies note's picture: a wait's row and an idle row that say You replied first, and the idle
+            // session's message, handled. The state and kept.json go back as they were after.
+            let stateBefore = Sample.replied(dir)
+            model.reload()
+            if let waitRow = model.snap.rows(.waits).first(where: { $0.replied != nil }),
+               let idleRow = model.snap.rows(.idle).first(where: { $0.replied != nil }) {
+                let ow = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+                ow.appearance = w.appearance
+                ow.isReleasedWhenClosed = false
+                ow.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                    GroupHeader(group: .waits, count: 1)
+                    RowView(row: waitRow, selected: false, alerts: model.snap.alerts(waitRow), reach: model.snap.reach)
+                    GroupHeader(group: .idle, count: 1)
+                    RowView(row: idleRow, selected: true, alerts: model.snap.alerts(idleRow), reach: model.snap.reach)
+                    DetailView(model: model, row: idleRow).messages.padding(.horizontal, 10).padding(.top, -10)
+                    Spacer(minLength: 0)
+                }.padding(.horizontal, 14).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+                ow.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+                Shot.capture(ow, to: "whats-new/your-own-replies" + (look ? "-dark" : "") + ".png")
+                ow.close()
+                // STTARK_SHOT_PANELS=<folder>: the whole window with each of the two selected, to look at their panels
+                // (not in the README)
+                if let panels = ProcessInfo.processInfo.environment["STTARK_SHOT_PANELS"] {
+                    let sel = model.selected
+                    model.selected = waitRow.id
+                    Shot.capture(w, to: panels + "/window-replied-wait" + (look ? "-dark" : "") + ".png")
+                    model.selected = idleRow.id
+                    Shot.capture(w, to: panels + "/window-replied-message" + (look ? "-dark" : "") + ".png")
+                    model.selected = sel
+                }
+            } else {
+                print("no replied rows for the own-replies picture")
+                exit(1)
+            }
+            try? stateBefore?.write(to: dir.appendingPathComponent("state.json"))
+            try? FileManager.default.removeItem(at: Kept.file)
+            model.reload()
             model.selected = before
             model.reload()
         }
@@ -531,6 +569,32 @@ enum Sample {
         let lf = DateFormatter(); lf.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let line = lf.string(from: Date().addingTimeInterval(-12 * 60)) + " notify Rename report columns kept a1b2c3d4e5f6: alerts are off | PR #42 merged\n"
         if let h = try? FileHandle(forWritingTo: dir.appendingPathComponent("log")) { h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close() }
+    }
+
+    /// The person's own replies, as the reply watch marks them (watch.py), for the own-replies note's picture: the
+    /// supplier's email reply wait, whose thread the person replied in (it still waits), and a message the Dock door
+    /// repair session kept in the Kit, which the person answered in its thread. Returns the state as it was, to put back.
+    static func replied(_ dir: URL) -> Data? {
+        let now = Date().timeIntervalSince1970
+        let file = dir.appendingPathComponent("state.json")
+        let before = try? Data(contentsOf: file)
+        if let b = before, var s = (try? JSONSerialization.jsonObject(with: b)) as? [String: Any],
+           var waits = s["waits"] as? [String: Any], var w = waits["a1b2c3"] as? [String: Any] {
+            w["replied"] = ["at": now - 40 * 60, "where": "the email thread \"Deposit for the core order\"", "id": "18c9sample"]
+            waits["a1b2c3"] = w
+            waits["j1k2l3"] = nil   // one wait, so its row names it
+            s["waits"] = waits
+            try? JSONSerialization.data(withJSONObject: s).write(to: file)
+        }
+        let item: [String: Any] = [
+            "id": "c1d2e3f4a5b6", "at": now - 25 * 60, "cse": "cse_01Sample3", "title": "Dock door repair",
+            "subject": "Door company asks for a visit",
+            "body": "They want to measure dock door 3 on Thursday at 9 AM. Answer them, or tell me a time.",
+            "link": "", "url": "https://claude.ai/code/session_sample3", "from": "session", "why": "this session's alerts are off",
+            "about": ["at": now - 26 * 60, "places": ["mail:name@sttark.com:18c8sample"], "what": "the email thread \"Dock door 3 visit\""],
+            "replied": ["at": now - 8 * 60, "where": "the email thread \"Dock door 3 visit\"", "id": "18c7sample"]]
+        try? JSONSerialization.data(withJSONObject: ["items": [item]]).write(to: Kept.file)
+        return before
     }
 
     /// A bring-back that waits for a session's agents, and work the Kit ended at a handover with the session told

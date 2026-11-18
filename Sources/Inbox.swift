@@ -75,6 +75,10 @@ enum Inbox {
         var checkin: Checkins.Note? = nil
         /// Messages kept in the Kit app for this session (Kept), newest first: the last 7 days.
         var kept: [Kept.Message] = []
+        /// When the person replied themselves where the row's item is about: an idle row's newest message (it is
+        /// handled now), or a wait's thread (it still waits for the other person). The row says "You replied <time>"
+        /// first, so it does not read as an open item.
+        var replied: Date? = nil
         /// The time with what it is, for the menu: "waiting 15 min", "continues Sat 2:00 AM", "deadline Mon 9:00 AM".
         var timeLabel: String {
             guard !time.isEmpty else { return "" }
@@ -241,6 +245,7 @@ enum Inbox {
             r.session = s
             r.wait = w
             r.waits = ws
+            r.replied = ws.compactMap(\.replied).max()
             snap.rows.append(r)
         }
 
@@ -255,6 +260,7 @@ enum Inbox {
             var r = Row(id: s.id, group: .idle, title: s.title, sub: sub, time: Waiting.ago(unread[s.id] ?? s.at))
             r.timeAt = unread[s.id] ?? s.at
             r.session = s
+            r.replied = message?.replied   // the person answered it themselves: the row says so first
             snap.rows.append(r)
         }
 

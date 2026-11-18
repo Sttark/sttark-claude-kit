@@ -389,6 +389,10 @@ enum Waits {
         /// Why its last check failed, and since when; empty while its checks work.
         var failing = ""
         var failingSince: Date? = nil
+        /// An email reply wait whose thread the person replied in themselves (the reply watch, watch.py), and where in
+        /// words. Their own reply does not end the wait: it still waits for the other person.
+        var replied: Date? = nil
+        var repliedWhere = ""
     }
 
     static var script: String { hooksDir.appendingPathComponent("wait.py").path }
@@ -423,6 +427,10 @@ enum Waits {
             x.folder = w["cwd"] as? String ?? ""
             x.sessionURL = w["session_url"] as? String ?? ""
             x.url = w["url"] as? String ?? ""
+            if let r = w["replied"] as? [String: Any], let at = Limit.num(r["at"]) {
+                x.replied = Date(timeIntervalSince1970: at)
+                x.repliedWhere = r["where"] as? String ?? ""
+            }
             return x
         }.filter { !$0.back }.sorted(by: before)
     }

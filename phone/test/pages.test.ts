@@ -126,6 +126,16 @@ describe('One session', () => {
     expect(h).toContain('It does not run while it waits.');
     expect(h).toContain('Check failing since');
   });
+  it('says You replied on a wait whose thread the person replied in, and that it still waits; its row says so first', () => {
+    const h = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' }, one());
+    expect(h).toMatch(/<div class="w-what">Supplier&#39;s reply to the deposit email<\/div><div class="w-by">[^<]+<\/div><div class="w-rep">You replied 10:30 AM\. It still waits for their reply\.<\/div>/);
+    // the other wait: no reply of the person's, no line
+    expect(h.match(/class="w-rep"/g)?.length).toBe(1);
+    // its Stop and the session's buttons stay: the wait goes on
+    expect(h.match(/data-act="stop"/g)?.length).toBe(2);
+    const s = html({ page: 'sessions' }, one());
+    expect(s).toContain('<span class="warn">1 check failing</span> · <span class="rep">You replied 10:30 AM</span> · 2 email replies</div>');
+  });
   it('shows "Sending..." on the button that sent, and holds the others', () => {
     const h = html({ page: 'session', cse: 'session_01SampleHvacUpdates', from: 'sessions' }, kit(), { ...emptyUi(), sending: 'lvl:high' });
     expect(h).toMatch(/data-level="high"[^>]*>Sending\.\.\.</);
@@ -451,7 +461,7 @@ describe('Alerts off: kept messages', () => {
     expect(g).toContain('<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/>');
     expect(g).toContain('Idle with a message <span class="n">2</span><span class="col">Message</span>');
     expect(g.indexOf('Freight quotes')).toBeLessThan(g.indexOf('Door log export'));
-    expect(g).toContain('<div class="sub">Message: Freight quotes are in</div>');
+    expect(g).toContain('<div class="sub">Message: Door log export is ready</div>');
     expect(g).toMatch(/Message: Freight quotes are in<\/div><\/div><span class="time">\d+:\d\d [AP]M<\/span>/);
     expect(g).toContain('href="/s/session_01SampleFreightQuotes"');
     expect(g).toContain('href="https://claude.ai/code/session_01SampleFreightQuotes" target="_blank" rel="noopener" aria-label="Open in Claude"');
@@ -476,6 +486,28 @@ describe('Alerts off: kept messages', () => {
     expect(h.indexOf('id="msgs-h"')).toBeLessThan(h.indexOf('id="eff-h"'));
     // Open in Claude stays the one green button.
     expect(h.match(/class="btn full"/g)?.length).toBe(1);
+  });
+
+  it('a message the person replied to themselves: You replied and its time, as a good status, and its row says so first', () => {
+    const h = html({ page: 'session', cse: 'session_01SampleFreightQuotes', from: 'sessions' }, one());
+    const m = part(h, '<section class="sec msgs"');
+    // only the newest one was answered; the older one has no such line
+    expect(m.match(/class="msg-rep"/g)?.length).toBe(1);
+    expect(m).toContain('<p class="msg-text">Three forwarders');
+    expect(m).toMatch(/Reply in the session with the one to book\.<\/p><div class="msg-rep"><span class="chip good">You replied 11:15 AM<\/span><\/div><\/article>/);
+    // never a warning: it is done
+    expect(m).not.toMatch(/warn|bad|fail/);
+    const g = part(html({ page: 'sessions' }, one()), '<section class="grp" aria-label="Idle with a message">');
+    expect(g).toContain('<div class="sub"><span class="rep">You replied 11:15 AM</span> · Message: Freight quotes are in</div>');
+  });
+
+  it('a message from a Kit before it, or one not answered, shows no You replied', () => {
+    const k = one();
+    const row = k.snaps[PRO].rows.find((r) => r.cse === 'session_01SampleFreightQuotes')!;
+    delete row.messages![0].replied;
+    const h = html({ page: 'session', cse: 'session_01SampleFreightQuotes', from: 'sessions' }, k);
+    expect(h).not.toContain('You replied');
+    expect(html({ page: 'sessions' }, k)).toContain('<div class="sub">Message: Freight quotes are in</div>');
   });
 
   it('shows messages on a row of any group, before Needs you', () => {

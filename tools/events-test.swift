@@ -183,6 +183,41 @@ import Foundation
         let wx = Events.kitLine(f.string(from: Date()) + " watch  cse_01AAAtes \"Press color\" could not check a message (RuntimeError: exit 1: ); it comes back for it all the same: Sam: Re: color", names)
         check(wx?.kind == .problem && wx?.level == .warn && wx?.text == "The reply watch could not check a message, so it brought the session back",
               "a check that failed is a problem, and says the session came back")
+        // The person's own reply where a session watches or waits: what they wrote and where, then each thing the Kit
+        // did; a bring-back with a note is a restart row; the note at the next prompt; their own Chat post about other work.
+        let own = Events.kitLine(f.string(from: Date()) + " watch  replied cse_01AAAtes \"Press color\" in the email thread \"Ink quote\", 2:30 PM: Tuesday works, thanks. Book the ocean express. | its message in the Kit \"Ink quote is in\" now shows You replied 2:30 PM; its wait 0d39c2 shows You replied 2:30 PM and still waits for the other person; brought back with a note: a message kept in the Kit depends on it", names)
+        check(own?.name == "Press color" && own?.session == "cse_01AAAtest1" && own?.kind == .restart && own?.routine == false
+              && own?.text == "Brought back with a note: you replied in the email thread \u{201C}Ink quote\u{201D}"
+              && own?.detail == ["At 2:30 PM you wrote: \u{201C}Tuesday works, thanks. Book the ocean express.\u{201D}",
+                                 "Its message in the Kit, \u{201C}Ink quote is in\u{201D}, now shows \u{201C}You replied 2:30 PM\u{201D}: it is handled.",
+                                 "Its email reply wait shows \u{201C}You replied 2:30 PM\u{201D} and still waits for the other person: your own reply does not end it.",
+                                 "The Kit brought it back with a note, since a message kept in the Kit depends on it.",
+                                 "No alert, and no message to anyone."],
+              "the person's own reply that a kept message depends on: a bring-back row, what they wrote and what the Kit did")
+        let ownNote = Events.kitLine(f.string(from: Date()) + " watch  replied cse_01AAAtes \"Press color\" on its Asana task 1200000000000001, Wed 9:05 AM: Done | it ships | noted for its next prompt", names)
+        check(ownNote?.kind == .wait && ownNote?.text == "You replied on its Asana task" && ownNote?.routine == false
+              && ownNote?.detail == ["At Wed 9:05 AM you wrote: \u{201C}Done | it ships\u{201D}", "Asana task: https://app.asana.com/0/0/1200000000000001",
+                                     "The session gets a note about it with its next prompt.", "No alert, and no message to anyone."]
+              && !(ownNote?.text.contains("1200000000000001") ?? true),
+              "on an Asana task: no id in the sentence, the task's link in the detail; a | in the person's words stays theirs")
+        let ownLate = Events.kitLine(f.string(from: Date()) + " watch  replied cse_01AAAtes \"Press color\" in a Chat space it posted in, Nov 18 4:10 PM: ok | not told: it had a turn since your reply", names)
+        check(ownLate?.text == "You replied in a Chat space it posted in" && ownLate?.routine == true
+              && ownLate?.detail == ["At Nov 18 4:10 PM you wrote: \u{201C}ok\u{201D}", "Not told: it had a turn after your reply."],
+              "a reply the session had a turn after: routine, and it says why it was not told")
+        let told = Events.kitLine(f.string(from: Date()) + " watch  told cse_01AAAtest1 \"Press color\" of your reply in the thread of its Chat post, with its next prompt", names)
+        check(told?.name == "Press color" && told?.kind == .wait && told?.routine == true && told?.text == "Told of your reply, with its next prompt"
+              && told?.detail == ["Where: in the thread of its Chat post.", "No alert, and no message to anyone."],
+              "the note given with the session's next prompt")
+        let toldKit = Events.kitLine(f.string(from: Date()) + " watch  told cse_01AAAtest1 \"Press color\" of your reply in the email thread \"Ink quote\", in the Kit's message", names)
+        check(toldKit?.text == "Told of your reply, in the Kit's message" && toldKit?.detail.first == "Where: in the email thread \u{201C}Ink quote\u{201D}.",
+              "the note given in the Kit's own message")
+        let ownSkip = Events.kitLine(f.string(from: Date()) + " watch  skip cse_01AAAtes \"Press color\" you in Chat: not about this session's work: Lunch is here | Lunch, not the press color", names)
+        check(ownSkip?.name == "Press color" && ownSkip?.kind == .wait && ownSkip?.text == "Your Chat post was about other work, so the session was not told"
+              && ownSkip?.detail.prefix(2) == ["You wrote: \u{201C}Lunch is here\u{201D}", "Why: Lunch, not the press color"],
+              "the person's own Chat post that the check found to be about other work")
+        let ownYes = Events.kitLine(f.string(from: Date()) + " watch  checked cse_01AAAtes \"Press color\" you in Chat: about this session's work: The die is fine | It answers the session's post", names)
+        check(ownYes?.kind == .check && ownYes?.routine == true && ownYes?.text == "Your Chat post is about its work",
+              "the person's own Chat post that is about its work is a routine check")
         // The progress check-ins (checkin.py): one row a check-in under its session, with the note in the detail; a
         // summary that failed, a test run, a hold and the end of the work.
         let ck = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" shown in the Kit | Build the color page, working 45 min | It finished the page and opened pull request 12. Next it checks the links.", names)

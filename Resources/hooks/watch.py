@@ -33,6 +33,20 @@ the Events page; a call that fails brings the session back all the same, so noth
 the account is held at the usage limit. The session comes back the way a wait brings it back, with the messages
 and one question: does this need action?
 
+THE PERSON'S OWN REPLIES. The same reads also bring the person's own messages (from their address, or their account in
+Chat and Asana) in the places a session watches or waits on: an email thread it used, an email reply wait's thread, a
+thread the Kit brought it back for (`back`, note_back()); the Chat thread or space it posted in; an Asana task it
+commented on or made. A mailbox gets one more search of the same read for them (from the person, by those threads'
+subjects, never a draft); Chat posts are in the read already; an Asana task's comments come in the Workrouter run
+when it runs (asana_get_task_stories; Asana mails no one about their own comment). A reply in the thread is a match
+with no model call; a post elsewhere in a Chat space is checked first, with the same Haiku call as a broad match. For
+each match: a message kept in the Kit about that place since the Kit brought the session back for it gets "You
+replied <time>" (notify.py mark_replied()); an email reply wait on that thread stays open (it still waits for the
+other person) and its row says "You replied <time>" (`replied` on the wait). When the reply came after the session's
+last turn, the session is told once, with no alert: a note on its next prompt (effort-hook.py take_replied()), or
+brought back with the note at once only when a message kept in the Kit or an email reply wait depends on it. Logged as
+"watch  replied ...".
+
     watch.py --list      what the Kit watches now, for each session (claude-wait --watching runs this)
 
 Logged with lines starting "watch". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
@@ -59,6 +73,10 @@ MODEL_EVERY = 900   # the one Haiku run through Workrouter: the person's own mai
 OVERLAP = 120       # seconds each read looks back past the last one, for mail that lands late
 MAX_TERMS = 30      # terms in one Gmail search; more go in another search of the same read
 MAX_SPACES = 10     # Chat spaces read in one run
+MAX_TASKS = 10      # Asana tasks read in one run, for the person's own comments (asana_get_task_stories)
+TASK_DAYS = 7       # an Asana task is read for them while a session touched it in this many days
+OWN_SAID = 300      # characters kept of the person's own reply, for the session's note
+BACK_MAX = 20       # bring-backs kept for each session (note_back())
 WR = 'mcp__claude_ai_Sttark_Workrouter__'
 ME = None           # the person's address; tests set it
 NARROW = 3          # a match this strong or stronger (a thread, an Asana task, a Chat thread) needs no check
@@ -869,6 +887,15 @@ def queries(keys, since):
     return out
 
 
+def own_queries(threads, since, me_):
+    """The searches for the person's own replies in a mailbox's watched threads ({thread id: subject}): from the
+    person, by each thread's subject (the match is by the thread's id), MAX_TERMS a search; never a draft."""
+    t = list(dict.fromkeys('subject:"%s"' % clean_subject(s) for s in (threads or {}).values() if clean_subject(s)))
+    if not me_ or not t:
+        return []
+    return ['after:%d from:%s -in:drafts {%s}' % (since, me_, ' '.join(t[i:i + MAX_TERMS])) for i in range(0, len(t), MAX_TERMS)]
+
+
 GID = re.compile(r'app\.asana\.com/\S*?/task/(\d+)|app\.asana\.com/0/\d+/(\d+)')
 
 
@@ -910,11 +937,14 @@ def run_model(calls, wm):
     got = {}
     for name, inp, res, err in made:
         for i, (t, a) in enumerate(calls):
-            ident = 'query' if t == 'gmail_search' else 'space_id'
-            if name == WR + t and inp.get(ident) == a[ident] and not err:
+            ident = IDENT.get(t)
+            if name == WR + t and (not ident or str(inp.get(ident)) == str(a[ident])) and not err:
                 got.setdefault(i, []).append(res)
                 break
     return got, why
+
+
+IDENT = {'gmail_search': 'query', 'gchat_search_messages': 'space_id', 'asana_get_task_stories': 'task_gid'}
 
 
 def mail_of(e):
@@ -926,6 +956,12 @@ def mail_of(e):
 def chat_of(space, m):
     return {'id': m.get('name', ''), 'space': space, 'from': m.get('sender', ''), 'text': (m.get('text') or '')[:600],
             'at': stamp(m.get('createTime'))}
+
+
+def asana_of(gid, c):
+    """A comment on an Asana task, from asana_get_task_stories: only the person's own count (own_asana())."""
+    return {'id': str(c.get('comment_id') or c.get('gid') or ''), 'task': gid, 'from': c.get('author') or '',
+            'text': (c.get('text') or '')[:600], 'at': stamp(c.get('created_at'))}
 
 
 # --- matching -----------------------------------------------------------------------------------------------------
@@ -1055,6 +1091,310 @@ def why_of(k):
             ('chat', 'post'): 'you posted in this Chat space'}.get((k['k'], k['how']), 'you contacted %s' % k['v'])
 
 
+# --- the person's own replies -------------------------------------------------------------------------------------
+
+def short(subject, n=60):
+    """A thread's subject as a note and the log say it: no Re: or Fwd:, no double quotes."""
+    s = re.sub(r'(?i)^((re|fwd?|aw|回复|答复|转发)\s*[:：]\s*)+', '', (subject or '').strip())
+    return s.replace('"', "'")[:n].strip() or 'no subject'
+
+
+def watch_places(e, waits, me_):
+    """The places a session watches or waits on, where the person's own reply counts: (mail {(mailbox, thread id):
+    subject}, chat {space: the threads of its posts}, asana {task gid}). Its email threads (drafted in, read, an email
+    reply wait's), the threads the Kit brought it back for (`back`, add_back()) and the threads of its open email reply
+    waits; the Chat spaces it posted in; the Asana tasks it commented on or made."""
+    mail, chat, asana = {}, {}, set()
+    for k in e.get('keys') or []:
+        if k['k'] == 'thread' and k.get('box') not in (None, '', '*'):
+            mail[(k['box'], k['v'])] = mail.get((k['box'], k['v'])) or k.get('subject') or ''
+        elif k['k'] == 'chat':
+            chat[k['v']] = list(dict.fromkeys((chat.get(k['v']) or []) + (k.get('threads') or [])))
+        elif k['k'] == 'asana':
+            asana.add(k['v'])
+    for rec in e.get('back') or []:
+        for box, tid, subject in rec.get('mail') or []:
+            if box and tid:
+                mail[(box, tid)] = mail.get((box, tid)) or subject or ''
+    for w in waits:
+        if w.get('kind') == 'email-reply' and w.get('target'):
+            box = (w.get('mailbox') or me_ or '').lower()
+            if box:
+                mail[(box, w['target'])] = mail.get((box, w['target'])) or w.get('subject') or ''
+    return mail, chat, asana
+
+
+def places_of(m):
+    """The places of a message the Kit brings a session back for: its email thread (in its mailbox), its Asana task
+    (an Asana notice), its Chat space. A message the session keeps in the Kit in that turn is about them (about())."""
+    out = []
+    if m['kind'] == 'mail':
+        if m.get('thread_id'):
+            out.append('mail:%s:%s' % (m.get('box') or '', m['thread_id']))
+        if m.get('gid'):
+            out.append('asana:' + m['gid'])
+    elif m['kind'] == 'chat' and m.get('space'):
+        out.append('chat:' + m['space'])
+    elif m['kind'] == 'asana' and m.get('task'):
+        out.append('asana:' + m['task'])
+    return out
+
+
+def add_back(e, msgs, now, what=''):
+    """The Kit brought the session back: for these messages (the reply watch), for a wait (note_back()), or with a note
+    of the person's own replies (no messages). Kept on the session as `back` (the last BACK_MAX, KEY_DAYS at most),
+    with the places of the messages: a message it keeps in the Kit in that turn is about them (about()), and the
+    person's own reply in such an email thread counts (watch_places()). A bring-back with no place is kept too, so a
+    message kept in its turn is about nothing older."""
+    places = list(dict.fromkeys(p for m in msgs for p in places_of(m)))
+    mail = [[m.get('box') or '', m['thread_id'], m.get('subject') or ''] for m in msgs
+            if m['kind'] == 'mail' and m.get('thread_id')]
+    first = msgs[0] if msgs else {}
+    what = what or ('the email thread "%s"' % short(first.get('subject')) if first.get('kind') == 'mail'
+                    else 'a Chat space it posted in' if first.get('kind') == 'chat'
+                    else 'its Asana task' if first.get('kind') == 'asana' else '')
+    e['back'] = [r for r in e.get('back') or [] if now - r.get('at', 0) < KEY_DAYS * 86400][-(BACK_MAX - 1):] + [
+        {'at': now, 'places': places, 'mail': mail, 'what': what}]
+
+
+def note_back(cse, tp, box='', threads=(), subject='', now=None):
+    """A wait brought the session back (wait.py): its email thread(s) in `box`, kept as add_back() keeps them; a wait
+    with no thread (a pull request, a time) is kept as a bring-back with no place."""
+    if not cse:
+        return
+    now = now or time.time()
+    W = peek()
+    e = W.setdefault('sessions', {}).setdefault(cse, {'start': now, 'files': {}, 'keys': [], 'told': [], 'pending': []})
+    if tp and not e.get('transcript'):
+        e['transcript'] = tp
+    add_back(e, [{'kind': 'mail', 'box': box, 'thread_id': t, 'subject': subject}
+                 for t in dict.fromkeys(threads) if t and box], now, what='' if box and any(threads) else 'a wait')
+    save(W)
+
+
+def tail(tp, size=3000000):
+    """The last whole lines of a session's record (bytes)."""
+    try:
+        with open(tp, 'rb') as f:
+            f.seek(0, 2)
+            end = f.tell()
+            f.seek(max(0, end - size))
+            lines = f.read().split(b'\n')
+    except OSError:
+        return []
+    return lines[1:] if end > size else lines
+
+
+def last_turn(tp):
+    """When the session's last turn ended, near enough: the time of the last line of its record that has one. 0 when
+    none is found."""
+    for raw in reversed(tail(tp, 400000)):
+        if b'"timestamp"' not in raw:
+            continue
+        try:
+            x = json.loads(raw)
+        except ValueError:
+            continue
+        t = stamp(x.get('timestamp')) if isinstance(x, dict) else 0
+        if t:
+            return t
+    return 0
+
+
+def last_prompt(tp):
+    """(time, text) of the last prompt in the session's record: the person's, or the Kit's own ("[Sttark Claude Kit]
+    ..."); (0, '') when the tail has none."""
+    for raw in reversed(tail(tp)):
+        if not USER.search(raw, 0, 800) or b'tool_result' in raw:
+            continue
+        try:
+            x = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(x, dict) and person_prompt(x):
+            c = (x.get('message') or {}).get('content')
+            return stamp(x.get('timestamp')), (text_of(c) if isinstance(c, list) else c) or ''
+    return 0, ''
+
+
+def about(cse, now=None):
+    """What a message the session keeps in the Kit now is about (notify.py keep_in_kit()): the places of the Kit's
+    latest bring-back of it, when its turn now is that bring-back's (its last prompt is the Kit's own, typed within 15
+    minutes of it, in the last 6 hours). None otherwise: a turn the person started is about what they asked, and one
+    the Kit started for a wait with no thread is about no place."""
+    now = now or time.time()
+    e = (peek().get('sessions') or {}).get(cse) or {}
+    recs = e.get('back') or []
+    if not recs or not recs[-1].get('places') or not e.get('transcript'):
+        return None
+    rec = recs[-1]
+    at, text = last_prompt(e['transcript'])
+    if not text.lstrip().startswith('[Sttark Claude Kit]') or not rec['at'] - 120 <= at <= rec['at'] + 900 \
+            or now - rec['at'] > 6 * 3600:
+        return None
+    return {'at': rec['at'], 'places': rec['places'], 'what': rec.get('what') or ''}
+
+
+def done_own(e, mid):
+    return mid in (e.get('own') or []) or any(m.get('id') == mid and m.get('own') for m in e.get('pending') or [])
+
+
+def own_mail(m, box, sess, places):
+    """The sessions a mail the person sent is a reply for, [(cse, item)]: each that watches or waits on its thread."""
+    out = []
+    for cse, e in sess.items():
+        key = (box, m.get('thread_id'))
+        if key not in places[cse][0] or m['at'] <= e.get('floor', 0) or done_own(e, m['id']):
+            continue
+        out.append((cse, dict(m, box=box, own=True, place='mail:%s:%s' % key,
+                              where='in the email thread "%s"' % short(places[cse][0][key] or m.get('subject')))))
+    return out
+
+
+def own_chat(m, sess, places):
+    """The sessions a Chat post of the person's own counts for, [(cse, item)]: each that posted in its space. A reply
+    in the thread of the session's post is narrow; any other post in the space is broad: checked first (check_broad())."""
+    thread, reply = chat_thread(m.get('id'))
+    out = []
+    for cse, e in sess.items():
+        threads = places[cse][1].get(m['space'])
+        if threads is None or m['at'] <= e.get('floor', 0) or done_own(e, m['id']):
+            continue
+        narrow = reply and thread in threads
+        one = dict(m, own=True, place='chat:' + m['space'], why='you posted in this Chat space',
+                   where='in the thread of its Chat post' if narrow else 'in a Chat space it posted in')
+        if not narrow:
+            one.update(broad=True, said=next((k.get('said', '') for k in e['keys'] if k['k'] == 'chat' and k['v'] == m['space']), ''))
+        out.append((cse, one))
+    return out
+
+
+def own_asana(m, sess, places):
+    """The sessions an Asana comment of the person's own counts for, [(cse, item)]: each that commented on the task
+    or made it."""
+    return [(cse, dict(m, own=True, place='asana:' + m['task'], where='on its Asana task %s' % m['task']))
+            for cse, e in sess.items() if m['task'] in places[cse][2] and m['at'] > e.get('floor', 0) and not done_own(e, m['id'])]
+
+
+QUOTE = re.compile(r'\s(?:On (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|\d).{0,200}? wrote:|-{2,} ?(?:Original|Forwarded) '
+                   r'[Mm]essage|From: \S)')
+
+
+def own_words(m, n=OWN_SAID):
+    """The first lines of the person's own reply: its words up to the quote of the message it answers."""
+    t = m.get('text') if m['kind'] in ('chat', 'asana') else m.get('snippet')
+    t = re.sub(r'\s+', ' ', html.unescape(t or '')).strip()
+    return QUOTE.split(' ' + t)[0].strip()[:n]
+
+
+def own_line(m):
+    """One reply of the person's, for the session's note: where, when, the first lines, and how to read it."""
+    how = ''
+    if m['kind'] == 'mail':
+        how = (' (to read it: claude-mail read %s %s)' % (m['box'], m['id']) if direct_read(m.get('box'))
+               else " (to read it: Workrouter's gmail_read_message, message_id %s)" % m['id'])
+    elif m['kind'] == 'asana':
+        how = ' (the task: https://app.asana.com/0/0/%s)' % m['task']
+    return '- %s, %s: "%s"%s' % (m['where'][0].upper() + m['where'][1:],
+                                 time.strftime('%a %b %-d %-I:%M %p', time.localtime(m['at'])),
+                                 own_words(m) or '(no words)', how)
+
+
+def own_note(mine, wm, wake=False):
+    """The session's note of the person's own replies: where, when and the first lines of each, the message kept in
+    the Kit and the wait they touch, and that it marks its item handled with no message to anyone."""
+    lines = ['[Sttark Claude Kit] The person replied themselves, after your last turn, in a place this session '
+             'watches:'] + [own_line(m) for m in mine[:6]]
+    if len(mine) > 6:
+        lines.append('- And %d more.' % (len(mine) - 6))
+    kept = [k for m in mine for k in m.get('kept') or []]
+    if kept:
+        lines.append('The Kit marked the message you kept in the Kit app about it as handled, so it shows "You replied '
+                     '%s": %s.' % (wm.clock(mine[0]['at']), '; '.join('"%s"' % s for _, s in kept[:3])))
+    waits = list(dict.fromkeys(w for m in mine for w, _ in m.get('waits') or []))
+    if waits:
+        lines.append("Your email reply wait %s stays open: the person's own reply does not end it, so it still waits "
+                     "for the other person. Cancel it (claude-wait --cancel <id>) only if their reply is no longer "
+                     "needed." % ', '.join(waits))
+    lines.append('If an item of yours waited on this reply (a question to the person, a draft for them to send, a '
+                 'next step), mark it handled in your notes and your status now. This needs no message: do not send '
+                 'claude-notify for it, and do not ask the person about it.' + (
+                     ' Then end the turn with one line.' if wake else ''))
+    return '\n'.join(lines)
+
+
+def mark_waits(wm, cse, m, dry=False):
+    """The session's open email reply waits on the thread the person replied in: each stays open (its check still
+    waits for the other person) and gets `replied` = {at, where, id}, so its row says "You replied <time>". Returns
+    [(wait id, first)]: first when it had no reply of the person's before."""
+    def fits(w):
+        return (w.get('cse') == cse and w.get('kind') == 'email-reply' and w.get('stage') != 'back'
+                and w.get('target') and w.get('target') == m.get('thread_id')
+                and (w.get('mailbox') or me()).lower() == m.get('box') and m['at'] > (w.get('set_at') or 0)
+                and m['at'] > ((w.get('replied') or {}).get('at') or 0))
+    if m['kind'] != 'mail' or not any(fits(w) for w in (wm.peek().get('waits') or {}).values()):
+        return []
+    got = []
+
+    def edit(s):
+        for wid, w in (s.get('waits') or {}).items():
+            if fits(w):
+                got.append((wid, not w.get('replied')))
+                if not dry:
+                    w['replied'] = {'at': m['at'], 'where': re.sub(r'^(in|on) ', '', m['where']), 'id': m['id']}
+    wm.change(edit)
+    return got
+
+
+def prepare_own(wm, cse, e, mine):
+    """The Kit's part of the person's own replies, once for each (kept on it, so a retry does none of it twice): the
+    session's messages kept in the Kit about that place get "You replied <time>" (notify.py mark_replied()); its email
+    reply wait on that thread stays open and gets `replied` (mark_waits()); the session is told only when the reply
+    came after its last turn (`tell`), and brought back for it only when such a kept message or wait depends on it
+    (`wake`)."""
+    end = None
+    for m in mine:
+        if m.get('done'):
+            continue
+        try:
+            kept = load('notify').mark_replied(m['place'], m['at'], re.sub(r'^(in|on) ', '', m['where']), m['id'],
+                                               cse=cse, dry=DRY)
+        except Exception as x:
+            kept = []
+            log('%s could not mark its messages kept in the Kit: %s: %s' % (cse[:12], type(x).__name__, str(x)[:160]))
+        try:
+            waits = mark_waits(wm, cse, m, dry=DRY)
+        except Exception as x:
+            waits = []
+            log('%s could not mark its waits: %s: %s' % (cse[:12], type(x).__name__, str(x)[:160]))
+        if end is None:
+            end = last_turn(e['transcript'])
+        m.update(done=True, kept=kept, waits=waits, tell=m['at'] > end,
+                 wake=m['at'] > end and bool(kept or any(first for _, first in waits)),
+                 why_wake='a message kept in the Kit depends on it' if kept else 'its email reply wait depends on it')
+
+
+def own_log(cse, title, m, wm, then):
+    """One line for each reply of the person's (the Events page has a row for each): where, when, the first words,
+    and what the Kit did."""
+    did = ['its message in the Kit "%s" now shows You replied %s' % (s[:60], wm.clock(m['at'])) for _, s in m.get('kept') or []]
+    did += ['its wait %s shows You replied %s and still waits for the other person' % (w, wm.clock(m['at']))
+            for w, _ in m.get('waits') or []]
+    did.append(then if m.get('tell') else 'not told: it had a turn since your reply')
+    log('replied %s "%s" %s, %s: %s | %s' % (cse[:12], title, m['where'], wm.clock(m['at']),
+                                            own_words(m, 80).replace('|', '/') or '-', '; '.join(did)))
+
+
+def queue_note(wm, cse, title, text, mine):
+    """A note of the person's own replies for the session's next prompt (effort-hook.py take_replied()), in the
+    state file under its lock: `replied` on the session."""
+    def edit(s):
+        x = s.setdefault('sessions', {}).setdefault(cse, {})
+        x['replied'] = (x.get('replied') or [])[-9:] + [{'at': time.time(), 'ids': [m['id'] for m in mine],
+                                                          'where': mine[0]['where'], 'title': title, 'text': text}]
+    wm.change(edit)
+
+
 # --- the check ----------------------------------------------------------------------------------------------------
 
 def told(cse):
@@ -1077,13 +1417,20 @@ def mark_told(cse, ids):
 
 def check(wm=None, now=None):
     """The minute check, after the waits: reads what each due mailbox and space got, matches it to the sessions,
-    and brings each session back once with what came for it."""
+    and brings each session back once with what came for it. The person's own replies in a session's places come in
+    the same reads (own_queries(), Chat posts, an Asana task's comments) and go to each session that watches the place
+    (deliver_one() tells it once)."""
     wm = wm or load('wait')
     now = now or time.time()
     me_ = me()
     own = own_sites(me_)
     W = peek()
     sess = watched(W, wm, now, me_, own)
+    waits_of = {}
+    for w in (wm.peek().get('waits') or {}).values():
+        if w.get('cse') and w.get('stage') != 'back':
+            waits_of.setdefault(w['cse'], []).append(w)
+    places = {cse: watch_places(e, waits_of.get(cse, []), me_) for cse, e in sess.items()}
     boxes = W.setdefault('boxes', {})
     by_box = {}
     every_box = [me_] + [x for x in direct_boxes(wm) if x != me_]   # where a platform's notice can land
@@ -1094,21 +1441,32 @@ def check(wm=None, now=None):
             for b in ([k['box']] if k.get('box') not in ('', '*') else every_box):
                 if b:
                     by_box.setdefault(b, []).append(k)
+    mine_box = {}  # the threads of each mailbox where the person's own reply counts: {box: {thread id: subject}}
+    for cse in sess:
+        for (b, tid), subject in places[cse][0].items():
+            t = mine_box.setdefault(b, {})
+            t[tid] = t.get(tid) or subject
     cache = {}
     found = []
     model_calls, model_boxes = [], {}
     hour = time.localtime(now).tm_hour
-    for box, keys in by_box.items():
+    for box in list(by_box) + [b for b in mine_box if b not in by_box]:
+        keys = by_box.get(box) or []
+        if not keys and not wm.direct(box) and box != me_:
+            continue  # only the person's own replies, in a mailbox this Mac cannot read: nothing to say
         b = boxes.setdefault(box, {})
         floor = min([e['floor'] for e in sess.values() if any(k in e['keys'] for k in keys)] or [now])
         since = int(max(b['read_at'] - OVERLAP, now - BACK_DAYS * 86400) if b.get('read_at') else
                     max(floor, now - BACK_DAYS * 86400))
+        qs = queries(keys, since) + own_queries(mine_box.get(box), since, me_)
+        if not qs:
+            continue
         if wm.direct(box):
             if now - max(b.get('read_at', 0), b.get('tried_at', 0)) < MAIL_EVERY:
                 continue
             b['tried_at'] = now
             try:
-                msgs = read_direct(box, queries(keys, since), load('mail'))
+                msgs = read_direct(box, qs, load('mail'))
             except Exception as x:
                 fail(b, box, x, now)
                 continue
@@ -1119,7 +1477,7 @@ def check(wm=None, now=None):
             # a Haiku run: every MODEL_EVERY from 7 AM to 9 PM; one that failed tries again after 10 minutes
             if now - b.get('read_at', 0) < MODEL_EVERY or now - b.get('tried_at', 0) < 600 or not 7 <= hour < 21:
                 continue
-            for q in queries(keys, since):
+            for q in qs:
                 model_boxes[len(model_calls)] = box
                 model_calls.append(('gmail_search', {'query': q, 'max_results': 20, 'include_body': True,
                                                      'body_chars': 300}))
@@ -1141,9 +1499,31 @@ def check(wm=None, now=None):
         for s in spaces:
             model_boxes[len(model_calls)] = s
             model_calls.append(('gchat_search_messages', {'space_id': s, 'filter': 'createTime > "%s"' % iso}))
+    # The person's own comments on an Asana task a session touched: Asana mails no one about their own comment, so the
+    # Workrouter run reads the task's latest comments when it runs for the mailbox or Chat (never a run of its own).
+    tasks = {}
+    for e in sess.values():
+        for k in e['keys']:
+            if k['k'] == 'asana' and now - k['at'] < TASK_DAYS * 86400:
+                tasks[k['v']] = max(tasks.get(k['v'], 0), k['at'])
+    asana = W.setdefault('asana', {})
+    asince = 0
+    if model_calls and tasks:
+        asince = asana['read_at'] - OVERLAP if asana.get('read_at') else \
+            max(min([e['floor'] for e in sess.values() if any(k['k'] == 'asana' for k in e['keys'])] or [now]),
+                now - BACK_DAYS * 86400)
+        if not asana.get('me') or now - asana.get('me_at', 0) > 86400:
+            model_boxes[len(model_calls)] = 'asana'
+            model_calls.append(('asana_whoami', {}))
+        for g in sorted(tasks, key=lambda x: -tasks[x])[:MAX_TASKS]:
+            model_boxes[len(model_calls)] = 'asana'
+            model_calls.append(('asana_get_task_stories', {'task_gid': g, 'limit': 5}))
+
+    def rec_of(target):
+        return chat if target.startswith('spaces/') else asana if target == 'asana' else boxes.setdefault(target, {})
     if model_calls and not held():
         for target in set(model_boxes.values()):
-            (chat if target.startswith('spaces/') else boxes.setdefault(target, {}))['tried_at'] = now
+            rec_of(target)['tried_at'] = now
         try:
             got, why = run_model(model_calls, wm)
         except Exception as x:
@@ -1161,35 +1541,62 @@ def check(wm=None, now=None):
                 r = loads(text)
                 if t == 'gmail_search':
                     found += [(target, dict(mail_of(e), kind='mail')) for e in r.get('emails') or []]
-                else:
+                elif t == 'gchat_search_messages':
                     found += [(target, dict(chat_of(target, m), kind='chat')) for m in r.get('messages') or []]
+                elif t == 'asana_whoami':
+                    if r.get('name'):
+                        asana.update(me=r['name'], me_at=now)
+                else:
+                    found += [('', dict(asana_of(a['task_gid'], c), kind='asana')) for c in r.get('comments') or []
+                              if isinstance(c, dict) and stamp(c.get('created_at')) > asince]
         for target, ok in ok_boxes.items():
-            rec = boxes.setdefault(target, {}) if not target.startswith('spaces/') else chat
+            rec = rec_of(target)
             if ok:
                 rec.update(read_at=now, via='model')
                 rec.pop('failing', None)
             else:
                 fail(rec, target, RuntimeError(why or 'Haiku did not make the call'), now)
     save(W)  # what was read, and when, before anything that could fail: a read is never made again for nothing
-    picked = {}
+    picked, own_picked = {}, {}
     taken = set()  # a message one session got (or was told about) never goes to another
     for x in (W.get('sessions') or {}).values():
         taken.update(x.get('told') or [])
         taken.update(x.get('skipped') or [])
-        taken.update(m.get('id') for m in x.get('pending') or [])
+        taken.update(m.get('id') for m in x.get('pending') or [] if not m.get('own'))
+    posts = set()  # a session's own posts: their sender is the person in Chat, whose other posts are their own replies
+    for box, m in found:
+        if m['kind'] == 'chat' and m.get('id'):
+            mine = [e for e in sess.values() if any(k['k'] == 'chat' and k['v'] == m['space'] for k in e['keys'])
+                    and own_post(e, m, cache)]
+            for e in mine:
+                learn_post(e, m)
+            if mine:
+                posts.add(m['id'])
+                if m.get('from'):
+                    chat['me'] = m['from']
+
+    def own_of(box, m):
+        """The sessions the person's own message counts for: [(cse, item)], or None when it is not the person's."""
+        if m['kind'] == 'mail':
+            return own_mail(m, box, sess, places) if me_ and sender(m.get('from')) == me_ else None
+        if m['kind'] == 'chat':
+            return own_chat(m, sess, places) if chat.get('me') and m.get('from') == chat['me'] else None
+        if asana.get('me') and m.get('from') == asana['me'] and not any(
+                own_post(e, m, cache) for e in sess.values()
+                if any(k['k'] == 'asana' and k['v'] == m['task'] for k in e['keys'])):
+            return own_asana(m, sess, places)  # not a comment a session made, as the person, through Workrouter
+        return []
     for box, m in found:
         try:
-            if not m.get('id') or not m.get('at') or m['id'] in taken:
+            if not m.get('id') or not m.get('at') or m['id'] in posts:
+                continue  # a session's own post
+            mine = own_of(box, m)
+            if mine is not None:  # the person's own: to each session that watches the place, and to no one else
+                for cse, one in mine:
+                    own_picked.setdefault(cse, {})[m['id']] = one
                 continue
-            if m['kind'] == 'chat':
-                mine = [e for e in sess.values() if any(k['k'] == 'chat' and k['v'] == m['space'] for k in e['keys'])
-                        and own_post(e, m, cache)]
-                for e in mine:
-                    learn_post(e, m)
-                if mine and m.get('from'):
-                    chat['me'] = m['from']  # its sender is the person: their other posts never count either
-                if mine or (chat.get('me') and m.get('from') == chat['me']):
-                    continue  # the session's own post, or the person's
+            if m['id'] in taken:
+                continue
             for strength, _, cse, k in sessions_for(m, box, sess, me_):
                 if seen(sess[cse], m, cache):
                     continue
@@ -1201,15 +1608,17 @@ def check(wm=None, now=None):
             taken.add(m['id'])
         except Exception as x:  # one odd message never stops the others
             log('could not match a message (%s): %s: %s' % (m.get('id', '?'), type(x).__name__, str(x)[:160]))
-    for cse, ms in picked.items():
+    for cse, ms in list(picked.items()) + list(own_picked.items()):
         sess[cse].setdefault('pending', []).extend(sorted(ms.values(), key=lambda x: x['at']))
     for box, b in boxes.items():
         n = sum(1 for bx, m in found if bx == box)
         if b.get('read_at') == now and (n or now - b.get('logged_at', 0) >= 3600):
             b['logged_at'] = now
-            log('%s read (%s): %d new message%s, %d for a session' % (
+            mine = len({m['id'] for c in own_picked.values() for m in c.values() if m.get('box') == box})
+            log('%s read (%s): %d new message%s, %d for a session%s' % (
                 box, 'no model' if b.get('via') == 'mail' else 'Haiku through Workrouter', n, '' if n == 1 else 's',
-                sum(1 for c in picked.values() for m in c.values() if m.get('box') == box)))
+                sum(1 for c in picked.values() for m in c.values() if m.get('box') == box),
+                ', %d of your own replies where a session watches' % mine if mine else ''))
     save(W)
     deliver(W, wm, sess, cache, now)
     save(W)
@@ -1330,7 +1739,9 @@ def question(e, m):
     """What the check of a broad match reads: the session, what it sent on the channel, and the new message."""
     how = re.sub(r'\byour\b', "the session's", re.sub(r'\byou\b', 'the session', m.get('why') or ''))
     if m['kind'] == 'chat':
-        new = 'A post in the Google Chat space or direct message, from %s:\n%s' % (m.get('from') or 'someone', m.get('text', ''))
+        new = 'A post in the Google Chat space or direct message, from %s:\n%s' % (
+            'the person themselves (the one the session works for)' if m.get('own') else m.get('from') or 'someone',
+            m.get('text', ''))
     else:
         new = 'Mail from %s, subject "%s":\n%s' % (m.get('from', ''), m.get('subject', ''), m.get('snippet', ''))
     return '\n'.join([
@@ -1363,7 +1774,8 @@ def ask(text, claude):
 def check_broad(wm, cse, e, title, m):
     """Asks whether a broad match is about the session's work, and keeps the answer on the message (verdict): yes,
     no, or error (the call failed: it comes back all the same, so nothing is lost)."""
-    who = '%s in Chat' % (m.get('from') or 'someone') if m['kind'] == 'chat' else m.get('from') or 'someone'
+    who = 'you in Chat' if m.get('own') else '%s in Chat' % (m.get('from') or 'someone') if m['kind'] == 'chat' \
+        else m.get('from') or 'someone'
     try:
         yes, why = ask(question(e, m), getattr(wm, 'CLAUDE', ''))
     except Exception as x:
@@ -1379,8 +1791,11 @@ def check_broad(wm, cse, e, title, m):
 
 
 def deliver_one(wm, cse, e, cache, now):
-    """One session's new messages: bring it back with them, or keep them for its next minute."""
-    pend = [m for m in e.get('pending') or [] if not seen(e, m, cache)]
+    """One session's new messages: bring it back with them, or keep them for its next minute. The person's own
+    replies (`own`) are told once, with no alert: with the messages it comes back for, else a note for its next prompt,
+    or a bring-back with the note when a message kept in the Kit or an email reply wait depends on it."""
+    pend = [m for m in e.get('pending') or []
+            if (m['id'] not in (e.get('own') or []) if m.get('own') else not seen(e, m, cache))]
     e['pending'] = pend
     if not pend:
         return
@@ -1401,34 +1816,61 @@ def deliver_one(wm, cse, e, cache, now):
         if any(not m.get('verdict') for m in todo):
             return  # more checks than one minute holds: the rest next minute, then the session comes back once
         # skipped, not told: a wait of the session's own still sees the message, and decides for itself
-        e['skipped'] = (e.get('skipped', []) + [m['id'] for m in pend if m.get('verdict') == 'no'])[-500:]
+        e['skipped'] = (e.get('skipped', []) + [m['id'] for m in pend if m.get('verdict') == 'no' and not m.get('own')])[-500:]
+        e['own'] = (e.get('own', []) + [m['id'] for m in pend if m.get('verdict') == 'no' and m.get('own')])[-500:]
         e['pending'] = pend = [m for m in pend if m.get('verdict') != 'no']
         if not pend:
             return
+    others = [m for m in pend if not m.get('own')]
+    mine = [m for m in pend if m.get('own')]
+    prepare_own(wm, cse, e, mine)
+    tell = [m for m in mine if m.get('tell')]
+    wake = [m for m in tell if m.get('wake')]
+
+    def own_done(then):
+        for m in mine:
+            own_log(cse, title, m, wm, then)
+        e['own'] = (e.get('own', []) + [m['id'] for m in mine])[-500:]
+    if mine and not others and not wake:  # no bring-back: a note for its next prompt, or nothing when it knows
+        if tell and DRY:
+            print('would note for %s (%s): %d of your own replies' % (title, cse, len(tell)))
+        elif tell:
+            queue_note(wm, cse, title, own_note(tell, wm), tell)
+        own_done('would be noted for its next prompt (dry)' if DRY else 'noted for its next prompt')
+        e['pending'] = []
+        return
     # A wait brought it back moments ago: it reads its first prompt now, so these wait for that turn to end.
     if any(w.get('cse') == cse and w.get('stage') == 'back' and time.time() - w.get('back_at', 0) < 180
            for w in (wm.peek().get('waits') or {}).values()):
         return
-    what = '; '.join('%s "%s"' % (m['from'] or 'Chat', (m.get('subject') or m.get('text') or '')[:60]) for m in pend[:3])
+    note = own_note(tell, wm, wake=not others) if tell else ''
+    why = ('new messages came in too' if others else wake[0]['why_wake'])
+    what = '; '.join('%s "%s"' % (m['from'] or 'Chat', (m.get('subject') or m.get('text') or '')[:60]) for m in others[:3])
     if DRY:
-        print('would wake %s (%s) with %d new: %s' % (title, cse, len(pend), what))
-        log('%s "%s" would come back (dry) for %s' % (cse[:12], title, what))
-        e['told'] = (e.get('told', []) + [m['id'] for m in pend])[-500:]
+        add_back(e, others, now)
+        if others:
+            print('would wake %s (%s) with %d new: %s' % (title, cse, len(others), what))
+            log('%s "%s" would come back (dry) for %s' % (cse[:12], title, what))
+        else:
+            print('would wake %s (%s) with a note of %d of your own replies' % (title, cse, len(tell)))
+        own_done('would come back (dry) with a note')
+        e['told'] = (e.get('told', []) + [m['id'] for m in others])[-500:]
         e['pending'] = []
         return
     w = {'id': 'w' + cse[-5:], 'cse': cse, 'transcript': e['transcript'], 'cwd': e.get('cwd') or '',
          'title': title, 'session_url': e.get('url', '')}
     try:
-        ok = wm.bring_back(w, prompt_for(cse, e, pend, wm))
+        ok = wm.bring_back(w, '\n\n'.join(x for x in (prompt_for(cse, e, others, wm) if others else '', note) if x))
     except RuntimeError as x:
         if str(x) == 'busy':
+            n = len(pend)
             if now - e.get('busy_said', 0) > 900:
                 if getattr(x, 'work', False):  # its agents, background commands or Monitors (wait.py hold_for_work())
                     log('%s "%s" has agents or background commands at work; it comes back with %d new message%s when '
-                        'they end' % (cse[:12], title, len(pend), '' if len(pend) == 1 else 's'))
+                        'they end' % (cse[:12], title, n, '' if n == 1 else 's'))
                 else:
                     log('%s "%s" is in a turn; it comes back with %d new message%s when the turn ends'
-                        % (cse[:12], title, len(pend), '' if len(pend) == 1 else 's'))
+                        % (cse[:12], title, n, '' if n == 1 else 's'))
                 e['busy_said'] = now
             return
         ok = False
@@ -1436,17 +1878,27 @@ def deliver_one(wm, cse, e, cache, now):
     except Exception as x:
         ok = False
         log('%s "%s" could not come back: %s: %s' % (cse[:12], title, type(x).__name__, str(x)[:160]))
-    e['told'] = (e.get('told', []) + [m['id'] for m in pend])[-500:]
+    e['told'] = (e.get('told', []) + [m['id'] for m in others])[-500:]
     e['pending'] = []
     if ok:
-        log('%s "%s" brought back for %d new message%s: %s' % (cse[:12], title, len(pend),
-                                                               '' if len(pend) == 1 else 's', what))
+        add_back(e, others, now)  # with a note of the person's own replies alone, a bring-back about no place
+        if others:
+            log('%s "%s" brought back for %d new message%s: %s' % (cse[:12], title, len(others),
+                                                                   '' if len(others) == 1 else 's', what))
+        own_done('brought back with a note: ' + why)
+        return
+    if tell:  # it could not come back: the note waits for its next prompt, and nothing alerts
+        queue_note(wm, cse, title, own_note(tell, wm), tell)
+    own_done('noted for its next prompt')
+    if not others:
         return
     try:
         n = load('notify')
         res = n.send('New messages for ' + title, 'New messages came in that may concern the session "%s": '
                      '%s. It could not come back by itself; open it to go on.' % (title, what),
-                     title=title, url=e.get('url', ''), cse=cse, source='kit')
+                     title=title, url=e.get('url', ''), cse=cse, source='kit',
+                     about={'at': now, 'places': list(dict.fromkeys(p for m in others for p in places_of(m))),
+                            'what': 'new messages for it'})
         if res and res[0][0] == n.IN_KIT:  # alerts off (notify.py held()): kept in the Kit app on the session
             log('%s "%s" could not come back; the Kit kept the message in the Kit app (%s)' % (cse[:12], title, res[0][1][1]))
         else:

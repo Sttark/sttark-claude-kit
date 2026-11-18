@@ -403,6 +403,7 @@
           "from": "supplier.example",
           "id": "b2c3d4",
           "kind": "email-reply",
+          "replied": 1794585900,
           "what": "Supplier's reply to the deposit email",
           "why": "They said 2 workdays; later misses this week's slot"
         },

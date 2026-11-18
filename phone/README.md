@@ -14,7 +14,7 @@ What it serves (under `BASE_PATH`, Environment below):
 | Path | What |
 |---|---|
 | `/` | **Sessions**, the first of three tabs: the four groups (Needs you first; a working row shows its last progress check-in under it; a bell with a line through it after the name of a session whose alerts are off, as each session starts until the person turns them on), Idle with a message, Macs away, the usage strip. `?q=` searches the names; `?find=1` shows the search field |
-| `/s/<cse>` | **One session**: what it does (with its last progress check-in while it works), Open in Claude, the messages the Kit kept for it while alerts are off, its waits (Stop, Bring it back now, Stop waiting), effort and Auto, At the usage limit, its Alerts switch, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
+| `/s/<cse>` | **One session**: what it does (with its last progress check-in while it works), Open in Claude, the messages the Kit kept for it while alerts are off (one the person answered themselves says "You replied" and the time), its waits (Stop, Bring it back now, Stop waiting; an email reply whose thread the person replied in says so, and that it still waits for their reply), effort and Auto, At the usage limit, its Alerts switch, its changes from the phone. `?from=usage`, `archived` or `mac:<id>` sets the way back |
 | `/archived` | **Archived**, grouped by day; `?q=` searches names and folders, and also finds the sessions under Waiting on someone else, in their own group (a row opens it under Sessions) |
 | `/archived/<cse>` | One archived session, with **Bring it back** |
 | `/usage` | **Usage**: the 5-hour and weekly limits, the sessions held at them, the Use credits setting, and **By session** (The pages, below): `?p=today`, `7d` (the default), `30d` or `custom` with `from` and `to` (days, `2026-11-02`); `?all=1` shows every row |
@@ -460,7 +460,9 @@ Neue. A deploy runs `npm run fonts` before `npm run build`.
   every row).
 - **The pages** (`test/pages.test.ts`): the groups and their order
   (Idle with a message after Held), a session's kept messages and why they
-  were not sent, the waits note and Menu's line with alerts off, a Mac
+  were not sent, "You replied" and its time on a message and a wait the
+  person answered themselves (and first on their rows), the waits note and
+  Menu's line with alerts off, a Mac
   that is away, Mac names only with several Macs, search, every answer,
   `BASE_PATH` in every link, a Mac's state from the database, and Remove.
   Usage by session: under the limits, biggest share first, the note, the
