@@ -117,7 +117,7 @@ import SwiftUI
             Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
                       to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
             // a search for an archived session that waits: it is under Waiting on someone else, not in the list
-            model.archivedSearch = "laminator"
+            model.archivedSearch = "core"
             model.reload()
             Shot.capture(w, to: folder + "/window-archived-search.png")
             model.archivedSearch = ""
@@ -220,7 +220,7 @@ import SwiftUI
             w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
             let full = "/tmp/kit-shot-\(getpid())-narrow.png"
             Shot.capture(w, to: full)
-            Shot.crop(full, NSRect(x: 226, y: 60, width: 392, height: 252),
+            Shot.crop(full, NSRect(x: 226, y: 60, width: 392, height: 280),
                       to: "whats-new/kit-window" + (look ? "-dark" : "") + ".png")
             // the sessions-at-once note's picture: the page's heading and its first groups
             Shot.crop(full, NSRect(x: 226, y: 0, width: 390, height: 280),
@@ -240,7 +240,7 @@ import SwiftUI
             RunLoop.main.run(until: Date().addingTimeInterval(1))
             // the one-setting note's picture: a held session, pointed at its own setting
             let before = model.selected
-            model.selected = model.snap.rows.first { $0.title == "Site map plan" }?.id
+            model.selected = model.snap.rows.first { $0.title == "Shift schedule" }?.id
             let panel = "/tmp/kit-shot-\(getpid())-held.png"
             Shot.capture(w, to: panel)
             Shot.crop(panel, NSRect(x: 845, y: 255, width: 335, height: 250),
@@ -251,7 +251,7 @@ import SwiftUI
             Shot.capture(w, to: local)
             Shot.crop(local, NSRect(x: 845, y: 74, width: 335, height: 280),
                       to: "whats-new/move-to-remote-control" + (look ? "-dark" : "") + ".png")
-            // the check-ins note's picture: the Claude working group at the window's narrowest, HVAC's row with its
+            // the check-ins note's picture: the Claude working group at the window's narrowest, the blade change's row with its
             // latest check-in
             model.selected = model.snap.rows.first { $0.checkin != nil }?.id
             let wide = w.frame
@@ -515,22 +515,22 @@ enum Sample {
         func logAt(_ m: Double) -> String { lf.string(from: Date().addingTimeInterval(-m * 60)) }
         var lines: [(Double, String)] = [
             (1500, "app    update: installed 1.160, restarting"),
-            (1450, "wake   cse_01Sample7 \"Site map plan\" stopped, not archived; sent high to start it"),
+            (1450, "wake   cse_01Sample7 \"Shift schedule\" stopped, not archived; sent high to start it"),
             (300, "change cse_01Sample9 ->low (1.9s) low - A simple rename across a few files | Rename the report columns to match the new names"),
             (190, "name   sid-sample-9 -> \"Rename report columns\" (2.0s) | Rename the report columns to match the new names"),
-            (62, "agent  cse_01Sample4 Explore ->low (1.9s) low - A short file search. | Find the Events page code"),
-            (61, "agent  cse_01Sample4 general-purpose ->xhigh (2.2s) xhigh - A new page design with judgment calls. | Design the event rows"),
-            (60, "agent  cse_01Sample4 fork low->high (2.0s) high - Code changes across a few files. | Build the filters"),
-            (52, "change cse_01Sample3 medium->low (2.1s) low - Routine edit with a clear plan. | Fix the typo on the exterior lighting page"),
-            (41, "wait   07f324 cse_01Sample5 \"HVAC updates\" set: a reply from the controls supplier, by Mon 9:00 AM | they answer overnight"),
-            (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a full app window. | Add an event viewer to the Kit"),
+            (62, "agent  cse_01Sample4 Explore ->low (1.9s) low - A short file search. | Find the job board code"),
+            (61, "agent  cse_01Sample4 general-purpose ->xhigh (2.2s) xhigh - A new page design with judgment calls. | Design the job rows"),
+            (60, "agent  cse_01Sample4 fork low->high (2.0s) high - Code changes across a few files. | Build the press filters"),
+            (52, "change cse_01Sample3 medium->low (2.1s) low - Routine edit with a clear plan. | Fix the typo in the dock door work order"),
+            (41, "wait   07f324 cse_01Sample5 \"Slitter blade change\" set: a reply from the blade supplier, by Mon 9:00 AM | they answer overnight"),
+            (33, "raise  cse_01Sample4 high->xhigh at 10 steps (1.8s) xhigh - Design question on a new job board. | Add a job board for Press 2"),
             (21, "limit  hold   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM (Bash)"),
             (21, "limit  wait   sid-sample-6/a10a43cb at 80%: the 5-hour limit is at 80%, until 2:40 PM, with no model calls until it ends"),
-            (16, "checkin cse_01Sample5 \"HVAC updates\" shown in the Kit | Photos of the B unit heads and 1 more agent, working 15 min | It read the photos of the A unit heads and found two blocked nozzles. Next it reads the B unit photos."),
-            (1, "checkin cse_01Sample5 \"HVAC updates\" shown in the Kit | Photos of the B unit heads and 1 more agent, working 30 min | It read the B unit photos and marked three heads to clean. Next it writes the list for the technician."),
-            (12, "notify Sttark Claude Kit email ok: sent to you@example.com; it arrives in about a minute | HVAC updates: the supplier replied"),
+            (16, "checkin cse_01Sample5 \"Slitter blade change\" shown in the Kit | Photos of the slitter blades and 1 more agent, working 15 min | It read the photos of blades 1 to 6 and found two dull blades. Next it reads blades 7 to 12."),
+            (1, "checkin cse_01Sample5 \"Slitter blade change\" shown in the Kit | Photos of the slitter blades and 1 more agent, working 30 min | It read the photos of blades 7 to 12 and marked three blades to change. Next it writes the list for the technician."),
+            (12, "notify Sttark Claude Kit email ok: sent to you@example.com; it arrives in about a minute | Slitter blade change: the supplier replied"),
             (9, "error  cse_01Sample8 judge failed: TimeoutExpired"),
-            (6, "change cse_01Sample4 xhigh->high (2.4s) high - The layout is set; now the checks. | Make the rows plain words"),
+            (6, "change cse_01Sample4 xhigh->high (2.4s) high - The layout is set; now the checks. | Show due dates on the rows"),
         ]
         for m in stride(from: 240.0, through: 3, by: -3) { lines.append((m, "limit  usage read failed: HTTP Error 429: Too Many Requests; next read in 2 min, using the last read")) }
         let text = lines.sorted { $0.0 > $1.0 }.map { logAt($0.0) + " " + $0.1 }.joined(separator: "\n") + "\n"
@@ -547,22 +547,22 @@ enum Sample {
         func ago(_ m: Double) -> String { iso(Date().addingTimeInterval(-m * 60)) }
         let list: [(String, [String: Any])] = [
             session(1, "Order page login", "high", ago: 22, app: ["needs": true, "why": "a plan waits for your go-ahead", "last_event_at": ago(22)]),
-            session(2, "Label press manual", "medium", ago: 41, app: ["unseen": true, "last_event_at": ago(41)]),
-            session(3, "Exterior lighting", "low", ago: 8, app: ["unseen": true, "last_event_at": ago(8)]),
-            session(4, "Sttark Claude Kit", "xhigh", ago: 0, reason: "Design question on a full app window", app: ["working": true], turn: 6),
-            session(5, "HVAC updates", "medium", ago: 1, reason: "Summarizes the agents' photos",
-                    app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the B unit heads", "since": now - 31 * 60]]),
-            session(6, "Press color", "high", ago: 0, manual: true, app: ["working": true], turn: 14),
-            session(7, "Site map plan", "high", ago: 30, reason: "Design work across several apps"),
-            session(8, "Inventory photo cleanup", "medium", ago: 50),
+            session(2, "Rewinder PM checklist", "medium", ago: 41, app: ["unseen": true, "last_event_at": ago(41)]),
+            session(3, "Dock door repair", "low", ago: 8, app: ["unseen": true, "last_event_at": ago(8)]),
+            session(4, "Press 2 job board", "xhigh", ago: 0, reason: "Design question on a new job board", app: ["working": true], turn: 6),
+            session(5, "Slitter blade change", "medium", ago: 1, reason: "Summarizes the agents' photos",
+                    app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the slitter blades", "since": now - 31 * 60]]),
+            session(6, "Ink reorder", "high", ago: 0, manual: true, app: ["working": true], turn: 14),
+            session(7, "Shift schedule", "high", ago: 30, reason: "Design work across several pages"),
+            session(8, "Spare parts count", "medium", ago: 50),
             session(9, "Rename report columns", "low", ago: 190, reason: "A simple rename across a few files"),
-            session(10, "Laminator quote", "low", ago: 300, reason: "A simple check of the time and the mail", app: ["archived": true]),
+            session(10, "Core supplier quote", "low", ago: 300, reason: "A simple check of the time and the mail", app: ["archived": true]),
         ]
         var sessions: [String: Any] = [:]
         for (k, v) in list { sessions[k] = v }
         let modes: [String: Any] = [
-            "cse_01Sample7": ["mode": "hold", "at": 80, "sid": "sid-sample-7", "cse": "cse_01Sample7", "title": "Site map plan", "by": "typed", "set_at": now - 3600],
-            "cse_01Sample8": ["mode": "hold", "at": 60, "sid": "sid-sample-8", "cse": "cse_01Sample8", "title": "Inventory photo cleanup", "by": "menu", "set_at": now - 7200],
+            "cse_01Sample7": ["mode": "hold", "at": 80, "sid": "sid-sample-7", "cse": "cse_01Sample7", "title": "Shift schedule", "by": "typed", "set_at": now - 3600],
+            "cse_01Sample8": ["mode": "hold", "at": 60, "sid": "sid-sample-8", "cse": "cse_01Sample8", "title": "Spare parts count", "by": "menu", "set_at": now - 7200],
         ]
         let fiveHour = at(16, 40)
         var daysToSat = (7 - Calendar.current.component(.weekday, from: Date())) % 7   // Saturday is 7
@@ -570,12 +570,12 @@ enum Sample {
         let weekly = at(2, 0, daysAhead: daysToSat)
         let pid = Int(getpid())   // the app drops a row whose process is gone
         let pauses: [String: Any] = [
-            "sid-sample-7": ["sid": "sid-sample-7", "cse": "cse_01Sample7", "title": "Site map plan", "limit": "5-hour", "since": now - 3000,
+            "sid-sample-7": ["sid": "sid-sample-7", "cse": "cse_01Sample7", "title": "Shift schedule", "limit": "5-hour", "since": now - 3000,
                              "until": fiveHour.timeIntervalSince1970, "pid": pid, "what": "hold", "mode": "hold", "at": 80, "percent": 81],
-            "sid-sample-7/toolu_1": ["sid": "sid-sample-7", "agent": "a1b2c3", "cse": "cse_01Sample7", "title": "Site map plan", "limit": "5-hour",
+            "sid-sample-7/toolu_1": ["sid": "sid-sample-7", "agent": "a1b2c3", "cse": "cse_01Sample7", "title": "Shift schedule", "limit": "5-hour",
                                      "since": now - 2990, "until": fiveHour.timeIntervalSince1970, "pid": pid, "what": "hold", "mode": "hold",
                                      "at": 80, "percent": 81],
-            "sid-sample-8": ["sid": "sid-sample-8", "cse": "cse_01Sample8", "title": "Inventory photo cleanup", "limit": "weekly", "since": now - 5400,
+            "sid-sample-8": ["sid": "sid-sample-8", "cse": "cse_01Sample8", "title": "Spare parts count", "limit": "weekly", "since": now - 5400,
                              "until": weekly.timeIntervalSince1970, "pid": pid, "what": "hold", "mode": "hold", "at": 60, "percent": 61],
         ]
         var daysToMon = (9 - Calendar.current.component(.weekday, from: Date())) % 7   // Monday is 2
@@ -584,25 +584,25 @@ enum Sample {
             "a1b2c3": ["id": "a1b2c3", "kind": "email-reply", "target": "18c0sample", "from": "supplier.example",
                        "what": "Supplier's reply to the deposit email", "why": "They said 2 workdays; later misses this week's slot",
                        "by": at(9, 0, daysAhead: daysToMon).timeIntervalSince1970, "set_at": now - 5 * 3600, "cse": "cse_01Sample10",
-                       "title": "Laminator quote", "session_url": "https://claude.ai/code/session_sample10",
+                       "title": "Core supplier quote", "session_url": "https://claude.ai/code/session_sample10",
                        "cwd": NSHomeDirectory() + "/src/purchasing"],
-            "j1k2l3": ["id": "j1k2l3", "kind": "email-reply", "target": "18c1sample", "what": "Supplier's reply on the web path drawing",
+            "j1k2l3": ["id": "j1k2l3", "kind": "email-reply", "target": "18c1sample", "what": "Supplier's reply on the core size drawing",
                        "why": "Same supplier, the older thread", "by": at(9, 0, daysAhead: daysToMon).timeIntervalSince1970 + 3600,
-                       "set_at": now - 5 * 3600, "cse": "cse_01Sample10", "title": "Laminator quote",
+                       "set_at": now - 5 * 3600, "cse": "cse_01Sample10", "title": "Core supplier quote",
                        "session_url": "https://claude.ai/code/session_sample10",
                        "failing": "the Workrouter connector did not load in the check (failed): a Claude outage or its sign-in",
                        "failing_since": now - 2 * 3600, "failures": 4],
-            "d4e5f6": ["id": "d4e5f6", "kind": "pr", "target": "Sttark/example#12", "want": "merged", "what": "Merge of the retry fix PR",
+            "d4e5f6": ["id": "d4e5f6", "kind": "pr", "target": "Sttark/example#12", "want": "merged", "what": "Merge of the report fix PR",
                        "why": "Reviews land within a day; Friday is short", "by": at(17, 0, daysAhead: 2).timeIntervalSince1970,
-                       "set_at": now - 3600, "cse": "cse_01Sample11", "title": "Usage report retry",
+                       "set_at": now - 3600, "cse": "cse_01Sample11", "title": "Scrap report fix",
                        "url": "https://github.com/Sttark/example/pull/12", "session_url": "https://claude.ai/code/session_sample11"],
-            "g7h8i9": ["id": "g7h8i9", "kind": "check-script", "what": "12 in of new snow at the resort", "every": 7200,
-                       "why": "The season's first big storm", "by": now + 40 * 86400, "set_at": now - 86400,
-                       "cse": "cse_01Sample12", "title": "Powder watch", "session_url": "https://claude.ai/code/session_sample12"],
+            "g7h8i9": ["id": "g7h8i9", "kind": "check-script", "what": "Film price under the last quote", "every": 7200,
+                       "why": "The supplier sets new prices each month", "by": now + 40 * 86400, "set_at": now - 86400,
+                       "cse": "cse_01Sample12", "title": "Film price watch", "session_url": "https://claude.ai/code/session_sample12"],
         ]
-        // two sessions whose alerts the person turned off: the long powder watch, and an idle rename
+        // two sessions whose alerts the person turned off: the long film price watch, and an idle rename
         let alertsOff: [String: Any] = [
-            "cse_01Sample12": ["at": now - 2 * 86400, "by": "window", "title": "Powder watch"],
+            "cse_01Sample12": ["at": now - 2 * 86400, "by": "window", "title": "Film price watch"],
             "cse_01Sample9": ["at": now - 3 * 3600, "by": "phone", "title": "Rename report columns"],
         ]
         let state: [String: Any] = [
@@ -617,35 +617,35 @@ enum Sample {
             "limits": [["kind": "session", "percent": 100, "resets_at": iso(fiveHour), "is_active": true],
                        ["kind": "weekly_all", "percent": 64, "resets_at": iso(weekly), "is_active": false]]]]
         try! JSONSerialization.data(withJSONObject: state).write(to: dir.appendingPathComponent("state.json"))
-        // the progress check-ins (checkin.py): the latest note of HVAC's work, which runs 31 min
+        // the progress check-ins (checkin.py): the latest note of the blade change's work, which runs 31 min
         let checkins: [String: Any] = ["sessions": [
             "cse_01Sample5": ["start": now - 31 * 60, "seen": now - 20, "sent": now - 60, "n": 2, "note_at": now - 60,
-                              "subject": "Photos of the B unit heads and 1 more agent, working 30 min",
-                              "note": "It read the B unit photos and marked three heads to clean. Next it writes the list for the technician."],
+                              "subject": "Photos of the slitter blades and 1 more agent, working 30 min",
+                              "note": "It read the photos of blades 7 to 12 and marked three blades to change. Next it writes the list for the technician."],
         ]]
         try! JSONSerialization.data(withJSONObject: checkins).write(to: dir.appendingPathComponent("checkins.json"))
         try! JSONSerialization.data(withJSONObject: usage).write(to: dir.appendingPathComponent("usage.json"))
         // sessions that run only on this Mac, as migrate.py --scan lists them
         let local: [String: Any] = ["at": now, "sessions": [
-            ["id": "5f1c2e7a-sample-local-1", "title": "Bin label sizes", "cwd": NSHomeDirectory() + "/src/labels", "where": "terminal",
+            ["id": "5f1c2e7a-sample-local-1", "title": "Box label sizes", "cwd": NSHomeDirectory() + "/src/shipping", "where": "terminal",
              "last": now - 35 * 60, "transcript": "/sample/5f1c2e7a.jsonl", "model": "claude-opus-5-5", "pending": false],
             ["id": "9a3d4b8c-sample-local-2", "title": "Weekly plan", "cwd": NSHomeDirectory() + "/Documents/plans", "where": "desktop",
              "last": now - 3 * 3600, "transcript": "/sample/9a3d4b8c.jsonl", "model": "claude-opus-5-5", "pid": pid, "busy": false, "pending": false],
         ]]
         try! JSONSerialization.data(withJSONObject: local).write(to: dir.appendingPathComponent("local-sessions.json"))
-        // archived sessions this Mac can bring back, as effort-hook.py archived() writes them; the Laminator quote
+        // archived sessions this Mac can bring back, as effort-hook.py archived() writes them; the Core supplier quote
         // has a Kit wait, so the page leaves it out (it shows under Waiting on someone else)
         func archived(_ n: Int, _ title: String, _ folder: String, _ when: Date, _ doing: String) -> [String: Any] {
             ["cse": "cse_01Sample\(n)", "title": title, "folder": NSHomeDirectory() + folder, "transcript": "/sample/arch-\(n).jsonl",
              "archived_at": when.timeIntervalSince1970, "url": "https://claude.ai/code/session_01Sample\(n)", "doing": doing]
         }
         let arch: [String: Any] = ["at": now - 40, "rev": "sample", "items": [
-            archived(20, "Bin label printer", "/src/labels", at(10, 5), "Sent the new label size to the printer; the test print fits the bin."),
-            archived(10, "Laminator quote", "/src/purchasing", at(9, 50), "Waits for the supplier's reply."),
+            archived(20, "Shipping label printer", "/src/shipping", at(10, 5), "Sent the new label size to the printer; the test print fits the box."),
+            archived(10, "Core supplier quote", "/src/purchasing", at(9, 50), "Waits for the supplier's reply."),
             archived(21, "Supplier deposit", "/src/purchasing", at(9, 20), "Drafted the reply with the new ship date; it waits in Gmail."),
-            archived(22, "Door relay fix", "/src/building", at(16, 40, daysAhead: -1), "Merged the relay timing fix; the door unlocks in 2 seconds."),
-            archived(23, "Press color notes", "/src/docs", at(14, 10, daysAhead: -1), "Added the new profile names to the color chapter."),
-            archived(24, "Fan blade test", "/src/tile-fan", at(15, 30, daysAhead: -3), "Printed the test blade; the cap fits the motor."),
+            archived(22, "Dryer belt change", "/src/maintenance", at(16, 40, daysAhead: -1), "Logged the new belt; the dryer runs at full speed again."),
+            archived(23, "Press setup notes", "/src/docs", at(14, 10, daysAhead: -1), "Added the new plate sizes to the setup chapter."),
+            archived(24, "Guard bracket print", "/src/fixtures", at(15, 30, daysAhead: -3), "Printed the test bracket; the guard fits the frame."),
             archived(25, "Weekly plan", "/Documents/plans", at(8, 45, daysAhead: -3), ""),
         ]]
         try! JSONSerialization.data(withJSONObject: arch).write(to: dir.appendingPathComponent("archived.json"))
@@ -653,13 +653,13 @@ enum Sample {
         let days = (0..<30).map { SessionUsage.day(Date(), plus: $0 - 29) }
         // name, kind, Remote Control id, minutes since last active, its use a day in dollars, its agents' part, agents a day
         let made: [(String, String, String?, Double, Double, Double, Int)] = [
-            ("Site map plan", "session", "cse_01Sample7", 27, 126, 0.82, 11), ("Sttark Claude Kit", "session", "cse_01Sample4", 3, 122, 0.95, 8),
-            ("HVAC updates", "session", "cse_01Sample5", 9, 38, 0.81, 4), ("Press color", "session", "cse_01Sample6", 4, 33, 0.91, 4),
-            ("Order page login", "session", "cse_01Sample1", 22, 17, 0.82, 3), ("Inventory photo cleanup", "session", "cse_01Sample8", 50, 16, 0.85, 3),
-            ("Laminator quote", "session", "cse_01Sample10", 300, 15, 0.36, 2), ("Powder watch", "session", "cse_01Sample12", 1500, 13, 0.78, 1),
-            ("Usage report retry", "session", "cse_01Sample11", 2900, 11, 0.70, 1), ("Bin label printer", "session", "cse_01Sample20", 95, 9, 0.85, 1),
-            ("Door relay fix", "session", "cse_01Sample22", 1100, 8, 0.48, 1), ("Bin label sizes", "local", nil, 35, 7, 0, 0),
-            ("Exterior lighting", "session", "cse_01Sample3", 8, 6, 0.30, 1), ("Label press manual", "session", "cse_01Sample2", 41, 5, 0.40, 1),
+            ("Shift schedule", "session", "cse_01Sample7", 27, 126, 0.82, 11), ("Press 2 job board", "session", "cse_01Sample4", 3, 122, 0.95, 8),
+            ("Slitter blade change", "session", "cse_01Sample5", 9, 38, 0.81, 4), ("Ink reorder", "session", "cse_01Sample6", 4, 33, 0.91, 4),
+            ("Order page login", "session", "cse_01Sample1", 22, 17, 0.82, 3), ("Spare parts count", "session", "cse_01Sample8", 50, 16, 0.85, 3),
+            ("Core supplier quote", "session", "cse_01Sample10", 300, 15, 0.36, 2), ("Film price watch", "session", "cse_01Sample12", 1500, 13, 0.78, 1),
+            ("Scrap report fix", "session", "cse_01Sample11", 2900, 11, 0.70, 1), ("Shipping label printer", "session", "cse_01Sample20", 95, 9, 0.85, 1),
+            ("Dryer belt change", "session", "cse_01Sample22", 1100, 8, 0.48, 1), ("Box label sizes", "local", nil, 35, 7, 0, 0),
+            ("Dock door repair", "session", "cse_01Sample3", 8, 6, 0.30, 1), ("Rewinder PM checklist", "session", "cse_01Sample2", 41, 5, 0.40, 1),
             ("Sttark Claude Kit checks", "kit", nil, 60, 1.2, 0, 0), ("Rename report columns", "session", "cse_01Sample9", 190, 1.1, 0.2, 0),
             ("Runs in temporary folders", "temp", nil, 4000, 0.9, 0, 0)]
         // the kind of each one's work (usage-scan.py's WORK: 0 software, 1 design, 2 browser and admin, 3 small or mixed)

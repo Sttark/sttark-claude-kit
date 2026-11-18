@@ -175,7 +175,7 @@ func holdPicture() -> [Frame] {
             NSRect(x: mx - 1, y: bar.minY - 5, width: 2, height: bar.height + 10).fill()
             text("Hold at 80%", mx - width("Hold at 80%", size: 12) / 2, 58, size: 12, color: C.ink)
 
-            let rows: [(String, String?, Bool)] = [("Order page fix", nil, false), ("Site map plan", "Hold 80%", s.held)]
+            let rows: [(String, String?, Bool)] = [("Order page fix", nil, false), ("Shift schedule", "Hold 80%", s.held)]
             for (i, r) in rows.enumerated() {
                 let rr = NSRect(x: 20, y: 84 + CGFloat(i) * 56, width: W - 40, height: 46)
                 card(rr)
@@ -249,7 +249,7 @@ func inboxPicture() -> [Frame] {
             text(s.caption, 20, 208, size: 15, bold: true, width: W - 40)
         }
     }
-    let all = ["Label press PR", "Supplier quote", "Site map plan"]
+    let all = ["Label press PR", "Supplier quote", "Shift schedule"]
     func rows(_ a: CGFloat) -> [(String, CGFloat)] { all.map { ($0, $0 == "Supplier quote" ? a : 1) } }
     var out: [Frame] = []
     /// `n` frames at 25 a second, `t` going from just over 0 to 1 with ease.
