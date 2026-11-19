@@ -292,6 +292,30 @@ import Foundation
         let cdc = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" written (dry); would go in the chat | Working 20 min | It finished the page.", names)
         check(cdc?.routine == true && cdc?.text == "Progress check-in written, not kept (test run): Working 20 min"
               && cdc?.detail.last == "Test run: it would go in the session's chat, and nothing was typed.", "a test run types nothing, and says so")
+        // the check-in timer in the session (checkin-timer.py): asked, set, each check-in, a reminder, deleted
+        let ta = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" timer asked | agent \"Build the color page\" started, every 15 min (6,21,36,51 * * * *)", names)
+        check(ta?.name == "Press color" && ta?.session == "cse_01AAAtest1" && ta?.routine == true && ta?.text == "Check-in timer asked for"
+              && ta?.detail == ["Work runs in the background (agent \"Build the color page\" started, every 15 min (6,21,36,51 * * * *)), so the Kit asked the session to set its check-in timer."],
+              "the ask for a timer is a routine row, with the work that started it")
+        let ts = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" timer set 3f9a2c1d | every 15 min (6,21,36,51 * * * *)", names)
+        check(ts?.routine == true && ts?.text == "Check-in timer set" && ts?.detail == ["The session set its check-in timer, job 3f9a2c1d: every 15 min (6,21,36,51 * * * *)."],
+              "a timer set is a routine row, with its job")
+        let tc = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" timer check-in 3f9a2c1d | 2 agents, 1 background command", names)
+        check(tc?.routine == false && tc?.level == .info && tc?.text == "Check-in in the session's chat"
+              && tc?.detail == ["What runs: 2 agents, 1 background command. The Kit gave the session this list for its answer of one or two lines."],
+              "a check-in in the chat is a row of its own, with what runs")
+        let tn = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" timer check-in 3f9a2c1d | no work runs: asked to delete it", names)
+        check(tn?.text == "Check-in in the session's chat"
+              && tn?.detail == ["The Kit saw no agent or background command at work, so it told the session to delete the timer."],
+              "a check-in with no work: the Kit told the session to delete the timer")
+        let tr = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" timer reminder 3f9a2c1d | no work runs: asked to delete it", names)
+        let te = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" timer ended 3f9a2c1d", names)
+        check(tr?.routine == true && tr?.text == "Check-in timer: the Kit told the session to delete it"
+              && te?.routine == true && te?.text == "Check-in timer deleted" && te?.detail == ["The session deleted its check-in timer, job 3f9a2c1d."],
+              "a reminder and a deleted timer are routine rows")
+        let tx = Events.kitLine(f.string(from: Date()) + " checkin timer error: KeyError: 'job'", names)
+        check(tx?.kind == .problem && tx?.level == .warn && tx?.text == "The check-in timer hook failed" && tx?.detail == ["KeyError: 'job'"],
+              "an error of the timer hook is a problem")
         let ckeep = Events.kitLine(f.string(from: Date()) + " keep   cse_01AAAtest1 high - a check-in from the Kit, which needs no new level | [Sttark Claude Kit] Check-in: It finished the page and opened pull request 12.", names)
         check(ckeep?.kind == .effort && ckeep?.routine == true && ckeep?.text == "Effort stays at High"
               && ckeep?.detail.first == "Why: a check-in from the Kit, which needs no new level",

@@ -21,6 +21,10 @@ Claude in Chrome and Control Chrome tools, and a UserPromptSubmit entry for the 
 The same work check (same-work.py) also goes in with the effort hook, always: a UserPromptSubmit entry (it looks only
 at a session's first prompt) and a PostToolUse entry for AskUserQuestion (the answer to its question). It reads the
 "One session for the same work" switch itself on each call, for the same reason.
+The check-in timer hook (checkin-timer.py) also goes in with the effort hook, always: a PostToolUse entry for Agent,
+Bash, CronCreate and CronDelete (it asks the session to set its own check-in timer when its work goes to the
+background, and records the timer), and a UserPromptSubmit entry (what runs, when the timer's check-in comes). It reads
+the "Check-ins in the session" switch itself on each call, for the same reason.
 --defaults turns on Claude Code's phone notices (inputNeededNotifEnabled: a notice when Claude waits on you;
 agentPushNotifEnabled: Claude may send one, which claude-notify's "Claude app" way needs) when the key is missing;
 a value the person set, true or false, is never changed.
@@ -212,6 +216,32 @@ def set_same(hooks, on):
             hooks.pop(event, None)
 
 
+TIMER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkin-timer.py')
+TIMER_MATCHER = 'Agent|Task|Bash|CronCreate|CronDelete'
+
+
+def is_timer(cmd):
+    return 'checkin-timer.py' in cmd
+
+
+def set_timer(hooks, on):
+    """Check-ins in the session: after the session sends work to the background (an agent, a Bash command), and after
+    CronCreate and CronDelete (its timer set or deleted); and on every message (the timer's check-in, and a timer
+    left set with no work). Not in the background: its answer goes to the session."""
+    for event in ('PostToolUse', 'UserPromptSubmit'):
+        groups = hooks.get(event, [])
+        for g in groups:
+            g['hooks'] = [h for h in g.get('hooks', []) if not is_timer(h.get('command', ''))]
+        groups = [g for g in groups if g.get('hooks')]
+        if on:
+            h = {'type': 'command', 'command': f'"{TIMER}"', 'timeout': 10 if event == 'PostToolUse' else 20}
+            groups.append({'matcher': TIMER_MATCHER, 'hooks': [h]} if event == 'PostToolUse' else {'hooks': [h]})
+        if groups:
+            hooks[event] = groups
+        else:
+            hooks.pop(event, None)
+
+
 def set_links(on):
     """claude-limit-wait and claude-limit-mode (links to limit-hook.py), claude-notify (notify.py), claude-wait (wait.py),
     claude-migrate (migrate.py) and claude-mail (mail.py) in ~/.local/bin, next to claude. Removed on --remove, only
@@ -361,6 +391,7 @@ def main():
                           'limit': has(s, 'PreToolUse', is_limit),
                           'guard': has(s, 'PreToolUse', is_guard) and has(s, 'UserPromptSubmit', is_guard),
                           'same_work': has(s, 'UserPromptSubmit', is_same) and has(s, 'PostToolUse', is_same),
+                          'checkin_timer': has(s, 'UserPromptSubmit', is_timer) and has(s, 'PostToolUse', is_timer),
                           'remote_control_at_startup': s.get('remoteControlAtStartup'),
                           'no_archive': all(t in ((s.get('permissions') or {}).get('deny') or []) for t in NO_ARCHIVE)}))
         return
@@ -434,6 +465,7 @@ def main():
     set_limit(hooks, not remove)
     set_guard(hooks, not remove)
     set_same(hooks, not remove)
+    set_timer(hooks, not remove)
     set_links(not remove)
     set_working(hooks, not remove and not os.path.exists(WORKING_OFF))
     set_rc_startup(s, not remove)

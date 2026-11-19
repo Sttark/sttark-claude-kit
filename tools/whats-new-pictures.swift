@@ -14,6 +14,7 @@
 //   whats-new/same-work.png           a still: a new session's first prompt, and the question Claude asks first, with its answers
 //   whats-new/check-ins-in-the-chat.png a still: a session's chat, the Kit's check-in as a prompt in it, and the one-line answer
 //   whats-new/archived-stays-archived.png a still: an answer comes for three sessions; the one archived with no wait stays archived
+//   whats-new/check-ins-in-every-session.png a still: a session sets its check-in timer, the timer's prompt, the one-line answer
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
 //   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
@@ -600,6 +601,43 @@ func archivedWatchPicture() -> NSBitmapImageRep {
         }
         text("Archive a session with no wait, and an answer to it does not return it to your list.", 20, 228,
              size: 14, bold: true, width: W - 40)
+// MARK: check-ins in every session's chat
+
+/// A still: a session's chat in the Claude app. The session started an agent and set its check-in timer (a tool step,
+/// in steel); 15 minutes later the timer's prompt comes in on the person's side of the chat, word for word as
+/// checkin-timer.py's PROMPT, and the session answers it in one line.
+func chatTimerPicture() -> NSBitmapImageRep {
+    func tall(_ s: String, _ size: CGFloat, bold: Bool = false, width w: CGFloat) -> CGFloat {
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = 2
+        return ceil(NSAttributedString(string: s, attributes: [.font: font(size, bold), .paragraphStyle: para])
+            .boundingRect(with: NSSize(width: w, height: 400), options: [.usesLineFragmentOrigin]).height)
+    }
+    return frame(280) {
+        text("Bottle labels", 16, 12, size: 13, bold: true, color: C.steel)
+        C.line.setFill(); NSRect(x: 16, y: 36, width: W - 32, height: 1).fill()
+        // the session's turn: the agent, then the timer it set when the Kit asked
+        var y: CGFloat = 46
+        y += text("I started an agent to check the label barcodes.", 16, y, size: 14, width: W - 56) + 6
+        let step = "CronCreate: check-in timer, every 15 min"
+        let sr = NSRect(x: 16, y: y, width: width(step, size: 12) + 20, height: 22)
+        card(sr, radius: 11)
+        text(step, sr.minX + 10, sr.minY + 3, size: 12, color: C.steel)
+        y += 22 + 10
+        let later = "15 min later"
+        text(later, (W - width(later, size: 12)) / 2, y, size: 12, color: C.steel)
+        y += 22
+        // the timer's prompt, on the person's side of the chat
+        let p = "[Sttark Claude Kit] Check-in: Tell me in one or two lines how your work in the background goes. Use no tools and start no new work. When none of it still runs, delete this timer with CronDelete."
+        let pw = W - 56, inner = pw - 28
+        let ph = tall(p, 13, width: inner) + 16
+        let pr = NSRect(x: W - 16 - pw, y: y, width: pw, height: ph)
+        card(pr, fill: C.infoSoft, border: C.infoBorder, radius: 10)
+        text(p, pr.minX + 14, pr.minY + 7, size: 13, width: inner)
+        y += ph + 12
+        // the session's answer: one line, no tools, no new work
+        y += text("The label agent finished the barcode check and opened pull request 318. The print test is next.", 16, y, size: 14, width: W - 40)
+        assert(y <= 274, "the chat must fit the picture")
     }
 }
 
@@ -628,4 +666,5 @@ for dark in [false, true] {
     if wanted("same-work") { png(sameWorkPicture(), to: "whats-new/same-work" + (dark ? "-dark.png" : ".png")) }
     if wanted("check-ins-in-the-chat") { png(chatCheckinPicture(), to: "whats-new/check-ins-in-the-chat" + (dark ? "-dark.png" : ".png")) }
     if wanted("archived-stays-archived") { png(archivedWatchPicture(), to: "whats-new/archived-stays-archived" + (dark ? "-dark.png" : ".png")) }
+    if wanted("check-ins-in-every-session") { png(chatTimerPicture(), to: "whats-new/check-ins-in-every-session" + (dark ? "-dark.png" : ".png")) }
 }

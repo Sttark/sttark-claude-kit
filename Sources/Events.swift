@@ -800,20 +800,66 @@ enum Events {
             }
             if let from, e.text.contains("new session") { e.detail.append(from) }
             promptDetail(prompt)
-        case "checkin":   // the progress check-ins (checkin.py): a note on a session's long work, shown in the Kit app
+        case "checkin":   // the progress check-ins (checkin.py): a note on a session's long work, shown in the Kit app;
+                          // and the check-in timer in the session (checkin-timer.py), named by its cse or conversation id
             e.kind = .wait
-            if first.hasPrefix("cse_") { who(first) }
+            if first.hasPrefix("cse_") || first.count == 36 { who(first) }
             named(rest)
             var after = rest
             if let q = quoted(rest), let r = rest.range(of: "\"\(q)\" ") { after = String(rest[r.upperBound...]) }
             // "<status> | <subject> | <note>"; the status is "shown in the Kit", then "; no summary (…)" when it applies,
-            // or "written (dry)", then "; in the chat", "; would go in the chat" (dry) or "; not in the chat: <why>"
-            // while Check-ins in the session is on. Lines from before check-ins stayed in the Kit app say "sent by …",
+            // or "written (dry)". Lines from before the check-in timer can add "; in the chat", "; would go in the chat"
+            // (dry) or "; not in the chat: <why>". Lines from before check-ins stayed in the Kit app say "sent by …",
             // "would send (dry)" or "not sent (…)", with "; not by …"
             let fields = after.components(separatedBy: " | ")
             let items = fields[0].components(separatedBy: "; ")
             let subject = fields.count > 1 ? fields[1] : ""
             let note = fields.count > 2 ? fields[2...].joined(separator: " | ") : ""
+            if items[0].hasPrefix("timer ") {
+                // the check-in timer in the session (checkin-timer.py): "timer <what> [<job>] | <detail>"
+                let w = items[0].dropFirst(6).split(separator: " ", maxSplits: 1).map(String.init)
+                let what = w.first ?? "", job = w.count > 1 ? w[1] : ""
+                let detail = fields.count > 1 ? fields[1...].joined(separator: " | ") : ""
+                e.routine = true
+                switch what {
+                case "asked":
+                    e.text = "Check-in timer asked for"
+                    e.detail = ["Work runs in the background (\(detail)), so the Kit asked the session to set its check-in timer."]
+                case "set":
+                    e.text = "Check-in timer set"
+                    e.detail = ["The session set its check-in timer, job \(job): \(detail)."]
+                case "check-in":
+                    e.routine = false
+                    e.text = "Check-in in the session's chat"
+                    if detail.hasPrefix("no work runs") {
+                        e.detail = ["The Kit saw no agent or background command at work, so it told the session to delete the timer."]
+                    } else if detail.hasPrefix("check-ins in the session are off") {
+                        e.detail = ["Check-ins in the session are off, so the Kit told the session to delete the timer."]
+                    } else if detail.hasPrefix("could not read its work") {
+                        e.level = .warn
+                        e.detail = ["The Kit " + detail + ". The session answers from what it knows."]
+                    } else {
+                        e.detail = ["What runs: \(detail). The Kit gave the session this list for its answer of one or two lines."]
+                    }
+                case "reminder":
+                    e.text = "Check-in timer: the Kit told the session to delete it"
+                    e.detail = [detail.hasPrefix("check-ins in the session are off")
+                                ? "Check-ins in the session are off." : "The timer was still set, and no agent or background command was at work."]
+                case "ended":
+                    e.text = "Check-in timer deleted"
+                    e.detail = ["The session deleted its check-in timer, job \(job)."]
+                case "second":
+                    e.text = "A second check-in timer: the Kit told the session to delete it"
+                    e.detail = [detail.prefix(1).uppercased() + detail.dropFirst() + "."]
+                case "error:":
+                    e.kind = .problem; e.level = .warn; e.routine = false
+                    e.text = "The check-in timer hook failed"
+                    e.detail = [String(items[0].dropFirst(13).prefix(300))]
+                default:
+                    e.text = "Check-in timer: " + what
+                }
+                break
+            }
             if !note.isEmpty { e.detail.append("\u{201C}" + note + "\u{201D}") }
             var inChat = false
             for x in items.dropFirst() {

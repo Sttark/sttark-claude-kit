@@ -7,10 +7,11 @@ import Foundation
 /// ("checkins" in KitDefaults' turned-off record). The hook reads "checkins" in the state file, which the app writes
 /// at launch and at each change.
 ///
-/// Check-ins in the session: a note Haiku wrote also goes into the session's own chat, as a prompt the session answers
-/// in a line or two, while its turn is idle and its agents work in the background; only into a session that runs in
-/// the Kit's own copy, the one kind the Kit can type into. On unless turned off ("checkinsChat" in the turned-off
-/// record, "checkins_chat" in the state file); it needs the check-ins above.
+/// Check-ins in the session (Resources/hooks/checkin-timer.py): while a session's work runs in the background, the
+/// session keeps its own check-in timer (Claude Code's CronCreate), whose prompt every 15 minutes asks it for a line or
+/// two in its own chat; the hook asks for the timer and tells the session what runs. Every session on this Mac gets
+/// it, and it needs no Haiku call. On unless turned off ("checkinsChat" in the turned-off record, "checkins_chat" in
+/// the state file), on its own, apart from the check-ins above.
 enum Checkins {
     static let id = "checkins"
     static let chatId = "checkinsChat"
