@@ -29,6 +29,8 @@ env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" LANG=en_US.UTF-8 TERM=xterm-256
   /usr/bin/screen -dmS kit-g2-bridge /usr/bin/python3 "$PWD/glasses/bridge/bridge.py"
 ```
 
+  To stop it: `pkill -f glasses/bridge/bridge.py` (quitting the screen leaves the Python process running).
+
 What it needs on the Mac:
 
 | What | Why |
