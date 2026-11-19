@@ -138,6 +138,165 @@ class Pending(unittest.TestCase):
         self.assertEqual(detail.decide(perm, 'allow')[3], {'command': 'ls'})
 
 
+def said(n, text, **kw):
+    return ev(n, dict({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': text}]}}, **kw))
+
+
+def tool(n, **kw):
+    return ev(n, dict({'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'Bash',
+                                                                     'input': {'command': 'ls'}}]}}, **kw))
+
+
+def typed(n, text, **kw):
+    return ev(n, dict({'type': 'user', 'message': {'role': 'user', 'content': text}}, **kw))
+
+
+def tool_result(n, **kw):
+    return ev(n, dict({'type': 'user', 'message': {'content': [{'type': 'tool_result', 'content': 'ok'}]}}, **kw))
+
+
+def noise(n):
+    """The events a waiting session gathers with no message in them: a Claude app or the Kit connects, and
+    Claude Code starts again."""
+    kinds = ({'type': 'system', 'subtype': 'init'}, {'type': 'system', 'subtype': 'status'},
+             {'type': 'control_request', 'request': {'subtype': 'initialize'}}, {'type': 'control_response'},
+             {'type': 'rate_limit_event'}, {'type': 'control_request', 'request': {'subtype': 'apply_flag_settings'}})
+    return ev(n, kinds[n % len(kinds)], 'client' if n % 3 == 2 else 'worker')
+
+
+TABLE = ('The ink supplier asked if you want the new cyan sample run next week.\n\n'
+         '| Ask | Status | Need from you |\n|---|---|---|\n'
+         '| Cyan sample run | 🔴 | Pick a day |\n| Laminate quote | 🔄 | Nothing |')
+TABLE_PLAIN = ('The ink supplier asked if you want the new cyan sample run next week.\n\n'
+               'Cyan sample run\n  Needs you: Pick a day\n\nLaminate quote\n  In progress')
+
+
+class Reply(unittest.TestCase):
+    """last_reply is all the text of the newest turn that has text, the session's own (events newest first)."""
+
+    def test_text_before_and_after_tool_steps_is_one_reply(self):
+        evs = [ev(9, {'type': 'result', 'subtype': 'success'}), said(8, 'Done: press 3 runs.'), tool_result(7),
+               tool(6), said(5, 'I check the **press 3** queue.'), typed(4, 'Is press 3 free?'),
+               ev(3, {'type': 'result'}), said(2, 'An older reply.'), typed(1, 'Hello')]
+        self.assertEqual(detail.last_reply(evs), 'I check the press 3 queue.\n\nDone: press 3 runs.')
+
+    def test_last_message_only_tool_steps(self):
+        evs = [tool_result(5), tool(4), said(3, 'I send the note to the second shift now.'), typed(2, 'Send it')]
+        self.assertEqual(detail.last_reply(evs), 'I send the note to the second shift now.')
+
+    def test_new_turn_with_no_text_yet_keeps_the_last_reply(self):
+        evs = [tool(6), typed(5, '[Sttark Claude Kit] A wait you handed to the Kit has ended.', origin={'kind': 'human'}),
+               ev(4, {'type': 'result'}), said(3, TABLE), tool(2), typed(1, 'What do the suppliers need?')]
+        self.assertEqual(detail.last_reply(evs), TABLE_PLAIN)
+
+    def test_an_agents_text_is_not_the_reply(self):
+        evs = [said(7, 'Agent: the rewinder manual is on page 4.', parent_tool_use_id='tu_agent',
+                    subagent_type='general-purpose'),
+               tool_result(6, parent_tool_use_id='tu_agent'), tool(5, parent_tool_use_id='tu_agent'),
+               typed(4, 'Find the rewinder manual.', parent_tool_use_id='tu_agent'),
+               ev(3, {'type': 'result'}), said(2, 'An agent looks for the rewinder manual.'), typed(1, 'Rewinder 2?')]
+        self.assertEqual(detail.last_reply(evs), 'An agent looks for the rewinder manual.')
+
+    def test_only_a_typed_message_starts_a_turn(self):
+        notice = {'kind': 'task-notification', 'producer': 'session-task'}
+        evs = [said(8, 'The agent found it.'), typed(7, '<task-notification>done</task-notification>', origin=notice),
+               typed(6, '[Image: source: /tmp/press.png]', isSynthetic=True), said(5, 'I start an agent.'),
+               typed(4, 'Find the press 5 manual.', client_platform='ios'), said(3, 'Older.'), typed(2, 'Hi')]
+        self.assertEqual(detail.last_reply(evs), 'I start an agent.\n\nThe agent found it.')
+        self.assertTrue(detail.reply_whole(evs))
+        self.assertEqual(detail.reply_start(evs), 5)
+
+    def test_not_whole_without_the_turn_start(self):
+        self.assertFalse(detail.reply_whole([said(3, 'Part two.'), tool(2), said(1, 'Part one.')]))
+        self.assertFalse(detail.reply_whole([noise(n) for n in range(100, 0, -1)]))
+
+    def test_slim_keeps_only_what_the_reply_needs(self):
+        e = ev(5, {'type': 'assistant', 'uuid': 'u1', 'message': {'id': 'm1', 'content': [
+            {'type': 'text', 'text': 'Done.'}, {'type': 'tool_use', 'name': 'Bash', 'input': {'command': 'x' * 5000}}]}})
+        self.assertEqual(detail.slim(e), {'sequence_num': '5', 'payload': {'type': 'assistant', 'message': {
+            'content': [{'type': 'text', 'text': 'Done.'}, {'type': 'tool_use'}]}}})
+        self.assertEqual(detail.last_reply([detail.slim(e)]), 'Done.')
+
+
+class OlderEvents(unittest.TestCase):
+    """A waiting session's reply below the newest 100 events: the bridge reads further back, once."""
+
+    def setUp(self):
+        import bridge
+        self.bridge = bridge
+        # the made-up session: a turn with the reply (1-6), then 150 events with no message in them (7-156)
+        self.history = [typed(1, 'What do the suppliers need?'), tool(2), tool_result(3), said(4, TABLE),
+                        ev(5, {'type': 'result', 'subtype': 'success'}), noise(6)] + [noise(n) for n in range(7, 157)]
+        self.calls = []
+
+        def events(cse, limit=100, desc=True, cursor=None):
+            self.calls.append((limit, cursor))
+            if limit > 500:
+                raise bridge.rcapi.APIError(400, 'limit too large')
+            newest = sorted(self.history, key=detail.seq, reverse=True)
+            below = [e for e in newest if cursor is None or detail.seq(e) < int(cursor)]
+            page = below[:limit]
+            return page, (detail.seq(page[-1]) if len(below) > limit else None)
+
+        self._events, self._log = bridge.rcapi.events, bridge.log
+        bridge.rcapi.events, bridge.log = events, lambda msg: None
+        hub = bridge.Hub.__new__(bridge.Hub)
+        hub.lock, hub.older = threading.RLock(), {}
+        self.hub = hub
+
+    def tearDown(self):
+        self.bridge.rcapi.events, self.bridge.log = self._events, self._log
+
+    def newest(self, n=100):
+        return sorted(self.history, key=detail.seq, reverse=True)[:n]
+
+    def test_reply_found_below_the_newest_page_and_kept(self):
+        window = self.newest()
+        self.assertEqual(detail.last_reply(window), '')  # what the bridge showed: "No reply yet."
+        evs = self.hub.reply_events('cse_x', window)
+        self.assertEqual(detail.last_reply(evs), TABLE_PLAIN)
+        self.assertEqual(self.calls, [(500, 57)])  # one read: the events before the window's oldest
+        # the next read (a new event came) uses the kept events: no call
+        self.history.append(noise(157))
+        self.calls.clear()
+        self.assertEqual(detail.last_reply(self.hub.reply_events('cse_x', self.newest())), TABLE_PLAIN)
+        self.assertEqual(self.calls, [])
+        kept = [detail.seq(e) for e in self.hub.older['cse_x']['events']]
+        self.assertEqual((kept[0], kept[-1], len(kept)), (157, 1, 157))  # from the newest down to the turn start
+
+    def test_a_new_reply_on_top_needs_no_read(self):
+        self.hub.reply_events('cse_x', self.newest())
+        self.history += [typed(157, 'And the laminate?'), said(158, 'The laminate quote comes Friday.'),
+                         ev(159, {'type': 'result'})]
+        self.calls.clear()
+        self.assertEqual(detail.last_reply(self.hub.reply_events('cse_x', self.newest())),
+                         'The laminate quote comes Friday.')
+        self.assertEqual(self.calls, [])
+
+    def test_a_gap_reads_again(self):
+        self.hub.reply_events('cse_x', self.newest())
+        self.history += [noise(n) for n in range(157, 400)]  # more than a page came since the last read
+        self.calls.clear()
+        self.assertEqual(detail.last_reply(self.hub.reply_events('cse_x', self.newest())), TABLE_PLAIN)
+        self.assertEqual(self.calls, [(500, 300)])
+
+    def test_session_with_no_text_reads_to_its_start_once(self):
+        self.history = [typed(1, 'Run the nozzle check.'), tool(2)] + [noise(n) for n in range(3, 160)]
+        self.assertEqual(detail.last_reply(self.hub.reply_events('cse_x', self.newest())), '')
+        self.assertEqual(len(self.calls), 1)
+        self.calls.clear()
+        self.assertEqual(detail.last_reply(self.hub.reply_events('cse_x', self.newest())), '')
+        self.assertEqual(self.calls, [])
+
+    def test_smaller_pages_when_the_api_refuses_big_ones(self):
+        self.bridge.OLDER_PAGE, old = 1000, self.bridge.OLDER_PAGE
+        try:
+            self.assertEqual(detail.last_reply(self.hub.reply_events('cse_x', self.newest())), TABLE_PLAIN)
+        finally:
+            self.bridge.OLDER_PAGE = old
+        self.assertEqual(self.calls, [(1000, 57), (100, 57)])
+
+
 class Status(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
