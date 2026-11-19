@@ -400,6 +400,10 @@ enum Waits {
 
     static func list(_ state: [String: Any] = State.read()) -> [Wait] {
         let all = state["waits"] as? [String: [String: Any]] ?? [:]
+        // a wait keeps the session's name from when it was set; show the name the session has now
+        let names = (state["sessions"] as? [String: [String: Any]] ?? [:]).compactMapValues {
+            ($0["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
         return all.map { id, w in
             let kind = w["kind"] as? String ?? ""
             let target = w["target"] as? String ?? ""
@@ -409,7 +413,8 @@ enum Waits {
                 : kind == "check-prompt" ? "Yes to: \(target)"
                 : kind == "check-script" ? "Its check script"
                 : at.map { "Check at \(Limit.clock($0))" } ?? "A time")
-            var x = Wait(id: id, title: (w["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "A session",
+            var x = Wait(id: id, title: names[w["cse"] as? String ?? ""]
+                            ?? (w["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "A session",
                          what: what, why: w["why"] as? String ?? "",
                          by: Limit.num(w["by"]).map { Date(timeIntervalSince1970: $0) } ?? at,
                          back: w["stage"] as? String == "back")
