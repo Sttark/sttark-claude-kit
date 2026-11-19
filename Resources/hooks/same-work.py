@@ -21,8 +21,10 @@ that session as if they typed it there: wait.py bring_back(), the start the wait
 own link with the prompt as its first message, typed locally so Claude Code runs it as the person's own (a message
 posted through the server would be held). Claude then replies with one line and the session's link, and does nothing
 else. A session in a turn, or with agents still at work, gets it when they end: the prompt waits in the queue, which
-wait.py's minute check works off (deliver()). "Keep here": the session goes on with the prompt, and is never asked
-again. The Kit archives neither session: only the person archives.
+wait.py's minute check works off (deliver()). bring_back() keeps the prompt until the session answers it; when the copy
+that received it ends first (this Mac's server took the session over), the Kit types it in again, or tells the person with
+its text (effort-hook.py lose_typed(), wait.py redeliver()). "Keep here": the session goes on with the prompt, and is
+never asked again. The Kit archives neither session: only the person archives.
 
     same-work.py                 the hook: UserPromptSubmit and PostToolUse, JSON on stdin
     same-work.py --deliver       send the prompts that wait for their session's turn to end (wait.py --check runs it)
@@ -558,7 +560,8 @@ def send_now(item):
     if DRY:
         return 'sent', 'dry: nothing sent'
     w = {'id': 'same-' + item['from_sid'][:8], 'cse': t['cse'], 'transcript': t['transcript'],
-         'cwd': t.get('folder') or '', 'title': t.get('title') or ''}
+         'cwd': t.get('folder') or '', 'title': t.get('title') or '', 'source': 'same work',
+         'session_url': t.get('url') or ''}
     try:
         ok = bring_back(w, prompt)
     except RuntimeError as x:
