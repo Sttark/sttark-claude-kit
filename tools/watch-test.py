@@ -777,7 +777,8 @@ R = time.time()
 TPL = os.path.join(PROJ, 'lunch.jsonl')
 write(TPL, person('Get the 13 inch laminator quote from the supplier', R - 10800)
       + use(WR + 'gmail_create_draft', {'to': 'Rep <rep@lunchsample.example>', 'subject': 'Laminator quote',
-                                        'body': 'Please quote the 13 inch laminator.'}, R - 10790,
+                                        'body': 'Please quote the 13 inch laminator at $1,850 with the stand and the cutter.'},
+            R - 10790,
             json.dumps({'draft_id': 'r-q', 'thread_id': 'thrquote01', 'to': 'Rep <rep@lunchsample.example>',
                         'subject': 'Laminator quote'})))
 CL, CJ = 'cse_01OwnReplyLunch0001', 'cse_01OwnReplyJob00002'
@@ -875,11 +876,15 @@ check('the next prompt gets it once, and the log says so', len(got) == 1 and 'An
 # The case that asked for this: the person sends the session's draft in Gmail between two turns. The session's next
 # turn is about other work (it even quotes its draft as "not sent"), so it does not know: it is told, with a note for
 # its next prompt (it had a turn since, so nothing brings it back), that says the person sent its draft, and gives the
-# wait to set, since it has no email reply wait on that thread.
+# wait to set, since it has no email reply wait on that thread. Gmail's snippet writes "$1,850" as "$1850": the words
+# around it still show it is the session's draft.
 mail('m-sent', 'thrquote01', 'Person Sample <%s>' % ME, 'Re: Laminator quote', R + 360,
-     'Please quote the 13 inch laminator. On Wed, Nov 18, 2026 at 9:00 AM Rep wrote:', to='Rep <rep@lunchsample.example>')
+     'Please quote the 13 inch laminator at $1850 with the stand and the cutter. On Wed, Nov 18, 2026 at 9:00 AM Rep '
+     'wrote:',
+     to='Rep <rep@lunchsample.example>')
 write(TPL, person('Change the draft', R + 300) + [{'type': 'assistant', 'timestamp': iso(R + 330), 'message': {'content': [
-    {'type': 'text', 'text': 'The draft is ready in Gmail but not sent: Please quote the 13 inch laminator.'}]}}]
+    {'type': 'text', 'text': 'The draft is ready in Gmail but not sent: Please quote the 13 inch laminator at $1,850 '
+                             'with the stand and the cutter.'}]}}]
       + person('What does 13 inches come to in mm?', R + 370) + [{'type': 'assistant', 'timestamp': iso(R + 380),
                                                                   'message': {'content': [{'type': 'text', 'text': '330 mm.'}]}}], 'a')
 del brought[:]
@@ -890,7 +895,8 @@ note = (json.load(open(os.path.join(KIT, 'state.json')))['sessions'].get(CL) or 
 check('the person sent the session\'s draft, and its turn after was about other work: told, with a note for its next '
       'prompt, not brought back', brought == [] and len(note) == 1
       and 'In the email thread "Laminator quote", ' in note[0]['text']
-      and ', the person sent your draft: "Please quote the 13 inch laminator."' in note[0]['text'])
+      and ', the person sent your draft: "Please quote the 13 inch laminator at $1850 with the stand and the cutter."'
+      in note[0]['text'])
 check('the note gives the wait to set: the thread and the other person, as it has no email reply wait there',
       'You have no email reply wait on the email thread "Laminator quote". If you expect an answer' in note[0]['text']
       and 'claude-wait email-reply thrquote01 --from rep@lunchsample.example --by <deadline>' in note[0]['text']
