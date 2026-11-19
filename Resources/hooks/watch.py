@@ -1347,10 +1347,11 @@ IDCHAR = re.compile(rb'[A-Za-z0-9]')
 
 def own_needles(m):
     """What a record that has the person's own reply shows of it: its id (not part of a longer word), and the longest
-    run of its first words with no stop in it, 25 characters or more (a line break in the text comes after a stop, so
-    a run has none), as the records write it."""
+    run of its first words with only letters and spaces in it, 25 characters or more, as the records write it. A line
+    break comes after a stop, so a run has none; and a run has no number or sign, which Gmail's snippet can write in
+    its own way ("$6850" for "$6,850")."""
     ids = [m['id'].encode()] if len(m.get('id') or '') >= 6 else []
-    run = max([x.strip() for x in re.split(r'[.,;:!?()"\n]', own_words(m))] or [''], key=len)
+    run = max([x.strip() for x in re.split(r'[^\w ]|[\d_]', own_words(m))] or [''], key=len)
     words = list(dict.fromkeys(json.dumps(run, ensure_ascii=a)[1:-1].encode('utf-8') for a in (False, True))) \
         if len(run) >= 25 else []
     return ids, words
