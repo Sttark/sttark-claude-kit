@@ -169,5 +169,73 @@ class Audio(unittest.TestCase):
         self.assertEqual(struct.unpack('<I', w[40:44])[0], 32000)
 
 
+class Live(unittest.TestCase):
+    """What a glasses client's live messages do: the session it shows replaces the one before."""
+
+    def setUp(self):
+        import bridge
+        self.bridge = bridge
+
+        class FakeTracker:
+            def __init__(self, hub, cse):
+                self.cse, self.watchers, self.idle_since = cse, 0, None
+                self.stop, self.ready = threading.Event(), threading.Event()
+                self.ready.set()
+
+        self._tracker = bridge.Tracker
+        bridge.Tracker = FakeTracker
+        hub = bridge.Hub.__new__(bridge.Hub)
+        hub.lock, hub.trackers, hub.sent, hub.clients = threading.RLock(), {}, {}, set()
+        hub.pushed = []
+        hub.session_changed = lambda cse: hub.pushed.append(cse)
+        self.hub = hub
+        self.client = bridge.Client(None)
+        self.client.sent = []
+        self.client.send = self.client.sent.append
+
+    def tearDown(self):
+        self.bridge.Tracker = self._tracker
+
+    def watchers(self):
+        return {c: t.watchers for c, t in self.hub.trackers.items()}
+
+    def test_subscribe_replaces_and_null_follows_none(self):
+        a, b = 'cse_01AAAAAAAAAAAAAAAAAAAAAA', 'session_01BBBBBBBBBBBBBBBBBBBBBB'
+        self.hub.live_message(self.client, {'type': 'subscribe', 'id': a})
+        self.hub.live_message(self.client, {'type': 'subscribe', 'id': a})  # again: counted once
+        self.assertEqual(self.client.subs, {a})
+        self.assertEqual(self.watchers(), {a: 1})
+        self.hub.live_message(self.client, {'type': 'subscribe', 'id': b})
+        self.assertEqual(self.client.subs, {'cse_01BBBBBBBBBBBBBBBBBBBBBB'})
+        self.assertEqual(self.watchers()[a], 0)
+        self.hub.live_message(self.client, {'type': 'subscribe', 'id': None})
+        self.assertEqual(self.client.subs, set())
+        self.assertTrue(all(w == 0 for w in self.watchers().values()))
+        for _ in range(50):  # the detail goes out from a thread
+            if len(self.hub.pushed) >= 3:
+                break
+            time.sleep(0.02)
+        self.assertEqual(self.hub.pushed.count(a), 2)
+
+    def test_unsubscribe_and_ping(self):
+        a = 'cse_01AAAAAAAAAAAAAAAAAAAAAA'
+        self.hub.live_message(self.client, {'type': 'subscribe', 'id': a})
+        self.hub.live_message(self.client, {'type': 'unsubscribe', 'id': a})
+        self.assertEqual(self.client.subs, set())
+        self.hub.live_message(self.client, {'type': 'ping'})
+        self.assertEqual(self.client.sent, [{'type': 'pong'}])
+        self.hub.live_message(self.client, ['not', 'a', 'dict'])
+
+
 if __name__ == '__main__':
     unittest.main()
+
+
+class Title(unittest.TestCase):
+    def test_first_line_cut_at_a_word(self):
+        import bridge
+        self.assertEqual(bridge.title_of('Rewinder 2 belts\nOrder two from the usual supplier.'), 'Rewinder 2 belts')
+        t = bridge.title_of('Write a short note to the second shift about the Press 3 heads and the purge times.')
+        self.assertEqual(t, 'Write a short note to the second shift about the Press 3...')
+        self.assertLessEqual(len(t), 61)
+        self.assertEqual(bridge.title_of('   '), 'New session')

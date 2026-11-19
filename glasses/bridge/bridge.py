@@ -126,6 +126,16 @@ def trusted(folder):
         p = up
 
 
+def title_of(prompt):
+    """A new session's name from its first message: the first line, cut at a word to 60 characters."""
+    line = next((l.strip() for l in prompt.splitlines() if l.strip()), '')
+    line = ' '.join(line.split())
+    if len(line) > 60:
+        cut = line[:58].rsplit(' ', 1)[0] if ' ' in line[:58] else line[:58]
+        line = cut.rstrip(' ,;:.-') + '...'
+    return line or 'New session'
+
+
 class HTTPError(Exception):
     def __init__(self, status, msg):
         super().__init__(msg)
@@ -380,16 +390,40 @@ class Hub:
             c.send(msg)
 
     def follow(self, client, cse):
+        """Follow `cse` for `client` now; its detail follows at once, from a thread (the first read can take a
+        moment). Following a session twice counts once."""
         with self.lock:
             t = self.trackers.get(cse)
             if t is None or t.stop.is_set():
                 t = self.trackers[cse] = Tracker(self, cse)
-            t.watchers += 1
+            if cse not in client.subs:
+                client.subs.add(cse)
+                t.watchers += 1
             t.idle_since = None
-        client.subs.add(cse)
         self.sent.pop(cse, None)
-        t.ready.wait(10)
-        self.session_changed(cse)
+
+        def push():
+            t.ready.wait(10)
+            self.session_changed(cse)
+        threading.Thread(target=push, name='push-' + cse[-6:], daemon=True).start()
+
+    def live_message(self, client, msg):
+        """One message from a glasses client. `subscribe` names the session the client shows now: it replaces
+        the one before, and no id (the client is back on its list) follows none. `unsubscribe` stops one."""
+        if not isinstance(msg, dict):
+            return
+        t, sid = msg.get('type'), msg.get('id') or ''
+        cse = ('cse_' + sid.split('_', 1)[1]) if isinstance(sid, str) and SESSION_ID.match(sid) else None
+        if t == 'subscribe':
+            for old in list(client.subs):
+                if old != cse:
+                    self.unfollow(client, old)
+            if cse:
+                self.follow(client, cse)
+        elif t == 'unsubscribe' and cse:
+            self.unfollow(client, cse)
+        elif t == 'ping':
+            client.send({'type': 'pong'})
 
     def unfollow(self, client, cse):
         if cse not in client.subs:
@@ -464,7 +498,7 @@ class Hub:
             raise HTTPError(400, 'That folder is not on this Mac.')
         if folder == HOME or not folder.startswith(HOME + '/'):
             raise HTTPError(400, 'Pick a folder inside your home folder (not the home folder itself).')
-        title = ' '.join(prompt.split())[:60] or 'New session'
+        title = title_of(prompt)
         env = next((e for e, d in self.envs(force=True).items() if os.path.realpath(d) == folder), None)
         if env and web_ready(self.web):
             s = rcapi.create_session(env, title, folder)
@@ -636,7 +670,9 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         path = u.path.rstrip('/') or '/'
         if not self._authed(q):
-            self._fail(401, 'A token is needed: Authorization: Bearer <token>.')
+            given = self.headers.get('Authorization') or (q.get('token') or [''])[0]
+            self._fail(401, 'That token is not this bridge\'s token.' if given else
+                       'A token is needed: Authorization: Bearer <token>.')
             return
         try:
             if method == 'GET' and path == '/api/live':
@@ -728,17 +764,7 @@ class Handler(BaseHTTPRequestHandler):
                     msg = json.loads(ws.receive())
                 except ValueError:
                     continue
-                if not isinstance(msg, dict):
-                    continue
-                t, sid = msg.get('type'), msg.get('id') or ''
-                if t in ('subscribe', 'unsubscribe') and SESSION_ID.match(sid):
-                    cse = 'cse_' + sid.split('_', 1)[1]
-                    if t == 'subscribe':
-                        threading.Thread(target=hub.follow, args=(client, cse), daemon=True).start()
-                    else:
-                        hub.unfollow(client, cse)
-                elif t == 'ping':
-                    client.send({'type': 'pong'})
+                hub.live_message(client, msg)
         except wsock.Closed:
             pass
         finally:

@@ -105,10 +105,10 @@ session, 409 nothing to answer, 503 Chrome, the speech model or the login is not
 | `GET /api/sessions/:id` | The same fields, and `last_reply` (the last assistant text, plain: no Markdown marks, code blocks as plain lines) and `pending`: `null` or `{kind: "question" \| "permission" \| "plan", text, options: [{id, label}], request_id}` |
 | `POST /api/sessions/:id/message` `{text}` | `{ok: true, uuid}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok: true, done: true}`. A question with several questions takes one answer at a time: `{ok: true, done: false, pending}` shows the next; the answers go to the session after the last |
-| `POST /api/sessions` `{prompt, folder?}` | `{id, folder, started: "server" \| "cli"}`. `folder` defaults to `~/src`; it must be in the home folder and trusted in Claude Code |
+| `POST /api/sessions` `{prompt, folder?}` | `{id, folder, started: "server" \| "cli"}`. `folder` defaults to `~/src`; it must be in the home folder and trusted in Claude Code. The session's name is the prompt's first line, cut at a word to 60 characters; with the Kit's Name sessions automatically on, the Kit can rename it after its first prompt, as it does any new session. It can take up to 90 seconds |
 | `GET /api/folders` | `{folders: [{path, label}]}`: `~/src` first, then the folders of recent sessions |
 | `POST /api/transcribe` | Body: raw PCM, 16-bit little-endian, 16 kHz, mono (`Content-Type: application/octet-stream`). `{text}`. `?language=` (default `en`) |
-| `WS /api/live?token=...` | Pushes `{type: "sessions", sessions}` at once and on each change. Send `{type: "subscribe", id}` to get `{type: "session", session}` (the detail above) at once and on each change; `{type: "unsubscribe", id}` stops it |
+| `WS /api/live?token=...` | Pushes `{type: "sessions", sessions}` at once and on each change. Send `{type: "subscribe", id}` for the session the client shows, to get `{type: "session", session}` (the detail above) at once and on each change: it takes the place of the session before, and `{type: "subscribe", id: null}` (back on the list) follows none. `{type: "unsubscribe", id}` stops one |
 
 Option ids: a question's are `q<question>.o<option>` (`q0.o1` is the second option of the first question); a plan's
 are `approve` and `keep`; a permission's are `allow` and `deny`.
