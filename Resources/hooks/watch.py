@@ -8,7 +8,10 @@ addresses and domains it emailed or drafted to, the Gmail threads it drafted or 
 it sent through claude-window, the platform of a supplier messenger it sent on, the Asana tasks it commented on or
 made, the Chat spaces it posted in, and what its email reply waits name. Only a claude-window or claude-wait that the
 shell runs counts, never text that names one (runs()). A session is watched while it has an open wait, and for
-WATCH_DAYS after its last turn; a contact older than KEY_DAYS is not watched.
+WATCH_DAYS after its last turn; a contact older than KEY_DAYS is not watched. A session the person archived that has
+no open wait (on the Archived page) is not watched: the watch reads nothing for it and never brings it back
+(archived_ids(), not_watched()). Logged once, as "not watched: archived with no wait", or "not told of <n> new
+message(s): archived with no wait: ..." when messages for it had come in.
 
 How it reads, for every session at once, in as few reads as it can: a mailbox this Mac signed in to (claude-mail)
 with one Gmail search every 5 minutes, at any hour, with no model; the person's own mailbox with no sign-in, and
@@ -61,6 +64,7 @@ KIT = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Applicat
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 DRY = bool(os.environ.get('STTARK_WAIT_DRY'))
 FILE = os.path.join(KIT, 'watch.json')
+ARCHIVED = os.path.join(KIT, 'archived.json')  # the Archived page's list (effort-hook.py archived())
 # A reply comes within a work week: in the waits sessions set, a company's support desk took 5 days, a supplier in
 # China answers overnight plus a day, a person who travels takes a week. 7 days after the last turn covers a full work week and
 # its weekend; a session quiet for longer is more likely to wake for mail about something else.
@@ -797,10 +801,51 @@ def refresh(e, tp, now, me_, own):
     e['keys'] = [k for k in e['keys'] if now - k['at'] < (READ_DAYS if k['how'] == 'read' else KEY_DAYS) * 86400]
 
 
+def archived_ids(state):
+    """The sessions the person archived that wait on no one: the Archived page's list (archived.json, which
+    effort-hook.py archived() writes from the account's list of sessions: every 15 seconds where this Mac's server
+    runs, else every 10 minutes; a session with an open wait is not on it). A session the account's list of open
+    sessions (app_list, read each minute) shows, read after that file, is back in the person's list: it is not one."""
+    try:
+        with open(ARCHIVED) as f:
+            a = json.load(f)
+    except (OSError, ValueError):
+        return set()
+    ids = {x.get('cse') for x in a.get('items') or [] if x.get('cse')}
+    shown = state.get('app_list') or {}
+    if ids and shown.get('at', 0) > a.get('at', 0):
+        ids -= {x.get('id') for x in shown.get('sessions') or []}
+    return ids
+
+
+def not_watched(S, cse, title, now):
+    """An archived session with no open wait: the person stopped it, and nothing waits, so the watch reads nothing for
+    it and brings it back for nothing. Logged once for each time it is archived, when it had something to watch;
+    messages it had not yet come back for are dropped, and the log names them. Its entry stays (marked `archived`),
+    so a message it was told about never goes to another session, and its watch starts again from the time it is back
+    in the person's list."""
+    e = S.get(cse)
+    if not e or e.get('archived'):
+        return
+    e['archived'] = now
+    title = title or e.get('title') or cse[-6:]
+    others = [m for m in e.get('pending') or [] if not m.get('own')]
+    if others:
+        log('%s "%s" not told of %d new message%s: archived with no wait: %s' % (
+            cse[:12], title, len(others), '' if len(others) == 1 else 's',
+            '; '.join('%s "%s"' % (m.get('from') or 'Chat', (m.get('subject') or m.get('text') or '')[:60])
+                      for m in others[:3])))
+    elif [k for k in e.get('keys') or [] if k['k'] != 'wait']:
+        log('%s "%s" not watched: archived with no wait' % (cse[:12], title))
+    e['pending'] = []
+
+
 def watched(W, wm, now, me_, own):
     """The sessions the watch covers now, with their keys up to date: {cse: entry}. A session with an open wait,
-    or a last turn in the last WATCH_DAYS; its records must be on this Mac. One that leaves is forgotten."""
+    or a last turn in the last WATCH_DAYS and not archived (archived_ids()); its records must be on this Mac. One
+    that leaves is forgotten."""
     state = wm.peek()
+    gone = archived_ids(state)
     waits = [w for w in (state.get('waits') or {}).values() if w.get('cse') and w.get('stage') != 'back']
     info = {}
     for cse, x in (state.get('sessions') or {}).items():
@@ -824,7 +869,12 @@ def watched(W, wm, now, me_, own):
         if not mine and now - last > WATCH_DAYS * 86400:
             S.pop(cse, None)
             continue
+        if not mine and cse in gone:
+            not_watched(S, cse, i.get('title'), now)
+            continue
         e = S.setdefault(cse, {'start': now, 'files': {}, 'keys': [], 'told': [], 'pending': []})
+        if e.pop('archived', None):  # back in the person's list, or archived with a wait: watched from now on
+            e['start'] = max(e.get('start', 0), now)
         if e.get('transcript') != tp:
             e['files'] = {}
         e.update(transcript=tp, title=i.get('title') or e.get('title', ''), url=i.get('url') or e.get('url', ''),
@@ -2019,6 +2069,9 @@ def listing():
     for cse, e in sorted(S.items(), key=lambda x: -(x[1].get('last') or 0)):
         keys = [k for k in e.get('keys') or [] if k['k'] != 'wait']
         if not keys:
+            continue
+        if e.get('archived'):
+            print('%s  %s\n    not watched: archived with no wait, since %s' % (e.get('title') or cse, cse, clock(e['archived'])))
             continue
         shown += 1
         print('%s  %s' % (e.get('title') or cse, cse))

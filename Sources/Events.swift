@@ -661,6 +661,17 @@ enum Events {
                     if !words.isEmpty { e.detail.append("Where: " + words + ".") }
                 }
                 e.detail.append("No alert, and no message to anyone.")
+            } else if rest.contains(" not watched: archived with no wait") {
+                // an archived session with no open wait: the watch reads nothing for it (watch.py not_watched())
+                e.routine = true
+                e.text = "Not watched: it is archived and waits on no one"
+                e.detail.append("Answers to it do not bring it back. A session that waits on someone else is watched.")
+            } else if rest.contains(" not told of ") && rest.contains(": archived with no wait") {
+                e.text = "Not brought back: it is archived and waits on no one"
+                if let r = rest.range(of: ": archived with no wait: ") {
+                    e.detail.append("Messages: " + rest[r.upperBound...].prefix(300))
+                }
+                e.detail.append("Answers to it do not bring it back. A session that waits on someone else is watched.")
             } else if rest.hasPrefix("skip ") && rest.contains(" you in Chat: not about this session's work: ") {
                 e.text = "Your Chat post was about other work, so the session was not told"
                 let (main, _, why) = split(rest)

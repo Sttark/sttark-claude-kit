@@ -13,6 +13,7 @@
 //   whats-new/progress-check-ins.png  a still: a note every 15 minutes while an agent works, none at the end, and one note
 //   whats-new/same-work.png           a still: a new session's first prompt, and the question Claude asks first, with its answers
 //   whats-new/check-ins-in-the-chat.png a still: a session's chat, the Kit's check-in as a prompt in it, and the one-line answer
+//   whats-new/archived-stays-archived.png a still: an answer comes for three sessions; the one archived with no wait stays archived
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
 //   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
@@ -580,6 +581,28 @@ func chatCheckinPicture() -> NSBitmapImageRep {
     }
 }
 
+/// An answer comes for three sessions that contacted someone: one in the list and one archived that waits on someone
+/// else return to the list; one archived with no wait stays archived. A still, so one PNG.
+func archivedWatchPicture() -> NSBitmapImageRep {
+    frame(280) {
+        text("Someone answers three sessions", 20, 16, size: 13, color: C.steel)
+        let rows: [(String, String, String, Bool)] = [
+            ("Press job 4417 proof", "In your list", "Starts again", true),
+            ("Die order for job 5120", "Archived, waits on someone else", "Starts again", true),
+            ("Ink quote", "Archived, no wait", "Stays archived", false),
+        ]
+        for (i, r) in rows.enumerated() {
+            let rr = NSRect(x: 20, y: 40 + CGFloat(i) * 60, width: W - 40, height: 52)
+            card(rr)
+            text(r.0, rr.minX + 14, rr.minY + 8, size: 14, bold: true)
+            text(r.1, rr.minX + 14, rr.minY + 28, size: 12.5, color: C.steel)
+            chip(r.2, right: rr.maxX - 10, midY: rr.midY, good: r.3)
+        }
+        text("Archive a session with no wait, and an answer to it does not return it to your list.", 20, 228,
+             size: 14, bold: true, width: W - 40)
+    }
+}
+
 func png(_ rep: NSBitmapImageRep, to path: String) {
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     print("wrote \(path)")
@@ -604,4 +627,5 @@ for dark in [false, true] {
     if wanted("progress-check-ins") { png(checkinsPicture(), to: "whats-new/progress-check-ins" + (dark ? "-dark.png" : ".png")) }
     if wanted("same-work") { png(sameWorkPicture(), to: "whats-new/same-work" + (dark ? "-dark.png" : ".png")) }
     if wanted("check-ins-in-the-chat") { png(chatCheckinPicture(), to: "whats-new/check-ins-in-the-chat" + (dark ? "-dark.png" : ".png")) }
+    if wanted("archived-stays-archived") { png(archivedWatchPicture(), to: "whats-new/archived-stays-archived" + (dark ? "-dark.png" : ".png")) }
 }
