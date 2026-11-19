@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.ehpk
+src/styles/fonts/
+shots/
+.pack/
+.sim.pid
+.sim.log

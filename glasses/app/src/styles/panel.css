@@ -1,0 +1,218 @@
+/* The phone panel: the page the Even app shows for Kit. One job: connect the
+   glasses to the Mac. The look is sttark-shared.css; only this page's own
+   parts are here, all on its tokens. */
+
+.page {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 24px;
+}
+@media (max-width: 760px) {
+  .page {
+    padding: 16px;
+  }
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.title-row .page-title {
+  margin-bottom: 0;
+}
+
+/* The summary leads with status, in words. */
+.summary {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 24px;
+  display: grid;
+  gap: 8px;
+}
+.summary p {
+  margin: 0;
+}
+.key-line {
+  font-size: 16px;
+}
+.age {
+  font-size: 14px;
+  color: var(--steel);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: start;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--info-border);
+  background: var(--info-soft);
+  color: var(--info-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--info-mark);
+}
+.chip.good {
+  border-color: var(--good-border);
+  background: var(--good-soft);
+  color: var(--good-text);
+}
+.chip.good .dot {
+  background: var(--green-bright);
+}
+.chip.warn {
+  border-color: var(--warn-border);
+  background: var(--warn-soft);
+  color: var(--warn-text);
+}
+.chip.warn .dot {
+  background: var(--warn-mark);
+}
+.chip.bad {
+  border-color: var(--bad-border);
+  background: var(--bad-soft);
+  color: var(--bad-text);
+}
+.chip.bad .dot {
+  background: var(--bad-mark);
+}
+
+.typed {
+  border: 1px solid var(--warn-border);
+  background: var(--warn-soft);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 24px;
+  display: grid;
+  gap: 8px;
+}
+.sub {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+}
+.typed .btn {
+  justify-self: start;
+}
+
+.form {
+  display: grid;
+  gap: 24px;
+}
+.field {
+  display: grid;
+  gap: 8px;
+}
+.label,
+.field > label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.help {
+  margin: 0;
+  font-size: 14px;
+  color: var(--steel);
+}
+.form input[type='url'],
+.form input[type='password'],
+.form input[type='text'],
+.form select,
+.typed textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--gray);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--ink);
+  font: 400 16px var(--font);
+  box-sizing: border-box;
+}
+.typed textarea {
+  resize: vertical;
+}
+/* The phone's own select is shorter than a fingertip: draw it as a field,
+   with a chevron in the steel token. */
+.form select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+}
+.select-wrap {
+  position: relative;
+}
+.select-wrap::after {
+  content: '';
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--steel);
+  border-bottom: 2px solid var(--steel);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+.form select:disabled {
+  opacity: 0.55;
+}
+.with-button {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.with-button input {
+  flex: 1;
+  min-width: 0;
+}
+.with-button .btn {
+  min-height: 44px;
+}
+.field.check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.field.check input {
+  width: 24px;
+  height: 24px;
+  margin: 10px;
+  accent-color: var(--green);
+}
+.field.check label {
+  font-weight: 400;
+  font-size: 16px;
+}
+.error {
+  margin: 0;
+  color: var(--bad-text);
+  font-size: 14px;
+}
+
+/* The page's own display rules must not undo the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
+/* No search, nav or who in this bar: the look switch, and Menu at phone
+   width, take the right edge. */
+.topbar .theme-toggle {
+  margin-left: auto;
+}
+@media (max-width: 760px) {
+  .topbar .menu-btn {
+    margin-left: auto;
+  }
+}

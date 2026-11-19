@@ -1,0 +1,621 @@
+/* Sttark shared style: the parts every Sttark web app shares, so they look
+   like one product. docs.sttark.com, inventory.sttark.com and
+   hvac.eng.sttark.com load this file.
+
+   THE RULE IS THE BRAND GUIDE: "Sttark Brand Guidelines", chapter Building
+   Web Apps (docs.sttark.com/company/brand-guidelines/guide). The tokens,
+   sizes and rules below are that chapter's; if this file and the guide ever
+   disagree, fix this file.
+
+   THE CANONICAL COPY IS THIS ONE, in sttark-docs (app/src/styles/). Other
+   apps carry a byte-for-byte copy, with the font files beside it in fonts/,
+   and check it on deploy (`npm run check:style`). Change it here first, then
+   copy it over.
+
+   What lives here: the font faces, the color tokens (light and dark), the
+   page base, the top bar (logo and app name, search, nav, the main action,
+   who is signed in, the theme switch, the phone menu), buttons, breadcrumbs,
+   the page title, section headings and the footer. Everything else is each
+   app's own.
+
+   COLOR RULES, the same in every app:
+   - Green fill is the main action: at most one solid green button a screen.
+   - Green also means "you are here": the current nav item (green underline),
+     the current step, the focus ring.
+   - A chosen option among several is ink: an ink outline or an ink chip.
+   - Status is a soft wash with colored text, a 1 px border and a dot:
+     good green, attention yellow, bad red, information blue. Never a solid
+     fill, and always with words.
+   - Destructive actions use the red --danger fill.
+   - Links in text are ink and underlined, green on hover.
+   - An app's own meaning colors (HVAC: blue cooling and humidity, red
+     heating) stay few and have a legend. Never green for a data meaning.
+   - No gradients, no large shadows: shadows only for things that float. */
+
+/* ---------- Founders Grotesk: the two licensed weights ---------- */
+
+@font-face {
+  font-family: 'Founders Grotesk';
+  src: url('./fonts/founders-grotesk-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Founders Grotesk';
+  src: url('./fonts/founders-grotesk-regular-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Founders Grotesk';
+  src: url('./fonts/founders-grotesk-semibold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Founders Grotesk';
+  src: url('./fonts/founders-grotesk-semibold-italic.woff2') format('woff2');
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ---------- tokens (the guide's, exactly) ---------- */
+
+:root {
+  color-scheme: light;
+  /* Grounds */
+  --paper: #f8f5f2; /* page ground: brand Beige-Light */
+  --card: #ffffff; /* cards, panels, inputs: brand White */
+  --highlight: #f0e1cc; /* rare emphasis ground: brand Beige-Mid */
+  --chrome: #000000; /* top bar, both schemes */
+  --chrome-edge: rgba(0, 0, 0, 0.28);
+  /* Text and lines */
+  --ink: #000000; /* main text: brand Black */
+  --steel: #5b6570; /* secondary text: readable stand-in for brand Gray */
+  --gray: #a3abb2; /* brand Gray: borders, disabled, empty icons. Never text. */
+  --line: #e6e1da; /* hairlines and card borders */
+  --on-chrome: #a3abb2; /* nav text on the black bar */
+  /* Green: "do this" and "you are here" */
+  --green: #00892f; /* brand Dark Green, Pantone 3522 C */
+  --green-hover: #007a2a;
+  --green-text: #007a2a; /* green as small text on paper or card */
+  --green-bright: #00a82d; /* brand Light Green: large marks only, never under white text */
+  /* Status: a soft wash with colored text, never a solid fill */
+  --good-text: #007a2a;
+  --good-soft: #e6f4ea;
+  --good-border: #b9dec4;
+  --warn-text: #7a5c00;
+  --warn-soft: #fdf6d8;
+  --warn-border: #ecd98a;
+  --warn-mark: #e5b200;
+  --bad-text: #b42318;
+  --bad-soft: #fdecea;
+  --bad-border: #f2b8b5;
+  --bad-mark: #df3d33;
+  --info-text: #035f93;
+  --info-soft: #e8f1f8;
+  --info-border: #b6d3e8;
+  --info-mark: #0473b1;
+  --danger: #b42318; /* fill for destructive buttons */
+  /* Type */
+  --font: 'Founders Grotesk', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* Shape */
+  --radius: 6px;
+  --content-width: 1000px;
+
+  /* Derived from the tokens above (no new colors): the faint wash under a
+     hovered row or button, and the ground of code and quiet panels. */
+  --hover-wash: color-mix(in srgb, var(--ink) 4%, var(--card));
+  --code-wash: color-mix(in srgb, var(--ink) 5%, var(--card));
+}
+
+/* A small script in each app's head applies the stored light / auto / dark
+   choice to <html data-theme> before the page paints; the tokens do the
+   rest. The top bar stays black, darker than the page in dark mode. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #121417;
+  --card: #1a1d21;
+  --highlight: #2a2620;
+  --chrome: #000000;
+  --chrome-edge: #2b2f34;
+  --ink: #e6e8ea;
+  --steel: #9aa3ad;
+  --gray: #5b6570;
+  --line: #2b2f34;
+  --green: #00892f;
+  --green-hover: #00a82d;
+  --green-text: #00a82d;
+  --green-bright: #00a82d;
+  --good-text: #3cc46a;
+  --good-soft: #17271e;
+  --good-border: #2e4a3a;
+  --warn-text: #e8c547;
+  --warn-soft: #2b2512;
+  --warn-border: #5a4a1c;
+  --warn-mark: #e5b200;
+  --bad-text: #f97066;
+  --bad-soft: #3a1d1a;
+  --bad-border: #6b2a25;
+  --bad-mark: #f97066;
+  --info-text: #5aa9e0;
+  --info-soft: #16222d;
+  --info-border: #24435c;
+  --info-mark: #5aa9e0;
+  --danger: #b42318;
+}
+
+/* ---------- page base ---------- */
+
+body {
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+/* Two licensed weights: 400 and 600. Anything asking for bold gets 600,
+   never a browser-faked 700. */
+b,
+strong,
+th,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 600;
+}
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+}
+/* Phones zoom into any field set smaller than 16px. */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+select,
+textarea {
+  font-size: 16px;
+}
+
+::selection {
+  background: var(--green);
+  color: #fff;
+}
+
+/* The focus ring on every interactive element. */
+:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+/* ---------- top bar ---------- */
+
+/* Black in both modes, pinned to the top, a 1px line under it. Left to
+   right: logo and app name, search, nav, the main action, who is signed in,
+   the theme switch. */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 24px;
+  background: var(--chrome);
+  color: #fff;
+  position: sticky;
+  top: 0;
+  /* Below the photo popup (60) and selection suggest control (70) so those
+     overlays still sit above it; dialogs use the top layer. */
+  z-index: 50;
+  box-shadow: 0 1px 0 var(--chrome-edge);
+}
+
+/* The lockup: the white wordmark at 24px, a thin divider, the app name.
+   At phone width the S icon stands in for the wordmark (see below). */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.brand svg {
+  height: 24px;
+  width: auto;
+  display: block;
+}
+.brand .mark-s {
+  display: none;
+}
+.brand .app {
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 1;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Controls on the bar share one height: 40px, the desktop button floor. */
+.search-open,
+.topbar .new-link,
+.menu-btn {
+  min-height: 40px;
+}
+
+.search-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--on-chrome);
+  font: 400 14px var(--font);
+  cursor: pointer;
+}
+.search-open:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+.search-open svg {
+  width: 16px;
+  height: 16px;
+}
+.search-open kbd {
+  font-size: 12px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+
+.topbar .nav-link {
+  font-size: 15px;
+  color: var(--on-chrome);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.topbar .nav-link:hover {
+  color: #fff;
+}
+/* Where you are: white, with a 2px Light Green underline 8px below. */
+.topbar .nav-link[aria-current='page'] {
+  color: #fff;
+  text-decoration: underline;
+  text-decoration-color: var(--green-bright);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 8px;
+}
+
+/* The app's main action (New, Add): the one green button on the bar. */
+.topbar .new-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 1px solid var(--green);
+  border-radius: var(--radius);
+  background: var(--green);
+  color: #fff;
+  font: 600 15px var(--font);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.topbar .new-link:hover {
+  background: var(--green-hover);
+  border-color: var(--green-hover);
+}
+.topbar .new-link svg {
+  width: 16px;
+  height: 16px;
+}
+/* A screen has at most one solid green button. When the page or an open
+   dialog shows its own main action (a green .btn that is not hidden, folded
+   away or in a closed dialog), the bar's action steps down to an outline,
+   like Search beside it. */
+body:has(.btn:not(.ghost, .danger, [hidden], [hidden] *, details:not([open]) *, dialog:not([open]) *, .topbar *)) .topbar .new-link {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: transparent;
+}
+body:has(.btn:not(.ghost, .danger, [hidden], [hidden] *, details:not([open]) *, dialog:not([open]) *, .topbar *)) .topbar .new-link:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+  background: transparent;
+}
+
+.topbar .who {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--on-chrome);
+}
+
+/* The light / auto / dark switch: white lines on the black bar in both
+   modes, since the bar never changes. */
+.theme-toggle {
+  display: flex;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.theme-toggle button {
+  appearance: none;
+  background: none;
+  border: 0;
+  min-height: 32px;
+  padding: 0 12px;
+  color: var(--on-chrome);
+  font: 400 13px var(--font);
+  cursor: pointer;
+}
+.theme-toggle button + button {
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+}
+.theme-toggle button:hover {
+  color: #fff;
+}
+.theme-toggle button[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+/* On a wide screen the menu's contents sit inline in the bar. */
+.topbar-more {
+  display: contents;
+}
+.menu-btn {
+  display: none;
+  appearance: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-left: auto;
+  min-width: 44px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius);
+  background: transparent;
+  color: #fff;
+  font: 400 14px var(--font);
+  cursor: pointer;
+}
+.menu-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Phone width: one row. The S icon and the app name, search, the main
+   action as an icon, and Menu; nav, who is signed in and the theme switch
+   open under Menu. The S icon stands in for the wordmark because the
+   wordmark at its 24px minimum, the app name and three fingertip-sized
+   controls do not fit in 375px. */
+@media (max-width: 760px) {
+  .topbar {
+    gap: 8px;
+    padding: 10px 16px;
+  }
+  .brand .mark-word {
+    display: none;
+  }
+  .brand .mark-s {
+    display: block;
+  }
+  .brand .app {
+    font-size: 16px;
+  }
+  /* The lockup is the home link: a fingertip target like the controls
+     beside it, in a bar they already make this tall. */
+  .brand {
+    min-height: 44px;
+  }
+  /* A breadcrumb is a way back: a fingertip target too, its words unchanged. */
+  .crumbs a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .search-open,
+  .topbar .new-link,
+  .menu-btn {
+    min-height: 44px;
+    min-width: 44px;
+    justify-content: center;
+  }
+  .search-open {
+    padding: 0 12px;
+  }
+  .search-open .search-word,
+  .search-open kbd,
+  .topbar .new-link .new-word,
+  .menu-btn .menu-word {
+    display: none;
+  }
+  .topbar .new-link {
+    padding: 0;
+  }
+  .topbar .new-link svg {
+    width: 20px;
+    height: 20px;
+  }
+  .search-open {
+    margin-left: auto;
+  }
+  .menu-btn {
+    display: inline-flex;
+    margin-left: 0;
+  }
+  .topbar-more {
+    display: none;
+  }
+  .topbar[data-menu='open'] .topbar-more {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    padding: 8px 16px 16px;
+    background: var(--chrome);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .topbar[data-menu='open'] .nav-link {
+    font-size: 16px;
+    padding: 12px 0;
+    min-height: 44px;
+  }
+  .topbar[data-menu='open'] .who {
+    margin: 8px 0;
+  }
+  .topbar[data-menu='open'] .theme-toggle {
+    align-self: flex-start;
+  }
+  .topbar[data-menu='open'] .theme-toggle button {
+    min-height: 44px;
+    padding: 0 16px;
+  }
+}
+
+/* ---------- buttons ---------- */
+
+/* Main: green fill, white text, the one thing the screen is for. Other:
+   ink outline (.ghost). Destructive: the --danger fill (.danger).
+   Disabled: any of them at 55%. Founders Grotesk Semibold 15px, 6px
+   corners, 40px tall on a desktop and 44px on a phone. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--green);
+  border-radius: var(--radius);
+  background: var(--green);
+  color: #fff;
+  font: 600 15px/1.2 var(--font);
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--green-hover);
+  border-color: var(--green-hover);
+}
+.btn svg {
+  width: 16px;
+  height: 16px;
+}
+.btn.ghost {
+  border-color: var(--ink);
+  background: transparent;
+  color: var(--ink);
+}
+.btn.ghost:hover {
+  background: var(--hover-wash);
+  border-color: var(--ink);
+}
+.btn.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+.btn.danger:hover {
+  background: color-mix(in srgb, var(--danger) 85%, #000);
+  border-color: color-mix(in srgb, var(--danger) 85%, #000);
+}
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: default;
+}
+@media (max-width: 760px) {
+  .btn {
+    min-height: 44px;
+  }
+}
+
+/* ---------- breadcrumbs, page title, section headings ---------- */
+
+.crumbs {
+  font-size: 14px;
+  color: var(--steel);
+  margin-bottom: 12px;
+}
+.crumbs b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.crumbs a {
+  color: var(--steel);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.crumbs a:hover {
+  color: var(--green-text);
+}
+
+h1.doc,
+h1.page-title {
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 32px;
+  line-height: 1.1;
+  margin-bottom: 16px;
+}
+@media (max-width: 760px) {
+  h1.doc,
+  h1.page-title {
+    font-size: 26px;
+  }
+}
+
+h2.sec {
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 32px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+h2.sec::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* ---------- footer ---------- */
+
+footer {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--steel);
+  text-align: center;
+}
+footer b {
+  color: var(--ink);
+  font-weight: 400;
+}
+footer a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+footer a:hover {
+  color: var(--green-text);
+}

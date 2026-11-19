@@ -1,0 +1,29 @@
+{
+  "name": "kit-glasses-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Sttark Claude Kit on Even Realities G2 glasses",
+  "scripts": {
+    "dev": "node scripts/fonts.mjs --soft && vite",
+    "mock": "node mock-bridge/server.mjs",
+    "sim": "node scripts/sim.mjs",
+    "walk": "node scripts/walk.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/fonts.mjs --soft && tsc --noEmit && vite build",
+    "pack": "npm run build && node scripts/pack.mjs"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.16",
+    "@evenrealities/pretext": "^0.1.4"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.2.0",
+    "@evenrealities/evenhub-simulator": "^0.9.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1",
+    "ws": "^8.23.0"
+  }
+}
