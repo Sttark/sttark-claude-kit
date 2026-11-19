@@ -319,8 +319,8 @@ def on_agent_stop(data):
 
 def asks_for_chrome(prompt):
     p = prompt or ''
-    if '<task-notification>' in p or p.lstrip().startswith('<'):
-        return False   # an agent's result or a Kit message, not the person's words
+    if '<task-notification>' in p or p.lstrip().startswith(('<', '[Sttark Claude Kit]')):
+        return False   # an agent's result or a Kit message (a check-in in the chat too), not the person's words
     for m in OPT_IN.finditer(p):
         if not NOT_BEFORE.search(p[max(0, m.start() - 40):m.start()]):
             return True

@@ -796,19 +796,31 @@ enum Events {
             var after = rest
             if let q = quoted(rest), let r = rest.range(of: "\"\(q)\" ") { after = String(rest[r.upperBound...]) }
             // "<status> | <subject> | <note>"; the status is "shown in the Kit", then "; no summary (…)" when it applies,
-            // or "written (dry)". Lines from before check-ins stayed in the Kit app say "sent by …", "would send (dry)"
-            // or "not sent (…)", with "; not by …"
+            // or "written (dry)", then "; in the chat", "; would go in the chat" (dry) or "; not in the chat: <why>"
+            // while Check-ins in the session is on. Lines from before check-ins stayed in the Kit app say "sent by …",
+            // "would send (dry)" or "not sent (…)", with "; not by …"
             let fields = after.components(separatedBy: " | ")
             let items = fields[0].components(separatedBy: "; ")
             let subject = fields.count > 1 ? fields[1] : ""
             let note = fields.count > 2 ? fields[2...].joined(separator: " | ") : ""
             if !note.isEmpty { e.detail.append("\u{201C}" + note + "\u{201D}") }
+            var inChat = false
             for x in items.dropFirst() {
                 if x.hasPrefix("not by ") { e.level = .warn; e.detail.append("Not sent by " + x.dropFirst(7) + ".") }
                 else if x.hasPrefix("no summary") { e.detail.append("Haiku gave no summary" + x.dropFirst(10) + ", so the note gives the count of steps.") }
+                else if x == "in the chat" {
+                    inChat = true
+                    e.detail.append("The Kit typed it into the session as a prompt, and the session answers it in its chat.")
+                } else if x == "would go in the chat" {
+                    e.detail.append("Test run: it would go in the session's chat, and nothing was typed.")
+                } else if x.hasPrefix("not in the chat: ") {
+                    let why = String(x.dropFirst(17))
+                    e.detail.append("Not in the chat: " + why + (why.hasSuffix(".") ? "" : "."))
+                    if why.hasPrefix("the Kit could not type") { e.level = .warn }
+                }
             }
             if items[0].hasPrefix("shown") {
-                e.text = "Progress check-in" + (subject.isEmpty ? "" : ": " + subject)
+                e.text = (inChat ? "Progress check-in, also in the chat" : "Progress check-in") + (subject.isEmpty ? "" : ": " + subject)
             } else if items[0].hasPrefix("written (dry)") {
                 e.routine = true; e.text = "Progress check-in written, not kept (test run)" + (subject.isEmpty ? "" : ": " + subject)
             } else if items[0].hasPrefix("sent by ") {

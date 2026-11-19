@@ -1822,6 +1822,12 @@ struct SettingsPage: View {
             toggle("Progress check-ins in the Kit", "While a session works 15 min or more: a short note on its row here and on your phone. No alerts.",
                    f.checkins, help: "Every 15 minutes: what got done, what is next, and anything it is stuck on, with its age. It shows in Sessions and in Kit on your phone, never as a message or notice. Turn it off to save the short Haiku calls.") { c?.toggleCheckins() }
             Hairline()
+            toggle("Check-ins in the session",
+                   f.checkins ? "Also in the chat of a session the Kit started, such as one back from a wait. Each costs a short turn."
+                              : "Needs Progress check-ins in the Kit.",
+                   f.checkins && f.checkinsChat, enabled: f.checkins,
+                   help: "While a session's agents work in the background and its own turn is idle, the Kit types each check-in into the session as a prompt. The session answers in a line or two, with no tools and no new work. A session on this Mac's server, in the Claude desktop app or in a terminal takes no typed prompt from the Kit, so its check-ins stay in the Kit. Turn it off to save those turns.") { c?.toggleCheckinsChat() }
+            Hairline()
             toggle("Sttark working rules", "Rules in front of every prompt; a Simplified Technical English check on every reply.",
                    f.workingRules) { c?.toggleWorkingRules() }
             Hairline()

@@ -98,9 +98,9 @@ c.load = fake_load
 real_write = c.write
 
 
-def write_and_keep(cc, cse, x, title, work, now):
+def write_and_keep(cc, cse, x, title, work, now, st=None):
     n_before = cc.get('n', 0)
-    real_write(cc, cse, x, title, work, now)
+    real_write(cc, cse, x, title, work, now, st)
     if cc.get('n', 0) > n_before:
         SENT.append(('%s: %s' % (title, cc['subject']), cc['note'], None, title, x.get('url'), cse))
 
@@ -200,8 +200,9 @@ write(E, use('TURNSTEP one', S - 10 * 60) + say('The build passes. TURNSAID', S 
 
 
 def state(now, ways=('email',), on=None, turn=False, more=None):
-    """The state file at `now`: E's turn runs with `turn`; `more` gives other sessions' own fields (a turn, a prompt)."""
-    s = {'sessions': {}, 'reach': {'ways': list(ways), 'email': 'name@sttark.com'}}
+    """The state file at `now`: E's turn runs with `turn`; `more` gives other sessions' own fields (a turn, a prompt).
+    Check-ins in the session are off here: tools/checkin-chat-test.py tests them."""
+    s = {'sessions': {}, 'reach': {'ways': list(ways), 'email': 'name@sttark.com'}, 'checkins_chat': False}
     for tp, cse in CSE.items():
         x = {'transcript': tp, 'title': NAMES[tp], 'url': 'https://claude.ai/code/session_' + cse[4:], 'at': now - 120,
              'app': {'checked': now - 20, 'working': False, 'archived': tp == R}}

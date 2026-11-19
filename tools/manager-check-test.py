@@ -55,6 +55,9 @@ case('earlier turns ignored', [person('a')] + calls(12) + reply() + [person('b')
 case('a notification turn adds up', [person('a')] + calls(6) + reply() + [person(note)] + calls(6) + reply(), True)
 case('noted once, not again on the next notification turn',
      [person('a')] + calls(12) + reply() + [person(note)] + calls(1) + reply(), False)
+checkin = '[Sttark Claude Kit] Check-in: The label agent finished the barcode check. Next it adds the print test.'
+case('a check-in from the Kit adds up too: it is not the person\'s prompt',
+     [person('a')] + calls(6) + reply() + [person(checkin)] + calls(6) + reply(), True)
 # The agent queue check: new work sent to an agent that runs, with SendMessage, and no new agent.
 long_ = 'Scope change: add step 7, an Add chemical flow from a phone photo of a label. ' * 8
 
@@ -71,7 +74,7 @@ case('new work with a new agent too', [person('add it')] + calls(1, 'Agent') + s
 case('queued in an earlier turn, noted once',
      [person('add it')] + send(long_) + reply() + [person(note)] + calls(1) + reply(), False)
 log = open(d + '/log').read() if os.path.exists(d + '/log') else ''
-ok = log.count('agents ') == 3 and 'ste    ' not in log
+ok = log.count('agents ') == 4 and 'ste    ' not in log
 fails += not ok
 print('ok   ' if ok else 'FAIL ', 'log: one agents line per note, no ste line')
 # The status icon check, called in this process (no Stop run, so no STE model call on these longer replies).

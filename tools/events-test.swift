@@ -261,6 +261,31 @@ import Foundation
               "a check-in skipped as Haiku gave no usable note is a routine row, with why")
         let cx = Events.kitLine(f.string(from: Date()) + " checkin error: KeyError: 'sessions'", names)
         check(cx?.kind == .problem && cx?.text == "A progress check-in failed", "an error is a problem")
+        // Check-ins in the session (checkin.py in_chat()): each one in the chat, or not and why, in the same row
+        let cc = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" shown in the Kit; in the chat | Build the color page, working 45 min | It finished the page and opened pull request 12. Next it checks the links.", names)
+        check(cc?.name == "Press color" && cc?.session == "cse_01AAAtest1" && cc?.level == .info && cc?.routine == false
+              && cc?.text == "Progress check-in, also in the chat: Build the color page, working 45 min"
+              && cc?.detail == ["\u{201C}It finished the page and opened pull request 12. Next it checks the links.\u{201D}",
+                                "The Kit typed it into the session as a prompt, and the session answers it in its chat."],
+              "a check-in in the chat: the row says so, and the detail how")
+        let cnc = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" shown in the Kit; not in the chat: it runs in this Mac's server, which takes no typed prompt | Build the color page, working 45 min | It finished the page.", names)
+        check(cnc?.level == .info && cnc?.text == "Progress check-in: Build the color page, working 45 min"
+              && cnc?.detail.last == "Not in the chat: it runs in this Mac's server, which takes no typed prompt.",
+              "a check-in not in the chat: why, in the detail, with no warning")
+        let cna = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" shown in the Kit; no summary (exit 1: overloaded); not in the chat: Haiku gave no summary to send | Working 20 min | It made 12 steps since the last note.", names)
+        check(cna?.level == .info && cna?.detail.contains { $0.hasPrefix("Haiku gave no summary (exit 1: overloaded)") } == true
+              && cna?.detail.last == "Not in the chat: Haiku gave no summary to send.", "a failed summary does not go in the chat, and says so")
+        let cfc = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" shown in the Kit; not in the chat: the Kit could not type it in: it did not start after the Enter key | Working 20 min | It finished the page.", names)
+        check(cfc?.level == .warn && cfc?.text == "Progress check-in: Working 20 min"
+              && cfc?.detail.last == "Not in the chat: the Kit could not type it in: it did not start after the Enter key.",
+              "a check-in the Kit could not type in is a warning, with why")
+        let cdc = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" written (dry); would go in the chat | Working 20 min | It finished the page.", names)
+        check(cdc?.routine == true && cdc?.text == "Progress check-in written, not kept (test run): Working 20 min"
+              && cdc?.detail.last == "Test run: it would go in the session's chat, and nothing was typed.", "a test run types nothing, and says so")
+        let ckeep = Events.kitLine(f.string(from: Date()) + " keep   cse_01AAAtest1 high - a check-in from the Kit, which needs no new level | [Sttark Claude Kit] Check-in: It finished the page and opened pull request 12.", names)
+        check(ckeep?.kind == .effort && ckeep?.routine == true && ckeep?.text == "Effort stays at High"
+              && ckeep?.detail.first == "Why: a check-in from the Kit, which needs no new level",
+              "the effort hook's line for a check-in in the chat is a routine row")
 
         // One session for the same work (same-work.py): the question under the new session, the prompt under the open
         // session it went to, the checks that find nothing as routine rows, and what failed as problems

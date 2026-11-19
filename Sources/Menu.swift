@@ -32,6 +32,7 @@ struct MenuFacts {
     var workingRules = false
     var reach = Reach.Settings(ways: ["email"], email: "name@sttark.com", phone: "", chat: "")
     var checkins = true
+    var checkinsChat = true
     var sameWork = true
     /// What's new: how many notes there are, and how many this person hasn't seen.
     var whatsNew = 0
@@ -74,6 +75,7 @@ struct MenuFacts {
         f.workingRules = WorkingRules.on
         f.reach = Reach.settings()
         f.checkins = Checkins.on
+        f.checkinsChat = Checkins.chatOn
         f.sameWork = SameWork.on
         f.whatsNew = WhatsNew.shown.count
         f.whatsNewUnseen = WhatsNew.unseen.count
@@ -439,6 +441,7 @@ final class Controller: NSObject, NSMenuDelegate {
     @objc func toggleNames() { let on = !Names.on; Names.set(on); KitDefaults.chose("names", on: on) }
     @objc func toggleWorkingRules() { WorkingRules.set(!WorkingRules.on) }
     @objc func toggleCheckins() { Checkins.set(!Checkins.on) }
+    @objc func toggleCheckinsChat() { Checkins.setChat(!Checkins.chatOn) }
     @objc func toggleSameWork() { SameWork.set(!SameWork.on) }
 
     @objc func toggleProfile() {
