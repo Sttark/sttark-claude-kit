@@ -17,6 +17,9 @@ export interface Settings {
    *  starts with these words, and the ones started from these glasses, so a
    *  real Mac's other sessions never show. Never stored. */
   only: string;
+  /** Test mode only, from the address: Read to me plays with no volume, so a
+   *  test on a Mac makes no sound. Never stored. */
+  mute: boolean;
 }
 
 const KEY = 'kit-glasses-settings';
@@ -28,13 +31,14 @@ export const DEFAULTS: Settings = {
   swapSwipe: false,
   readonly: false,
   only: '',
+  mute: false,
 };
 
 let current: Settings = { ...DEFAULTS };
 let host: EvenAppBridge | null = null;
 const listeners = new Set<(s: Settings) => void>();
 
-/** Values from the address (?bridge=&token=&readonly=1&only=G2) win for this
+/** Values from the address (?bridge=&token=&readonly=1&only=G2&mute=1) win for this
  *  run only, so a test can point the simulator at the mock without saving. */
 function fromAddress(): Partial<Settings> {
   const q = new URLSearchParams(location.search);
@@ -43,6 +47,7 @@ function fromAddress(): Partial<Settings> {
   if (q.get('token')) o.token = q.get('token')!;
   if (q.get('readonly') === '1') o.readonly = true;
   if (q.get('only')?.trim()) o.only = q.get('only')!.trim();
+  if (q.get('mute') === '1') o.mute = true;
   return o;
 }
 
@@ -67,6 +72,7 @@ export async function loadSettings(bridge: EvenAppBridge | null): Promise<Settin
   }
   delete stored.readonly;
   delete stored.only;
+  delete stored.mute;
   current = { ...DEFAULTS, ...stored, ...fromAddress() };
   return current;
 }
@@ -78,7 +84,7 @@ export function settings(): Settings {
 export async function saveSettings(next: Partial<Settings>): Promise<void> {
   const addr = fromAddress();
   current = { ...current, ...next };
-  const { readonly: _ro, only: _only, ...keep } = current;
+  const { readonly: _ro, only: _only, mute: _mute, ...keep } = current;
   const raw = JSON.stringify(keep);
   localStorage.setItem(KEY, raw);
   if (host) {

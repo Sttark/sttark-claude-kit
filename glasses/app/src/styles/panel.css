@@ -89,6 +89,24 @@
   background: var(--bad-mark);
 }
 
+/* Read to me: sound on the phone. A card like the summary; a chip only when
+   something needs the person (blocked) or while it reads. */
+.sound {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 24px;
+  display: grid;
+  gap: 8px;
+}
+.sound p {
+  margin: 0;
+}
+.sound .btn {
+  justify-self: start;
+}
+
 .typed {
   border: 1px solid var(--warn-border);
   background: var(--warn-soft);

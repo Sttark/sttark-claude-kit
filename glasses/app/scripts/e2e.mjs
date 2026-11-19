@@ -206,11 +206,13 @@ async function openAndFinish(id, asked) {
   await wait(3000);
   await shot('answer-reply', '9 Its reply.', `Mac: the bridge's detail says "${short(answered.last_reply, 40)}".`);
 
-  // 5. Reply by typed words: Reply by voice is the first row now.
+  // 5. Reply by typed words: Reply by voice is the second row now, under Read to me.
   await input('click');
   await waitScreen('actions');
   await wait(1200);
-  await shot('actions-reply', '10 Actions, no question.', 'Reply by voice, Continue, Back. All rows full brightness; > marks the row a tap does.');
+  await input('down');
+  await wait(1200);
+  await shot('actions-reply', '10 Actions, no question.', 'Read to me, Reply by voice, Continue, Back. All rows full brightness; > marks the row a tap does.');
   await input('click');
   await waitScreen('voice:listening');
   await wait(3500);
@@ -227,13 +229,15 @@ async function openAndFinish(id, asked) {
   await wait(3000);
   await shot('reply-reply', '12 Its reply.', `Mac: the bridge's detail says "${short(replied.last_reply, 40)}".`);
 
-  // 6. Continue: one swipe down to it.
+  // 6. Continue: two swipes down to it.
   await input('click');
   await waitScreen('actions');
   await wait(1200);
   await input('down');
   await wait(1200);
-  await shot('actions-continue', '13 Continue.', 'One swipe moves the > to Continue; a tap sends it.');
+  await input('down');
+  await wait(1200);
+  await shot('actions-continue', '13 Continue.', 'Two swipes move the > to Continue; a tap sends it.');
   await input('click');
   await waitScreen('session', 70000);
   await wait(1200);

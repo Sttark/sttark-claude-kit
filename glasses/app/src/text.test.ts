@@ -179,8 +179,8 @@ describe('one session', () => {
   it('shows the question on the status line', () => {
     expect(statusLine(null, d, null)).toContain('Question: What next?');
   });
-  it('lists the answers first, then reply, continue and back', () => {
-    expect(actionItems(d.pending).map((i) => i.kind)).toEqual(['option', 'voice', 'continue', 'back']);
+  it('lists the answers first, then read to me, reply, continue and back', () => {
+    expect(actionItems(d.pending).map((i) => i.kind)).toEqual(['option', 'read', 'voice', 'continue', 'back']);
   });
   it('shows a plan waiting for approval as the reply', () => {
     const plan: SessionDetail = { ...d, pending: { kind: 'plan', text: '1. Move the racks.', options: [] } };

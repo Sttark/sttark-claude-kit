@@ -56,4 +56,8 @@ keys while Glasses Display is the front window.
 To speak a reply or a new session, the simulator records the Mac's microphone. Or type the words on the phone page,
 in "Type the words instead", and click "Use these words".
 
-Do not hold Click or press H: a long press opens the system menu, which the app does not use.
+Do not hold Click or press H alone: a long press opens the system menu. The app's own items there (Read to me, Stop
+reading) show after a tap, then hold.
+
+Read to me (a session's actions, or the system menu) plays its sound on the Mac in the simulator, and on the phone or
+its earbuds with the glasses. Add `&mute=1` to the address to try it with no sound.

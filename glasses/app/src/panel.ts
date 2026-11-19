@@ -2,6 +2,7 @@
 // swipe direction, whether Kit reaches the Mac, and, while the glasses
 // listen, a box to type the words instead (the simulator has no glasses mic).
 import type { Controller, Snapshot } from './controller';
+import type { SpeakerState } from './speaker';
 import { saveSettings, settings } from './settings';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -25,6 +26,17 @@ export function startPanel(app: Controller): void {
   $('readonly-chip').hidden = !s.readonly;
   $('only-chip').hidden = !s.only;
   $('only-words').textContent = `Test mode: only sessions whose name starts with ${s.only}`;
+  $('mute-chip').hidden = !s.mute;
+
+  // Read to me. The button is a tap on the page, so the phone lets the page
+  // play sound from then on: Turn on sound plays a short tone, Stop reading stops.
+  $('sound-button').addEventListener('click', () => {
+    const sp = app.speaker;
+    if (sp.state().reading) sp.stop();
+    else sp.unlock(true);
+  });
+  app.speaker.onChange(sound);
+  sound(app.speaker.state());
 
   show.addEventListener('click', () => {
     const on = token.type === 'password';
@@ -81,6 +93,26 @@ export function startPanel(app: Controller): void {
   });
   // The age line counts up on its own.
   setInterval(() => summary(app.snapshot()), 5000);
+}
+
+function sound(s: SpeakerState): void {
+  const chip = $('sound-chip');
+  const words = $('sound-words');
+  const button = $<HTMLButtonElement>('sound-button');
+  chip.hidden = true;
+  if (s.reading) {
+    chip.hidden = false;
+    chip.className = 'chip';
+    words.textContent = `${s.reading.loading ? 'Getting the sound for' : 'Reading'}: ${s.reading.title}`;
+    button.textContent = 'Stop reading';
+    return;
+  }
+  if (s.blocked) {
+    chip.hidden = false;
+    chip.className = 'chip warn';
+    words.textContent = 'The phone did not let Kit play the sound. Tap Turn on sound.';
+  }
+  button.textContent = s.on ? 'Test sound' : 'Turn on sound';
 }
 
 function summary(s: Snapshot): void {

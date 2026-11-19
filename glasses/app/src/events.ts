@@ -12,9 +12,15 @@ export type Input =
   | { kind: 'foreground' }
   | { kind: 'background' }
   | { kind: 'exit' }
+  /** An item of the app's own menu in the system menu (tap, then hold). */
+  | { kind: 'menu'; id: number }
   | { kind: 'audio'; pcm: Uint8Array };
 
 export function toInput(ev: EvenHubEvent): Input | null {
+  if (ev.menuItemClickEvent) {
+    const id = Number(ev.menuItemClickEvent.itemID);
+    return id > 0 ? { kind: 'menu', id } : null;
+  }
   if (ev.audioEvent) {
     const pcm = ev.audioEvent.audioPcm;
     return pcm && pcm.length ? { kind: 'audio', pcm } : null;

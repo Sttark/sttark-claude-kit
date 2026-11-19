@@ -1,6 +1,6 @@
 # Kit on Even Realities G2 glasses
 
-A glasses app for people who walk the plant all day and run Claude Code sessions on their Mac. On the lens it shows which sessions need you, a session's status and last reply, and lets you keep a session going: reply by voice, send "Continue", or answer a question, a permission or a plan with one tap. It also starts a short new session by voice.
+A glasses app for people who walk the plant all day and run Claude Code sessions on their Mac. On the lens it shows which sessions need you, a session's status and last reply, and lets you keep a session going: reply by voice, send "Continue", or answer a question, a permission or a plan with one tap. It also starts a short new session by voice, and reads a session's summary aloud on the phone (Read to me).
 
 The sessions stay on the Mac. A small bridge on the Mac (the Kit glasses bridge) gives this app a JSON API; the app runs on the phone, inside the Even Realities app, and draws on the glasses.
 
@@ -8,13 +8,13 @@ The sessions stay on the Mac. A small bridge on the Mac (the Kit glasses bridge)
 
 ## Gestures
 
-The glasses have a touch strip on each temple (and the optional R1 ring): tap, double tap, swipe up and swipe down. The app uses no long press, since the system uses it for its own menu.
+The glasses have a touch strip on each temple (and the optional R1 ring): tap, double tap, swipe up and swipe down. The app uses no long press alone, since the system uses it for its own menu. The system menu (tap, then hold) has the app's own items on Home, a session and its actions: Read to me and Stop reading.
 
 | Screen | Swipe | Tap | Double tap |
 | --- | --- | --- | --- |
 | Home: the sessions, needs you first, with `+ New session` on top | Moves the `>` | Opens the session, or starts a new one | Asks to close the app (the system's own question) |
 | Session: title, status, the last reply in pages | Next or last page | Opens the actions | Back to Home |
-| Actions: a question's answers first, then Reply by voice, Continue, Back | Moves the `>` | Does it. An answer goes at once | Back to the session |
+| Actions: a question's answers first, then Read to me, Reply by voice, Continue, Back | Moves the `>` | Does it. An answer goes at once. While it reads, Read to me shows Stop reading | Back to the session |
 | Reply by voice: Listening, and the words as they come | Nothing | Sends the words | Cancels |
 | New session: speak, then "Start this new session?" | Nothing | Done speaking, then Start | Cancels |
 
@@ -24,9 +24,18 @@ Status marks on Home: `!` needs you, `▷` working, `○` waiting on someone els
 
 When a session starts to need you, the top line of whatever screen is open says so for 6 seconds. It takes no input and moves nothing.
 
+## Read to me
+
+The glasses have no speaker, and the Even Hub SDK has no sound output. But the app is a web page in the phone's Even app, so its sound plays on the phone: its speaker, or the earbuds connected to it. Read to me says a session's summary: its name; its `glance` when the bridge gives one, else its status line and the first two sentences of its last reply; then the question it asks, with the answers.
+
+- **On the glasses:** in a session's actions, Read to me (the first row when nothing is asked). Or the system menu (tap, then hold), then Read to me: on Home it reads the session the `>` is on. The top line says `♪ Reading aloud: <session>` while it plays. The same row, or Stop reading in the menu, stops it. Reply by voice stops it too, so the mic does not hear it.
+- **The sound:** the bridge makes it on the Mac with macOS `say`, in the Mac's own voice (`GET /api/sessions/:id/speech`), and the app plays it in one `<audio>` element. When the Mac cannot make it (an older bridge, or `say` fails), or the phone refuses the file, the app uses the phone's own voice (`speechSynthesis`), with the same words.
+- **One tap on the phone:** many phone web views play a page's sound only after a tap on the page itself, and a gesture on the glasses is not such a tap. So the first tap anywhere on the Kit page turns sound on, without a sound, and the panel has Turn on sound, which plays a short tone. When the phone still refuses, the lens says `Sound blocked: on the phone, tap Turn on sound in Kit`.
+- **Tests make no sound:** `mute=1` in the address plays everything with no volume. The app writes `[kit] speech playing` and `[kit] speech ended` to its console, so a script sees the sound play without listening. `npm run walk` uses it.
+
 ## The phone panel
 
-The page the Even app shows for Kit. It holds the bridge address and token, the folder new sessions start in, and the swipe direction (some glasses swipe the other way). It says first whether Kit reaches the Mac. While the glasses listen, it also shows a box to type the words instead, for the simulator, which has no glasses mic.
+The page the Even app shows for Kit. It holds the bridge address and token, the folder new sessions start in, and the swipe direction (some glasses swipe the other way). It says first whether Kit reaches the Mac. Its Read to me card turns the phone's sound on, says what it reads, and stops it. While the glasses listen, it also shows a box to type the words instead, for the simulator, which has no glasses mic.
 
 ![The phone panel](docs/panel.png)
 
@@ -96,6 +105,7 @@ JSON, with the header `Authorization: Bearer <token>` on every request. What the
 | `GET /api/health` | `{ok, version}` |
 | `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending}]}`, needs you first. `status` is `needs_you`, `working`, `waiting` or `idle` |
 | `GET /api/sessions/:id` | The same fields, and `last_reply` (text) and `pending`: `null` or `{kind, text, options: [{id, label}]}`, `kind` being `question`, `permission` or `plan` |
+| `GET /api/sessions/:id/speech` | Read to me: the summary as sound (`audio/mp4`), and its words in the header `X-Speech-Text` (URL-encoded; `Access-Control-Expose-Headers: X-Speech-Text`). 404 "No such endpoint" from a bridge without it: the app uses the phone's voice |
 | `POST /api/sessions/:id/message` `{text}` | `{ok}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok}`. A prompt with several questions takes one answer at a time: `{ok, done: false, pending}` holds the next question, which the app shows at once |
 | `POST /api/sessions` `{prompt, folder?}` | `{id}`. It can take up to 90 s; the app waits 2 minutes. A message waits up to 60 s, since it goes through a claude.ai page in Chrome |
@@ -118,6 +128,8 @@ TypeScript and Vite, with the Even Hub SDK (`@evenrealities/even_hub_sdk`) and t
 | `src/text.ts` | Line wrap and pages measured with the glasses' own font, byte limits, glyphs the font has |
 | `src/events.ts` | One shape for every input (list, text and system events) |
 | `src/voice.ts` | Collects the mic's audio and asks the bridge for the words |
+| `src/speaker.ts` | Read to me on the phone: the one `<audio>` element, the tap that turns sound on, the phone's voice as the second way |
+| `src/speech-text.ts` | Read to me's words, the same as the bridge's (`glasses/bridge/speech.py`) |
 | `src/api.ts` | The bridge client |
 | `src/panel.ts`, `index.html`, `src/styles/` | The phone panel, on `sttark-shared.css` |
 | `mock-bridge/` | The mock bridge and its made-up sessions |
@@ -133,6 +145,6 @@ What the lens allows, and how the app lives with it:
 - Columns never line up in a proportional font, so the bridge sends each table row as a card: the row's name, then `  Header: cell` lines. The app keeps a line's indent when it wraps, never ends a page on a card's name alone, and drops the blank line before a card when that keeps the card on the page.
 - The first screen must use the system's close question on double tap (Even Hub review checks it).
 
-Not tried on glasses yet (the simulator differs from them): the glasses mic, which way a swipe turns a page (the panel has Swap swipe direction for that), whether the Even app takes a LAN `http://` address in the network list, and how the app keeps up while the phone is locked.
+Not tried on glasses yet (the simulator differs from them): the glasses mic, which way a swipe turns a page (the panel has Swap swipe direction for that), whether the Even app takes a LAN `http://` address in the network list, and how the app keeps up while the phone is locked. For Read to me: whether the phone plays the sound after a glasses gesture with no tap on the page, on iPhone and on Android; whether it plays while the phone is locked or the Even app is in the background; that it goes to connected earbuds; that the system menu shows Read to me after a tap, then hold; and whether Android's web view has `speechSynthesis` at all.
 
 Fonts: the panel uses Founders Grotesk, licensed to Sttark. The files are never committed (this repo is public); `scripts/fonts.mjs` copies them in for `npm run dev` and `npm run build` from the phone app, a `sttark-docs` checkout beside this repo, or Sttark/sttark-docs through `gh`.

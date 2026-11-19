@@ -6,6 +6,8 @@ import type { Input } from './events';
 import type { Glasses } from './glasses';
 import * as S from './screens';
 import { settings } from './settings';
+import { Speaker } from './speaker';
+import { spokenText } from './speech-text';
 import { Dictation } from './voice';
 
 type Screen =
@@ -35,6 +37,8 @@ const POLL_MS = 5000;
 const RETRY_MS = 10000;
 const NOTICE_MS = 6000;
 const FLASH_MS = 8000;
+/** A notice that asks the person to do something on the phone stays longer. */
+const ASK_NOTICE_MS = 10000;
 
 export class Controller {
   private screen: Screen = { kind: 'home' };
@@ -76,7 +80,14 @@ export class Controller {
   constructor(
     private bridge: Bridge,
     private lens: Glasses,
-  ) {}
+    /** Read to me: sound on the phone. */
+    readonly speaker: Speaker = new Speaker(settings().mute),
+  ) {
+    speaker.onChange(() => {
+      this.render();
+      this.changed();
+    });
+  }
 
   // ---------- panel side ----------
 
@@ -298,13 +309,13 @@ export class Controller {
 
   // ---------- notices ----------
 
-  private showNotice(text: string): void {
-    this.notice = { text, until: Date.now() + NOTICE_MS };
+  private showNotice(text: string, ms = NOTICE_MS): void {
+    this.notice = { text, until: Date.now() + ms };
     if (this.noticeTimer) clearTimeout(this.noticeTimer);
     this.noticeTimer = setTimeout(() => {
       this.notice = null;
       this.render();
-    }, NOTICE_MS);
+    }, ms);
   }
 
   private flash(sc: Extract<Screen, { kind: 'session' }>, text: string): void {
@@ -352,7 +363,13 @@ export class Controller {
   }
 
   private page() {
-    const notice = this.notice && this.notice.until > Date.now() ? this.notice.text : null;
+    const reading = this.speaker.state().reading;
+    const notice =
+      this.notice && this.notice.until > Date.now()
+        ? this.notice.text
+        : reading
+          ? `♪ ${reading.loading ? 'Getting the sound' : 'Reading aloud'}: ${S.clean(reading.title)}`
+          : null;
     const sc = this.screen;
     switch (sc.kind) {
       case 'home': {
@@ -382,7 +399,9 @@ export class Controller {
         const row = this.rows.find((r) => r.id === sc.id) ?? null;
         let ask = sc.ask;
         if (sc.message) ask = [sc.message, ...sc.ask.slice(1).map(() => '')];
-        return S.actionsPage({ title: d?.title || row?.title || 'Session', ask, items: sc.items, sel: sc.sel, first: sc.first, notice });
+        // While this session is read aloud, its Read to me row stops it.
+        const items = reading?.id === sc.id ? sc.items.map((i) => (i.kind === 'read' ? { ...i, label: S.STOP_ROW } : i)) : sc.items;
+        return S.actionsPage({ title: d?.title || row?.title || 'Session', ask, items, sel: sc.sel, first: sc.first, notice });
       }
       case 'voice': {
         const title = sc.purpose === 'new' ? 'New session' : `Reply to ${S.clean(this.titleOf(sc.id))}`;
@@ -492,7 +511,12 @@ export class Controller {
         return;
       case 'exit':
         this.stopMic();
+        this.speaker.stop();
         this.socket?.close();
+        return;
+      case 'menu':
+        if (input.id === S.MENU_READ) this.read(this.focusId());
+        else if (input.id === S.MENU_STOP) this.speaker.stop();
         return;
       case 'double':
         if (now - this.lastDouble < 400) return; // one gesture can arrive twice
@@ -569,7 +593,10 @@ export class Controller {
         const item = sc.items[sc.sel];
         if (!item) return;
         if (item.kind === 'back') this.openSession(sc.id, false);
-        else if (item.kind === 'voice') this.startVoice('reply', sc.id);
+        else if (item.kind === 'read') {
+          if (this.speaker.state().reading?.id === sc.id) this.speaker.stop();
+          else this.read(sc.id);
+        } else if (item.kind === 'voice') this.startVoice('reply', sc.id);
         else if (item.kind === 'continue') void this.sendFromActions(sc, 'Continue');
         else void this.answer(sc, item.id, item.label);
         return;
@@ -712,10 +739,45 @@ export class Controller {
     this.render();
   }
 
+  // ---------- read to me ----------
+
+  /** The session a menu item acts on: the open one, or the marked Home row. */
+  private focusId(): string | null {
+    const sc = this.screen;
+    if (sc.kind === 'session' || sc.kind === 'actions') return sc.id;
+    if (sc.kind === 'home' && this.loaded) return this.homeRows[this.homeIndex()]?.id ?? null;
+    return null;
+  }
+
+  /** Read a session's summary aloud on the phone: the sound the Mac makes,
+   *  else the phone's own voice. The lens says what happens. */
+  private read(id: string | null): void {
+    if (!id) {
+      if (this.screen.kind === 'home') this.showNotice('Swipe to a session first, then Read to me');
+      this.render();
+      return;
+    }
+    const title = this.titleOf(id);
+    void this.speaker
+      .read({
+        id,
+        title,
+        audio: () => this.bridge.speech(id),
+        words: () => spokenText(this.details.get(id) ?? this.rows.find((r) => r.id === id) ?? { title }),
+      })
+      .then((r) => {
+        if (r.result === 'blocked') this.showNotice('Sound blocked: on the phone, tap Turn on sound in Kit', ASK_NOTICE_MS);
+        else if (r.result === 'failed') this.showNotice(`Can't read aloud: ${r.why}`);
+        else return;
+        this.render();
+      });
+  }
+
   // ---------- voice ----------
 
   private startVoice(purpose: 'reply' | 'new', id: string | null): void {
     this.stopMic();
+    this.speaker.stop(); // the mic would hear it
     const sc: Screen = { kind: 'voice', purpose, id, phase: 'listening', text: '', note: null };
     this.screen = sc;
     const dict = new Dictation(

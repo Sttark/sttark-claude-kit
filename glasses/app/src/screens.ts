@@ -3,7 +3,7 @@
 // brightness steps. A header line sits on every screen, so a notice can
 // show there on any screen without taking the input.
 import type { Pending, SessionDetail, SessionRow, Status } from './api';
-import type { PageSpec, TextBox } from './glasses';
+import type { MenuItem, PageSpec, TextBox } from './glasses';
 import { LINE_H, fit, padTo, paginate, plainReply, spread, width, wrapLines } from './text';
 
 export const W = 576;
@@ -53,10 +53,24 @@ function foot(content: string): TextBox {
   return { name: 'foot', x: X, y: 258, w: TW, h: 30, content: fit(content, TPX), color: 2 };
 }
 
-/** A header line, or the notice in its place while one shows. */
+/** A header line, or the notice in its place while one shows. A notice
+ *  that starts with its own mark (♪ while Kit reads aloud) keeps it. */
 function headLine(text: string, right: string, notice: string | null): string {
-  return notice ? fit(`! ${notice}`, TPX) : spread(text, right, TPX);
+  if (!notice) return spread(text, right, TPX);
+  return fit(notice.startsWith('♪') ? notice : `! ${notice}`, TPX);
 }
+
+// ---------- the app's own menu ----------
+// In the system menu, which opens with a tap, then hold (the system's
+// gesture, never a long press alone). On Home it reads the marked session;
+// on a session and its actions, that session.
+
+export const MENU_READ = 1;
+export const MENU_STOP = 2;
+export const MENU: MenuItem[] = [
+  { id: MENU_READ, name: 'Read to me' },
+  { id: MENU_STOP, name: 'Stop reading' },
+];
 
 // ---------- lists ----------
 // The lens's own list widget draws every row but the highlighted one dim,
@@ -144,6 +158,7 @@ export function homePage(o: { rows: HomeRow[]; sel: number; first: number; needC
         capture: true,
       },
     ],
+    menu: MENU,
   };
 }
 
@@ -184,7 +199,7 @@ export function sessionPage(o: {
 }): PageSpec {
   const n = o.pages.length;
   const pageMark = n > 1 ? `${o.page + 1}/${n}` : '';
-  const tapWord = o.pending ? 'answer' : 'reply';
+  const tapWord = o.pending ? 'answer' : 'read, reply';
   const hint = n > 1 ? `Swipe: page   Tap: ${tapWord}   Double tap: back` : `Tap: ${tapWord}   Double tap: back`;
   return {
     texts: [
@@ -193,6 +208,7 @@ export function sessionPage(o: {
       { name: 'body', x: X, y: 62, w: TW, h: BODY_ROWS * LINE_H + 2, content: o.pages[o.page] ?? '', capture: true },
       foot(hint),
     ],
+    menu: MENU,
   };
 }
 
@@ -200,15 +216,21 @@ export function sessionPage(o: {
 
 export type ActionItem =
   | { kind: 'option'; id: string; label: string }
+  | { kind: 'read'; label: string }
   | { kind: 'voice'; label: string }
   | { kind: 'continue'; label: string }
   | { kind: 'back'; label: string };
 
+export const READ_ROW = '♪  Read to me';
+export const STOP_ROW = '■  Stop reading';
+
+/** The answers first, then Read to me (the summary aloud, on the phone), Reply by voice, Continue, Back. */
 export function actionItems(pending: Pending | null): ActionItem[] {
   const items: ActionItem[] = [];
   (pending?.options ?? []).slice(0, 12).forEach((o, i) => {
     items.push({ kind: 'option', id: o.id, label: `${i + 1}  ${clean(o.label)}` });
   });
+  items.push({ kind: 'read', label: READ_ROW });
   items.push({ kind: 'voice', label: '●  Reply by voice' });
   items.push({ kind: 'continue', label: '▶  Continue' });
   items.push({ kind: 'back', label: '←  Back' });
@@ -258,7 +280,7 @@ export function actionsPage(o: { title: string; ask: string[]; items: ActionItem
     ),
     capture: true,
   });
-  return { texts };
+  return { texts, menu: MENU };
 }
 
 // ---------- voice, confirm, messages: one shape ----------

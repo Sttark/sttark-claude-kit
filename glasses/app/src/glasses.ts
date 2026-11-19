@@ -9,6 +9,8 @@
 import {
   AudioInputSource,
   CreateStartUpPageContainer,
+  MenuContainerProperty,
+  MenuItemProperty,
   RebuildPageContainer,
   StartUpPageCreateResult,
   TextContainerProperty,
@@ -34,8 +36,16 @@ export interface TextBox {
   pad?: number;
 }
 
+export interface MenuItem {
+  id: number; // not 0
+  name: string; // at most 32 bytes
+}
+
 export interface PageSpec {
   texts: TextBox[];
+  /** The app's own items in the system menu (tap, then hold). The menu
+   *  belongs to the page: every rebuild declares it again, or it is gone. */
+  menu?: MenuItem[];
 }
 
 const CALL_MS = 6000;
@@ -194,12 +204,15 @@ function toContainers(spec: PageSpec) {
         ...(t.color !== undefined ? { textColor: t.color } : {}),
       }),
   );
-  return { containerTotalNum: textObject.length, textObject };
+  const menuObject = spec.menu?.length
+    ? new MenuContainerProperty({ menuItems: spec.menu.map((m) => new MenuItemProperty({ itemID: m.id, itemName: m.name })) })
+    : undefined;
+  return { containerTotalNum: textObject.length, textObject, ...(menuObject ? { menuObject } : {}) };
 }
 
 /** Everything about a page except the words in its text boxes. */
 function layoutKey(spec: PageSpec): string {
-  return JSON.stringify(spec.texts.map(({ content: _c, color: _k, ...rest }) => rest));
+  return JSON.stringify([spec.texts.map(({ content: _c, color: _k, ...rest }) => rest), spec.menu ?? []]);
 }
 
 function clone(spec: PageSpec): PageSpec {

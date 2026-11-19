@@ -45,6 +45,14 @@
         <p class="age" id="state-age"></p>
         <p class="chip warn" id="readonly-chip" hidden><span class="dot" aria-hidden="true"></span>Test mode: nothing is sent to sessions</p>
         <p class="chip warn" id="only-chip" hidden><span class="dot" aria-hidden="true"></span><span id="only-words"></span></p>
+        <p class="chip warn" id="mute-chip" hidden><span class="dot" aria-hidden="true"></span>Test mode: Read to me plays with no volume</p>
+      </section>
+
+      <section class="sound" id="sound" aria-live="polite">
+        <h2 class="sub">Read to me</h2>
+        <p class="chip" id="sound-chip" hidden><span class="dot" aria-hidden="true"></span><span id="sound-words"></span></p>
+        <p class="help" id="sound-help">Kit reads a session aloud on this phone, or on the earbuds connected to it. On the glasses, open a session and tap, then Read to me. Or tap, then hold, then Read to me.</p>
+        <button class="btn ghost" type="button" id="sound-button">Turn on sound</button>
       </section>
 
       <section class="typed" id="typed" hidden aria-live="polite">

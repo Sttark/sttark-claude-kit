@@ -12,6 +12,8 @@ export interface SessionRow {
   status_line?: string | null;
   updated_at?: string | number | null;
   has_pending?: boolean;
+  /** A short summary of the session, when the bridge has one: what Read to me says first. */
+  glance?: string | null;
 }
 
 export interface PendingOption {
@@ -59,6 +61,8 @@ const TRANSCRIBE_TIMEOUT_MS = 30000;
 // wait up to 90 s for its Claude Code to connect (bridge README).
 const SEND_TIMEOUT_MS = 60000;
 const START_TIMEOUT_MS = 120000;
+// The Mac makes the sound with macOS say: a few seconds for a long summary.
+const SPEECH_TIMEOUT_MS = 30000;
 
 export class Bridge {
   constructor(private cfg: () => BridgeConfig) {}
@@ -130,6 +134,41 @@ export class Bridge {
   }
   start(prompt: string, folder?: string) {
     return this.req<{ id: string }>('POST', '/api/sessions', JSON.stringify(folder ? { prompt, folder } : { prompt }), 'application/json', START_TIMEOUT_MS);
+  }
+  /** Read to me: the session's summary as sound made on the Mac (audio/mp4), and its words.
+   *  A bridge without Read to me answers 404 "No such endpoint": kind 'http', status 404. */
+  async speech(id: string): Promise<{ audio: Blob; text: string }> {
+    const base = this.base();
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), SPEECH_TIMEOUT_MS);
+    try {
+      let res: Response;
+      try {
+        res = await fetch(`${base}/api/sessions/${encodeURIComponent(id)}/speech`, {
+          signal: ctl.signal,
+          headers: { Authorization: `Bearer ${this.cfg().token}` },
+        });
+      } catch {
+        throw new BridgeError(`Can't reach ${base} (${ctl.signal.aborted ? 'no sound in 30 s' : 'no connection'})`, 'down');
+      }
+      if (res.status === 401 || res.status === 403) throw new BridgeError('The bridge did not accept the token', 'auth', res.status);
+      if (!res.ok) {
+        let msg = `${res.status}`;
+        try {
+          const j = await res.json();
+          msg = j.error || msg;
+        } catch {}
+        if (res.status === 404 && /session/i.test(msg)) throw new BridgeError('This session is gone from your Mac', 'gone', 404);
+        throw new BridgeError(res.status === 404 ? 'This bridge has no Read to me yet' : `The bridge said: ${msg}`, 'http', res.status);
+      }
+      let text = '';
+      try {
+        text = decodeURIComponent(res.headers.get('X-Speech-Text') || '');
+      } catch {}
+      return { audio: await res.blob(), text };
+    } finally {
+      clearTimeout(timer);
+    }
   }
   async folders(): Promise<Folder[]> {
     return (await this.req<{ folders: Folder[] }>('GET', '/api/folders')).folders || [];

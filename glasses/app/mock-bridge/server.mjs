@@ -10,7 +10,12 @@
 //
 // Test hooks, no token: POST /mock/reset (fresh sample data),
 // POST /mock/flip (the working "Docs: HVAC chapter" session needs you now).
+// Read to me (GET /api/sessions/:id/speech) makes its sound with macOS say.
+import { execFile } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import http from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocketServer } from 'ws';
 import { FOLDERS, SPOKEN, sampleSessions } from './data.mjs';
 
@@ -22,6 +27,48 @@ let sessions = sampleSessions();
 let spokenIndex = 0;
 let lastAudioBytes = 0;
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
+
+// Read to me: the app's own words (src/speech-text.ts) where Node can load
+// TypeScript (22.18 and later), else the short form.
+let spokenText = (s) => [s.title, s.glance || s.why || s.status].filter(Boolean).join('. ') + '.';
+try {
+  ({ spokenText } = await import('../src/speech-text.ts'));
+} catch {}
+
+/** The words as sound: macOS say on a Mac (an AAC file; nothing plays), else a second of silence. */
+function speechAudio(text) {
+  if (!existsSync('/usr/bin/say')) return Promise.resolve({ type: 'audio/wav', data: silentWav(1) });
+  const dir = mkdtempSync(join(tmpdir(), 'kit-mock-speech-'));
+  const out = join(dir, 'speech.m4a');
+  return new Promise((resolve, reject) => {
+    const p = execFile('/usr/bin/say', ['-o', out, '--file-format=m4af', '--data-format=aac', '-f', '-'], { timeout: 60000 }, (err) => {
+      try {
+        if (err) return reject(err);
+        resolve({ type: 'audio/mp4', data: readFileSync(out) });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+    p.stdin.end(text);
+  });
+}
+function silentWav(seconds) {
+  const n = 8000 * seconds;
+  const b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0);
+  b.writeUInt32LE(36 + n * 2, 4);
+  b.write('WAVEfmt ', 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(8000, 24);
+  b.writeUInt32LE(16000, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write('data', 36);
+  b.writeUInt32LE(n * 2, 40);
+  return b;
+}
 
 const row = ({ last_reply, pending, ...r }) => ({ ...r, has_pending: !!pending });
 const RANK = { needs_you: 0, working: 1, waiting: 2, idle: 3 };
@@ -74,6 +121,7 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Max-Age', '600');
+  res.setHeader('Access-Control-Expose-Headers', 'X-Speech-Text');
 }
 function json(res, code, body) {
   cors(res);
@@ -142,11 +190,23 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { id });
   }
 
-  const m = path.match(/^\/api\/sessions\/([^/]+)(\/(message|answer))?$/);
+  const m = path.match(/^\/api\/sessions\/([^/]+)(\/(message|answer|speech))?$/);
   if (m) {
     const s = find(decodeURIComponent(m[1]));
     if (!s) return json(res, 404, { error: 'no such session' });
     if (!m[2] && req.method === 'GET') return json(res, 200, { ...row(s), last_reply: s.last_reply, pending: s.pending });
+    if (m[3] === 'speech' && req.method === 'GET') {
+      const text = spokenText({ ...row(s), last_reply: s.last_reply, pending: s.pending });
+      try {
+        const { type, data } = await speechAudio(text);
+        log(`speech for "${s.title}": ${text.length} characters, ${Math.round(data.length / 1024)} KB`);
+        cors(res);
+        res.writeHead(200, { 'Content-Type': type, 'Content-Length': data.length, 'X-Speech-Text': encodeURIComponent(text) });
+        return res.end(data);
+      } catch (e) {
+        return json(res, 503, { error: `Read to me is not ready on the Mac: ${e.message}` });
+      }
+    }
     if (m[3] === 'message' && req.method === 'POST') {
       const { text } = parse(await body(req));
       if (!text) return json(res, 400, { error: 'text is empty' });

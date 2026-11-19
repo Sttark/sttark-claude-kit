@@ -93,6 +93,7 @@ export function sampleSessions() {
       status: 'waiting',
       why: 'Waiting on the supplier price',
       status_line: 'Waiting on the supplier price',
+      glance: 'Two drive belts asked for. The supplier price is due by 2:00 PM.',
       updated_at: min(48),
       last_reply: 'I asked the supplier for the price and ship date of two drive belts for Rewinder 2. I will check the inbox again at 2:00 PM.',
       pending: null,

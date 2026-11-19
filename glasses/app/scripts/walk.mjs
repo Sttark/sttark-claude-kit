@@ -67,7 +67,8 @@ async function mockPost(path) {
 try {
   startMock();
   await sleep(800);
-  sim(`${APP}?bridge=${encodeURIComponent(MOCK)}&token=mock`);
+  // mute=1: Read to me plays with no volume, so the walk makes no sound.
+  sim(`${APP}?bridge=${encodeURIComponent(MOCK)}&token=mock&mute=1`);
   await wait(3000);
 
   // Home: needs-you sessions first, + New session on top. The rows, in
@@ -125,7 +126,19 @@ try {
   // turns any sound into a made-up sentence, a few words at a time.
   await step('click');
   await shot('actions-no-question');
+
+  // Read to me: the first row when nothing is asked. The Mac makes the sound
+  // (the mock with macOS say) and the phone plays it; the top line says so.
+  // A tap on the same row stops it.
   await step('click');
+  await wait(2500);
+  await shot('reading');
+  await panel('reading');
+  await step('click');
+  await wait(800);
+
+  // Reply by voice: the next row.
+  await step('down', 'click');
   await shot('voice-listening');
   await wait(5500);
   await shot('voice-words');

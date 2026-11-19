@@ -37,6 +37,14 @@ async function boot(): Promise<void> {
     });
   }
   startPanel(app);
+  // Read to me: many phones let a page play sound only after a tap on the
+  // page itself. The first tap anywhere on the phone page turns sound on
+  // (silently); a glasses gesture never counts as such a tap.
+  const soundOn = () => {
+    if (!app.speaker.state().on) app.speaker.unlock();
+  };
+  document.addEventListener('touchend', soundOn, { capture: true });
+  document.addEventListener('click', soundOn, { capture: true });
   // Dev server only: words a script types in the phone's box, so a test can
   // reply without keys (scripts/e2e.mjs; vite.config.ts, kitTyped).
   if (import.meta.hot) {

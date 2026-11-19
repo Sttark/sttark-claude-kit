@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bridge, Pending, SessionDetail, SessionRow } from './api';
 import { Controller } from './controller';
 import type { Glasses, PageSpec } from './glasses';
+import { MENU_READ, MENU_STOP } from './screens';
+import type { ReadResult, ReadSource, Speaker, SpeakerState } from './speaker';
 
 // The controller with a stand-in bridge and lens: what a swipe and a tap do
 // on the text lists, and a prompt with two questions (the bridge answers
@@ -29,7 +31,23 @@ const rows: SessionRow[] = [
 ];
 const detail: SessionDetail = { ...rows[1], last_reply: 'Job 4471 is next.', pending: first };
 
-function setup() {
+/** A stand-in speaker: what the controller asks it to read, and what it says back. */
+function fakeSpeaker(result: ReadResult = { result: 'playing' }) {
+  let st: SpeakerState = { reading: null, on: true, blocked: false, muted: true };
+  const fs = new Set<(s: SpeakerState) => void>();
+  const set = (p: Partial<SpeakerState>) => {
+    st = { ...st, ...p };
+    fs.forEach((f) => f(st));
+  };
+  const read = vi.fn(async (src: ReadSource) => {
+    set({ reading: { id: src.id, title: src.title, loading: false } });
+    return result;
+  });
+  const stop = vi.fn(() => set({ reading: null }));
+  return { state: () => st, onChange: (f: (s: SpeakerState) => void) => (fs.add(f), () => fs.delete(f)), read, stop, unlock() {} };
+}
+
+function setup(speaker = fakeSpeaker()) {
   const shown: PageSpec[] = [];
   const lens = { show: (p: PageSpec) => shown.push(p), invalidate() {}, mic: async () => true, exit: async () => {}, present: true };
   // Like the bridge: the detail shows the question that waits now.
@@ -51,9 +69,10 @@ function setup() {
     answer,
     message: vi.fn(async () => ({ ok: true })),
   };
-  const app = new Controller(bridge as unknown as Bridge, lens as unknown as Glasses);
+  const app = new Controller(bridge as unknown as Bridge, lens as unknown as Glasses, speaker as unknown as Speaker);
   const text = (name: string) => shown[shown.length - 1]?.texts.find((t) => t.name === name)?.content ?? '';
-  return { app, answer, text };
+  const menu = () => shown[shown.length - 1]?.menu?.map((m) => m.name) ?? [];
+  return { app, answer, text, menu, speaker };
 }
 
 describe('the controller', () => {
@@ -107,6 +126,62 @@ describe('the controller', () => {
     await settle();
     expect(answer).toHaveBeenLastCalledWith('cse_b', 'q1.o1');
     expect(app.snapshot().screen).toBe('session');
+  });
+
+  it('reads a session aloud from its actions, and the same row stops it', async () => {
+    const { app, text, speaker } = setup();
+    app.start();
+    await settle();
+    app.handle({ kind: 'down' });
+    await settle();
+    app.handle({ kind: 'tap', from: 'text' }); // open Press job 4471
+    await settle();
+    app.handle({ kind: 'tap', from: 'text' }); // its actions: the answers, then Read to me
+    await settle();
+    expect(text('actions').split('\n')[2]).toContain('Read to me');
+    app.handle({ kind: 'down' });
+    await settle();
+    app.handle({ kind: 'down' });
+    await settle();
+    app.handle({ kind: 'tap', from: 'text' });
+    await settle();
+    expect(speaker.read).toHaveBeenCalledTimes(1);
+    expect(speaker.read.mock.calls[0][0]).toMatchObject({ id: 'cse_b', title: 'Press job 4471' });
+    expect(text('head')).toContain('Reading aloud: Press job 4471');
+    expect(text('actions').split('\n')[2]).toContain('Stop reading');
+    app.handle({ kind: 'tap', from: 'text' });
+    await settle();
+    expect(speaker.stop).toHaveBeenCalled();
+    expect(text('actions').split('\n')[2]).toContain('Read to me');
+  });
+
+  it("has Read to me in the system menu: on Home it reads the marked session", async () => {
+    const { app, menu, speaker, text } = setup();
+    app.start();
+    await settle();
+    expect(menu()).toEqual(['Read to me', 'Stop reading']);
+    app.handle({ kind: 'menu', id: MENU_READ }); // the > is on + New session
+    await settle();
+    expect(speaker.read).not.toHaveBeenCalled();
+    expect(text('head')).toContain('Swipe to a session first');
+    app.handle({ kind: 'down' });
+    await settle();
+    app.handle({ kind: 'menu', id: MENU_READ });
+    await settle();
+    expect(speaker.read.mock.calls[0][0]).toMatchObject({ id: 'cse_b' });
+    app.handle({ kind: 'menu', id: MENU_STOP });
+    expect(speaker.stop).toHaveBeenCalled();
+  });
+
+  it('says on the lens when the phone blocks the sound', async () => {
+    const { app, text } = setup(fakeSpeaker({ result: 'blocked' }));
+    app.start();
+    await settle();
+    app.handle({ kind: 'down' });
+    await settle();
+    app.handle({ kind: 'menu', id: MENU_READ });
+    await settle();
+    expect(text('head')).toContain('Sound blocked: on the phone, tap Turn on sound in Kit');
   });
 
   it('takes no tap in the first 0.7 s after the answers open', async () => {
