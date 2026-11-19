@@ -297,8 +297,9 @@ if fake:
     # a note of the person's own reply where it watches (watch.py queue_note()) goes the same way, once
     state(lambda s: s['sessions'][CSE2].update(replied=[{
         'at': time.time(), 'ids': ['m-own'], 'title': 'Bottle labels', 'where': 'in the email thread "Bottle labels proof"',
-        'text': '[Sttark Claude Kit] The person replied themselves, after your last turn, in a place this session '
-                'watches:\n- In the email thread "Bottle labels proof", Wed Nov 18 2:30 PM: "The proof is approved."'}]))
+        'text': '[Sttark Claude Kit] The person replied themselves in a place this session watches. Your records do not '
+                'show this reply:\n- In the email thread "Bottle labels proof", Wed Nov 18 2:30 PM, the person sent it: '
+                '"The proof is approved."'}]))
     got = prompt(CSE2, 'Any news on the labels?', tp2)
     check("a note of the person's own reply goes with the next prompt, once, with a `watch  told` line",
           'The person replied themselves' in got and '"The proof is approved."' in got
@@ -471,8 +472,8 @@ state(lambda s: s['sessions'][CSE6].pop('stopped', None))
 
 # a note of the person's own reply (watch.py queue_note()) that the session did not get yet goes in the bring-back's
 # message too, once
-OWN = ('[Sttark Claude Kit] The person replied themselves, after your last turn, in a place this session watches:\n'
-       '- In the email thread "Labels proof", Wed Nov 18 2:30 PM: "The proof is approved."')
+OWN = ('[Sttark Claude Kit] The person replied themselves in a place this session watches. Your records do not show '
+       'this reply:\n- In the email thread "Labels proof", Wed Nov 18 2:30 PM, the person sent it: "The proof is approved."')
 state(lambda s: s['sessions'][CSE6].update(replied=[{'at': time.time(), 'ids': ['m-own'], 'title': 'Labels quote',
                                                      'where': 'in the email thread "Labels proof"', 'text': OWN}]))
 try_back()

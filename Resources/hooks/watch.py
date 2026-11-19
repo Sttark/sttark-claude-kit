@@ -45,10 +45,14 @@ when it runs (asana_get_task_stories; Asana mails no one about their own comment
 with no model call; a post elsewhere in a Chat space is checked first, with the same Haiku call as a broad match. For
 each match: a message kept in the Kit about that place since the Kit brought the session back for it gets "You
 replied <time>" (notify.py mark_replied()); an email reply wait on that thread stays open (it still waits for the
-other person) and its row says "You replied <time>" (`replied` on the wait). When the reply came after the session's
-last turn, the session is told once, with no alert: a note on its next prompt (effort-hook.py take_replied()), or
-brought back with the note at once only when a message kept in the Kit or an email reply wait depends on it. Logged as
-"watch  replied ...".
+other person) and its row says "You replied <time>" (`replied` on the wait). The session is told once, with no alert,
+unless its records show that it knows of the reply (own_known()): the reply's id or its words in a line from after it
+(a read of it, a search or a thread read that got it, the Kit's own note), or a mail it sent itself in Gmail with
+claude-window. A turn after the reply does not count: that turn can be about other work. It gets a note on its next
+prompt (effort-hook.py take_replied()), which says that the person sent it, when, and its first words, and for a mail
+with no email reply wait on its thread, the claude-wait command to set if it expects an answer. It is brought back
+with the note at once only when a message kept in the Kit or an email reply wait depends on the reply and it had no
+turn since. Logged as "watch  replied ...", with why it was told or not.
 
     watch.py --list      what the Kit watches now, for each session (claude-wait --watching runs this)
 
@@ -80,6 +84,7 @@ MAX_SPACES = 10     # Chat spaces read in one run
 MAX_TASKS = 10      # Asana tasks read in one run, for the person's own comments (asana_get_task_stories)
 TASK_DAYS = 7       # an Asana task is read for them while a session touched it in this many days
 OWN_SAID = 300      # characters kept of the person's own reply, for the session's note
+SEND_NEAR = 600     # a Gmail send with claude-window this near the person's own mail, to its people, is the session's
 BACK_MAX = 20       # bring-backs kept for each session (note_back())
 WR = 'mcp__claude_ai_Sttark_Workrouter__'
 ME = None           # the person's address; tests set it
@@ -1337,24 +1342,137 @@ def own_words(m, n=OWN_SAID):
     return QUOTE.split(' ' + t)[0].strip()[:n]
 
 
+IDCHAR = re.compile(rb'[A-Za-z0-9]')
+
+
+def own_needles(m):
+    """What a record that has the person's own reply shows of it: its id (not part of a longer word), and the longest
+    run of its first words with no stop in it, 25 characters or more (a line break in the text comes after a stop, so
+    a run has none), as the records write it."""
+    ids = [m['id'].encode()] if len(m.get('id') or '') >= 6 else []
+    run = max([x.strip() for x in re.split(r'[.,;:!?()"\n]', own_words(m))] or [''], key=len)
+    words = list(dict.fromkeys(json.dumps(run, ensure_ascii=a)[1:-1].encode('utf-8') for a in (False, True))) \
+        if len(run) >= 25 else []
+    return ids, words
+
+
+def times_of(e, needle, word=False):
+    """When the session's records got the byte string: the time of each line of its transcript and its agents' that
+    holds it (a line with no time is left out), and the change time of each tool result Claude Code saved to a file
+    that holds it. `word`: only where it is not part of a longer word (an id)."""
+    out = []
+    saved = glob.glob(os.path.join(e['transcript'][:-len('.jsonl')], 'tool-results', '*'))
+    for p in files_of(e['transcript']) + saved:
+        try:
+            with open(p, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                i, n = mm.find(needle), 0
+                while i >= 0 and n < 200:
+                    n += 1
+                    j = i + len(needle)
+                    if word and ((i and IDCHAR.match(mm[i - 1:i])) or IDCHAR.match(mm[j:j + 1])):
+                        i = mm.find(needle, i + 1)
+                        continue
+                    if p in saved:
+                        out.append(os.path.getmtime(p))
+                        break
+                    a, b = mm.rfind(b'\n', 0, i) + 1, mm.find(b'\n', i)
+                    b = len(mm) if b < 0 else b
+                    try:
+                        x = json.loads(mm[a:b])
+                    except ValueError:
+                        x = None
+                    t = stamp(x.get('timestamp')) if isinstance(x, dict) else 0
+                    if t:
+                        out.append(t)
+                    i = mm.find(needle, b)
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def own_known(e, m):
+    """What the session's records show of the person's own reply: {'seen': {how, at}} when they show it knows of it,
+    and 'draft' when its words are words the session wrote before it (its draft, which the person sent).
+    - Read: the reply's id or its words in a line from after the reply (a read of the message, a search or a thread
+      read that got it, the Kit's own note, a page with it). An id or words already in a line from before the reply
+      show nothing: they are the session's own text (its draft), not the reply.
+    - Sent: a mail the session sent itself in Gmail with claude-window, to the same people, within SEND_NEAR of it.
+    A turn after the reply shows nothing: it can be about other work. When unsure, nothing: the session is told."""
+    ids, words = own_needles(m)
+    ti = [t for n in ids for t in times_of(e, n, word=True)]
+    tw = [t for n in words for t in times_of(e, n)]
+    draft = any(t < m['at'] for t in tw)
+    after = [t for t in ti if t >= m['at']] if not any(t < m['at'] for t in ti) else []
+    after += [t for t in tw if t >= m['at']] if not draft else []
+    out = {'draft': draft and m['kind'] == 'mail'}
+    if after:
+        out['seen'] = {'how': 'read', 'at': min(after)}
+    elif m['kind'] == 'mail':
+        to = [a for a in addrs(m.get('to')) if a != m.get('box')]
+        sent = [k['at'] for k in e.get('keys') or [] if k.get('how') == 'email' and abs(k['at'] - m['at']) <= SEND_NEAR
+                and (not to or k['v'] in to or k['v'] in {site(a) for a in to})]
+        if sent:
+            out['seen'] = {'how': 'sent', 'at': min(sent)}
+    return out
+
+
+def known_line(m, wm):
+    """Why the session was not told of a reply of the person's, for the log."""
+    s = m.get('seen') or {}
+    if s.get('how') == 'sent':
+        return 'not told: it sent this mail itself with claude-window at %s' % wm.clock(s['at'])
+    if s.get('how') == 'read':
+        return 'not told: it read the reply at %s' % wm.clock(s['at'])
+    return 'not told'
+
+
+def wait_on(wm, cse, m):
+    """Whether an open email reply wait of the session watches the thread or the people of the person's own mail."""
+    to = [a for a in addrs(m.get('to')) if a != m.get('box')]
+    for w in (wm.peek().get('waits') or {}).values():
+        if w.get('cse') != cse or w.get('kind') != 'email-reply' or w.get('stage') == 'back':
+            continue
+        if w.get('target') and w['target'] == m.get('thread_id'):
+            return True
+        text = ' '.join((w.get('from') or '', w.get('query') or '')).lower()
+        if any(a in text or site(a) in text for a in to):
+            return True
+    return False
+
+
+def wait_line(m, e):
+    """The claude-wait command for an answer to the person's own mail: its thread, the other person (the first address
+    it went to, else the one the session's key for that thread names) and its mailbox when that is not the person's."""
+    to = [a for a in addrs(m.get('to')) if a != m.get('box')] or [
+        sender(k.get('who')) for k in e.get('keys') or [] if k['k'] == 'thread' and k['v'] == m.get('thread_id')
+        and sender(k.get('who'))]
+    return 'claude-wait email-reply %s%s%s --by <deadline> --why "<line>"' % (
+        m['thread_id'], ' --from %s' % to[0] if to else '',
+        ' --mailbox %s' % m['box'] if m.get('box') and m['box'] != me() else '')
+
+
 def own_line(m):
-    """One reply of the person's, for the session's note: where, when, the first lines, and how to read it."""
+    """One reply of the person's, for the session's note: where, when, that the person sent it (the session's own
+    draft, when its words are), the first lines, and how to read it."""
     how = ''
     if m['kind'] == 'mail':
         how = (' (to read it: claude-mail read %s %s)' % (m['box'], m['id']) if direct_read(m.get('box'))
                else " (to read it: Workrouter's gmail_read_message, message_id %s)" % m['id'])
     elif m['kind'] == 'asana':
         how = ' (the task: https://app.asana.com/0/0/%s)' % m['task']
-    return '- %s, %s: "%s"%s' % (m['where'][0].upper() + m['where'][1:],
-                                 time.strftime('%a %b %-d %-I:%M %p', time.localtime(m['at'])),
-                                 own_words(m) or '(no words)', how)
+    did = {'mail': 'the person sent your draft' if m.get('draft') else 'the person sent it',
+           'chat': 'the person posted it'}.get(m['kind'], 'the person wrote it')
+    return '- %s, %s, %s: "%s"%s' % (m['where'][0].upper() + m['where'][1:],
+                                     time.strftime('%a %b %-d %-I:%M %p', time.localtime(m['at'])), did,
+                                     own_words(m) or '(no words)', how)
 
 
-def own_note(mine, wm, wake=False):
+def own_note(mine, wm, wake=False, cse='', e=None):
     """The session's note of the person's own replies: where, when and the first lines of each, the message kept in
-    the Kit and the wait they touch, and that it marks its item handled with no message to anyone."""
-    lines = ['[Sttark Claude Kit] The person replied themselves, after your last turn, in a place this session '
-             'watches:'] + [own_line(m) for m in mine[:6]]
+    the Kit and the wait they touch, the wait to set for an answer to a mail when none watches it, and that it marks
+    its item handled with no message to anyone."""
+    lines = ['[Sttark Claude Kit] The person replied themselves in a place this session watches. Your records do not '
+             'show this reply:'] + [own_line(m) for m in mine[:6]]
     if len(mine) > 6:
         lines.append('- And %d more.' % (len(mine) - 6))
     kept = [k for m in mine for k in m.get('kept') or []]
@@ -1366,6 +1484,11 @@ def own_note(mine, wm, wake=False):
         lines.append("Your email reply wait %s stays open: the person's own reply does not end it, so it still waits "
                      "for the other person. Cancel it (claude-wait --cancel <id>) only if their reply is no longer "
                      "needed." % ', '.join(waits))
+    nowait = list({m['thread_id']: m for m in mine if m['kind'] == 'mail' and m.get('thread_id')
+                   and not m.get('waits') and not wait_on(wm, cse, m)}.values())
+    for m in nowait[:3]:
+        lines.append('You have no email reply wait on %s. If you expect an answer to this mail, set the wait now, with '
+                     'a deadline you select: %s' % (re.sub(r'^in ', '', m['where']), wait_line(m, e or {})))
     lines.append('If an item of yours waited on this reply (a question to the person, a draft for them to send, a '
                  'next step), mark it handled in your notes and your status now. This needs no message: do not send '
                  'claude-notify for it, and do not ask the person about it.' + (
@@ -1399,9 +1522,9 @@ def mark_waits(wm, cse, m, dry=False):
 def prepare_own(wm, cse, e, mine):
     """The Kit's part of the person's own replies, once for each (kept on it, so a retry does none of it twice): the
     session's messages kept in the Kit about that place get "You replied <time>" (notify.py mark_replied()); its email
-    reply wait on that thread stays open and gets `replied` (mark_waits()); the session is told only when the reply
-    came after its last turn (`tell`), and brought back for it only when such a kept message or wait depends on it
-    (`wake`)."""
+    reply wait on that thread stays open and gets `replied` (mark_waits()); the session is told unless its records show
+    it knows of the reply (`tell`, own_known(): a turn after the reply is not enough), and brought back for it only when
+    such a kept message or wait depends on it and it had no turn since the reply (`wake`)."""
     end = None
     for m in mine:
         if m.get('done'):
@@ -1419,9 +1542,19 @@ def prepare_own(wm, cse, e, mine):
             log('%s could not mark its waits: %s: %s' % (cse[:12], type(x).__name__, str(x)[:160]))
         if end is None:
             end = last_turn(e['transcript'])
-        m.update(done=True, kept=kept, waits=waits, tell=m['at'] > end,
-                 wake=m['at'] > end and bool(kept or any(first for _, first in waits)),
+        try:
+            known = own_known(e, m)
+        except Exception as x:  # when unsure, it is told
+            known = {}
+            log('%s could not read its records for your reply: %s: %s' % (cse[:12], type(x).__name__, str(x)[:160]))
+        tell = not known.get('seen')
+        m.update(done=True, kept=kept, waits=waits, tell=tell, seen=known.get('seen'), draft=known.get('draft'),
+                 wake=tell and m['at'] > end and bool(kept or any(first for _, first in waits)),
                  why_wake='a message kept in the Kit depends on it' if kept else 'its email reply wait depends on it')
+
+
+NO_SIGN = 'its records do not show your reply'
+NOTED = 'noted for its next prompt: ' + NO_SIGN
 
 
 def own_log(cse, title, m, wm, then):
@@ -1430,7 +1563,7 @@ def own_log(cse, title, m, wm, then):
     did = ['its message in the Kit "%s" now shows You replied %s' % (s[:60], wm.clock(m['at'])) for _, s in m.get('kept') or []]
     did += ['its wait %s shows You replied %s and still waits for the other person' % (w, wm.clock(m['at']))
             for w, _ in m.get('waits') or []]
-    did.append(then if m.get('tell') else 'not told: it had a turn since your reply')
+    did.append(then if m.get('tell') else known_line(m, wm))
     log('replied %s "%s" %s, %s: %s | %s' % (cse[:12], title, m['where'], wm.clock(m['at']),
                                             own_words(m, 80).replace('|', '/') or '-', '; '.join(did)))
 
@@ -1885,15 +2018,15 @@ def deliver_one(wm, cse, e, cache, now):
         if tell and DRY:
             print('would note for %s (%s): %d of your own replies' % (title, cse, len(tell)))
         elif tell:
-            queue_note(wm, cse, title, own_note(tell, wm), tell)
-        own_done('would be noted for its next prompt (dry)' if DRY else 'noted for its next prompt')
+            queue_note(wm, cse, title, own_note(tell, wm, cse=cse, e=e), tell)
+        own_done('would be noted for its next prompt (dry): ' + NO_SIGN if DRY else NOTED)
         e['pending'] = []
         return
     # A wait brought it back moments ago: it reads its first prompt now, so these wait for that turn to end.
     if any(w.get('cse') == cse and w.get('stage') == 'back' and time.time() - w.get('back_at', 0) < 180
            for w in (wm.peek().get('waits') or {}).values()):
         return
-    note = own_note(tell, wm, wake=not others) if tell else ''
+    note = own_note(tell, wm, wake=not others, cse=cse, e=e) if tell else ''
     why = ('new messages came in too' if others else wake[0]['why_wake'])
     what = '; '.join('%s "%s"' % (m['from'] or 'Chat', (m.get('subject') or m.get('text') or '')[:60]) for m in others[:3])
     if DRY:
@@ -1938,8 +2071,8 @@ def deliver_one(wm, cse, e, cache, now):
         own_done('brought back with a note: ' + why)
         return
     if tell:  # it could not come back: the note waits for its next prompt, and nothing alerts
-        queue_note(wm, cse, title, own_note(tell, wm), tell)
-    own_done('noted for its next prompt')
+        queue_note(wm, cse, title, own_note(tell, wm, cse=cse, e=e), tell)
+    own_done(NOTED)
     if not others:
         return
     try:

@@ -30,8 +30,10 @@ made-up sessions and transcripts, a JSON file for the Keychain (STTARK_MAIL_KEYS
   marks the note You replied and brings the session back with a note (no alert); a draft is no reply; once only; a
   kept message in a turn for a wait with no thread is about no place; an email reply wait stays open, shows You
   replied and brings its session back the first time, a later reply only notes it for the next prompt, which gets it
-  once; a reply before the session's last turn ended is not told; Chat (in the thread of its post with no check, else
-  checked) and Asana (the person's own comment, never the session's own or someone else's) go in one note.
+  once; the person sends the session's draft and its next turn is about other work: told, with the wait to set; a reply
+  the session read itself, or a mail it sent itself with claude-window, is not told; Chat (in the thread of its post
+  with no check, else checked) and Asana (the person's own comment, never the session's own or someone else's) go in
+  one note.
 Run from the repo root: /usr/bin/python3 tools/watch-test.py"""
 import base64, contextlib, importlib.util, io, json, os, re, stat, sys, tempfile, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -65,8 +67,8 @@ def rfc(t):
 MAIL = []
 
 
-def mail(mid, tid, sender, subject, at, snippet='', body=''):
-    MAIL.append({'id': mid, 'thread_id': tid, 'from': sender, 'to': ME, 'subject': subject, 'at': int(at),
+def mail(mid, tid, sender, subject, at, snippet='', body='', to=ME):
+    MAIL.append({'id': mid, 'thread_id': tid, 'from': sender, 'to': to, 'subject': subject, 'at': int(at),
                  'snippet': snippet or subject, 'body': body or snippet or subject})
 
 
@@ -121,7 +123,7 @@ class Google(BaseHTTPRequestHandler):
                 body['nextPageToken'] = str(start + n)
             return self.answer(body)
         def message(m):
-            headers = [{'name': 'From', 'value': m['from']}, {'name': 'To', 'value': ME},
+            headers = [{'name': 'From', 'value': m['from']}, {'name': 'To', 'value': m['to']},
                        {'name': 'Subject', 'value': m['subject']}, {'name': 'Date', 'value': rfc(m['at'])}]
             return {'id': m['id'], 'threadId': m['thread_id'], 'internalDate': str(m['at'] * 1000), 'snippet': m['snippet'],
                     'payload': {'headers': headers, 'mimeType': 'text/plain',
@@ -823,8 +825,8 @@ check('the person\'s own reply in that thread, read in the same search: the kept
       and any(q.startswith('after:') and 'from:%s -in:drafts' % ME in q and 'subject:"Lunch"' in q for q in g['queries']))
 check('the kept note depends on it, so the session comes back at once with a note, and no alert: where, when, the '
       'first lines (not the quote), and that it marks the item handled', [c for c, _ in brought] == [CL]
-      and brought[0][1].startswith('[Sttark Claude Kit] The person replied themselves, after your last turn')
-      and 'In the email thread "Lunch", ' in brought[0][1] and '"Tuesday works for me, at noon."' in brought[0][1]
+      and brought[0][1].startswith('[Sttark Claude Kit] The person replied themselves in a place this session watches')
+      and 'In the email thread "Lunch", ' in brought[0][1] and ', the person sent it: "Tuesday works for me, at noon."' in brought[0][1]
       and 'claude-mail read %s m-mine' % ME in brought[0][1] and 'do not send claude-notify' in brought[0][1]
       and 'You replied' in brought[0][1] and 'wrote:' not in brought[0][1])
 check('one log line, for the Events page: where, when, the first words and what the Kit did',
@@ -870,15 +872,58 @@ got = effort.take_replied(CJ, 'with its next prompt') if effort.pending_replied(
 check('the next prompt gets it once, and the log says so', len(got) == 1 and 'And the plates are ready.' in got[0]
       and not effort.pending_replied(CJ) and 'watch  told %s "Press job 4417" of your reply in the email thread "Press job 4417 proof", '
       'with its next prompt' % CJ in open(os.environ['STTARK_KIT_LOG']).read())
-# a reply before the session's last turn ended: it may know already, so it is not told
-mail('m-early2', 'thrquote01', 'Person Sample <%s>' % ME, 'Re: Laminator quote', R + 360, 'Any news on the quote?')
-write(TPL, [{'type': 'assistant', 'timestamp': iso(R + 380), 'message': {'content': [{'type': 'text', 'text': 'Working.'}]}}], 'a')
+# The case that asked for this: the person sends the session's draft in Gmail between two turns. The session's next
+# turn is about other work (it even quotes its draft as "not sent"), so it does not know: it is told, with a note for
+# its next prompt (it had a turn since, so nothing brings it back), that says the person sent its draft, and gives the
+# wait to set, since it has no email reply wait on that thread.
+mail('m-sent', 'thrquote01', 'Person Sample <%s>' % ME, 'Re: Laminator quote', R + 360,
+     'Please quote the 13 inch laminator. On Wed, Nov 18, 2026 at 9:00 AM Rep wrote:', to='Rep <rep@lunchsample.example>')
+write(TPL, person('Change the draft', R + 300) + [{'type': 'assistant', 'timestamp': iso(R + 330), 'message': {'content': [
+    {'type': 'text', 'text': 'The draft is ready in Gmail but not sent: Please quote the 13 inch laminator.'}]}}]
+      + person('What does 13 inches come to in mm?', R + 370) + [{'type': 'assistant', 'timestamp': iso(R + 380),
+                                                                  'message': {'content': [{'type': 'text', 'text': '330 mm.'}]}}], 'a')
 del brought[:]
+logpos = os.path.getsize(os.environ['STTARK_KIT_LOG'])
 watch.check(wait, R + 650)
-check('a reply before the session\'s last turn ended: not told, and logged so', brought == []
+logged = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+note = (json.load(open(os.path.join(KIT, 'state.json')))['sessions'].get(CL) or {}).get('replied') or []
+check('the person sent the session\'s draft, and its turn after was about other work: told, with a note for its next '
+      'prompt, not brought back', brought == [] and len(note) == 1
+      and 'In the email thread "Laminator quote", ' in note[0]['text']
+      and ', the person sent your draft: "Please quote the 13 inch laminator."' in note[0]['text'])
+check('the note gives the wait to set: the thread and the other person, as it has no email reply wait there',
+      'You have no email reply wait on the email thread "Laminator quote". If you expect an answer' in note[0]['text']
+      and 'claude-wait email-reply thrquote01 --from rep@lunchsample.example --by <deadline>' in note[0]['text']
+      and '--mailbox' not in note[0]['text'])
+check('the log says why it was told', '"Laminator quote" in the email thread "Laminator quote", ' in logged
+      and '| noted for its next prompt: its records do not show your reply' in logged)
+got = effort.take_replied(CL, 'with its next prompt') if effort.pending_replied(CL) else []
+check('the next prompt gets it once', len(got) == 1 and 'the person sent your draft' in got[0] and not effort.pending_replied(CL))
+
+# the session read the person's reply itself (its id in a read after it): not told, and the log says when
+mail('m-read', 'thrquote01', 'Person Sample <%s>' % ME, 'Re: Laminator quote', R + 700, 'Any news on the quote, please?',
+     to='Rep <rep@lunchsample.example>')
+write(TPL, person('Did I send it?', R + 710) + use(WR + 'gmail_read_message', {'message_id': 'm-read'}, R + 720,
+      json.dumps({'id': 'm-read', 'thread_id': 'thrquote01', 'from': ME, 'subject': 'Re: Laminator quote',
+                  'date': rfc(R + 700)})), 'a')
+del brought[:]
+watch.check(wait, R + 1000)
+logged = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+check('a reply the session read itself: not told, and logged with when it read it', brought == []
       and not (json.load(open(os.path.join(KIT, 'state.json')))['sessions'].get(CL) or {}).get('replied')
-      and '"Laminator quote" in the email thread "Laminator quote", ' in open(os.environ['STTARK_KIT_LOG']).read()
-      and 'not told: it had a turn since your reply' in open(os.environ['STTARK_KIT_LOG']).read())
+      and ': Any news on the quote, please? | not told: it read the reply at %s' % wait.clock(R + 720) in logged)
+
+# a mail the session sent itself in Gmail with claude-window: the person's address sent it, but it is no reply of theirs
+write(TPL, person('Send the rep a reminder', R + 1100) + use('Bash', {'command': 'claude-window go "https://mail.google.com/mail/u/0/#inbox?compose=new"; claude-window js \'to.value="rep@lunchsample.example"; [...document.querySelectorAll("div[role=button]")].find(b=>/^Send/.test(b.dataset.tooltip)).click()\''},
+      R + 1110, 'Gmail\nhttps://mail.google.com/mail/u/0/#inbox\nok'), 'a')
+mail('m-self', 'thrquote01', 'Person Sample <%s>' % ME, 'Re: Laminator quote', R + 1111, 'A short reminder about the quote.',
+     to='Rep <rep@lunchsample.example>')
+del brought[:]
+watch.check(wait, R + 1400)
+logged = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+check('a mail the session sent itself with claude-window: not told, and logged so', brought == []
+      and not (json.load(open(os.path.join(KIT, 'state.json')))['sessions'].get(CL) or {}).get('replied')
+      and 'not told: it sent this mail itself with claude-window at %s' % wait.clock(R + 1110) in logged)
 
 # Chat and Asana, through the Workrouter run: the person's own post in the thread of the session's post (no check), a
 # post elsewhere in a direct message it posted in (checked: yes, then no), and their own comment on its Asana task

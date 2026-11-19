@@ -268,7 +268,9 @@ enum Events {
                 told = true
                 e.detail.append("Test run: it would come back with a note.")
             } else if x.hasPrefix("not told") {
-                e.detail.append("Not told: it had a turn after your reply.")
+                // why, as the log says it: it read the reply at a time, or it sent the mail itself
+                let why = x.range(of: ": ").map { String(x[$0.upperBound...]) } ?? ""
+                e.detail.append(why.isEmpty ? "Not told." : "Not told: \(why).")
             } else if !x.isEmpty {
                 e.detail.append(x.prefix(1).uppercased() + x.dropFirst() + (x.hasSuffix(".") ? "" : "."))
             }
