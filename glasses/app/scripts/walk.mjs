@@ -15,9 +15,9 @@ import { sheet } from './sheet.mjs';
 import { app, lensShot, panelShot, sleep, startSim as sim, step, stopSim, wait } from './simkit.mjs';
 
 const shots = join(app, 'shots');
-const MOCK_PORT = 8742;
+const MOCK_PORT = Number(process.env.MOCK_PORT || 8742);
 const MOCK = `http://127.0.0.1:${MOCK_PORT}`;
-const APP = 'http://localhost:5181/';
+const APP = process.env.APP || 'http://localhost:5181/';
 
 async function ok(url) {
   try {
@@ -79,9 +79,15 @@ try {
   await step('down');
   await shot('home-row-selected');
 
-  // A session that asks a question: reply pages, then its answers.
+  // A session that asks a question: its glance card, the answers as
+  // buttons (a swipe picks), then past Say it the full reply in pages, and
+  // a tap there opens the actions.
   await step('click');
   await wait(1500);
+  await shot('card-question');
+  await step('down');
+  await shot('card-question-pick');
+  await step('down', 'down', 'down');
   await shot('session-question-page1');
   await step('down');
   await shot('session-question-page2');
@@ -92,11 +98,12 @@ try {
   await step('double_click', 'double_click');
   await wait(1000);
 
-  // A session that asks for an OK: the next row.
+  // A session that asks for an OK: the next row. Allow, Deny, Say it, then
+  // the full reply.
   await step('down', 'click');
   await wait(1500);
-  await shot('session-permission');
-  await step('click');
+  await shot('card-permission');
+  await step('down', 'down', 'down', 'click');
   await shot('actions-permission');
   await step('double_click', 'double_click');
   await wait(1000);
@@ -104,17 +111,18 @@ try {
   // A plan to approve: the next row.
   await step('down', 'click');
   await wait(1500);
+  await shot('card-plan');
+  await step('down', 'down', 'down');
   await shot('session-plan');
   await step('click');
   await shot('actions-plan');
   await step('double_click', 'double_click');
   await wait(1000);
 
-  // Answer the question with one tap; the session works, then replies.
-  // Press 3 is two rows up.
+  // Answer the question with one tap on its card; the session works, then
+  // replies. Press 3 is two rows up.
   await step('up', 'up', 'click');
   await wait(1500);
-  await step('click');
   await step('click');
   await wait(800);
   await shot('answered');
@@ -182,8 +190,8 @@ try {
   const out = sheet(
     [
       { file: taken['home-row-selected'], title: '1 Home.', text: 'Needs you first. Swipe moves the >, tap opens.' },
-      { file: taken['session-question-page1'], title: '2 Session.', text: 'Status, then the last reply in pages. Swipe for the next page.' },
-      { file: taken['actions-question'], title: '3 Actions.', text: "The question's answers first. One tap answers." },
+      { file: taken['card-question'], title: '2 Session.', text: 'The glance card first; the answers are buttons. Past them, the full reply.' },
+      { file: taken['session-question-page1'], title: '3 The full reply.', text: 'Status, then the last reply in pages. Tap: the actions.' },
       { file: taken['voice-words'], title: '4 Reply by voice.', text: 'Words show as you speak. Tap sends.' },
       { file: taken['new-confirm'], title: '5 New session.', text: 'Speak the prompt, read it, tap to start.' },
       { file: taken['home-notice'], title: '6 Notice.', text: 'A session starts to need you: the top line says so.' },

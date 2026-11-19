@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "build": "node scripts/fonts.mjs --soft && tsc --noEmit && vite build",
     "pack": "npm run build && node scripts/pack.mjs",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "glance-shots": "node scripts/glance-shots.mjs"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.16",

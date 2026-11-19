@@ -12,6 +12,26 @@ export interface SessionRow {
   status_line?: string | null;
   updated_at?: string | number | null;
   has_pending?: boolean;
+  /** The glance card the bridge wrote for the newest reply; null until it is made. */
+  glance?: Glance | null;
+}
+
+/** What the session screen shows first: the reply in a few short lines (bridge, glance.py). */
+export interface Glance {
+  /** NEEDS YOU, WORKING, WAITING or DONE. */
+  status_word: string;
+  /** At most 3 short lines, the key fact first; from a status table, one line per ask, "! " for asks that need you. */
+  lines: string[];
+  /** From a status table: each line's state (needs, working, other, done, dropped). */
+  states?: string[];
+  /** What the person must do, "nothing now", or null when the "! " lines say it. */
+  you: string | null;
+  /** The answers of the question that waits, in short words. */
+  options: PendingOption[];
+  /** A few words for the Home row. */
+  phrase?: string;
+  from?: 'table' | 'summary';
+  source?: string;
 }
 
 export interface PendingOption {

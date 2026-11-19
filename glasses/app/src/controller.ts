@@ -10,11 +10,13 @@ import { Dictation } from './voice';
 
 type Screen =
   | { kind: 'home' }
-  // turn: null for the latest turn; else the earlier turn shown (its index),
-  // and page is a page of that turn's reply.
-  | { kind: 'session'; id: string; page: number; flash: string | null; replyKey: string; turn: number | null }
+  // page 0 is the glance card, 1 and on the reply's pages; sel is the card's
+  // chosen button, first the first button in view. turn: null for the latest
+  // turn; else the earlier turn shown (its index), and page is a page of
+  // that turn's reply.
+  | { kind: 'session'; id: string; page: number; flash: string | null; replyKey: string; sel: number; first: number; btnKey: string; message: string | null; busy: boolean; turn: number | null }
   | { kind: 'actions'; id: string; items: S.ActionItem[]; sel: number; first: number; pending: Pending | null; ask: string[]; message: string | null; busy: boolean }
-  | { kind: 'voice'; purpose: 'reply' | 'new'; id: string | null; phase: 'listening' | 'finishing' | 'sending' | 'empty' | 'error'; text: string; note: string | null }
+  | { kind: 'voice'; purpose: 'reply' | 'new'; id: string | null; phase: 'listening' | 'finishing' | 'sending' | 'empty' | 'error'; text: string; note: string | null; back: 'session' | 'actions' }
   | { kind: 'confirm'; prompt: string; busy: boolean; error: string | null };
 
 export type ConnState = 'unset' | 'connecting' | 'ok' | 'down' | 'auth';
@@ -366,9 +368,12 @@ export class Controller {
       case 'actions':
         return sc.busy ? 'actions:sending' : 'actions';
       case 'session': {
-        if (sc.turn === null) return 'session';
-        const h = this.histories.get(sc.id);
-        return `earlier:${(h?.latest ?? 0) - sc.turn}${h?.turns.has(sc.turn) ? '' : ':loading'}`;
+        if (sc.turn !== null) {
+          const h = this.histories.get(sc.id);
+          return `earlier:${(h?.latest ?? 0) - sc.turn}${h?.turns.has(sc.turn) ? '' : ':loading'}`;
+        }
+        // The glance card is page 0; the reply's pages follow.
+        return sc.page === 0 ? (sc.busy ? 'card:sending' : 'card') : 'session';
       }
     }
   }
@@ -402,10 +407,17 @@ export class Controller {
         const row = this.rows.find((r) => r.id === sc.id) ?? null;
         const off = this.offlineWords();
         const pages = S.sessionPages(d, !!off);
-        sc.page = Math.min(sc.page, pages.length - 1);
+        sc.page = Math.min(sc.page, pages.length);
+        const title = d?.title || row?.title || 'Session';
+        if (sc.page === 0) {
+          const glance = S.cardOf(d, row);
+          const buttons = this.cardButtons(sc);
+          const head = notice ? `! ${notice}` : sc.flash ? sc.flash : off ? `! ${off[0].toUpperCase()}${off.slice(1)}: may be old` : null;
+          const earlier = (this.histories.get(sc.id)?.latest ?? 0) > 0;
+          return S.cardPage({ title, glance, buttons, sel: sc.sel, first: sc.first, message: sc.message, head, replyPages: pages.length, earlier });
+        }
         const status = off && !sc.flash ? `! ${off[0].toUpperCase()}${off.slice(1)}: this may be old` : S.statusLine(row, d, sc.flash);
-        const earlier = (this.histories.get(sc.id)?.latest ?? 0) > 0;
-        return S.sessionPage({ title: d?.title || row?.title || 'Session', pages, page: sc.page, status, pending: d?.pending ?? null, notice, earlier });
+        return S.sessionPage({ title, pages, page: sc.page - 1, status, pending: d?.pending ?? null, notice });
       }
       case 'actions': {
         const d = this.details.get(sc.id) ?? null;
@@ -510,6 +522,22 @@ export class Controller {
     return i;
   }
 
+  /** The card's buttons now. A new question puts the choice back on its first answer. */
+  private cardButtons(sc: Extract<Screen, { kind: 'session' }>): S.CardButton[] {
+    const d = this.details.get(sc.id) ?? null;
+    const row = this.rows.find((r) => r.id === sc.id) ?? null;
+    const buttons = S.cardButtons(S.cardOf(d, row), d?.pending ?? null);
+    const key = buttons.map((b) => (b.kind === 'option' ? b.id : b.kind)).join(',');
+    if (key !== sc.btnKey) {
+      sc.btnKey = key;
+      sc.sel = 0;
+      sc.first = 0;
+    }
+    sc.sel = Math.max(0, Math.min(sc.sel, buttons.length - 1));
+    sc.first = S.scrollTo(sc.first, sc.sel, buttons.length, S.MAX_BUTTONS);
+    return buttons;
+  }
+
   private newFolder(): Folder | null {
     const want = settings().folder;
     return this.folders.find((f) => f.path === want) ?? this.folders[0] ?? null;
@@ -550,9 +578,12 @@ export class Controller {
       case 'tap': {
         // One tap can come as a text event and a system event: the same gesture.
         if (now - this.lastTap < 300) return;
-        // On the answer list the marked row can be an answer: a tap that
-        // comes right after the tap that opened it is not a choice.
-        if (this.screen.kind === 'actions' && now - this.openedAt < 700) return;
+        // On the answer list and on a card with answers the marked one can be
+        // an answer: a tap that comes right after the tap that opened it is
+        // not a choice.
+        const sc = this.screen;
+        const answers = sc.kind === 'actions' || (sc.kind === 'session' && sc.page === 0 && !!this.details.get(sc.id)?.pending?.options.length);
+        if (answers && now - this.openedAt < 700) return;
         this.lastTap = now;
         this.tap();
         return;
@@ -584,14 +615,33 @@ export class Controller {
       this.swipeEarlier(sc, forward);
       return;
     }
-    if (!forward && sc.page === 0) {
-      this.toEarlier(sc);
-      return;
-    }
     const n = S.sessionPages(this.details.get(sc.id) ?? null).length;
-    const next = Math.max(0, Math.min(n - 1, sc.page + step));
+    if (sc.page === 0) {
+      // The card: a swipe picks the next answer; past the last one, the full reply.
+      const buttons = this.cardButtons(sc);
+      const i = sc.sel + step;
+      if (buttons.length && i >= 0 && i < buttons.length) {
+        sc.sel = i;
+        sc.first = S.scrollTo(sc.first, i, buttons.length, S.MAX_BUTTONS);
+        if (!sc.busy) sc.message = null;
+        this.render();
+        return;
+      }
+      // Up at the top of the card (its first answer): the turn before.
+      if (!forward) {
+        this.toEarlier(sc);
+        return;
+      }
+    }
+    const next = Math.max(0, Math.min(n, sc.page + step));
     if (next === sc.page) return;
     sc.page = next;
+    if (next === 0) {
+      // Back on the card from the reply: the last button, where the swipe left it.
+      const buttons = this.cardButtons(sc);
+      sc.sel = Math.max(0, buttons.length - 1);
+      sc.first = S.scrollTo(sc.first, sc.sel, buttons.length, S.MAX_BUTTONS);
+    }
     this.render();
   }
 
@@ -609,23 +659,39 @@ export class Controller {
         else this.openSession(row.id);
         return;
       }
-      case 'session':
-        if (sc.turn !== null) this.toLatest(sc);
-        else this.openActions(sc.id);
+      case 'session': {
+        if (sc.turn !== null) {
+          this.toLatest(sc);
+          return;
+        }
+        if (sc.page === 0) {
+          const buttons = this.cardButtons(sc);
+          const b = buttons[sc.sel];
+          if (b?.kind === 'say') {
+            this.startVoice('reply', sc.id, 'session');
+            return;
+          }
+          if (b?.kind === 'option') {
+            if (!sc.busy) void this.answerFromCard(sc, b.id, b.label);
+            return;
+          }
+        }
+        this.openActions(sc.id);
         return;
+      }
       case 'actions': {
         if (sc.busy) return;
         const item = sc.items[sc.sel];
         if (!item) return;
         if (item.kind === 'back') this.openSession(sc.id, false);
-        else if (item.kind === 'voice') this.startVoice('reply', sc.id);
+        else if (item.kind === 'voice') this.startVoice('reply', sc.id, 'actions');
         else if (item.kind === 'continue') void this.sendFromActions(sc, 'Continue');
         else void this.answer(sc, item.id, item.label);
         return;
       }
       case 'voice':
         if (sc.phase === 'listening') void this.finishVoice();
-        else if (sc.phase === 'empty') this.startVoice(sc.purpose, sc.id);
+        else if (sc.phase === 'empty') this.startVoice(sc.purpose, sc.id, sc.back);
         else if (sc.phase === 'error') void this.gotWords(sc.text);
         return;
       case 'confirm':
@@ -649,8 +715,10 @@ export class Controller {
         return;
       case 'voice':
         this.stopMic();
-        if (sc.purpose === 'reply' && sc.id) this.openActions(sc.id);
-        else this.goHome();
+        if (sc.purpose === 'reply' && sc.id) {
+          if (sc.back === 'session') this.openSession(sc.id, false);
+          else this.openActions(sc.id);
+        } else this.goHome();
         return;
       case 'confirm':
         this.goHome();
@@ -671,7 +739,8 @@ export class Controller {
     // Back on Home, the mark is on this session.
     this.homeSel = id;
     const d = this.details.get(id);
-    this.screen = { kind: 'session', id, page: 0, flash: null, replyKey: d ? replyKey(d) : '', turn: null };
+    this.screen = { kind: 'session', id, page: 0, flash: null, replyKey: d ? replyKey(d) : '', sel: 0, first: 0, btnKey: '', message: null, busy: false, turn: null };
+    this.openedAt = Date.now();
     this.socket?.subscribe(id);
     this.render();
     this.changed();
@@ -728,9 +797,14 @@ export class Controller {
     this.render();
   }
 
+  /** The latest turn again, at its top: the card, its first answer marked. A
+   *  tap right after is the same finger, not an answer (see handle). */
   private toLatest(sc: Extract<Screen, { kind: 'session' }>): void {
     sc.turn = null;
     sc.page = 0;
+    sc.sel = 0;
+    sc.first = 0;
+    this.openedAt = Date.now();
     this.render();
   }
 
@@ -837,6 +911,39 @@ export class Controller {
     }
   }
 
+  /** An answer from the card's buttons: it goes at once, as from the answer list. */
+  private async answerFromCard(sc: Extract<Screen, { kind: 'session' }>, optionId: string, label: string): Promise<void> {
+    const latest = this.details.get(sc.id)?.pending;
+    if (!latest || !latest.options.some((o) => o.id === optionId)) {
+      sc.message = 'Already answered. Nothing was sent.';
+      this.render();
+      return;
+    }
+    sc.busy = true;
+    sc.message = `Sending: ${label}...`;
+    this.render();
+    try {
+      const r = await this.bridge.answer(sc.id, optionId);
+      if (this.screen !== sc) return;
+      if (r.done === false && r.pending) {
+        // The next question of the same prompt: its answers take the buttons.
+        const d = this.details.get(sc.id);
+        if (d) this.details.set(sc.id, { ...d, pending: r.pending, has_pending: true });
+        sc.busy = false;
+        sc.message = null;
+        this.openedAt = Date.now();
+        this.render();
+        return;
+      }
+      this.afterSend(sc.id, `Sent: ${label}`);
+    } catch (e) {
+      if (this.screen !== sc) return;
+      sc.busy = false;
+      sc.message = `! Not sent: ${(e as Error).message}`;
+      this.render();
+    }
+  }
+
   private async sendFromActions(sc: Extract<Screen, { kind: 'actions' }>, text: string): Promise<void> {
     sc.busy = true;
     sc.message = `Sending: ${text}...`;
@@ -853,11 +960,12 @@ export class Controller {
   }
 
   private afterSend(id: string, flash: string): void {
-    // Until the bridge says otherwise, Claude is now working on it.
+    // Until the bridge says otherwise, Claude is now working on it. The
+    // card it wrote was for the question: the bridge sends a new one.
     const i = this.rows.findIndex((r) => r.id === id);
-    if (i >= 0) this.rows[i] = { ...this.rows[i], status: 'working', has_pending: false };
+    if (i >= 0) this.rows[i] = { ...this.rows[i], status: 'working', has_pending: false, glance: null };
     const d = this.details.get(id);
-    if (d) this.details.set(id, { ...d, status: 'working', pending: null, has_pending: false });
+    if (d) this.details.set(id, { ...d, status: 'working', pending: null, has_pending: false, glance: null });
     this.openSession(id, true);
     const sc = this.screen;
     if (sc.kind === 'session') this.flash(sc, flash);
@@ -866,9 +974,9 @@ export class Controller {
 
   // ---------- voice ----------
 
-  private startVoice(purpose: 'reply' | 'new', id: string | null): void {
+  private startVoice(purpose: 'reply' | 'new', id: string | null, back: 'session' | 'actions' = 'actions'): void {
     this.stopMic();
-    const sc: Screen = { kind: 'voice', purpose, id, phase: 'listening', text: '', note: null };
+    const sc: Screen = { kind: 'voice', purpose, id, phase: 'listening', text: '', note: null, back };
     this.screen = sc;
     const dict = new Dictation(
       this.bridge,

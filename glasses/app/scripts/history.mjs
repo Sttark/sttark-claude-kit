@@ -46,13 +46,14 @@ try {
   await waitScreen('home');
   await wait(1500);
 
-  // Press 3 nozzle report: the first session under + New session.
+  // Press 3 nozzle report: the first session under + New session. It opens
+  // on its glance card, its first answer marked.
   await step('down', 'click');
-  await waitScreen('session');
+  await waitScreen('card');
   await wait(2000);
   await shot('latest');
 
-  // Up at the top of the latest turn: the turn before it, from its top.
+  // Up at the top of the card: the turn before it, from its top.
   await step('up');
   await waitScreen('earlier:1');
   await wait(800);
@@ -72,7 +73,7 @@ try {
 
   // A tap on any earlier turn: the latest turn again.
   await step('click');
-  await waitScreen('session');
+  await waitScreen('card');
   await wait(800);
   await shot('back-to-latest');
 
@@ -80,15 +81,15 @@ try {
   await step('up');
   await waitScreen('earlier:1');
   await step('down');
-  await waitScreen('session');
+  await waitScreen('card');
   await shot('down-to-latest');
 
   const out = sheet(
     [
-      { file: taken.latest, title: '1 The latest turn.', text: 'The session opens here, as before. "▲ earlier" in the hint: swipe up for the turns before it.' },
+      { file: taken.latest, title: '1 The latest turn.', text: 'The session opens on its card, as before. "▲ earlier": swipe up on the first answer for the turns before it.' },
       { file: taken['earlier-1'], title: '2 One turn up.', text: 'Which turn and when, your prompt, then its reply. Swipe down to read on.' },
       { file: taken.oldest, title: '3 The first turn.', text: 'Older turns load a few at a time as you go up. Nothing is above the first turn.' },
-      { file: taken['back-to-latest'], title: '4 Back to the latest.', text: 'Tap or double tap on an earlier turn. Double tap here goes back to Home.' },
+      { file: taken['back-to-latest'], title: '4 Back to the latest.', text: 'Tap or double tap on an earlier turn: the card again. Double tap here goes back to Home.' },
     ],
     join(app, 'docs', 'history.png'),
   );

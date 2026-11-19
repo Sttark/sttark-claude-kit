@@ -1,6 +1,6 @@
 # Kit on Even Realities G2 glasses
 
-A glasses app for people who walk the plant all day and run Claude Code sessions on their Mac. On the lens it shows which sessions need you, a session's status and last reply, and lets you keep a session going: reply by voice, send "Continue", or answer a question, a permission or a plan with one tap. It also starts a short new session by voice.
+A glasses app for people who walk the plant all day and run Claude Code sessions on their Mac. On the lens it shows which sessions need you, a session's glance card (its status and last reply in a few short words) and full reply, and lets you keep a session going: reply by voice, send "Continue", or answer a question, a permission or a plan with one tap. It also starts a short new session by voice.
 
 The sessions stay on the Mac. A small bridge on the Mac (the Kit glasses bridge) gives this app a JSON API; the app runs on the phone, inside the Even Realities app, and draws on the glasses.
 
@@ -13,7 +13,7 @@ The glasses have a touch strip on each temple (and the optional R1 ring): tap, d
 | Screen | Swipe | Tap | Double tap |
 | --- | --- | --- | --- |
 | Home: the sessions, needs you first, with `+ New session` on top | Moves the `>` | Opens the session, or starts a new one | Asks to close the app (the system's own question) |
-| Session: title, status, the last reply in pages | Next or last page. Up on the first page: the turn before | Opens the actions | Back to Home |
+| Session: the glance card first, then the last reply in pages | On the card: the next answer button, and past the last one the full reply; up on the first one (or a card with no answers): the turn before. On the reply: next or last page (up from the first page: the card) | On the card: sends the chosen answer, or Say it starts a reply by voice. With no answers, and on the reply: opens the actions | Back to Home |
 | Earlier turn: which one and when, the prompt, its reply in pages | Its pages. Up on its first page: the turn before; down on its last: the turn after, and then the latest | Back to the latest turn | Back to the latest turn |
 | Actions: a question's answers first, then Reply by voice, Continue, Back | Moves the `>` | Does it. An answer goes at once | Back to the session |
 | Reply by voice: Listening, and the words as they come | Nothing | Sends the words | Cancels |
@@ -21,15 +21,31 @@ The glasses have a touch strip on each temple (and the optional R1 ring): tap, d
 
 Every row shows at full brightness; `>` marks the row a tap acts on. Back on Home, the `>` is on the session you had open. When a list is longer than the lens, it scrolls with the `>`, and the top line shows where you are (`4/12`).
 
-Status marks on Home: `!` needs you, `▷` working, `○` waiting on someone else, `-` idle. The words after the title say the same thing.
+Status marks on Home: `!` needs you, `▷` working, `○` waiting on someone else, `-` idle. The words after the title are the glance card's few words: what you must do ("sign + pay 50%"), else its key fact. Until the bridge has written the card, they say the status in words.
 
 When a session starts to need you, the top line of whatever screen is open says so for 6 seconds. It takes no input and moves nothing.
 
+## The glance card
+
+The first thing a session shows. It is for a person who reads slowly, on the move: the reply's few facts that matter, the key fact or number first, and what to do.
+
+- The title and one status word in a box: NEEDS YOU, WORKING, WAITING or DONE.
+- At most 3 short lines, about 3 to 6 words each, the key fact first ("Harbor Film: $4,820 for 10", "Lead: 3 wk after deposit"), with a blank line between them.
+- "You: ..." under them, in a box: what you must do. Or "You: nothing now", dimmer, with no box.
+- When the reply ends with a status table (Ask, Status, Need from you), the card is the table: one line per ask, the asks that need you first with `!` ("! Job 4490 proof: pick a day + time"), the others with their short status. When they do not all fit, the last line counts the rest ("+3 waiting").
+- When the session asks a question, a permission or a plan, its answers are buttons at the bottom, with Say it last: a swipe moves the `▶` from button to button, a tap sends the chosen answer at once (as from the answer list), and Say it starts a reply by voice. One swipe past Say it is the full reply. A tap in the first 0.7 s after the card opens does nothing (the same finger as the tap that opened it).
+
+The bridge writes the card on the Mac (`glasses/bridge/glance.py`), so the lens shows only what it sends. Until it has, and with an older bridge, the app makes one from the status and the reply's first sentence.
+
+![Glance cards with made-up sessions](docs/glance-cards.png)
+
+The lens has one font, in one size, with no bold (Even Hub's display guide: no font size or weight on a text container). So the card reads by its spacing and its short lines, and the status word sits in a box with a border, the one decoration a text container has. What you must do sits in a box too; "You: nothing now" has none, and is dimmer. The chosen button has `▶` in front, since a border cannot change without a redraw of the whole page, which flickers.
+
 ## Earlier turns
 
-A session opens on its latest turn, as before. When it has turns before that one, the hint line of its first page starts with `▲ earlier`: a swipe up there shows the turn before it. An earlier turn's top line says which one it is and when it started (`Earlier 2 of 6 · 9:12 AM`), the next line who started it (`You: ...`, `Kit: ...` for a message the Kit typed, `Task: ...` for a background task's notice), then its reply in pages.
+A session opens on its latest turn, as before: its glance card. When it has turns before that one, the card's hint line starts with `▲ earlier` (on a card with answer buttons, which take the hint's place, the top line ends with it): a swipe up on the card, on its first answer when it has some, shows the turn before it. An earlier turn's top line says which one it is and when it started (`Earlier 2 of 6 · 9:12 AM`), the next line who started it (`You: ...`, `Kit: ...` for a message the Kit typed, `Task: ...` for a background task's notice), then its reply in pages.
 
-Up goes back through the session one turn at a time, and each turn opens at its top, so its prompt is the first thing to read. Down reads a turn's pages, then goes to the turn after it, and after the newest earlier turn to the latest one again. A tap or a double tap on any earlier turn goes back to the latest turn; a double tap there goes to Home. The app asks the bridge for 5 turns at a time, and for the next 5 before the person gets to them. The swipe direction setting on the phone applies here too.
+Up goes back through the session one turn at a time, and each turn opens at its top, so its prompt is the first thing to read. Down reads a turn's pages, then goes to the turn after it, and after the newest earlier turn to the latest one again. A tap or a double tap on any earlier turn goes back to the latest turn, at its card; a double tap there goes to Home. The app asks the bridge for 5 turns at a time, and for the next 5 before the person gets to them. The swipe direction setting on the phone applies here too.
 
 ![Scrolling back: the latest turn, one turn up, the first turn, and back to the latest](docs/history.png)
 
@@ -59,11 +75,13 @@ In the simulator, the buttons under the lens are the gestures: Down and Up swipe
 
 `npm run walk` goes through every screen and action on its own (the dev server must run) and saves a picture of each in `shots/`: the lens as `NN-step.png`, the phone page as `panel-*.png`, and six of them as `docs/lens-screens.png`. It starts its own mock bridge (port 8742) and simulator.
 
+`npm run glance-shots` takes the glance card pictures, `docs/glance-cards.png`, on the mock bridge's glance sessions (`MOCK_SET=glance`, port 8744): replies like a supplier quote, an error, a status table and a question. Their cards are as the real bridge wrote them, with Haiku (`mock-bridge/glances.mjs`). Both take `APP=http://localhost:<port>/` and `MOCK_PORT` for a dev server or a mock on other ports, and `KIT_SIM_PORT` for the simulator's automation port (9898).
+
 The simulator's page sleeps while the Mac is locked or its window is covered: replies from the bridge and timers wait until the next input. The walk pokes it with a long press and its release, which the app ignores.
 
 The app writes each screen it shows to its console (`[kit] screen home`, `voice:listening`, ...), so a script can wait for a screen. With the dev server, `curl -X POST --data-binary 'the words' http://127.0.0.1:5181/__kit/typed` puts words in the app as if typed in the phone's box while the glasses listen (from this Mac only; a build has none of it).
 
-`npm test` checks the text layout (pages, bytes, the font's glyphs), the screens' rows and lists, and, with a stand-in bridge, what a swipe and a tap do on a list, the pause after the answers open, a prompt with two questions, and the way up and down through earlier turns.
+`npm test` checks the text layout (pages, bytes, the font's glyphs), the screens' rows and lists, the glance card (its spacing, the count of the asks that do not fit, the buttons, a card from the reply when the bridge sent none), and, with a stand-in bridge, what a swipe and a tap do on a list and on a card, the pause after the answers open, a prompt with two questions, and the way up and down through earlier turns.
 
 ## Point it at the real bridge
 
@@ -101,12 +119,13 @@ JSON, with the header `Authorization: Bearer <token>` on every request. What the
 - It listens on the network (`0.0.0.0:8740`), since the phone reaches the Mac by its address.
 - 401 for a wrong token (the lens says "Token not accepted"), 404 for a session that is gone (the lens says so and goes back to Home).
 - `why` (or `status_line`) is one short line: it follows the status on the session screen. `pending.text` shows above the answers, 3 lines at most; for a `plan`, the plan itself goes in `pending.text`, which the session screen shows as its pages.
+- `glance` (optional, on the list and the detail) is the glance card: `{status_word, lines, states?, you, options: [{id, label}], phrase}`. `options` are the pending prompt's answers in short words, with the prompt's own ids; the app uses them only when their ids are the prompt's. `phrase` is the few words for the Home row. Without it, the app makes a card itself.
 
 | Request | Answer |
 | --- | --- |
 | `GET /api/health` | `{ok, version}` |
-| `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending}]}`, needs you first. `status` is `needs_you`, `working`, `waiting` or `idle` |
-| `GET /api/sessions/:id` | The same fields, and `last_reply` (text) and `pending`: `null` or `{kind, text, options: [{id, label}]}`, `kind` being `question`, `permission` or `plan` |
+| `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending, glance}]}`, needs you first. `status` is `needs_you`, `working`, `waiting` or `idle`; `glance` is `null` until the bridge has written the card |
+| `GET /api/sessions/:id` | The same fields, and `last_reply` (text) and `pending`: `null` or `{kind, text, options: [{id, label}]}`, `kind` being `question`, `permission` or `plan`. Its `glance` is never `null` when there is a reply: until Haiku's card comes, the reply's first sentence |
 | `POST /api/sessions/:id/message` `{text}` | `{ok}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok}`. A prompt with several questions takes one answer at a time: `{ok, done: false, pending}` holds the next question, which the app shows at once |
 | `POST /api/sessions` `{prompt, folder?}` | `{id}`. It can take up to 90 s; the app waits 2 minutes. A message waits up to 60 s, since it goes through a claude.ai page in Chrome |
@@ -125,7 +144,7 @@ TypeScript and Vite, with the Even Hub SDK (`@evenrealities/even_hub_sdk`) and t
 | --- | --- |
 | `src/main.ts` | Starts the app: the SDK, settings, the panel, the input |
 | `src/controller.ts` | The screens and what each gesture does there; keeps in step with the bridge |
-| `src/screens.ts` | What each screen puts on the lens (pure functions) |
+| `src/screens.ts` | What each screen puts on the lens (pure functions), the glance card too |
 | `src/glasses.ts` | Draws a page: a full rebuild only when the layout changes, otherwise in-place text updates, one SDK call at a time, each with a time limit |
 | `src/text.ts` | Line wrap and pages measured with the glasses' own font, byte limits, glyphs the font has |
 | `src/events.ts` | One shape for every input (list, text and system events) |
@@ -133,11 +152,11 @@ TypeScript and Vite, with the Even Hub SDK (`@evenrealities/even_hub_sdk`) and t
 | `src/api.ts` | The bridge client |
 | `src/panel.ts`, `index.html`, `src/styles/` | The phone panel, on `sttark-shared.css` |
 | `mock-bridge/` | The mock bridge and its made-up sessions |
-| `scripts/` | The simulator (`sim.mjs`, and `simkit.mjs` to drive it), the walk on the mock (`walk.mjs`), the end-to-end run on the real bridge (`e2e.mjs`), pictures with captions (`sheet.mjs`, needs `brew install librsvg`), fonts and packing |
+| `scripts/` | The simulator (`sim.mjs`, and `simkit.mjs` to drive it), the walk on the mock (`walk.mjs`), the glance card pictures (`glance-shots.mjs`), the end-to-end run on the real bridge (`e2e.mjs`), pictures with captions (`sheet.mjs`, needs `brew install librsvg`), fonts and packing |
 
 What the lens allows, and how the app lives with it:
 
-- 576 by 288 pixels, one font with no sizes or bold, 27 px a line, five brightness steps. A full screen holds about 10 lines of about 60 characters; a reply page holds 7 lines.
+- 576 by 288 pixels, one font with no sizes or bold, 27 px a line, five brightness steps. A full screen holds about 10 lines of about 60 characters; a reply page holds 7 lines. At most 8 text boxes on a page (the glance card uses all 8 with 4 buttons: title, status box, lines, You and the buttons; more answers scroll in the 4 buttons in place).
 - A text box holds at most 999 bytes in the simulator (1000 on the glasses). Everything is cut by bytes, not characters.
 - The font has no emoji, `…`, `•` or curly quotes; the app swaps them (`glyphSafe`).
 - The lens's own list draws every row but the highlighted one dim, scrolls itself, tells the app nothing until a tap, and cannot change in place. So the app draws no lens list: Home and Actions are one text box each, every row at full brightness, the chosen row marked with `>`. The app moves the `>` on each swipe with an in-place text update (no flicker), scrolls the rows itself, and acts on the marked row on a tap.

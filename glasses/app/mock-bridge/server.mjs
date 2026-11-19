@@ -12,12 +12,12 @@
 // POST /mock/flip (the working "Docs: HVAC chapter" session needs you now).
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
-import { FOLDERS, SPOKEN, sampleSessions } from './data.mjs';
+import { FOLDERS, SPOKEN, glanceSessions, sampleSessions } from './data.mjs';
+import { GLANCES } from './glances.mjs';
 
 const PORT = Number(process.env.MOCK_PORT || 8741);
 const TOKEN = process.env.MOCK_TOKEN || 'mock';
 const VERSION = 'mock-0.1.0';
-
 // Each session's turns, oldest first: its earlier turns, then the prompt of
 // its last_reply. A message adds a turn; its reply fills it in.
 function withTurns(list) {
@@ -27,7 +27,9 @@ function withTurns(list) {
   }
   return list;
 }
-const fresh = () => withTurns(sampleSessions());
+// MOCK_SET=glance: the sessions of the glance pictures (scripts/glance-shots.mjs).
+const fresh = () =>
+  withTurns((process.env.MOCK_SET === 'glance' ? glanceSessions() : sampleSessions()).map((s) => ({ ...s, glance: GLANCES[s.id] ?? null })));
 
 let sessions = fresh();
 let spokenIndex = 0;
@@ -60,6 +62,8 @@ function send(ws, msg) {
 }
 
 // Claude's side, made up: work for a while, then reply.
+// Its glance card as the bridge would write it, in the simplest way: the
+// reply's first sentence. A new prompt is a new turn; its reply fills it in.
 function work(s, reply, ms = 5000, prompt = null) {
   const turn = prompt ? { at: now(), from: 'you', user_text: prompt, reply_text: '' } : null;
   if (turn) s.turns.push(turn);
@@ -67,6 +71,7 @@ function work(s, reply, ms = 5000, prompt = null) {
   s.why = 'Working on your message';
   s.status_line = s.why;
   s.pending = null;
+  s.glance = { status_word: 'WORKING', lines: ['Claude works on it'], you: 'nothing now', options: [], phrase: 'Claude works on it' };
   s.updated_at = now();
   broadcast(s);
   setTimeout(() => {
@@ -75,6 +80,8 @@ function work(s, reply, ms = 5000, prompt = null) {
     s.status_line = 'Reply ready';
     s.last_reply = reply;
     if (turn) turn.reply_text = reply;
+    const first = reply.split(/(?<=[.!?])\s/)[0];
+    s.glance = { status_word: 'NEEDS YOU', lines: [first], you: 'read the reply', options: [], phrase: 'read the reply' };
     s.updated_at = now();
     log(`"${s.title}" replied`);
     broadcast(s);
@@ -132,6 +139,7 @@ const server = http.createServer(async (req, res) => {
     s.status_line = 'Reply ready';
     s.last_reply =
       'The unit locations section is written: South A, B and E, one table each, with the space each unit serves and its rating. Look at it before I publish it?';
+    s.glance = GLANCES['mock-hvac-flip'] ?? null;
     s.updated_at = now();
     broadcast(s);
     log('flipped HVAC to needs you');
