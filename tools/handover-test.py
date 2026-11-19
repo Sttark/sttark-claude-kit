@@ -362,6 +362,28 @@ try:
               for l in out) and any(l.startswith('prompt again') for l in out) and kit_pid() not in (0, pid5)
           and (typed() or [{}])[0].get('tries') == 2, out)
 
+    # --- a long turn: more than the 4 MB the check reads written after the prompt's line -------------------------------
+    CSE2, TP2 = 'cse_01TESThandoverLong', os.path.join(CLAUDE, 'projects', '-sample-orders', 'long-turn.jsonl')
+    t0 = time.time()
+    add(TP2, entry(t0 - 100, 'user', 'Build the label preview'), answer(t0 - 90, 'Built.'))
+    state(lambda s: s.setdefault('typed', {}).__setitem__(CSE2, [{'id': 'long1', 'needle': 'Check every label size', 'at': t0 - 5,
+                                                                    'first_at': t0 - 5, 'tries': 1, 'source': 'a wait', 'transcript': TP2}]))
+    add(TP2, entry(t0, 'user', 'Check every label size'))
+    eh.confirm_typed(CSE2, 'Label preview', TP2)
+    seen = ((state().get('typed') or {}).get(CSE2) or [{}])[0].get('seen')
+    check('the first check that sees the prompt\'s line keeps when it was written', bool(seen) and abs(seen - t0) < 1, seen)
+    big = 'x' * 500000
+    add(TP2, *[entry(t0 + 1 + i, 'user', [{'tool_use_id': 'toolu_b%d' % i, 'type': 'tool_result', 'content': big}],
+                     toolUseResult={'stdout': ''}) for i in range(10)])
+    rec = dict(((state().get('typed') or {}).get(CSE2) or [{}])[0])
+    check("5 MB later, the prompt's line is out of the part the check reads, but it still counts as in the record",
+          eh.typed_state(TP2, dict(rec, seen=None))[0] == 'missing' and eh.typed_state(TP2, rec)[0] == 'waiting')
+    add(TP2, answer(t0 + 20, 'Every size checks out.'))
+    n = len(log_lines())
+    eh.confirm_typed(CSE2, 'Label preview', TP2)
+    check('when the long turn ends, the prompt counts as answered, and goes', not (state().get('typed') or {}).get(CSE2)
+          and any(l.startswith('prompt in     %s "Label preview" answered' % CSE2) for l in log_lines()[n:]), log_lines()[n:])
+
     # --- the words in the log carry no em-dash or double hyphen -------------------------------------------------------
     words = [l for l in log_lines() if l.startswith(('prompt', 'handover'))]
     check('no em-dash or double hyphen in the new log lines', words and not [l for l in words if '—' in l or ' -- ' in l], words)
