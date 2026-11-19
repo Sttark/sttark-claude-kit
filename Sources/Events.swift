@@ -433,24 +433,21 @@ enum Events {
             case "handover", "standdown":
                 let other = tag == "handover" ? "The server runs it again" : "Taken over in another place"
                 if rest.contains("\" waits: ") {
-                    // "handover cse_… "Name" waits: the server runs it now, but the Kit's copy still works (<what>); …"
+                    // "handover cse_… "Name" waits: the server runs it now, but the Kit's copy still works (<what>); the Kit waits …"
                     e.text = "\(other), but the Kit's copy still works, so the Kit waits to close it"
-                    if let a = rest.range(of: "still works ("), let b = rest.range(of: "); it tries again", range: a.upperBound..<rest.endIndex) {
+                    if let a = rest.range(of: "still works ("), let b = rest.range(of: "); the Kit waits", range: a.upperBound..<rest.endIndex) {
                         let what = rest[a.upperBound..<b.lowerBound]
                             .replacingOccurrences(of: #"\b[A-Za-z0-9]{8,} (?=")"#, with: "", options: .regularExpression)
                             .replacingOccurrences(of: #""([^"]*)""#, with: "\u{201C}$1\u{201D}", options: .regularExpression)
                         e.detail.append("Still at work: \(what).")
                     }
-                    e.detail.append("The Kit tries again every 15 seconds, at most 2 hours. A prompt from the Kit that has no answer goes again.")
+                    e.detail.append("The server's copy can fail as it starts, so the Kit waits 30 seconds at most. Then it closes its own copy, and a prompt from the Kit that has no answer goes again.")
                 } else {
                     e.text = "\(other), so the Kit closed its own copy"
                     if tag == "standdown" { e.level = .warn }
-                    if let r = rest.range(of: #"after its work ended \((\d+) min\)"#, options: .regularExpression) {
+                    if let r = rest.range(of: #"after it waited (\d+) seconds"#, options: .regularExpression) {
                         let n = rest[r].filter(\.isNumber)
-                        e.detail.append("It waited \(n) min for the work in the Kit's copy to end.")
-                    } else if rest.contains("its work still ran after") {
-                        e.level = .warn
-                        e.detail.append("Its work still ran after 2 hours, the most the Kit waits for it.")
+                        e.detail.append("It waited \(n) seconds first, as the server's copy can fail as it starts.")
                     }
                 }
             default: e.text = "Taken over in another place, so the Kit closed its own copy"; e.level = .warn

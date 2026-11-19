@@ -406,16 +406,16 @@ import Foundation
               "no session, agent or command id in the rows")
 
         // A handover that waits for the Kit's copy, and a prompt the Kit typed in (effort-hook.py keep(), wait.py redeliver())
-        let hw = Events.kitLine(now + " handover cse_01AAAtest1 \"Press color\" waits: the server runs it now, but the Kit's copy still works (its turn runs; it has not answered the prompt the Kit typed in at 1:16 PM; 1 agent (a1b2c3d4e5f6a7b8c \"Build the color page\")); it tries again every 15 seconds, at most 2 hours", names)
+        let hw = Events.kitLine(now + " handover cse_01AAAtest1 \"Press color\" waits: the server runs it now, but the Kit's copy still works (its turn runs; it has not answered the prompt the Kit typed in at 1:16 PM; 1 agent (a1b2c3d4e5f6a7b8c \"Build the color page\")); the Kit waits while the server's copy may still fail, 30 seconds at most", names)
         check(hw?.name == "Press color" && hw?.kind == .restart && hw?.level == .info
               && hw?.text == "The server runs it again, but the Kit's copy still works, so the Kit waits to close it"
               && hw?.detail.first == "Still at work: its turn runs; it has not answered the prompt the Kit typed in at 1:16 PM; 1 agent (\u{201C}Build the color page\u{201D}).",
               "a handover that waits: what still works in the Kit's copy, with no ids")
-        let hd = Events.kitLine(now + " handover cse_01AAAtest1 \"Press color\" the server runs it now; quit its own copy (kit-a0b1c2d3) after its work ended (4 min)", names)
-        check(hd?.text == "The server runs it again, so the Kit closed its own copy" && hd?.detail == ["It waited 4 min for the work in the Kit's copy to end."],
+        let hd = Events.kitLine(now + " handover cse_01AAAtest1 \"Press color\" the server runs it now; quit its own copy (kit-a0b1c2d3) after it waited 31 seconds", names)
+        check(hd?.text == "The server runs it again, so the Kit closed its own copy" && hd?.detail == ["It waited 31 seconds first, as the server's copy can fail as it starts."],
               "a handover after the wait says how long it waited")
-        let hs = Events.kitLine(now + " standdown cse_01AAAtest1 \"Press color\" waits: its own copy was taken over elsewhere (code 4090), but the Kit's copy still works (its turn runs); it tries again every 15 seconds, at most 2 hours", names)
-        check(hs?.text == "Taken over in another place, but the Kit's copy still works, so the Kit waits to close it", "a stand-down that waits")
+        let hs = Events.kitLine(now + " standdown cse_01AAAtest1 \"Press color\" its own copy was taken over elsewhere (code 4090); quit its own copy (kit-a0b1c2d3)", names)
+        check(hs?.text == "Taken over in another place, so the Kit closed its own copy" && hs?.level == .warn, "a stand-down closes the Kit's copy at once")
         let pl = Events.kitLine(now + " prompt lost   cse_01AAAtest1 \"Press color\" the copy that received the prompt the Kit typed in at 1:16 PM (same work) ended before it answered: this Mac's server took control of the session; the Kit types it in again | Why does the order page show no totals?", names)
         check(pl?.name == "Press color" && pl?.kind == .same && pl?.level == .warn && pl?.text == "The copy that received a prompt ended before it answered"
               && pl?.detail == ["Why: this Mac's server took control of the session.", "The Kit typed it in at 1:16 PM, for a prompt you sent here from another session (Send to).",
