@@ -1,7 +1,7 @@
 // The app: what screen shows, what each gesture does there, and how it keeps
 // in step with the bridge. Gestures: swipe moves, tap opens or acts, double
 // tap goes back (on the first screen, the system asks to close the app).
-import { Bridge, BridgeError, type Folder, type LiveSocket, type Pending, type SessionDetail, type SessionRow } from './api';
+import { Bridge, BridgeError, type Folder, type LiveSocket, type Pending, type SessionDetail, type SessionRow, type Turn } from './api';
 import type { Input } from './events';
 import type { Glasses } from './glasses';
 import * as S from './screens';
@@ -10,7 +10,9 @@ import { Dictation } from './voice';
 
 type Screen =
   | { kind: 'home' }
-  | { kind: 'session'; id: string; page: number; flash: string | null; replyKey: string }
+  // turn: null for the latest turn; else the earlier turn shown (its index),
+  // and page is a page of that turn's reply.
+  | { kind: 'session'; id: string; page: number; flash: string | null; replyKey: string; turn: number | null }
   | { kind: 'actions'; id: string; items: S.ActionItem[]; sel: number; first: number; pending: Pending | null; ask: string[]; message: string | null; busy: boolean }
   | { kind: 'voice'; purpose: 'reply' | 'new'; id: string | null; phase: 'listening' | 'finishing' | 'sending' | 'empty' | 'error'; text: string; note: string | null }
   | { kind: 'confirm'; prompt: string; busy: boolean; error: string | null };
@@ -35,12 +37,27 @@ const POLL_MS = 5000;
 const RETRY_MS = 10000;
 const NOTICE_MS = 6000;
 const FLASH_MS = 8000;
+/** Earlier turns come from the bridge a few at a time. */
+const TURN_BATCH = 5;
+
+/** A session's earlier turns, as far back as the person has scrolled. */
+interface History {
+  total: number;
+  /** The turn the session screen shows (its reply is last_reply); the earlier ones are below it. */
+  latest: number;
+  turns: Map<number, Turn>;
+  loaded: boolean;
+  /** Requests on the way: "new" for the newest turns, else the `before` index. */
+  pending: Set<string>;
+  error: string | null;
+}
 
 export class Controller {
   private screen: Screen = { kind: 'home' };
   private rows: SessionRow[] = [];
   private loaded = false;
   private details = new Map<string, SessionDetail>();
+  private histories = new Map<string, History>();
   private homeRows: S.HomeRow[] = [];
   /** The marked row on Home: a session id, or null for + New session. It
    *  follows its session when the rows move; homeAt is the fallback when
@@ -131,6 +148,7 @@ export class Controller {
     this.rows = [];
     this.loaded = false;
     this.details.clear();
+    this.histories.clear();
     if (this.screen.kind !== 'home') this.stopMic();
     this.screen = { kind: 'home' };
     this.conn = 'connecting';
@@ -283,9 +301,16 @@ export class Controller {
     if (sc.kind === 'session' && sc.id === d.id) {
       const key = replyKey(d);
       if (key !== sc.replyKey) {
-        if (prev && sc.replyKey) this.flash(sc, 'New reply');
-        sc.page = 0;
+        if (sc.turn !== null) {
+          // Reading an earlier turn: stay there, and say a new reply came.
+          if (prev && sc.replyKey) this.showNotice('New reply. Tap for the latest.');
+        } else {
+          if (prev && sc.replyKey) this.flash(sc, 'New reply');
+          sc.page = 0;
+        }
         sc.replyKey = key;
+        // The reply before this one is an earlier turn now.
+        if (prev) void this.loadTurns(d.id);
       }
     }
     if (sc.kind === 'actions' && sc.id === d.id && sc.pending && !sameQuestion(sc.pending, d.pending)) {
@@ -340,8 +365,11 @@ export class Controller {
         return sc.busy ? 'confirm:starting' : sc.error ? 'confirm:error' : 'confirm';
       case 'actions':
         return sc.busy ? 'actions:sending' : 'actions';
-      default:
-        return sc.kind;
+      case 'session': {
+        if (sc.turn === null) return 'session';
+        const h = this.histories.get(sc.id);
+        return `earlier:${(h?.latest ?? 0) - sc.turn}${h?.turns.has(sc.turn) ? '' : ':loading'}`;
+      }
     }
   }
 
@@ -369,13 +397,15 @@ export class Controller {
         });
       }
       case 'session': {
+        if (sc.turn !== null) return this.earlierPage(sc, notice);
         const d = this.details.get(sc.id) ?? null;
         const row = this.rows.find((r) => r.id === sc.id) ?? null;
         const off = this.offlineWords();
         const pages = S.sessionPages(d, !!off);
         sc.page = Math.min(sc.page, pages.length - 1);
         const status = off && !sc.flash ? `! ${off[0].toUpperCase()}${off.slice(1)}: this may be old` : S.statusLine(row, d, sc.flash);
-        return S.sessionPage({ title: d?.title || row?.title || 'Session', pages, page: sc.page, status, pending: d?.pending ?? null, notice });
+        const earlier = (this.histories.get(sc.id)?.latest ?? 0) > 0;
+        return S.sessionPage({ title: d?.title || row?.title || 'Session', pages, page: sc.page, status, pending: d?.pending ?? null, notice, earlier });
       }
       case 'actions': {
         const d = this.details.get(sc.id) ?? null;
@@ -415,6 +445,16 @@ export class Controller {
         return S.textPage({ title: 'Start this new session?', body, hint, notice });
       }
     }
+  }
+
+  private earlierPage(sc: Extract<Screen, { kind: 'session' }>, notice: string | null) {
+    const h = this.histories.get(sc.id);
+    const i = sc.turn ?? 0;
+    const latest = h?.latest ?? 0;
+    const turn = h?.turns.get(i) ?? null;
+    const pages = !turn && h?.error ? [`! Earlier turns did not load: ${h.error}.\nSwipe to try again.`] : S.turnPages(turn);
+    sc.page = Math.min(sc.page, pages.length - 1);
+    return S.turnPage({ k: latest - i, count: latest, turn, pages, page: sc.page, next: i + 1 >= latest ? 'latest' : 'later', notice });
   }
 
   private connectionPage(notice: string | null) {
@@ -540,6 +580,14 @@ export class Controller {
       return;
     }
     if (sc.kind !== 'session') return;
+    if (sc.turn !== null) {
+      this.swipeEarlier(sc, forward);
+      return;
+    }
+    if (!forward && sc.page === 0) {
+      this.toEarlier(sc);
+      return;
+    }
     const n = S.sessionPages(this.details.get(sc.id) ?? null).length;
     const next = Math.max(0, Math.min(n - 1, sc.page + step));
     if (next === sc.page) return;
@@ -562,7 +610,8 @@ export class Controller {
         return;
       }
       case 'session':
-        this.openActions(sc.id);
+        if (sc.turn !== null) this.toLatest(sc);
+        else this.openActions(sc.id);
         return;
       case 'actions': {
         if (sc.busy) return;
@@ -592,7 +641,8 @@ export class Controller {
         void this.lens.exit();
         return;
       case 'session':
-        this.goHome();
+        if (sc.turn !== null) this.toLatest(sc);
+        else this.goHome();
         return;
       case 'actions':
         this.openSession(sc.id, false);
@@ -621,11 +671,113 @@ export class Controller {
     // Back on Home, the mark is on this session.
     this.homeSel = id;
     const d = this.details.get(id);
-    this.screen = { kind: 'session', id, page: 0, flash: null, replyKey: d ? replyKey(d) : '' };
+    this.screen = { kind: 'session', id, page: 0, flash: null, replyKey: d ? replyKey(d) : '', turn: null };
     this.socket?.subscribe(id);
     this.render();
     this.changed();
     if (fresh || !d) void this.loadDetail(id);
+    // The newest turns now, so the first swipe up shows one at once.
+    if (fresh || !this.histories.get(id)?.loaded) void this.loadTurns(id);
+  }
+
+  // ---------- earlier turns ----------
+
+  /** A swipe up at the top of the latest turn: the turn before it, from its top. */
+  private toEarlier(sc: Extract<Screen, { kind: 'session' }>): void {
+    const h = this.histories.get(sc.id);
+    if (!h?.loaded) {
+      this.flash(sc, 'Getting the earlier turns...');
+      this.render();
+      void this.loadTurns(sc.id);
+      return;
+    }
+    if (h.latest <= 0) {
+      this.flash(sc, 'No earlier turns in this session');
+      this.render();
+      return;
+    }
+    sc.turn = h.latest - 1;
+    sc.page = 0;
+    this.ensureTurns(sc);
+    this.render();
+  }
+
+  /** In an earlier turn: its pages, then the turn before (up) or after (down);
+   *  down at the end of the newest earlier turn is the latest turn again. */
+  private swipeEarlier(sc: Extract<Screen, { kind: 'session' }>, forward: boolean): void {
+    const h = this.histories.get(sc.id);
+    const i = sc.turn ?? 0;
+    if (!h) return this.toLatest(sc);
+    const pages = S.turnPages(h.turns.get(i) ?? null).length;
+    if (forward) {
+      if (h.turns.has(i) && sc.page < pages - 1) sc.page++;
+      else if (i + 1 >= h.latest) return this.toLatest(sc);
+      else {
+        sc.turn = i + 1;
+        sc.page = 0;
+      }
+    } else if (sc.page > 0) {
+      sc.page--;
+    } else if (i > 0) {
+      sc.turn = i - 1;
+      sc.page = 0;
+    } else {
+      return; // the first turn: nothing above
+    }
+    this.ensureTurns(sc);
+    this.render();
+  }
+
+  private toLatest(sc: Extract<Screen, { kind: 'session' }>): void {
+    sc.turn = null;
+    sc.page = 0;
+    this.render();
+  }
+
+  /** Load the turn on the screen and the next ones up, before the person gets there. */
+  private ensureTurns(sc: Extract<Screen, { kind: 'session' }>): void {
+    const h = this.histories.get(sc.id);
+    if (!h || sc.turn === null) return;
+    // The oldest turn held without a gap below the latest one.
+    let low = h.latest;
+    while (low > 0 && h.turns.has(low - 1)) low--;
+    if (low > 0 && sc.turn - 2 < low) void this.loadTurns(sc.id, low);
+  }
+
+  /** The newest turns (no `before`), or the ones before turn `before`. */
+  private async loadTurns(id: string, before?: number): Promise<void> {
+    let h = this.histories.get(id);
+    if (!h) {
+      h = { total: 0, latest: -1, turns: new Map(), loaded: false, pending: new Set(), error: null };
+      this.histories.set(id, h);
+    }
+    const key = before === undefined ? 'new' : String(before);
+    if (h.pending.has(key)) return;
+    h.pending.add(key);
+    const gen = this.generation;
+    try {
+      const r = await this.bridge.turns(id, before, TURN_BATCH);
+      if (gen !== this.generation) return;
+      for (const t of r.turns) h.turns.set(t.index, t);
+      if (before === undefined || !h.loaded) {
+        h.total = r.total;
+        h.latest = r.latest;
+      }
+      h.loaded = true;
+      h.error = null;
+    } catch (e) {
+      if (gen !== this.generation) return;
+      h.error = (e as Error).message;
+    } finally {
+      h.pending.delete(key);
+    }
+    const sc = this.screen;
+    if (sc.kind === 'session' && sc.id === id) {
+      if (sc.turn !== null && sc.turn >= h.latest) sc.turn = null; // the history moved under it
+      if (sc.flash === 'Getting the earlier turns...' && h.loaded) sc.flash = null;
+      this.ensureTurns(sc);
+      this.render();
+    }
   }
 
   private async loadDetail(id: string): Promise<void> {

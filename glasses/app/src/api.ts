@@ -30,6 +30,27 @@ export interface SessionDetail extends SessionRow {
   pending: Pending | null;
 }
 
+/** One turn of a session: a prompt and all of Claude's text after it. */
+export interface Turn {
+  /** From 0, the session's first turn. */
+  index: number;
+  /** When the prompt came: ISO 8601, or Unix seconds. */
+  at: string | number | null;
+  /** you: the person's prompt; kit: a message the Kit typed; task: a background task's notice; claude: none. */
+  from?: 'you' | 'kit' | 'task' | 'claude';
+  /** The prompt as plain text (a short label for the Kit's and a task's). */
+  user_text: string;
+  reply_text: string;
+}
+
+export interface TurnPage {
+  /** Oldest first, newest last. */
+  turns: Turn[];
+  total: number;
+  /** The turn the session screen shows now (its reply is last_reply); -1 for none. */
+  latest: number;
+}
+
 export interface Folder {
   path: string;
   label: string;
@@ -58,6 +79,8 @@ const TRANSCRIBE_TIMEOUT_MS = 30000;
 // take a while when Chrome has to open the page first. A new session can
 // wait up to 90 s for its Claude Code to connect (bridge README).
 const SEND_TIMEOUT_MS = 60000;
+// The first look at a long session's history reads all its events on the Mac.
+const TURNS_TIMEOUT_MS = 30000;
 const START_TIMEOUT_MS = 120000;
 
 export class Bridge {
@@ -114,6 +137,16 @@ export class Bridge {
   }
   session(id: string) {
     return this.req<SessionDetail>('GET', `/api/sessions/${encodeURIComponent(id)}`);
+  }
+  /** The `limit` turns before turn `before` (the newest ones without it). */
+  async turns(id: string, before?: number, limit = 5): Promise<TurnPage> {
+    const q = `limit=${limit}${before === undefined ? '' : `&before=${before}`}`;
+    const r = await this.req<Partial<TurnPage>>('GET', `/api/sessions/${encodeURIComponent(id)}/turns?${q}`, undefined, undefined, TURNS_TIMEOUT_MS);
+    const turns = r.turns || [];
+    const total = r.total ?? turns.length;
+    // An older bridge without `latest`: the newest turn with reply text.
+    const latest = r.latest ?? [...turns].reverse().find((t) => t.reply_text)?.index ?? -1;
+    return { turns, total, latest };
   }
   message(id: string, text: string) {
     return this.req<{ ok: boolean }>('POST', `/api/sessions/${encodeURIComponent(id)}/message`, JSON.stringify({ text }), 'application/json', SEND_TIMEOUT_MS);

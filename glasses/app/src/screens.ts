@@ -2,7 +2,7 @@
 // The lens is 576 x 288, one fixed font, 27 px a line, no colors, only five
 // brightness steps. A header line sits on every screen, so a notice can
 // show there on any screen without taking the input.
-import type { Pending, SessionDetail, SessionRow, Status } from './api';
+import type { Pending, SessionDetail, SessionRow, Status, Turn } from './api';
 import type { PageSpec, TextBox } from './glasses';
 import { LINE_H, fit, padTo, paginate, plainReply, spread, width, wrapLines } from './text';
 
@@ -181,17 +181,90 @@ export function sessionPage(o: {
   status: string;
   pending: Pending | null;
   notice: string | null;
+  /** Earlier turns are above: the first page says so ("▲ earlier"). */
+  earlier?: boolean;
 }): PageSpec {
   const n = o.pages.length;
   const pageMark = n > 1 ? `${o.page + 1}/${n}` : '';
   const tapWord = o.pending ? 'answer' : 'reply';
-  const hint = n > 1 ? `Swipe: page   Tap: ${tapWord}   Double tap: back` : `Tap: ${tapWord}   Double tap: back`;
+  let hint = n > 1 ? `Swipe: page   Tap: ${tapWord}   Double tap: back` : `Tap: ${tapWord}   Double tap: back`;
+  if (o.earlier && o.page === 0) hint = `${EARLIER}   ${n > 1 ? '▼ page   ' : ''}Tap: ${tapWord}   Double tap: back`;
   return {
     texts: [
       head(headLine(clean(o.title), pageMark, o.notice)),
       { name: 'status', x: X, y: 28, w: TW, h: 30, content: o.status, color: 3 },
       { name: 'body', x: X, y: 62, w: TW, h: BODY_ROWS * LINE_H + 2, content: o.pages[o.page] ?? '', capture: true },
       foot(hint),
+    ],
+  };
+}
+
+// ---------- earlier turns ----------
+// Above the latest turn, one turn at a time, the newest first: a swipe up
+// at the top of a turn shows the turn before it, from its top, so its prompt
+// is the first thing to read; a swipe down at the end of a turn shows the
+// next one, and after the newest earlier turn, the latest turn again. The
+// layout is the session screen's (head, one line, the reply's pages, hint),
+// so moving between them is an in-place update.
+
+export const EARLIER = '▲ earlier';
+
+/** The pages of an earlier turn's reply; one page that says so while it loads. */
+export function turnPages(t: Turn | null): string[] {
+  if (!t) return ['Loading earlier turns...'];
+  const text = plainReply(t.reply_text || '');
+  return paginate(text || 'No reply text in this turn. Claude only used tools.', TPX, BODY_ROWS);
+}
+
+/** Who started the turn and what they said, in one line: "You: ...". */
+export function promptLine(t: Turn | null): string {
+  if (!t) return '';
+  const words = clean(t.user_text || '');
+  if (t.from === 'claude' || (!words && t.from !== 'you')) return 'Claude went on, with no new prompt';
+  const who = t.from === 'kit' ? 'Kit' : t.from === 'task' ? 'Task' : 'You';
+  return fit(`${who}: ${words || '(no words)'}`, TPX);
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** When a turn started, as the person reads it: 9:12 AM today, Tue 9:12 AM
+ *  this week, Nov 3 before that. */
+export function when(at: string | number | null | undefined, now = new Date()): string {
+  if (at === null || at === undefined || at === '') return '';
+  const d = new Date(typeof at === 'number' ? at * 1000 : at);
+  if (Number.isNaN(d.getTime())) return '';
+  const h = d.getHours() % 12 || 12;
+  const time = `${h}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'AM' : 'PM'}`;
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(now) - day(d)) / 86400000);
+  if (days === 0) return time;
+  if (days > 0 && days < 7) return `${DAYS[d.getDay()]} ${time}`;
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
+export function turnPage(o: {
+  /** 1 for the turn just before the latest, `count` for the first turn. */
+  k: number;
+  count: number;
+  turn: Turn | null;
+  pages: string[];
+  page: number;
+  /** What a swipe down at the end of this turn shows: the latest turn, or a later earlier one. */
+  next: 'latest' | 'later';
+  notice: string | null;
+}): PageSpec {
+  const n = o.pages.length;
+  const at = when(o.turn?.at);
+  const title = `Earlier ${o.k} of ${o.count}${at ? ` · ${at}` : ''}`;
+  const up = o.page > 0 ? '▲ page' : o.k < o.count ? EARLIER : 'First turn';
+  const down = o.page < n - 1 ? '▼ page' : o.next === 'latest' ? '▼ latest' : '▼ later';
+  return {
+    texts: [
+      head(headLine(title, n > 1 ? `${o.page + 1}/${n}` : '', o.notice)),
+      { name: 'status', x: X, y: 28, w: TW, h: 30, content: o.turn ? promptLine(o.turn) : '', color: 3 },
+      { name: 'body', x: X, y: 62, w: TW, h: BODY_ROWS * LINE_H + 2, content: o.pages[o.page] ?? '', capture: true },
+      foot(`${up}   ${down}   Tap: latest`),
     ],
   };
 }

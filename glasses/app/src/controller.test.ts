@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Bridge, Pending, SessionDetail, SessionRow } from './api';
+import type { Bridge, Pending, SessionDetail, SessionRow, Turn } from './api';
 import { Controller } from './controller';
 import type { Glasses, PageSpec } from './glasses';
+
+// The swipe direction from the phone panel, set by a test.
+const swap = vi.hoisted(() => ({ on: false }));
+vi.mock('./settings', async (orig) => {
+  const real = await orig<typeof import('./settings')>();
+  return { ...real, settings: () => ({ ...real.DEFAULTS, swapSwipe: swap.on }) };
+});
 
 // The controller with a stand-in bridge and lens: what a swipe and a tap do
 // on the text lists, and a prompt with two questions (the bridge answers
@@ -122,5 +129,136 @@ describe('the controller', () => {
     app.handle({ kind: 'tap', from: 'text' }); // too soon: the same finger
     await settle();
     expect(answer).not.toHaveBeenCalled();
+  });
+});
+
+// Scrolling back to earlier turns: made-up press and supplier work.
+const job = 'Press job 4471';
+const turnsOf: Turn[] = [
+  { index: 0, at: '2026-11-05T13:05:00Z', from: 'you', user_text: 'Pull the start-up checks for all presses', reply_text: 'Presses 1, 2 and 5 passed. Press 3 failed the nozzle check.' },
+  { index: 1, at: '2026-11-18T13:30:00Z', from: 'kit', user_text: 'A wait you handed to the Kit has ended.', reply_text: 'New Star Labels quotes $0.12 per m for 5,000 m.' },
+  {
+    index: 2,
+    at: '2026-11-19T14:10:00Z',
+    from: 'you',
+    user_text: 'Is the head 2 problem new?',
+    reply_text: Array.from({ length: 14 }, (_, i) => `Line ${i + 1} of the head 2 history.`).join('\n'),
+  },
+  { index: 3, at: '2026-11-19T14:40:00Z', from: 'you', user_text: 'What next for job 4471?', reply_text: 'Job 4471 is next.' },
+];
+
+function setupHistory() {
+  const shown: PageSpec[] = [];
+  const lens = { show: (p: PageSpec) => shown.push(p), invalidate() {}, mic: async () => true, exit: vi.fn(async () => {}), present: true };
+  const one: SessionDetail = { id: 'cse_b', title: job, status: 'idle', last_reply: 'Job 4471 is next.', pending: null };
+  const turns = vi.fn(async (_id: string, before?: number, limit = 5) => {
+    const end = before ?? turnsOf.length;
+    return { turns: turnsOf.slice(Math.max(0, end - limit), end), total: turnsOf.length, latest: 3 };
+  });
+  const bridge = {
+    health: async () => ({ ok: true, version: 'test' }),
+    sessions: async () => [{ id: 'cse_b', title: job, status: 'idle' }],
+    session: async () => one,
+    folders: async () => [],
+    live: () => null,
+    turns,
+  };
+  const app = new Controller(bridge as unknown as Bridge, lens as unknown as Glasses);
+  const text = (name: string) => shown[shown.length - 1]?.texts.find((t) => t.name === name)?.content ?? '';
+  return { app, text, turns, lens };
+}
+
+describe('earlier turns', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-19T16:00:00Z'));
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    swap.on = false;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function open() {
+    const h = setupHistory();
+    h.app.start();
+    await vi.advanceTimersByTimeAsync(500);
+    h.app.handle({ kind: 'down' }); // from + New session to the session
+    await vi.advanceTimersByTimeAsync(400);
+    h.app.handle({ kind: 'tap', from: 'text' });
+    await vi.advanceTimersByTimeAsync(500);
+    return h;
+  }
+  async function swipe(app: Controller, kind: 'up' | 'down', n = 1) {
+    for (let i = 0; i < n; i++) {
+      app.handle({ kind });
+      await vi.advanceTimersByTimeAsync(300);
+    }
+  }
+
+  it('opens on the latest turn, with "▲ earlier" in its hint', async () => {
+    const { app, text } = await open();
+    expect(app.snapshot().screen).toBe('session');
+    expect(text('body')).toBe('Job 4471 is next.');
+    expect(text('foot')).toContain('▲ earlier');
+  });
+
+  it('goes up one turn at a time, from each turn\'s top, and down again to the latest', async () => {
+    const { app, text } = await open();
+    await swipe(app, 'up');
+    expect(text('head')).toMatch(/^Earlier 1 of 3 · /);
+    expect(text('status')).toBe('You: Is the head 2 problem new?');
+    expect(text('body').split('\n')[0]).toBe('Line 1 of the head 2 history.');
+    expect(text('foot')).toContain('▲ earlier');
+    await swipe(app, 'up');
+    expect(text('head')).toMatch(/^Earlier 2 of 3 · Wed /);
+    expect(text('status')).toBe('Kit: A wait you handed to the Kit has ended.');
+    await swipe(app, 'up');
+    expect(text('head')).toMatch(/^Earlier 3 of 3 · Nov 5$/);
+    expect(text('foot')).toContain('First turn');
+    await swipe(app, 'up'); // the first turn: nothing above
+    expect(text('head')).toMatch(/^Earlier 3 of 3/);
+    await swipe(app, 'down', 2); // its one page, then the Kit's turn
+    expect(text('head')).toMatch(/^Earlier 1 of 3/);
+    await swipe(app, 'down'); // head 2 history, page 2
+    expect(text('body')).toContain('Line 14');
+    expect(text('foot')).toContain('▼ latest');
+    await swipe(app, 'down');
+    expect(app.snapshot().screen).toBe('session');
+    expect(text('body')).toBe('Job 4471 is next.');
+  });
+
+  it('tap or double tap on an earlier turn shows the latest; double tap there goes Home', async () => {
+    const { app, text } = await open();
+    await swipe(app, 'up', 2);
+    app.handle({ kind: 'tap', from: 'text' });
+    await vi.advanceTimersByTimeAsync(400);
+    expect(text('body')).toBe('Job 4471 is next.');
+    await swipe(app, 'up');
+    app.handle({ kind: 'double' });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(text('body')).toBe('Job 4471 is next.');
+    expect(app.snapshot().screen).toBe('session');
+    app.handle({ kind: 'double' });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(app.snapshot().screen).toBe('home');
+  });
+
+  it('follows the swipe direction setting', async () => {
+    const { app, text } = await open();
+    swap.on = true;
+    await swipe(app, 'down'); // swapped: this is "up"
+    expect(text('head')).toMatch(/^Earlier 1 of 3/);
+    await swipe(app, 'up', 2);
+    expect(text('body')).toBe('Job 4471 is next.');
+  });
+
+  it('loads older turns a few at a time, before the person gets to them', async () => {
+    const { app, turns } = await open();
+    expect(turns).toHaveBeenCalledTimes(1);
+    expect(turns).toHaveBeenLastCalledWith('cse_b', undefined, 5);
+    await swipe(app, 'up');
+    expect(turns).toHaveBeenCalledTimes(1); // all four came in the first five
   });
 });

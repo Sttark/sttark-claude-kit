@@ -391,3 +391,120 @@ def decide(req, option_id, partial=None):
     if option_id == 'deny':
         return True, partial, 'deny', None, 'The person said no to this, from their glasses.'
     raise BadOption('Use allow or deny.')
+
+
+# -- turns: the session's history, one prompt and its reply at a time ------------------------------------------------
+# For scrolling back on the lens. The same turns as last_reply's: one prompt and all the text Claude wrote after it,
+# until the next prompt or the end of its run (`result`), the session's own messages only (main_thread). The prompt
+# is a message the person typed (prompt), a message the Kit typed for them (its text starts with "[Sttark Claude
+# Kit]"), or a background task's notice: Claude answers one with a turn of its own (a user message from Claude Code
+# 2.1.320 on, a `system` event `task_notification` before). "[Request interrupted by user]" ends a turn, as for
+# last_reply, but starts none.
+
+KIT_PREFIX = '[Sttark Claude Kit]'
+_INTERRUPTED = re.compile(r'^\[Request interrupted by user[^\]]*\]$')
+_TASK_SUMMARY = re.compile(r'<summary>(.*?)</summary>', re.S)
+_SENTENCE = re.compile(r'^(.{12,}?[.!?])(\s|$)', re.S)
+
+
+def _first_sentence(s, limit=120):
+    s = ' '.join(s.split())
+    m = _SENTENCE.match(s)
+    s = m.group(1) if m else s
+    return s if len(s) <= limit else s[:limit - 3].rsplit(' ', 1)[0] + '...'
+
+
+def turn_start(p):
+    """(who, text) when event payload `p` starts a turn, else None. `who` is "you" (the person's prompt, as plain
+    text), "kit" (a message the Kit typed: its first sentence) or "task" (a background task's notice: its summary)."""
+    if p.get('type') != 'user' or not main_thread(p) or p.get('isSynthetic') or p.get('isMeta'):
+        return None
+    c = (p.get('message') or {}).get('content')
+    blocks = [{'type': 'text', 'text': c}] if isinstance(c, str) else [b for b in c or [] if isinstance(b, dict)]
+    text = '\n\n'.join(b.get('text') or '' for b in blocks if b.get('type') == 'text').strip()
+    images = sum(1 for b in blocks if b.get('type') == 'image')
+    if (p.get('origin') or {}).get('kind') == 'task-notification':
+        m = _TASK_SUMMARY.search(text)
+        return 'task', _first_sentence(m.group(1) if m else 'A background task ended.')
+    if not prompt(p) or _INTERRUPTED.match(text):
+        return None
+    if text.startswith(KIT_PREFIX):
+        return 'kit', _first_sentence(text[len(KIT_PREFIX):].strip()) or 'A message from the Kit.'
+    words = plain(text)
+    if images:
+        words = (words + ' ' if words else '') + ('[image]' if images == 1 else f'[{images} images]')
+    return 'you', words
+
+
+def _when(ev, p):
+    return p.get('timestamp') or ev.get('created_at') or None
+
+
+def _task_label(p, names):
+    """A background task's notice (a system event) in a few words: 'Agent "<its description>" finished'."""
+    name = names.get(p.get('task_id'))
+    if name:
+        return f'Agent "{_first_sentence(name, 80)}" finished'
+    return _first_sentence(p.get('summary') or 'A background task ended.')
+
+
+def turns(events):
+    """The session's turns from its events, oldest first (each event once): [{index, at, from, user_text,
+    reply_text}], newest last. `at` is when the prompt came (ISO 8601). Text Claude writes after a turn ended with no
+    new prompt starts a turn of its own: from "task" when a background task's notice came before it, else from
+    "claude", with no user_text.
+
+    A prompt sent while Claude works stops that run: its `result` comes after the prompt, before Claude has done
+    anything for it. So only a result after some of the turn's own work ends the turn."""
+    out, cur, ran, open_ = [], None, False, False
+    names, inner, note = {}, set(), None  # task id -> description; the tasks of agents; the last notice
+    for ev in events:
+        p = payload(ev)
+        start = turn_start(p)
+        if start:
+            cur = {'at': _when(ev, p), 'from': start[0], 'user_text': start[1], 'texts': []}
+            out.append(cur)
+            ran, open_, note = False, True, None
+        elif p.get('type') == 'system' and p.get('subtype') == 'task_started':
+            names[p.get('task_id')] = p.get('description') or ''
+            if p.get('owned_by_subagent'):
+                inner.add(p.get('task_id'))
+        elif p.get('type') == 'system' and p.get('subtype') == 'task_notification':
+            if p.get('task_id') not in inner:
+                note = (_when(ev, p), _task_label(p, names))
+        elif turn_edge(p):  # its result, or "[Request interrupted by user]"
+            if ran:
+                open_ = False
+        elif p.get('type') == 'assistant' and main_thread(p):
+            ran = True
+            t = message_text(p).strip()
+            if not t:
+                continue
+            if cur is None or not open_:
+                at, label = note or (_when(ev, p), '')
+                cur = {'at': at, 'from': 'task' if note else 'claude', 'user_text': label, 'texts': []}
+                out.append(cur)
+                open_, note = True, None
+            cur['texts'].append(t)
+    return [{'index': i, 'at': t['at'], 'from': t['from'], 'user_text': t['user_text'],
+             'reply_text': '\n\n'.join(x for x in (plain(s) for s in t['texts']) if x)} for i, t in enumerate(out)]
+
+
+def latest_turn(ts):
+    """The index of the turn the session screen shows now: the newest one with reply text (a turn that runs, or
+    that only used tools, has none yet). -1 when no turn has any."""
+    for t in reversed(ts):
+        if t['reply_text']:
+            return t['index']
+    return -1
+
+
+def slim_event(ev):
+    """slim, and what the turns need besides: when, and the background tasks' names and notices."""
+    p, out = payload(ev), slim(ev)
+    q = out['payload']
+    q.update({k: p[k] for k in ('timestamp', 'task_id', 'description', 'owned_by_subagent') if k in p})
+    if p.get('subtype') == 'task_notification':
+        q['summary'] = str(p.get('summary') or '')[:300]
+    out['created_at'] = ev.get('created_at')
+    return out

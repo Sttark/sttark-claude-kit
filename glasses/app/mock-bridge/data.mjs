@@ -3,6 +3,78 @@
 
 const min = (n) => new Date(Date.now() - n * 60000).toISOString();
 
+// Earlier turns of two sessions, oldest first, for scrolling back: each is
+// a prompt (the person's, a message the Kit typed, or a background task's
+// notice) and Claude's reply to it. The latest turn is the session's own
+// prompt and last_reply.
+const PRESS3_EARLIER = [
+  {
+    at: min(190),
+    from: 'you',
+    user_text: "Pull this morning's start-up checks for all presses.",
+    reply_text: 'Presses 1, 2 and 5 passed the 6:00 start-up check. Press 3 failed the nozzle check on heads 2 and 4. Press 4 is down for the planned roller change until noon.',
+  },
+  {
+    at: min(175),
+    from: 'you',
+    user_text: 'Run a purge on Press 3 and check again.',
+    reply_text: 'The purge ran at 6:30. Head 4 is better: 4 nozzles out, down from 11. Head 2 did not change: 6 nozzles out in the cyan row. Both nozzle check pages are in the Press 3 log.',
+  },
+  {
+    at: min(120),
+    from: 'kit',
+    user_text: 'A wait you handed to the Kit has ended.',
+    reply_text: 'The second shift lead answered: job 4471 can move to Press 5 if Press 3 is not ready by 10:00. Press 5 has the same gloss varnish loaded.',
+  },
+  {
+    at: min(90),
+    from: 'you',
+    user_text: 'Is the head 2 problem new?',
+    reply_text:
+      'No. Head 2 has lost nozzles slowly since September:\n\n' +
+      '- Sep 12: 2 nozzles out, a purge cleared them\n' +
+      '- Oct 3: 3 out, a hand wipe cleared them\n' +
+      '- Oct 28: 4 out, 1 came back after a purge\n' +
+      '- Today: 6 out, none came back\n\n' +
+      'Each time, fewer came back. That is what a head near the end of its life does: the nozzles stop one by one, and a purge no longer helps.\n\n' +
+      'The head went in 14 months ago. The supplier rates these heads at 12 to 18 months on our ink.\n\n' +
+      'The spare-parts list shows one head in stock, in bin N-A3-07. A head change takes about 2 hours, with the alignment print.',
+  },
+  {
+    at: min(60),
+    from: 'task',
+    user_text: 'Agent "Price a new print head" finished',
+    reply_text: 'A new print head costs $1,840 from the usual supplier, 5 days to ship. A second supplier has it for $1,690, 3 weeks to ship.',
+  },
+  {
+    at: min(20),
+    from: 'you',
+    user_text: 'Which jobs need a lot of cyan this week?',
+    reply_text: 'Three jobs this week use a lot of cyan:\n\n- Job 4471 gloss wine labels, today\n- Job 4483 coffee bags, Thursday\n- Job 4490 proof, Friday\n\nJob 4471 is the only one on Press 3.',
+  },
+];
+
+const NEWSTAR_EARLIER = [
+  {
+    at: min(6 * 1440 + 200),
+    from: 'you',
+    user_text: 'Ask New Star Labels and Harbor Film for a laminate quote: 5,000 m of 330 mm matte.',
+    reply_text: 'I sent both quote requests from the engineering inbox. Each asks for the price per meter, the lead time, and the ship cost to the Engineering Office.',
+  },
+  {
+    at: min(5 * 1440 + 90),
+    from: 'task',
+    user_text: 'Agent "Read the supplier replies" finished',
+    reply_text: 'Harbor Film Co. answered: $0.10 per m, matte only, 6 weeks to ship. New Star Labels has not answered yet.',
+  },
+  {
+    at: min(2 * 1440 + 30),
+    from: 'kit',
+    user_text: 'A wait you handed to the Kit has ended.',
+    reply_text: 'The deadline came, and New Star Labels did not answer the quote request. I can write a short follow-up.',
+  },
+];
+
 export function sampleSessions() {
   return [
     {
@@ -13,6 +85,8 @@ export function sampleSessions() {
       why: 'Asked which fix to try next',
       status_line: 'Asked which fix to try next',
       updated_at: min(4),
+      earlier: PRESS3_EARLIER,
+      prompt: { at: min(6), from: 'you', user_text: 'Look at the nozzle check again and tell me what to do.' },
       last_reply:
         "I read the Press 3 nozzle check from this morning's start-up.\n\n" +
         '**Heads 2 and 4** still show missing nozzles after one purge:\n' +
@@ -42,6 +116,8 @@ export function sampleSessions() {
       why: 'Wants to save an email draft',
       status_line: 'Wants to save an email draft',
       updated_at: min(11),
+      earlier: NEWSTAR_EARLIER,
+      prompt: { at: min(13), from: 'you', user_text: 'Yes, write the follow-up to New Star.' },
       last_reply:
         'New Star Labels has not answered the laminate quote from last Tuesday. I wrote a short follow-up that asks for the price on 5,000 m of matte laminate and the lead time to the Engineering Office.\n\n' +
         'Draft: "Hello, a quick check on our quote for 5,000 m of 330 mm matte laminate. Can you send the price and the ship date? Thanks."',

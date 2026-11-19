@@ -378,6 +378,182 @@ class Audio(unittest.TestCase):
         self.assertEqual(struct.unpack('<I', w[40:44])[0], 32000)
 
 
+def asked(n, text, source='client', at=None, **extra):
+    p = dict({'type': 'user', 'message': {'role': 'user', 'content': text}}, **extra)
+    if at:
+        p['timestamp'] = at
+    return ev(n, p, source)
+
+
+def wrote(n, *blocks, **extra):
+    content = [{'type': 'text', 'text': b} if isinstance(b, str) else b for b in blocks]
+    return ev(n, dict({'type': 'assistant', 'message': {'role': 'assistant', 'content': content}}, **extra))
+
+
+def ended(n):
+    return ev(n, {'type': 'result', 'subtype': 'success'})
+
+
+TOOL = {'type': 'tool_use', 'id': 't', 'name': 'Bash', 'input': {}}
+
+
+class Turns(unittest.TestCase):
+    """The session's history as turns: one prompt and all of Claude's text after it (made-up press and quote work)."""
+
+    def session(self):
+        return [
+            asked(1, 'Check the **Press 3** nozzle report', at='2026-11-18T13:05:00Z'),
+            wrote(2, {'type': 'thinking', 'thinking': ''}),
+            wrote(3, 'I read the report.', TOOL),
+            tool_result(4),
+            ev(5, {'type': 'user', 'message': {'content': '[Image: original 2800x1880, displayed at 2000x1343.]'},
+                   'isSynthetic': True}),
+            wrote(6, 'Draft for the agent', parent_tool_use_id='toolu_agent'),  # an agent's own words
+            wrote(7, 'Head 2 has **6** nozzles out.\n\n| Head | State |\n|---|---|\n| 2 | 6 out |'),
+            ended(8),
+            asked(9, '[Sttark Claude Kit] A wait you handed to the Kit has ended. New Star Labels wrote: "Quote '
+                    'attached." The wait: a reply on the laminate quote.', source='worker', origin={'kind': 'human'}),
+            wrote(10, 'New Star quotes $0.12 per m for 5,000 m.'),
+            ended(11),
+            asked(12, '<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent "Price '
+                     'the laminate" finished</summary>\n</task-notification>', source='worker',
+                 origin={'kind': 'task-notification'}),
+            wrote(13, 'The agent priced 8,000 m too: $0.11 per m.'),
+            ended(14),
+            asked(15, 'Order 5,000 m'),
+            wrote(16, TOOL),
+            asked(17, 'Wait, make it 8,000 m', priority='next'),  # sent while Claude works: that run stops
+            ended(18),
+            asked(19, '[Request interrupted by user]', source='worker'),
+            wrote(20, 'Changed to 8,000 m. The order draft is saved.'),
+            ended(21),
+        ]
+
+    def test_prompts_and_their_replies(self):
+        ts = detail.turns(self.session())
+        self.assertEqual([(t['index'], t['from'], t['user_text']) for t in ts], [
+            (0, 'you', 'Check the Press 3 nozzle report'),
+            (1, 'kit', 'A wait you handed to the Kit has ended.'),
+            (2, 'task', 'Agent "Price the laminate" finished'),
+            (3, 'you', 'Order 5,000 m'),
+            (4, 'you', 'Wait, make it 8,000 m'),
+        ])
+        self.assertEqual(ts[0]['at'], '2026-11-18T13:05:00Z')
+        # All of a turn's text, from each message, as plain text; not the agent's, not the tool steps.
+        self.assertEqual(ts[0]['reply_text'], 'I read the report.\n\nHead 2 has 6 nozzles out.\n\n2\n  State: 6 out')
+        self.assertEqual(ts[1]['reply_text'], 'New Star quotes $0.12 per m for 5,000 m.')
+        self.assertEqual(ts[3]['reply_text'], '')  # it only used a tool before the next prompt
+        self.assertEqual(ts[4]['reply_text'], 'Changed to 8,000 m. The order draft is saved.')
+        self.assertEqual(detail.latest_turn(ts), 4)
+
+    def test_latest_is_the_newest_turn_with_text(self):
+        evs = self.session()[:14] + [asked(15, 'Order 5,000 m'), wrote(16, TOOL)]  # Claude works on it
+        ts = detail.turns(evs)
+        self.assertEqual(len(ts), 4)
+        self.assertEqual(detail.latest_turn(ts), 2)
+        self.assertEqual(detail.latest_turn([]), -1)
+
+    def test_the_latest_turn_is_the_last_reply(self):
+        """The session screen shows last_reply; the earlier turns are the ones before it, so they must agree."""
+        evs = self.session()
+        for n in range(1, len(evs) + 1):
+            ts = detail.turns(evs[:n])
+            i = detail.latest_turn(ts)
+            self.assertEqual(ts[i]['reply_text'] if i >= 0 else '', detail.last_reply(evs[:n][::-1]), n)
+
+    def test_text_after_a_finished_turn_with_no_prompt(self):
+        ts = detail.turns([asked(1, 'Check Rewinder 2'), wrote(2, 'Belts are worn.'), ended(3),
+                           wrote(4, 'The supplier answered: 2 belts ship Friday.')])
+        self.assertEqual([(t['from'], t['user_text'], t['reply_text']) for t in ts], [
+            ('you', 'Check Rewinder 2', 'Belts are worn.'),
+            ('claude', '', 'The supplier answered: 2 belts ship Friday.')])
+
+    def test_task_notice_as_a_system_event(self):
+        """Before Claude Code 2.1.320 a background agent's end came as a system event, then Claude's run for it."""
+        ts = detail.turns([
+            asked(1, 'Merge the new die drawing'), wrote(2, 'An agent merges it now.'), ended(3),
+            ev(4, {'type': 'system', 'subtype': 'task_started', 'task_id': 'a1', 'description': 'Merge the die drawing'}),
+            ev(5, {'type': 'system', 'subtype': 'task_started', 'task_id': 'b1', 'description': 'Export the PDF',
+                   'owned_by_subagent': True}),
+            ev(6, {'type': 'system', 'subtype': 'task_notification', 'task_id': 'b1', 'summary': 'Export the PDF'}),
+            ev(7, {'type': 'system', 'subtype': 'task_notification', 'task_id': 'a1', 'summary': 'I merged the die.'}),
+            wrote(8, TOOL), tool_result(9), wrote(10, 'The die drawing is merged.'), ended(11),
+            ev(12, {'type': 'system', 'subtype': 'task_notification', 'task_id': 'zz', 'summary': 'Rewinder 2 check '
+                                                                                                  'is done. All good.'}),
+            wrote(13, 'Rewinder 2 is fine.'),
+        ])
+        self.assertEqual([(t['from'], t['user_text'], t['reply_text']) for t in ts], [
+            ('you', 'Merge the new die drawing', 'An agent merges it now.'),
+            ('task', 'Agent "Merge the die drawing" finished', 'The die drawing is merged.'),
+            ('task', 'Rewinder 2 check is done.', 'Rewinder 2 is fine.')])
+
+    def test_images_and_empty_prompts(self):
+        img = {'type': 'image', 'source': {'type': 'base64', 'data': 'AAAA'}}
+        ts = detail.turns([
+            ev(1, {'type': 'user', 'message': {'content': [img, {'type': 'text', 'text': 'Is this roll on its edge?'}]}}),
+            ev(2, {'type': 'user', 'message': {'content': [img, img]}}),
+            ev(3, {'type': 'user', 'message': {'content': '   '}}),
+            ev(4, {'type': 'user', 'message': {'content': '<system-reminder>x</system-reminder>'}, 'isMeta': True}),
+        ])
+        self.assertEqual([t['user_text'] for t in ts], ['Is this roll on its edge? [image]', '[2 images]'])
+
+    def test_slim_keeps_only_what_turns_need(self):
+        e = wrote(7, 'Head 2 is out.', TOOL)
+        e['created_at'] = '2026-11-18T13:06:00Z'
+        s = detail.slim_event(e)
+        self.assertEqual(s, {'sequence_num': '7', 'created_at': '2026-11-18T13:06:00Z', 'payload': {
+            'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Head 2 is out.'}, {'type': 'tool_use'}]}}})
+        self.assertEqual(detail.turns([detail.slim_event(x) for x in self.session()]), detail.turns(self.session()))
+
+
+class History(unittest.TestCase):
+    """The bridge reads a session's events once, in pages, then only the new ones; the endpoint gives a slice."""
+
+    def setUp(self):
+        import bridge
+        import rcapi
+        self.bridge, self.rcapi = bridge, rcapi
+        self.events = Turns().session()
+        self.calls = []
+
+        def events(cse, limit=100, desc=True, cursor=None):
+            self.calls.append((limit, desc, cursor))
+            after = [e for e in self.events if detail.seq(e) > int(cursor or 0)][:limit]
+            return after, (detail.seq(after[-1]) if after else None)
+
+        self._events, rcapi.events = rcapi.events, events
+        self._log, bridge.log = bridge.log, lambda msg: None  # never the Mac's real log
+        bridge.History.PAGE = 5
+
+    def tearDown(self):
+        self.rcapi.events = self._events
+        self.bridge.log = self._log
+        self.bridge.History.PAGE = 1000
+
+    def hub(self):
+        hub = self.bridge.Hub.__new__(self.bridge.Hub)
+        hub.lock, hub.trackers, hub.histories, hub.api = threading.RLock(), {}, {}, {}
+        hub.session_record = lambda cse: {}
+        return hub
+
+    def test_pages_then_only_new_events(self):
+        hub = self.hub()
+        cse = 'cse_01AAAAAAAAAAAAAAAAAAAAAA'
+        r = hub.turns(cse)
+        self.assertEqual((r['total'], r['latest']), (5, 4))
+        self.assertEqual([t['index'] for t in r['turns']], [0, 1, 2, 3, 4])
+        self.assertEqual(self.calls, [(5, False, None), (5, False, 5), (5, False, 10), (5, False, 15), (5, False, 20)])
+        r = hub.turns(cse, before=4, limit=2)
+        self.assertEqual([t['index'] for t in r['turns']], [2, 3])
+        self.assertEqual(len(self.calls), 5)  # read 3 s ago at most: no new call
+        self.events.append(asked(22, 'Send it to New Star'))
+        hub.histories[cse].read_at = 0
+        r = hub.turns(cse, before=1)
+        self.assertEqual(([t['index'] for t in r['turns']], r['total'], r['latest']), ([0], 6, 4))
+        self.assertEqual(self.calls[-1], (5, False, 21))
+        self.assertEqual(hub.turns(cse, before=0)['turns'], [])
+
+
 class Live(unittest.TestCase):
     """What a glasses client's live messages do: the session it shows replaces the one before."""
 

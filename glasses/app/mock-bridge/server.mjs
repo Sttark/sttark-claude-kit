@@ -18,12 +18,23 @@ const PORT = Number(process.env.MOCK_PORT || 8741);
 const TOKEN = process.env.MOCK_TOKEN || 'mock';
 const VERSION = 'mock-0.1.0';
 
-let sessions = sampleSessions();
+// Each session's turns, oldest first: its earlier turns, then the prompt of
+// its last_reply. A message adds a turn; its reply fills it in.
+function withTurns(list) {
+  for (const s of list) {
+    const latest = { ...(s.prompt || { at: s.updated_at, from: 'you', user_text: s.title }), reply_text: s.last_reply || '' };
+    s.turns = [...(s.earlier || []), latest];
+  }
+  return list;
+}
+const fresh = () => withTurns(sampleSessions());
+
+let sessions = fresh();
 let spokenIndex = 0;
 let lastAudioBytes = 0;
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-const row = ({ last_reply, pending, ...r }) => ({ ...r, has_pending: !!pending });
+const row = ({ last_reply, pending, earlier, prompt, turns, ...r }) => ({ ...r, has_pending: !!pending });
 const RANK = { needs_you: 0, working: 1, waiting: 2, idle: 3 };
 const list = () =>
   sessions
@@ -49,7 +60,9 @@ function send(ws, msg) {
 }
 
 // Claude's side, made up: work for a while, then reply.
-function work(s, reply, ms = 5000) {
+function work(s, reply, ms = 5000, prompt = null) {
+  const turn = prompt ? { at: now(), from: 'you', user_text: prompt, reply_text: '' } : null;
+  if (turn) s.turns.push(turn);
   s.status = 'working';
   s.why = 'Working on your message';
   s.status_line = s.why;
@@ -61,6 +74,7 @@ function work(s, reply, ms = 5000) {
     s.why = 'Reply ready';
     s.status_line = 'Reply ready';
     s.last_reply = reply;
+    if (turn) turn.reply_text = reply;
     s.updated_at = now();
     log(`"${s.title}" replied`);
     broadcast(s);
@@ -105,7 +119,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === '/mock/reset' && req.method === 'POST') {
-    sessions = sampleSessions();
+    sessions = fresh();
     spokenIndex = 0;
     broadcast();
     log('reset');
@@ -135,23 +149,31 @@ const server = http.createServer(async (req, res) => {
     if (!prompt) return json(res, 400, { error: 'prompt is empty' });
     const id = `mock-new-${Date.now().toString(36)}`;
     const title = String(prompt).split(/\s+/).slice(0, 5).join(' ');
-    const s = { id, title, folder: (FOLDERS.find((f) => f.path === folder) || FOLDERS[0]).label, status: 'working', why: 'Starting', status_line: 'Starting', updated_at: now(), last_reply: '', pending: null };
+    const s = { id, title, folder: (FOLDERS.find((f) => f.path === folder) || FOLDERS[0]).label, status: 'working', why: 'Starting', status_line: 'Starting', updated_at: now(), last_reply: '', pending: null, turns: [] };
     sessions.push(s);
     log(`new session "${title}"`);
-    work(s, `Started on: "${prompt}". I looked at what is there and I am ready for the next step.`, 6000);
+    work(s, `Started on: "${prompt}". I looked at what is there and I am ready for the next step.`, 6000, prompt);
     return json(res, 200, { id });
   }
 
-  const m = path.match(/^\/api\/sessions\/([^/]+)(\/(message|answer))?$/);
+  const m = path.match(/^\/api\/sessions\/([^/]+)(\/(message|answer|turns))?$/);
   if (m) {
     const s = find(decodeURIComponent(m[1]));
     if (!s) return json(res, 404, { error: 'no such session' });
     if (!m[2] && req.method === 'GET') return json(res, 200, { ...row(s), last_reply: s.last_reply, pending: s.pending });
+    if (m[3] === 'turns' && req.method === 'GET') {
+      const total = s.turns.length;
+      const limit = Math.max(1, Math.min(20, Number(url.searchParams.get('limit') || 5)));
+      const before = url.searchParams.has('before') ? Math.max(0, Math.min(total, Number(url.searchParams.get('before')))) : total;
+      const all = s.turns.map((t, index) => ({ index, ...t }));
+      const latest = [...all].reverse().find((t) => t.reply_text)?.index ?? -1;
+      return json(res, 200, { turns: all.slice(Math.max(0, before - limit), before), total, latest });
+    }
     if (m[3] === 'message' && req.method === 'POST') {
       const { text } = parse(await body(req));
       if (!text) return json(res, 400, { error: 'text is empty' });
       log(`message to "${s.title}": ${text}`);
-      work(s, text === 'Continue' ? 'I went on with the work. The next step is done, and nothing else needs you now.' : `Done: "${text}". Nothing else needs you now.`);
+      work(s, text === 'Continue' ? 'I went on with the work. The next step is done, and nothing else needs you now.' : `Done: "${text}". Nothing else needs you now.`, 5000, text);
       return json(res, 200, { ok: true });
     }
     if (m[3] === 'answer' && req.method === 'POST') {
@@ -159,7 +181,10 @@ const server = http.createServer(async (req, res) => {
       const opt = s.pending?.options.find((o) => o.id === option_id);
       if (!opt) return json(res, 409, { error: 'that question is already answered' });
       log(`answer to "${s.title}": ${opt.label}`);
+      // An answer is not a new prompt: the reply goes on in the same turn.
+      const latest = s.turns[s.turns.length - 1];
       work(s, `You chose "${opt.label}". That is done; the result is in the log.`);
+      if (latest) setTimeout(() => (latest.reply_text = s.last_reply), 5000);
       return json(res, 200, { ok: true });
     }
   }

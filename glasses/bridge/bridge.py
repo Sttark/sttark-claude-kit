@@ -190,6 +190,48 @@ class Tracker:
                 backoff = min(backoff * 2, 60)
 
 
+class History:
+    """One session's events, every one since its start, slim and oldest first, for its turns (scrolling back on the
+    lens). The first read takes all of them, 1000 at a time (a few seconds for a long session); later reads take
+    only the events after the newest one held."""
+
+    PAGE = 1000
+
+    def __init__(self, cse):
+        self.cse = cse
+        self.lock = threading.Lock()
+        self.events = []
+        self.seq = 0
+        self.turns = []
+        self.read_at = 0.0
+        self.used = time.time()
+
+    def update(self, newest_seen=0):
+        """The turns now. Asks the API only when the session may have new events: always after 3 seconds, sooner
+        when the session's live stream (`newest_seen`) shows events this history does not have."""
+        with self.lock:
+            self.used = time.time()
+            if self.read_at and time.time() - self.read_at < 3 and newest_seen <= self.seq:
+                return self.turns
+            started, got = time.time(), 0
+            while True:
+                evs, nxt = rcapi.events(self.cse, limit=self.PAGE, desc=False, cursor=self.seq or None)
+                new = sorted((e for e in evs if detail.seq(e) > self.seq), key=detail.seq)
+                if new:
+                    self.events += [detail.slim_event(e) for e in new]
+                    self.seq = detail.seq(new[-1])
+                    got += len(new)
+                if len(evs) < self.PAGE or not nxt or not new:
+                    break
+            self.read_at = time.time()
+            if got or not self.turns:
+                self.turns = detail.turns(self.events)
+            if got > self.PAGE:
+                log(f'turns  {self.cse}: read {got} events in {time.time() - started:.1f} s, '
+                    f'{len(self.turns)} turns')
+            return self.turns
+
+
 class Hub:
     def __init__(self):
         self.lock = threading.RLock()
@@ -201,6 +243,7 @@ class Hub:
         self.rows_json = ''
         self.clients = set()
         self.trackers = {}
+        self.histories = {}  # cse -> History, while the glasses scroll back in it
         self.sent = {}  # cse -> json of the last detail pushed
         self.partials = {}  # request id -> {question index: label}, for prompts with several questions
         self.older = {}  # cse -> {'events': the events its last reply needs (slim, newest first), 'start': bool}
@@ -303,6 +346,9 @@ class Hub:
                 for cse in list(self.older):
                     if cse not in self.api and cse not in self.trackers:
                         self.older.pop(cse, None)
+                for cse, h in list(self.histories.items()):  # and their history after 15 minutes
+                    if time.time() - h.used > 900:
+                        self.histories.pop(cse, None)
             if n % 48 == 0 and time.time() - self.last_message_at < 2 * 3600:
                 self.web.touch()  # every 20 minutes while messages go out: keep the claude.ai page
 
@@ -411,6 +457,21 @@ class Hub:
         out['pending'] = detail.view(req, self.partials.get(req['request_id'])) if req else None
         out['has_pending'] = bool(out['pending'])
         return out
+
+    def turns(self, cse, before=None, limit=5):
+        """Turns of the session, oldest first: the `limit` turns before turn `before` (all of them by default),
+        with how many there are and which one the session screen shows now (detail.latest_turn)."""
+        self.session_record(cse)
+        with self.lock:
+            h = self.histories.get(cse)
+            if h is None:
+                h = self.histories[cse] = History(cse)
+            t = self.trackers.get(cse)
+        newest = t.last_seq() if t and t.ready.is_set() else 0
+        ts = h.update(newest)
+        total = len(ts)
+        end = total if before is None else max(0, min(before, total))
+        return {'turns': ts[max(0, end - limit):end], 'total': total, 'latest': detail.latest_turn(ts)}
 
     def session_changed(self, cse):
         watchers = [c for c in list(self.clients) if cse in c.subs]
@@ -733,7 +794,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method, path, q):
         hub = self.hub
-        m = re.fullmatch(r'/api/sessions/([^/]+)(?:/(message|answer))?', path)
+        m = re.fullmatch(r'/api/sessions/([^/]+)(?:/(message|answer|turns))?', path)
         if m and not SESSION_ID.match(m.group(1)):
             raise HTTPError(400, 'That is not a session id.')
         cse = ('cse_' + m.group(1).split('_', 1)[1]) if m else None
@@ -749,6 +810,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'sessions': rows})
         elif method == 'GET' and m and not m.group(2):
             self._json(hub.detail(cse, fresh=True))
+        elif method == 'GET' and m and m.group(2) == 'turns':
+            def number(name, default, lo, hi):
+                v = (q.get(name) or [''])[0]
+                if v == '':
+                    return default
+                if not re.fullmatch(r'\d{1,7}', v) or not lo <= int(v) <= hi:
+                    raise HTTPError(400, f'{name} must be a whole number from {lo} to {hi}.')
+                return int(v)
+            self._json(hub.turns(cse, number('before', None, 0, 9999999), number('limit', 5, 1, 20)))
         elif method == 'POST' and m and m.group(2) == 'message':
             text = (self._json_body().get('text') or '').strip()
             if not text:

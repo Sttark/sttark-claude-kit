@@ -9,6 +9,7 @@
     "mock": "node mock-bridge/server.mjs",
     "sim": "node scripts/sim.mjs",
     "walk": "node scripts/walk.mjs",
+    "history": "node scripts/history.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build": "node scripts/fonts.mjs --soft && tsc --noEmit && vite build",

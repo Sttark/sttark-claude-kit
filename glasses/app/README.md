@@ -13,7 +13,8 @@ The glasses have a touch strip on each temple (and the optional R1 ring): tap, d
 | Screen | Swipe | Tap | Double tap |
 | --- | --- | --- | --- |
 | Home: the sessions, needs you first, with `+ New session` on top | Moves the `>` | Opens the session, or starts a new one | Asks to close the app (the system's own question) |
-| Session: title, status, the last reply in pages | Next or last page | Opens the actions | Back to Home |
+| Session: title, status, the last reply in pages | Next or last page. Up on the first page: the turn before | Opens the actions | Back to Home |
+| Earlier turn: which one and when, the prompt, its reply in pages | Its pages. Up on its first page: the turn before; down on its last: the turn after, and then the latest | Back to the latest turn | Back to the latest turn |
 | Actions: a question's answers first, then Reply by voice, Continue, Back | Moves the `>` | Does it. An answer goes at once | Back to the session |
 | Reply by voice: Listening, and the words as they come | Nothing | Sends the words | Cancels |
 | New session: speak, then "Start this new session?" | Nothing | Done speaking, then Start | Cancels |
@@ -23,6 +24,14 @@ Every row shows at full brightness; `>` marks the row a tap acts on. Back on Hom
 Status marks on Home: `!` needs you, `▷` working, `○` waiting on someone else, `-` idle. The words after the title say the same thing.
 
 When a session starts to need you, the top line of whatever screen is open says so for 6 seconds. It takes no input and moves nothing.
+
+## Earlier turns
+
+A session opens on its latest turn, as before. When it has turns before that one, the hint line of its first page starts with `▲ earlier`: a swipe up there shows the turn before it. An earlier turn's top line says which one it is and when it started (`Earlier 2 of 6 · 9:12 AM`), the next line who started it (`You: ...`, `Kit: ...` for a message the Kit typed, `Task: ...` for a background task's notice), then its reply in pages.
+
+Up goes back through the session one turn at a time, and each turn opens at its top, so its prompt is the first thing to read. Down reads a turn's pages, then goes to the turn after it, and after the newest earlier turn to the latest one again. A tap or a double tap on any earlier turn goes back to the latest turn; a double tap there goes to Home. The app asks the bridge for 5 turns at a time, and for the next 5 before the person gets to them. The swipe direction setting on the phone applies here too.
+
+![Scrolling back: the latest turn, one turn up, the first turn, and back to the latest](docs/history.png)
 
 ## The phone panel
 
@@ -46,13 +55,15 @@ npm run sim     # the Even Hub simulator, on the app and the mock bridge
 
 In the simulator, the buttons under the lens are the gestures: Down and Up swipe (keys S, J or ↓, and W, K or ↑), Click taps (Space or Enter) and Double Click double taps (Space or Enter two times, fast). The keys work while the Glasses Display window is in front. The simulator records the Mac's own microphone; the mock bridge turns any sound into a made-up sentence. On the phone page, the typed box works too. `../TRY-IT.md` has the shortest way to run it all.
 
+`npm run history` scrolls back through the made-up Press 3 session's turns in the same way, and saves `shots/history/` and `docs/history.png` (`KIT_APP_URL`, `MOCK_PORT` and `KIT_SIM_PORT` move it off the usual ports).
+
 `npm run walk` goes through every screen and action on its own (the dev server must run) and saves a picture of each in `shots/`: the lens as `NN-step.png`, the phone page as `panel-*.png`, and six of them as `docs/lens-screens.png`. It starts its own mock bridge (port 8742) and simulator.
 
 The simulator's page sleeps while the Mac is locked or its window is covered: replies from the bridge and timers wait until the next input. The walk pokes it with a long press and its release, which the app ignores.
 
 The app writes each screen it shows to its console (`[kit] screen home`, `voice:listening`, ...), so a script can wait for a screen. With the dev server, `curl -X POST --data-binary 'the words' http://127.0.0.1:5181/__kit/typed` puts words in the app as if typed in the phone's box while the glasses listen (from this Mac only; a build has none of it).
 
-`npm test` checks the text layout (pages, bytes, the font's glyphs), the screens' rows and lists, and, with a stand-in bridge, what a swipe and a tap do on a list, the pause after the answers open, and a prompt with two questions.
+`npm test` checks the text layout (pages, bytes, the font's glyphs), the screens' rows and lists, and, with a stand-in bridge, what a swipe and a tap do on a list, the pause after the answers open, a prompt with two questions, and the way up and down through earlier turns.
 
 ## Point it at the real bridge
 
@@ -99,6 +110,7 @@ JSON, with the header `Authorization: Bearer <token>` on every request. What the
 | `POST /api/sessions/:id/message` `{text}` | `{ok}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok}`. A prompt with several questions takes one answer at a time: `{ok, done: false, pending}` holds the next question, which the app shows at once |
 | `POST /api/sessions` `{prompt, folder?}` | `{id}`. It can take up to 90 s; the app waits 2 minutes. A message waits up to 60 s, since it goes through a claude.ai page in Chrome |
+| `GET /api/sessions/:id/turns?before=&limit=` | `{turns: [{index, at, from, user_text, reply_text}], total, latest}`: the `limit` turns (default 5) before turn `before` (the newest without it), oldest first. `latest` is the turn whose reply is `last_reply`; the earlier turns are the ones below it. `from` is `you`, `kit`, `task` or `claude` |
 | `GET /api/folders` | `{folders: [{path, label}]}` |
 | `POST /api/transcribe`, body raw PCM (16 kHz, mono, 16-bit little-endian) | `{text}` |
 | `WS /api/live?token=...` | The bridge sends `{type: "sessions", sessions}` and `{type: "session", session}`; the app sends `{type: "subscribe", id}` for the session it shows (`null` on Home), which takes the place of the one before |
