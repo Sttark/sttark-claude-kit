@@ -763,6 +763,16 @@ def notified_since(w, since):
     return any(l[:19] >= stamp and (' notify ' + name + ' ') in l for l in lines)
 
 
+def live(waits, state=None):
+    """The waits, each with its session's name as it is now: a wait keeps the name from when it was set, and the
+    session may be renamed since (by the person, or by the name hook)."""
+    names = {c: (x.get('title') or '').strip() for c, x in ((state or peek()).get('sessions') or {}).items()}
+    for w in waits.values():
+        if names.get(w.get('cse') or ''):
+            w['title'] = names[w['cse']]
+    return waits
+
+
 def check(only=None, by=None):
     """Every minute, from the app. No model calls: gh for pull requests and the clock.
     With `only` (claude-wait --now <id>), that one wait ends now; `by` (window or phone) goes in its log line. Returns
@@ -776,7 +786,7 @@ def check(only=None, by=None):
         return 'locked'
     now = time.time()
     result = None
-    for wid, w in list((peek().get('waits') or {}).items()):
+    for wid, w in list(live(peek().get('waits') or {}).items()):
         if only and wid != only:
             continue
         upd, drop = {}, set()
@@ -954,7 +964,7 @@ def main():
     if args[0] == '--watching':
         return load('watch').listing()
     if args[0] == '--list':
-        ws = peek().get('waits') or {}
+        ws = live(peek().get('waits') or {})
         for wid, w in sorted(ws.items(), key=order):
             print('%s  %s  %s  by %s  (%s)%s' % (wid, w.get('title') or '-', describe(w),
                                                 clock(w['by']) if w.get('by') else '-', w.get('why', ''),
