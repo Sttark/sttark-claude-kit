@@ -41,11 +41,61 @@ class Plain(unittest.TestCase):
               '| Head | State |\n|---|---|\n| C | clogged |\n\n> Done by **noon**.')
         out = detail.plain(md)
         self.assertEqual(out, 'Press 3 ink check\n\nThe cyan head is clogged; see the log.\n\n- Purge it\n'
-                              '- Print the nozzle_check page\n\nrun --head **cyan**\n\nHead | State\nC | clogged\n\n'
+                              '- Print the nozzle_check page\n\nrun --head **cyan**\n\nC\n  State: clogged\n\n'
                               'Done by noon.')
 
     def test_underscores_in_words_stay(self):
         self.assertEqual(detail.plain('set max_speed in job_ticket_3'), 'set max_speed in job_ticket_3')
+
+
+class Tables(unittest.TestCase):
+    """The lens font is proportional: each table row becomes a card, the header names its labels."""
+
+    def test_status_table_goes_into_the_label(self):
+        md = ('Where the press jobs stand:\n\n'
+              '| Job | Status | Need from you |\n'
+              '| --- | :---: | --- |\n'
+              '| Job 4471 gloss wine labels | 🔴 | Pick the cyan head fix, and I start it. |\n'
+              '| **Job 4480** coffee bags | 🔄 | Nothing |\n'
+              '| Job 4475 reprint | ✅ | None |\n'
+              '| Job 4462 sample run | ⚪️ | - |\n'
+              '| Job 4490 proof | 🔴 Needs you | Tell me a day and time for the press check. |\n\n'
+              'Two need you.')
+        self.assertEqual(detail.plain(md),
+                         'Where the press jobs stand:\n\n'
+                         'Job 4471 gloss wine labels\n  Needs you: Pick the cyan head fix, and I start it.\n\n'
+                         'Job 4480 coffee bags\n  In progress\n\n'
+                         'Job 4475 reprint\n  Done\n\n'
+                         'Job 4462 sample run\n  Dropped\n\n'
+                         'Job 4490 proof\n  Needs you: Tell me a day and time for the press check.\n\n'
+                         'Two need you.')
+
+    def test_supplier_quote_labels_every_cell(self):
+        md = ('| Supplier | Price | Lead time | Notes |\n|---|---|---|---|\n'
+              '| New Star Labels | $0.12 per m | 3 weeks | n/a |\n'
+              '| Harbor Film Co. | $0.10 per m | 6 weeks | Matte only<br>no gloss |')
+        self.assertEqual(detail.plain(md),
+                         'New Star Labels\n  Price: $0.12 per m\n  Lead time: 3 weeks\n\n'
+                         'Harbor Film Co.\n  Price: $0.10 per m\n  Lead time: 6 weeks\n  Notes: Matte only no gloss')
+
+    def test_numbers_status_and_more_columns(self):
+        md = ('| # | Job | Status | Press | Due |\n|-|-|-|-|-|\n'
+              '| 1 | Job 4471 | 🔄 Waiting on ink | 3 | Friday |\n'
+              '| 2 | Job 4480 | ✅ | | |')
+        self.assertEqual(detail.plain(md),
+                         '1. Job 4471\n  Status: In progress, Waiting on ink\n  Press: 3\n  Due: Friday\n\n'
+                         '2. Job 4480\n  Status: Done')
+
+    def test_status_column_found_by_its_marks(self):
+        md = '| | Part | Need from you |\n|--|--|--|\n| ✅ | Rewinder 2 belts | Nothing |\n| 🔴 | Laminate | Pick 5,000 m or 8,000 m |'
+        self.assertEqual(detail.plain(md), 'Rewinder 2 belts\n  Done\n\nLaminate\n  Needs you: Pick 5,000 m or 8,000 m')
+
+    def test_not_a_table(self):
+        self.assertEqual(detail.plain('Heads 2 | 4 are clean'), 'Heads 2 | 4 are clean')
+        self.assertEqual(detail.plain('Press 3 | Press 5\n---\nBoth run.'), 'Press 3 | Press 5\n\nBoth run.')
+
+    def test_status_marks_in_lists(self):
+        self.assertEqual(detail.plain('- ✅ Belts came in\n- 🔴 Pick the laminate'), '- Done, Belts came in\n- Needs you, Pick the laminate')
 
 
 class Pending(unittest.TestCase):

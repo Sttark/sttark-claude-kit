@@ -102,7 +102,7 @@ session, 409 nothing to answer, 503 Chrome, the speech model or the login is not
 |---|---|
 | `GET /api/health` | `{ok: true, version, sessions, list_ok_at, list_error, kit, stt, web: {chrome, last_ok, last_error}}` |
 | `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending, url, connected, unread, effort}]}`: needs you first, then working, waiting, idle; the newest first in each |
-| `GET /api/sessions/:id` | The same fields, and `last_reply` (the last assistant text, plain: no Markdown marks, code blocks as plain lines) and `pending`: `null` or `{kind: "question" \| "permission" \| "plan", text, options: [{id, label}], request_id}` |
+| `GET /api/sessions/:id` | The same fields, and `last_reply` (the last assistant text, plain: no Markdown marks, code blocks as plain lines, each table row a card: its name, then "  Header: cell" lines, status marks as words) and `pending`: `null` or `{kind: "question" \| "permission" \| "plan", text, options: [{id, label}], request_id}` |
 | `POST /api/sessions/:id/message` `{text}` | `{ok: true, uuid}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok: true, done: true}`. A question with several questions takes one answer at a time: `{ok: true, done: false, pending}` shows the next; the answers go to the session after the last |
 | `POST /api/sessions` `{prompt, folder?}` | `{id, folder, started: "server" \| "cli"}`. `folder` defaults to `~/src`; it must be in the home folder and trusted in Claude Code. The session's name is the prompt's first line, cut at a word to 60 characters; with the Kit's Name sessions automatically on, the Kit can rename it after its first prompt, as it does any new session. It can take up to 90 seconds |
@@ -134,7 +134,7 @@ the Mac (whisper.cpp). The token stays in the file above.
 | `rcapi.py` | Claude's Remote Control API with Claude Code's login |
 | `web.py` | Calls through the claude.ai page in Chrome (messages) |
 | `kitstate.py` | The Kit's state files and each session's status |
-| `detail.py` | A session's last reply as plain text, and its prompt and answers |
+| `detail.py` | A session's last reply as plain text (tables as cards), and its prompt and answers |
 | `stt.py` | Speech to text with whisper.cpp |
 | `wsock.py` | The WebSocket frames |
 | `test_bridge.py` | Tests on made-up data: `/usr/bin/python3 -m unittest discover -s glasses/bridge -p 'test_*.py'` |
