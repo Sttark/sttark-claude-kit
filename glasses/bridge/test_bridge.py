@@ -277,6 +277,97 @@ class Live(unittest.TestCase):
         self.hub.live_message(self.client, ['not', 'a', 'dict'])
 
 
+
+class Speech(unittest.TestCase):
+    """Read to me: the words for a session, and the sound at GET /api/sessions/:id/speech."""
+
+    REPLY = ('Press 3 is clean now. The cyan head printed a full nozzle check.\n\nNext I will order two heads '
+             'from the supplier. See https://example.com/quote for the price.')
+
+    def test_glance_wins(self):
+        import speech
+        d = {'title': 'Press 3 heads', 'status': 'idle', 'why': 'Done', 'glance': 'Heads cleaned; two on order',
+             'last_reply': self.REPLY}
+        self.assertEqual(speech.spoken_text(d), 'Press 3 heads. Heads cleaned; two on order.')
+
+    def test_status_line_and_two_sentences(self):
+        import speech
+        d = {'title': 'Press 3 heads', 'status': 'working', 'status_line': 'Ordering heads', 'last_reply': self.REPLY}
+        self.assertEqual(speech.spoken_text(d), 'Press 3 heads. Working: Ordering heads. Press 3 is clean now. '
+                                                'The cyan head printed a full nozzle check.')
+
+    def test_question_and_answers_last_without_repeating_it(self):
+        import speech
+        d = {'title': 'Press job 4471', 'status': 'needs_you', 'why': 'Which press?', 'last_reply': 'Job 4471 is next.',
+             'pending': {'kind': 'question', 'text': 'Which press?',
+                         'options': [{'id': 'q0.o0', 'label': 'Press 3'}, {'id': 'q0.o1', 'label': 'Press 5'}]}}
+        self.assertEqual(speech.spoken_text(d), 'Press job 4471. Needs you. Job 4471 is next. It asks: Which press? '
+                                                'The answers: 1, Press 3. 2, Press 5.')
+
+    def test_plan_and_permission(self):
+        import speech
+        plan = {'title': 'Label die', 'status': 'needs_you', 'pending': {'kind': 'plan', 'text': '# Plan\nLong plan'}}
+        self.assertTrue(speech.spoken_text(plan).endswith('It has a plan for you to approve.'))
+        perm = {'title': 'Label die', 'status': 'needs_you',
+                'pending': {'kind': 'permission', 'text': 'Run the die report'}}
+        self.assertTrue(speech.spoken_text(perm).endswith('It asks for your OK: Run the die report.'))
+
+    def test_marks_links_and_emoji_are_not_read(self):
+        import speech
+        d = {'title': '\u2705 **Rewinder 2**', 'status': 'idle',
+             'last_reply': '## Belts\n- Order [two belts](https://example.com/b) -> today\n| Belt | Qty |'}
+        self.assertEqual(speech.spoken_text(d), 'Rewinder 2. Idle. Belts. Order two belts to today.')
+
+    def test_long_text_is_cut_at_a_word(self):
+        import speech
+        d = {'title': 'Quote', 'status': 'idle', 'glance': 'word ' * 400}
+        t = speech.spoken_text(d)
+        self.assertLessEqual(len(t), speech.MAX_CHARS + 1)
+        self.assertTrue(t.endswith('word.'))
+
+    @unittest.skipUnless(os.access('/usr/bin/say', os.X_OK), 'macOS say only')
+    def test_endpoint_gives_audio_and_the_words(self):
+        """The real route on a free port, with a stand-in hub: `say` writes a file, nothing plays."""
+        import urllib.parse
+        import urllib.request
+        import bridge
+
+        class FakeHub:
+            def detail(self, cse, fresh=False):
+                if cse != 'cse_01SpeechTestSession':
+                    raise bridge.HTTPError(404, 'No such session.')
+                return {'id': cse, 'title': 'Press job 4471', 'status': 'idle', 'last_reply': 'Job 4471 is done.'}
+
+        class H(bridge.Handler):
+            pass
+
+        H.hub, H.token = FakeHub(), 'test-token'
+        log_file, bridge.LOG_FILE = bridge.LOG_FILE, os.devnull  # not this Mac's bridge log
+        self.addCleanup(setattr, bridge, 'LOG_FILE', log_file)
+        srv = bridge.Server(('127.0.0.1', 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f'http://127.0.0.1:{srv.server_address[1]}'
+        try:
+            req = urllib.request.Request(base + '/api/sessions/cse_01SpeechTestSession/speech',
+                                         headers={'Authorization': 'Bearer test-token'})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                body = r.read()
+                self.assertEqual(r.headers['Content-Type'], 'audio/mp4')
+                self.assertIn('X-Speech-Text', r.headers['Access-Control-Expose-Headers'])
+                self.assertEqual(urllib.parse.unquote(r.headers['X-Speech-Text']),
+                                 'Press job 4471. Idle. Job 4471 is done.')
+            self.assertEqual(body[4:8], b'ftyp')  # an MP4 file
+            self.assertGreater(len(body), 1000)
+            req = urllib.request.Request(base + '/api/sessions/cse_01NoSuchSessionHere/speech',
+                                         headers={'Authorization': 'Bearer test-token'})
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(req, timeout=10)
+            self.assertEqual(e.exception.code, 404)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
 if __name__ == '__main__':
     unittest.main()
 

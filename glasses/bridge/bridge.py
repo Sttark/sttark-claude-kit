@@ -24,7 +24,7 @@ import time
 import traceback
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
@@ -32,6 +32,7 @@ sys.path.insert(0, HERE)
 import detail  # noqa: E402
 import kitstate  # noqa: E402
 import rcapi  # noqa: E402
+import speech  # noqa: E402
 import stt  # noqa: E402
 import web  # noqa: E402
 import wsock  # noqa: E402
@@ -615,6 +616,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Private-Network', 'true')
+        self.send_header('Access-Control-Expose-Headers', 'X-Speech-Text')
         self.send_header('Access-Control-Max-Age', '600')
 
     def _json(self, obj, status=200):
@@ -626,6 +628,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
         self.wfile.write(body)
+
+    def _audio(self, data, text):
+        self.send_response(200)
+        self._cors()
+        self.send_header('Content-Type', 'audio/mp4')
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Cache-Control', 'no-store')
+        # The words, for the phone's own voice when it cannot play the sound.
+        self.send_header('X-Speech-Text', quote(text, safe=' .,;:!?\'"()-'))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _fail(self, status, msg):
         self._json({'ok': False, 'error': msg}, status)
@@ -690,7 +703,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method, path, q):
         hub = self.hub
-        m = re.fullmatch(r'/api/sessions/([^/]+)(?:/(message|answer))?', path)
+        m = re.fullmatch(r'/api/sessions/([^/]+)(?:/(message|answer|speech))?', path)
         if m and not SESSION_ID.match(m.group(1)):
             raise HTTPError(400, 'That is not a session id.')
         cse = ('cse_' + m.group(1).split('_', 1)[1]) if m else None
@@ -698,6 +711,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'ok': True, 'version': VERSION, 'sessions': len(hub.rows),
                         'list_ok_at': hub.list_ok_at or None, 'list_error': hub.list_error or None,
                         'kit': bool(hub.kit.state), 'stt': stt.status() or 'ready',
+                        'speech': speech.status() or 'ready',
                         'web': {'chrome': web.Web.chrome_running(), 'last_ok': hub.web.last_ok or None,
                                 'last_error': hub.web.last_error or None}})
         elif method == 'GET' and path == '/api/sessions':
@@ -714,6 +728,14 @@ class Handler(BaseHTTPRequestHandler):
                 raise HTTPError(413, 'The message is over 20000 characters.')
             mid = hub.send_message(cse, text)
             self._json({'ok': True, 'uuid': mid})
+        elif method == 'GET' and m and m.group(2) == 'speech':
+            text = speech.spoken_text(hub.detail(cse))
+            try:
+                data, cached = speech.render(text)
+            except speech.SpeechUnavailable as e:
+                raise HTTPError(503, f'Read to me is not ready on the Mac: {e}')
+            log(f'speech {cse} {len(text)} characters, {len(data) // 1024} KB{" (made before)" if cached else ""}')
+            self._audio(data, text)
         elif method == 'POST' and m and m.group(2) == 'answer':
             option = (self._json_body().get('option_id') or '').strip()
             if not option:

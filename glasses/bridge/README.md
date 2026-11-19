@@ -2,8 +2,8 @@
 
 A small server on the Mac that lets an app on Even Realities G2 glasses see and drive the Claude Code sessions that
 run on that Mac: the list with each session's state, a session's last reply, the question or permission it waits
-on, a spoken message, and a new session. The glasses app (a web app in the Even app) talks to it over the local
-network or the VPN.
+on, a spoken message, a new session, and a session's summary as sound (Read to me). The glasses app (a web app in
+the Even app) talks to it over the local network or the VPN.
 
 It is a prototype beside Sttark Claude Kit. It reads the Kit's state files and uses the Kit's `claude-window` tool;
 it changes nothing in the Kit app, and the Kit's release does not include it.
@@ -39,6 +39,7 @@ What it needs on the Mac:
 | Sttark Claude Kit | The session states, and `claude-window` for the claude.ai page |
 | Google Chrome, signed in to claude.ai, with View > Developer > Allow JavaScript from Apple Events | Messages go from a claude.ai page (below) |
 | `brew install whisper-cpp` and the model (below) | Speech to text, on the Mac |
+| macOS `say` (part of macOS) | Read to me: a session's summary as sound, in the Mac's own voice (System Settings > Accessibility > Spoken Content, System voice) |
 
 The speech model (148 MB), once:
 
@@ -100,9 +101,10 @@ session, 409 nothing to answer, 503 Chrome, the speech model or the login is not
 
 | Call | Answer |
 |---|---|
-| `GET /api/health` | `{ok: true, version, sessions, list_ok_at, list_error, kit, stt, web: {chrome, last_ok, last_error}}` |
+| `GET /api/health` | `{ok: true, version, sessions, list_ok_at, list_error, kit, stt, speech, web: {chrome, last_ok, last_error}}` |
 | `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending, url, connected, unread, effort}]}`: needs you first, then working, waiting, idle; the newest first in each |
 | `GET /api/sessions/:id` | The same fields, and `last_reply` (the last assistant text, plain: no Markdown marks, code blocks as plain lines, each table row a card: its name, then "  Header: cell" lines, status marks as words) and `pending`: `null` or `{kind: "question" \| "permission" \| "plan", text, options: [{id, label}], request_id}` |
+| `GET /api/sessions/:id/speech` | Read to me: the session's summary as sound, `audio/mp4` (AAC), made with macOS `say`. The header `X-Speech-Text` has the words (URL-encoded; CORS exposes it), for a phone voice when the phone cannot play the sound. The words: the session's name; its `glance` when the session has one, else its status line and the first two sentences of its last reply; then the question it asks, with the answers. No links, Markdown marks or emoji are read. 503 when `say` fails |
 | `POST /api/sessions/:id/message` `{text}` | `{ok: true, uuid}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok: true, done: true}`. A question with several questions takes one answer at a time: `{ok: true, done: false, pending}` shows the next; the answers go to the session after the last |
 | `POST /api/sessions` `{prompt, folder?}` | `{id, folder, started: "server" \| "cli"}`. `folder` defaults to `~/src`; it must be in the home folder and trusted in Claude Code. The session's name is the prompt's first line, cut at a word to 60 characters; with the Kit's Name sessions automatically on, the Kit can rename it after its first prompt, as it does any new session. It can take up to 90 seconds |
@@ -124,7 +126,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 
 Prompts, replies and audio go only between the Mac and the glasses on the local network, and to Claude's own API as
 the Claude app sends them. The bridge sends nothing to kit.sttark.com or any other server. Speech to text runs on
-the Mac (whisper.cpp). The token stays in the file above.
+the Mac (whisper.cpp), and so does Read to me's sound (macOS `say`). The token stays in the file above.
 
 ## Files
 
@@ -136,5 +138,6 @@ the Mac (whisper.cpp). The token stays in the file above.
 | `kitstate.py` | The Kit's state files and each session's status |
 | `detail.py` | A session's last reply as plain text (tables as cards), and its prompt and answers |
 | `stt.py` | Speech to text with whisper.cpp |
+| `speech.py` | Read to me: the words for a session, and their sound with macOS `say` (the last 24 kept, so a second read is at once) |
 | `wsock.py` | The WebSocket frames |
 | `test_bridge.py` | Tests on made-up data: `/usr/bin/python3 -m unittest discover -s glasses/bridge -p 'test_*.py'` |
