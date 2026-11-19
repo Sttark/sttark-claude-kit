@@ -13,9 +13,9 @@ Mac's server. No session, screen or server of this Mac is touched, no model is c
 - the effort hook gives that prompt the level the Kit picked, with no model call and no change sent through the
   server; while it has no answer, another prompt and the checks at 10 steps send no change either; the server's own
   copy is not held; after the answer, changes go out again;
-- a handover waits while the Kit's copy's turn runs and while the prompt it typed in has no answer (one `handover ...
-  waits` line); it ends the copy when the turn ends, and the prompt, which had no answer before the server took the
-  session over, is lost (`prompt lost`);
+- a handover waits while the server's copy may still fail (its first 30 seconds), the Kit's copy's turn runs and the
+  prompt it typed in has no answer (one `handover ... waits` line); then it ends the copy, also while its turn runs,
+  and the prompt, which had no answer before the server took the session over, is lost (`prompt lost`);
 - the minute check types it in again (`prompt again`, try 2 of 3), with a line that says why, through bring_back();
   when the session answers it, it goes (`prompt in`); a session in a turn makes it wait (`prompt waits`, once);
 - after 3 tries, or when the session was archived, the Kit tells the person with the prompt's text (`prompt failed`,
@@ -224,19 +224,20 @@ try:
     check('one `handover ... waits` line that says what still works, in plain words', len(waits) == 1 and waits[0].startswith(
         'handover %s "%s" waits: the server runs it now, but the Kit\'s copy still works (its turn runs; it has not '
         'answered the prompt the Kit typed in at ' % (CSE, TITLE)) and waits[0].endswith(
-        'it tries again every 15 seconds, at most 2 hours'), waits)
+        "the Kit waits while the server's copy may still fail, 30 seconds at most"), waits)
     check('the prompt notes when the other copy took the session over', bool((typed() or [{}])[0].get('taken')), typed())
     eh.keep()
     check('the next check waits too, and logs nothing new', kit_pid() == pid and len(log_lines()) == n + 1, log_lines()[n:])
-    # the Kit's copy ends its turn: what it wrote after the server took over reached no one
+    # 30 seconds on, the server's copy holds the session: what the Kit's copy wrote after it took over reached no one,
+    # and its turn, which still runs, would only do the work twice
     add(TP, entry(time.time(), 'user', PROMPT), answer(time.time() + 1))
-    copy_says(pid, 'idle')
+    state(lambda s: s['keep']['alone'][CSE]['hold'].update(since=time.time() - eh.HANDOVER_GRACE - 2))
     eh.keep()
     time.sleep(0.5)
     out = log_lines()[n + 1:]
-    check('when its turn ends, the handover ends the copy, and says it waited for its work',
+    check('30 seconds after the server\'s copy started, the handover ends the copy, also while its turn runs, and says it waited',
           not kit_pid() and not eh.screen_ids(NAME) and CSE not in state()['keep']['alone'] and any(
-              l.startswith('handover %s "%s" the server runs it now; quit its own copy (%s) after its work ended (' % (CSE, TITLE, NAME))
+              l.startswith('handover %s "%s" the server runs it now; quit its own copy (%s) after it waited 3' % (CSE, TITLE, NAME))
               for l in out), out)
     lost = [l for l in out if l.startswith('prompt lost')]
     check('the prompt had no answer before the server took the session over, so it is lost and goes again',

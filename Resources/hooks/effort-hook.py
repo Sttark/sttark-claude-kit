@@ -1848,8 +1848,10 @@ def archived_now():
 TYPED_START = 300     # seconds a prompt the Kit typed in may take to start its turn (the copy's connector hold, hooks)
 TYPED_TRIES = 3       # times the Kit types a prompt in before it tells the person that it did not go in
 TYPED_MAX = 86400     # seconds after it first typed a prompt in that the Kit still types it in again; then it tells
-HANDOVER_MAX = 7200   # seconds a handover or a stand-down waits at most for the work of the Kit's copy (as wait.py's
-                      # HOLD_MAX for a bring-back: DESIGN-DECISIONS.md)
+HANDOVER_GRACE = 30   # seconds after the server's copy of a session starts in which a handover waits for the Kit's
+                      # copy, if it still works and has not stood down: a server's copy can fail as it starts. After
+                      # that the server's copy holds the session (DESIGN-DECISIONS.md)
+TYPED_HOLD = 7200     # seconds the effort hook holds its changes at most for a prompt the Kit typed in
 END_STOPS = ('end_turn', 'stop_sequence', 'max_tokens', 'refusal')  # an assistant message that ends a turn
 HOLD_WHY = ("the Kit's copy has not answered the prompt the Kit typed in. A change now makes this Mac's server take "
             "control of the session")  # the effort hook sends no level then (typed_waits())
@@ -2052,7 +2054,7 @@ def typed_waits(sid):
     s = peek()
     if sid not in ((s.get('keep') or {}).get('alone') or {}):
         return None
-    rec = next((r for r in typed_list(sid, s) if not r.get('lost') and time.time() - r.get('at', 0) < HANDOVER_MAX), None)
+    rec = next((r for r in typed_list(sid, s) if not r.get('lost') and time.time() - r.get('at', 0) < TYPED_HOLD), None)
     if rec and in_server_copy():  # the server runs it now: a change there starts nothing new
         return None
     return rec
@@ -2117,40 +2119,41 @@ def keep(dry=False, server_down=False):
         if typed and not dry:
             confirm_typed(sid, title, a['transcript'])
         # Another copy has the session: the server runs it now (handover), or the Kit's copy was taken over elsewhere
-        # and stood down (code 4090): its own copy goes, so reminders reach the other copy. But never while the Kit's
-        # copy still works: its turn runs, a prompt the Kit typed in has no answer yet, or its agents, background
-        # commands or Monitors run (kit_copy_works()). It waits, and tries again at each check, HANDOVER_MAX at most;
-        # then it ends the copy, and note_stopped() keeps the list of work that stopped for the session's next prompt.
-        # Its prompts with no answer go again (lose_typed()): what the Kit's copy wrote after the other copy took
-        # the session over reached no one, and the server's copy reads the record the server keeps, without them.
+        # and stood down (code 4090): its own copy goes, so reminders reach the other copy. A server's copy can fail as
+        # it starts, so for HANDOVER_GRACE after its start, while the Kit's copy has not stood down and still works (its
+        # turn runs, a prompt the Kit typed in has no answer yet, or its agents, background commands or Monitors run:
+        # kit_copy_works()), the Kit waits. After that the server's copy holds the session: the Kit's copy reaches no
+        # one, a message the person sends runs in both copies, and both write into the same record. So the Kit ends its
+        # copy, note_stopped() keeps the list of work that stopped for the session's next prompt, and a prompt the Kit
+        # typed in with no answer goes again (lose_typed()): the server's copy reads the record the server keeps.
         taken = 'handover' if sid in running else 'standdown' if up and stood_down(name) else ''
         if taken:
-            works = []
+            works, hold = [], a.get('hold') or {}
+            since = hold.get('since') or now
             if up:
                 rows = rows or ps_rows()
-                if not dry:  # when the other copy took it: the server's copy's start, else this check's last run
-                    srv = [p for p, kind in copies(sid, cid, rows).items() if kind == 'server']
-                    mark_taken(sid, min(started(srv).values() or [now - 15]))
-                works = kit_copy_works(sid, a, cid, rows, now)
-            hold = a.get('hold') or {}
-            since = hold.get('since') or now
+                srv = [p for p, kind in copies(sid, cid, rows).items() if kind == 'server']
+                start = min(started(srv).values() or [since])  # when the server's copy started, else first seen
+                if not dry:
+                    mark_taken(sid, start)
+                if taken == 'handover' and now - start < HANDOVER_GRACE and not stood_down(name):
+                    works = kit_copy_works(sid, a, cid, rows, now)
             where = ('the server runs it now' if taken == 'handover'
                      else 'its own copy was taken over elsewhere (code 4090)')
-            if works and now - since < HANDOVER_MAX:
+            if works:
                 words = '; '.join(works)
                 if dry:
                     print(f'would wait to hand over {sid} "{title}": {words}')
                 elif hold.get('what') != words:  # once, and again when what works changes
-                    log(f'{taken} {sid} "{title}" waits: {where}, but the Kit\'s copy still works ({words}); '
-                        f'it tries again every 15 seconds, at most {HANDOVER_MAX // 3600} hours')
+                    log(f'{taken} {sid} "{title}" waits: {where}, but the Kit\'s copy still works ({words}); the Kit '
+                        f'waits while the server\'s copy may still fail, {HANDOVER_GRACE} seconds at most')
                 a['hold'] = {'since': since, 'what': words, 'why': taken}
                 continue
             if dry:
                 print(f'would hand over {sid} "{title}"' + (f' and quit {name}' if up else ''))
             else:
                 work = end_kit_copy(sid, a, name) if up else None
-                waited = (f' after its work ended ({max(1, round((now - since) / 60))} min)' if hold and not works
-                          else f': its work still ran after {HANDOVER_MAX // 3600} hours' if works else '')
+                waited = f' after it waited {max(1, round(now - since))} seconds' if hold else ''
                 log(f'{taken} {sid} "{title}" {where}' + (f'; quit its own copy ({name}){waited}' if up else ''))
                 if work:
                     note_stopped(sid, title, work, taken)
