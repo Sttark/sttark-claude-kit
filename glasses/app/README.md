@@ -29,17 +29,27 @@ When a session starts to need you, the top line of whatever screen is open says 
 
 The first thing a session shows. It is for a person who reads slowly, on the move: the reply's few facts that matter, the key fact or number first, and what to do.
 
-- The title and one status word in a box: NEEDS YOU, WORKING, WAITING or DONE.
-- At most 3 short lines, about 3 to 6 words each, the key fact first ("Harbor Film: $4,820 for 10", "Lead: 3 wk after deposit"), with a blank line between them.
-- "You: ..." under them, in a box: what you must do. Or "You: nothing now", dimmer, with no box.
-- When the reply ends with a status table (Ask, Status, Need from you), the card is the table: one line per ask, the asks that need you first with `!` ("! Job 4490 proof: pick a day + time"), the others with their short status. When they do not all fit, the last line counts the rest ("+3 waiting").
+- The title, large and bold, and one status word in a box: NEEDS YOU, WORKING, WAITING or DONE.
+- At most 3 short lines, about 3 to 6 words each, the key fact first ("Harbor Film: $4,820 for 10", "Lead: 3 wk after deposit"), with space between them.
+- "You: ..." under them, bold and in a box: what you must do. Or "You: nothing now", dimmer, with no box.
+- When the reply ends with a status table (Ask, Status, Need from you), the card is the table: one line per ask, the asks that need you first, in bold with `!` ("! Job 4490 proof: pick a day + time"), the others with their short status, done and dropped ones dimmer. When they do not all fit, the last line counts the rest ("+3 waiting").
 - When the session asks a question, a permission or a plan, its answers are buttons at the bottom, with Say it last: a swipe moves the `▶` from button to button, a tap sends the chosen answer at once (as from the answer list), and Say it starts a reply by voice. One swipe past Say it is the full reply. A tap in the first 0.7 s after the card opens does nothing (the same finger as the tap that opened it).
 
 The bridge writes the card on the Mac (`glasses/bridge/glance.py`), so the lens shows only what it sends. Until it has, and with an older bridge, the app makes one from the status and the reply's first sentence.
 
 ![Glance cards with made-up sessions](docs/glance-cards.png)
 
-The lens has one font, in one size, with no bold (Even Hub's display guide: no font size or weight on a text container). So the card reads by its spacing and its short lines, and the status word sits in a box with a border, the one decoration a text container has. What you must do sits in a box too; "You: nothing now" has none, and is dimmer. The chosen button has `▶` in front, since a border cannot change without a redraw of the whole page, which flickers.
+### The card as a picture
+
+The lens has one font, in one size, with no bold (Even Hub's display guide: no font size or weight on a text container). A card in lens text reads only by its spacing. So the app draws the card as a picture, the way it draws tables: the title at 34 px bold (32, 30 or 28 px when it is long, then cut with "…"), the lines at 24 px, bold for what needs you. The answer buttons and the hint line stay lens text under the picture, so a swipe from button to button changes only their words and sends no picture. A notice or "Sent: ..." takes the title's place for a few seconds.
+
+![Glance cards in lens text and as pictures, made-up data](docs/glance-pictures.png)
+
+How (`src/cardpicture.ts`): the card is laid out with the canvas's font, drawn white on black, put through the same gray correction as the table pictures (`lensGray`), and cut into at most 4 tiles of at most 288 x 144. The picture is only as tall as what it shows, a tile with nothing in it is not sent (a new page shows its image boxes empty), and a tile is sent again only when what reaches into it changes: a notice in the title's place sends only the top tiles. An empty text box under the picture takes the swipes and taps, as on a table page.
+
+Time to show a card, from the start of its draw to the last tile, measured in the simulator (`npm run glance-pictures`): lens text 6 to 10 ms; a picture 250 to 370 ms (3 or 4 tiles, at least 100 ms apart). A swipe between the buttons sends no picture. Not measured on glasses yet: from the community notes below, a text card shows there in about 0.2 s and a picture card in about 0.7 to 0.9 s.
+
+The card falls back to lens text, for the rest of the run, when a picture is not shown (an SDK error or a 6 s time limit) or when two cards in a row take more than 2.5 s. The panel's **Pictures on the lens** switch turns pictures off (tables and cards), and on again, which also gives the card pictures a new try. In lens text the status word sits in a box with a border, the one decoration a text container has; what you must do sits in a box too; "You: nothing now" has none, and is dimmer. Either way, the chosen button has `▶` in front, since a border cannot change without a redraw of the whole page, which flickers.
 
 ## Earlier turns
 
@@ -75,13 +85,15 @@ In the simulator, the buttons under the lens are the gestures: Down and Up swipe
 
 `npm run walk` goes through every screen and action on its own (the dev server must run) and saves a picture of each in `shots/`: the lens as `NN-step.png`, the phone page as `panel-*.png`, and six of them as `docs/lens-screens.png`. It starts its own mock bridge (port 8742) and simulator.
 
+`npm run glance-pictures` takes 4 glance cards in lens text and as pictures, with the time each took to show, and saves `docs/glance-pictures.png` (`APP`, `MOCK_PORT` and `KIT_SIM_PORT` as below).
+
 `npm run glance-shots` takes the glance card pictures, `docs/glance-cards.png`, on the mock bridge's glance sessions (`MOCK_SET=glance`, port 8744): replies like a supplier quote, an error, a status table and a question. Their cards are as the real bridge wrote them, with Haiku (`mock-bridge/glances.mjs`). Both take `APP=http://localhost:<port>/` and `MOCK_PORT` for a dev server or a mock on other ports, and `KIT_SIM_PORT` for the simulator's automation port (9898).
 
 The simulator's page sleeps while the Mac is locked or its window is covered: replies from the bridge and timers wait until the next input. The walk pokes it with a long press and its release, which the app ignores.
 
 The app writes each screen it shows to its console (`[kit] screen home`, `voice:listening`, ...), so a script can wait for a screen. With the dev server, `curl -X POST --data-binary 'the words' http://127.0.0.1:5181/__kit/typed` puts words in the app as if typed in the phone's box while the glasses listen (from this Mac only; a build has none of it).
 
-`npm test` checks the text layout (pages, bytes, the font's glyphs), the table pictures (columns, pages, cut cells, tiles), the screens' rows and lists, the glance card (its spacing, the count of the asks that do not fit, the buttons, a card from the reply when the bridge sent none), and, with a stand-in bridge, what a swipe and a tap do on a list and on a card, the pause after the answers open, a prompt with two questions, and the way up and down through earlier turns.
+`npm test` checks the text layout (pages, bytes, the font's glyphs), the table pictures (columns, pages, cut cells, tiles), the screens' rows and lists, the glance card (its spacing, the count of the asks that do not fit, the buttons, a card from the reply when the bridge sent none), the card as a picture (title sizes, bold and dim lines, which tiles change), and, with a stand-in bridge, what a swipe and a tap do on a list and on a card, the pause after the answers open, a prompt with two questions, the way up and down through earlier turns, and the fall back to a text card.
 
 ## Point it at the real bridge
 
@@ -99,7 +111,7 @@ The bridge runs on the Mac on port 8740. Its token is in `~/Library/Application 
 
 ## Tables as pictures
 
-A table in a reply shows as a picture with real columns: the header row dim, the rows at full brightness, "Needs you" in bold, lines between the cells. The table's short lead-in line ("Where the open asks stand:") shows over it. A long table goes on over more pages, the header on each; a cell too long for its column is cut at a clause or a word, with "…"; a table with too many columns shows its first column with each group of the others. The panel's **Tables as pictures** switch turns it off (each row as a text card, as before).
+A table in a reply shows as a picture with real columns: the header row dim, the rows at full brightness, "Needs you" in bold, lines between the cells. The table's short lead-in line ("Where the open asks stand:") shows over it. A long table goes on over more pages, the header on each; a cell too long for its column is cut at a clause or a word, with "…"; a table with too many columns shows its first column with each group of the others. The panel's **Pictures on the lens** switch turns it off (each row as a text card, as before), and the glance card's picture with it.
 
 ![Text cards and pictures side by side, made-up data](docs/pictures-vs-text.png)
 
@@ -174,22 +186,23 @@ TypeScript and Vite, with the Even Hub SDK (`@evenrealities/even_hub_sdk`) and t
 | `src/glasses.ts` | Draws a page: a full rebuild only when the layout changes, otherwise in-place text updates; then the pictures that changed. One SDK call at a time, each with a time limit |
 | `src/text.ts` | Line wrap and pages measured with the glasses' own font, byte limits, glyphs the font has |
 | `src/picture.ts` | A table as a picture: columns, pages, cut cells, tiles of at most 288 x 144 as PNG bytes |
+| `src/cardpicture.ts` | The glance card as a picture: a big bold title, large lines, only the tiles that changed |
 | `src/lab.ts`, `lab.html` | Dev server only: the glance lab, a glance card as a picture against lens text |
 | `src/events.ts` | One shape for every input (list, text and system events) |
 | `src/voice.ts` | Collects the mic's audio and asks the bridge for the words |
 | `src/api.ts` | The bridge client |
 | `src/panel.ts`, `index.html`, `src/styles/` | The phone panel, on `sttark-shared.css` |
 | `mock-bridge/` | The mock bridge and its made-up sessions |
-| `scripts/` | The simulator (`sim.mjs`, and `simkit.mjs` to drive it), the walk on the mock (`walk.mjs`), the glance card pictures (`glance-shots.mjs`), the end-to-end run on the real bridge (`e2e.mjs`), table pictures against text cards (`pictures.mjs`), pictures with captions (`sheet.mjs`, needs `brew install librsvg`), fonts and packing |
+| `scripts/` | The simulator (`sim.mjs`, and `simkit.mjs` to drive it), the walk on the mock (`walk.mjs`), the glance card pictures (`glance-shots.mjs`, and against lens text `glance-pictures.mjs`), the end-to-end run on the real bridge (`e2e.mjs`), table pictures against text cards (`pictures.mjs`), pictures with captions (`sheet.mjs`, needs `brew install librsvg`), fonts and packing |
 
 What the lens allows, and how the app lives with it:
 
-- 576 by 288 pixels, one font with no sizes or bold, 27 px a line, five brightness steps. A full screen holds about 10 lines of about 60 characters; a reply page holds 7 lines. At most 8 text boxes on a page (the glance card uses all 8 with 4 buttons: title, status box, lines, You and the buttons; more answers scroll in the 4 buttons in place).
+- 576 by 288 pixels, one font with no sizes or bold, 27 px a line, five brightness steps. A full screen holds about 10 lines of about 60 characters; a reply page holds 7 lines. At most 8 text boxes on a page (the glance card in lens text uses all 8 with 4 buttons: title, status box, lines, You and the buttons; more answers scroll in the 4 buttons in place. As a picture it uses 5, and up to 4 image boxes).
 - A text box holds at most 999 bytes in the simulator (1000 on the glasses). Everything is cut by bytes, not characters.
 - The font has no emoji, `…`, `•` or curly quotes; the app swaps them (`glyphSafe`).
 - The lens's own list draws every row but the highlighted one dim, scrolls itself, tells the app nothing until a tap, and cannot change in place. So the app draws no lens list: Home and Actions are one text box each, every row at full brightness, the chosen row marked with `>`. The app moves the `>` on each swipe with an in-place text update (no flicker), scrolls the rows itself, and acts on the marked row on a tap.
 - A swipe on a text box comes to the app only at the box's top or bottom. Each reply page and each list fits its box exactly, so every swipe turns the page or moves the `>`.
-- Columns never line up in a proportional font, so the app draws a reply's tables as pictures (below). With Tables as pictures off, or a bridge that sends no `reply_parts`, the bridge's text has each table row as a card: the row's name, then `  Header: cell` lines. The app keeps a line's indent when it wraps, never ends a page on a card's name alone, and drops the blank line before a card when that keeps the card on the page.
+- Columns never line up in a proportional font, so the app draws a reply's tables as pictures (below). With Pictures on the lens off, or a bridge that sends no `reply_parts`, the bridge's text has each table row as a card: the row's name, then `  Header: cell` lines. The app keeps a line's indent when it wraps, never ends a page on a card's name alone, and drops the blank line before a card when that keeps the card on the page.
 - The first screen must use the system's close question on double tap (Even Hub review checks it).
 
 Not tried on glasses yet (the simulator differs from them): the glasses mic, which way a swipe turns a page (the panel has Swap swipe direction for that), whether the Even app takes a LAN `http://` address in the network list, and how the app keeps up while the phone is locked.

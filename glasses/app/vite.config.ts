@@ -17,8 +17,8 @@ function lanIp(): string {
 // in the simulator, whose phone page has no other way in without keys.
 //   POST /__kit/typed     the body's words go in the app as if typed in the
 //                         phone's box while the glasses listen (scripts/e2e.mjs)
-//   POST /__kit/pictures  body "1" or "0": tables as pictures, or as text
-//                         cards (scripts/pictures.mjs)
+//   POST /__kit/pictures  body "1" or "0": tables and glance cards as pictures,
+//                         or lens text (scripts/pictures.mjs, glance-pictures.mjs)
 //   POST /__kit/lab       the page goes to the glance lab, lab.html (src/lab.ts)
 function kitDev(): Plugin {
   const hook = (server: ViteDevServer, path: string, event: string, data: (body: string) => object) =>

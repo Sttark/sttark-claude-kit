@@ -37,7 +37,7 @@ export interface TablePage {
 export const TILE_W = 288;
 export const TILE_H = 144;
 
-const FAMILY = 'system-ui, -apple-system, "Helvetica Neue", Roboto, Arial, sans-serif';
+export const FAMILY = 'system-ui, -apple-system, "Helvetica Neue", Roboto, Arial, sans-serif';
 export const BODY_FONT = `21px ${FAMILY}`;
 export const BOLD_FONT = `bold 21px ${FAMILY}`;
 export const HEAD_FONT = `18px ${FAMILY}`;
@@ -72,6 +72,11 @@ export function lensGray(v: number): number {
 const LENS_GRAY = Uint8Array.from({ length: 256 }, (_, v) => lensGray(v));
 
 export type Measure = (s: string, font: string) => number;
+
+/** True where a canvas can draw (the app's page; not the tests). */
+export function canDraw(): boolean {
+  return typeof document !== 'undefined' && typeof document.createElement === 'function';
+}
 
 let ctx: CanvasRenderingContext2D | null | undefined;
 /** Text width on the canvas; outside a browser (the tests), a fair guess. */

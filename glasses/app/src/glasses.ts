@@ -48,10 +48,22 @@ export interface ImageBox {
   y: number;
   w: number; // 20 to 288
   h: number; // 20 to 144
-  /** What the picture shows: a picture is sent again only when this changes. */
+  /** What the picture shows: a picture is sent again only when this changes.
+   *  '' is an empty (black) picture, which a new page already shows. */
   key: string;
   /** The picture as PNG bytes, exactly w x h. */
   data?: () => Promise<Uint8Array>;
+  /** What the picture is part of ("card"), for onPictures. */
+  group?: string;
+}
+
+/** How a page's pictures went: all sent (`ok`), and how long the page took
+ *  to show, from the start of its draw to the last picture. */
+export interface PictureResult {
+  group: string;
+  ok: boolean;
+  ms: number;
+  sent: number;
 }
 
 export interface PageSpec {
@@ -71,6 +83,12 @@ export class Glasses {
   private wanted: PageSpec | null = null;
   private drawing = false;
   private lastImageAt = 0;
+  /** When the page now on the lens started to draw, while its pictures are
+   *  still on the way: a newer draw of the same page, which takes over
+   *  their sending, counts its time from there. */
+  private drawnAt: number | null = null;
+  /** Told when a page's pictures are all sent, or one fails. */
+  onPictures: ((r: PictureResult) => void) | null = null;
   constructor(private bridge: EvenAppBridge | null) {}
 
   get present(): boolean {
@@ -140,7 +158,7 @@ export class Glasses {
           return this.draw(spec);
         }
       }
-      return this.sendImages(spec, performance.now());
+      return this.sendImages(spec, this.drawnAt ?? performance.now());
     }
 
     const page = toContainers(spec);
@@ -169,12 +187,14 @@ export class Glasses {
         }
       }
       this.shown = clone(spec);
+      this.drawnAt = spec.images?.length ? t0 : null;
       // A new page shows its image boxes empty.
       for (const im of this.shown.images ?? []) im.key = '';
     } catch {
       this.shown = null;
       return;
     }
+    if (!spec.images?.length) console.log(`[glasses] page rebuilt in ${Math.round(performance.now() - t0)} ms`);
     return this.sendImages(spec, t0);
   }
 
@@ -185,15 +205,22 @@ export class Glasses {
     const images = spec.images ?? [];
     if (!b || !images.length) return;
     const took: number[] = [];
+    const group = images.find((im) => im.group)?.group ?? '';
+    let failed = false;
+    const tell = (ok: boolean) => this.onPictures?.({ group, ok, ms: Math.round(performance.now() - t0), sent: took.length });
     for (const [i, im] of images.entries()) {
       const old = this.shown?.images?.find((o) => o.name === im.name);
       if (!old || old.key === im.key || !im.data) continue;
-      if (this.wanted) return;
+      if (this.wanted) {
+        if (took.length) console.log(`[glasses] pictures ${took.length} sent (${took.join(', ')} ms each), then a newer page`);
+        return;
+      }
       let bytes: Uint8Array;
       try {
         bytes = await im.data();
       } catch (e) {
         console.warn(`[glasses] picture ${im.name} not drawn: ${(e as Error)?.message || e}`);
+        failed = true;
         continue;
       }
       const wait = this.lastImageAt + IMAGE_GAP_MS - performance.now();
@@ -209,10 +236,13 @@ export class Glasses {
       } catch (e) {
         console.warn(`[glasses] picture ${im.name} not shown: ${(e as Error)?.message || e}`);
         this.shown = null;
+        tell(false);
         return;
       }
     }
-    if (took.length) console.log(`[glasses] pictures ${took.length} sent (${took.join(', ')} ms each), page shown in ${Math.round(performance.now() - t0)} ms`);
+    this.drawnAt = null;
+    if (took.length) console.log(`[glasses] pictures ${took.length} sent (${took.join(', ')} ms each), page shown in ${Math.round(performance.now() - t0)} ms${group ? ` (${group})` : ''}`);
+    if (took.length || failed) tell(!failed);
   }
 
   /** Start or stop the glasses microphone. */

@@ -39,16 +39,17 @@ async function boot(): Promise<void> {
   startPanel(app);
   // Dev server only (vite.config.ts, kitDev): words a script types in the
   // phone's box, so a test can reply without keys (scripts/e2e.mjs); tables
-  // as pictures or cards, and the glance lab (scripts/pictures.mjs).
+  // and glance cards as pictures or lens text, and the glance lab
+  // (scripts/pictures.mjs, scripts/glance-pictures.mjs).
   if (import.meta.hot) {
     import.meta.hot.on('kit:typed', (d: { text?: string }) => {
       const used = app.useTyped(String(d?.text || ''));
       console.log(`[kit] typed words ${used ? 'used' : 'not used: the glasses are not listening'}`);
     });
     import.meta.hot.on('kit:pictures', (d: { on?: boolean }) => {
-      setForRun({ tablePictures: !!d?.on });
+      setForRun({ pictures: !!d?.on });
       app.redraw();
-      console.log(`[kit] table pictures ${d?.on ? 'on' : 'off'}`);
+      console.log(`[kit] pictures ${d?.on ? 'on' : 'off'}`);
     });
     import.meta.hot.on('kit:lab', () => location.assign(`./lab.html${location.search}`));
   }

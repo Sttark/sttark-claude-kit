@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bridge, Pending, SessionDetail, SessionRow, Turn } from './api';
 import { Controller } from './controller';
-import type { Glasses, PageSpec } from './glasses';
+import type { Glasses, PageSpec, PictureResult } from './glasses';
 
 // The swipe direction from the phone panel, set by a test.
 const swap = vi.hoisted(() => ({ on: false }));
 vi.mock('./settings', async (orig) => {
   const real = await orig<typeof import('./settings')>();
   return { ...real, settings: () => ({ ...real.DEFAULTS, swapSwipe: swap.on }) };
+});
+// Whether a canvas can draw: off (text cards) unless a test turns it on.
+const canvas = vi.hoisted(() => ({ on: false }));
+vi.mock('./picture', async (orig) => {
+  const real = await orig<typeof import('./picture')>();
+  return { ...real, canDraw: () => canvas.on };
 });
 
 // The controller with a stand-in bridge and lens: what a swipe and a tap do
@@ -38,7 +44,14 @@ const detail: SessionDetail = { ...rows[1], last_reply: 'Job 4471 is next.', pen
 
 function setup(start: SessionDetail = detail) {
   const shown: PageSpec[] = [];
-  const lens = { show: (p: PageSpec) => shown.push(p), invalidate() {}, mic: async () => true, exit: async () => {}, present: true };
+  const lens = {
+    show: (p: PageSpec) => shown.push(p),
+    invalidate() {},
+    mic: async () => true,
+    exit: async () => {},
+    present: true,
+    onPictures: null as ((r: PictureResult) => void) | null,
+  };
   // Like the bridge: the detail shows the question that waits now.
   let now: SessionDetail = start;
   const answer = vi.fn(async (_id: string, option: string) => {
@@ -51,7 +64,7 @@ function setup(start: SessionDetail = detail) {
   });
   const bridge = {
     health: async () => ({ ok: true, version: 'test' }),
-    sessions: async () => rows,
+    sessions: async () => rows.map((r) => ({ ...r })), // a new list each time, as from the bridge
     session: async () => now,
     folders: async () => [],
     live: () => null,
@@ -60,7 +73,7 @@ function setup(start: SessionDetail = detail) {
   };
   const app = new Controller(bridge as unknown as Bridge, lens as unknown as Glasses);
   const text = (name: string) => shown[shown.length - 1]?.texts.find((t) => t.name === name)?.content ?? '';
-  return { app, answer, text, last: () => shown[shown.length - 1] };
+  return { app, answer, text, last: () => shown[shown.length - 1], lens };
 }
 
 describe('the controller', () => {
@@ -198,6 +211,53 @@ describe('the controller', () => {
     app.handle({ kind: 'tap', from: 'text' });
     await settle();
     expect(app.snapshot().screen).toBe('actions');
+  });
+
+  describe('the card as a picture', () => {
+    beforeEach(() => {
+      canvas.on = true;
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      canvas.on = false;
+    });
+    const card = (ok: boolean, ms: number): PictureResult => ({ group: 'card', ok, ms, sent: 4 });
+
+    it('draws the card as a picture, with the answers as lens text buttons that a swipe moves', async () => {
+      const { app, last } = setup();
+      await openAsking(app);
+      expect(last().images?.every((im) => im.group === 'card')).toBe(true);
+      expect(buttons(last)).toEqual(['▶ Press 3', 'Press 5', 'Say it']);
+      const before = last().images!.map((im) => im.key);
+      app.handle({ kind: 'down' });
+      await settle();
+      expect(buttons(last)).toEqual(['Press 3', '▶ Press 5', 'Say it']);
+      expect(last().images!.map((im) => im.key)).toEqual(before); // no picture goes again
+    });
+
+    it('falls back to the text card when a picture fails', async () => {
+      const { app, last, lens, text } = setup();
+      await openAsking(app);
+      expect(last().images?.length).toBeGreaterThan(0);
+      lens.onPictures!(card(false, 400));
+      expect(last().images ?? []).toHaveLength(0);
+      expect(text('lines')).toContain('Which press?');
+      expect(buttons(last)).toEqual(['▶ Press 3', 'Press 5', 'Say it']);
+    });
+
+    it('falls back after two slow cards in a row, not after one', async () => {
+      const { app, last, lens } = setup();
+      await openAsking(app);
+      lens.onPictures!(card(true, 4000));
+      lens.onPictures!(card(true, 600));
+      lens.onPictures!(card(true, 4000));
+      expect(last().images?.length).toBeGreaterThan(0);
+      lens.onPictures!(card(true, 4000));
+      expect(last().images ?? []).toHaveLength(0);
+      // The pictures switch on the phone gives them a new try.
+      app.redraw();
+      expect(last().images?.length).toBeGreaterThan(0);
+    });
   });
 });
 

@@ -3,7 +3,8 @@
 // tap goes back (on the first screen, the system asks to close the app).
 import { Bridge, BridgeError, type Folder, type LiveSocket, type Pending, type SessionDetail, type SessionRow, type Turn } from './api';
 import type { Input } from './events';
-import type { Glasses } from './glasses';
+import type { Glasses, PictureResult } from './glasses';
+import { canDraw } from './picture';
 import * as S from './screens';
 import { settings } from './settings';
 import { Dictation } from './voice';
@@ -41,6 +42,10 @@ const NOTICE_MS = 6000;
 const FLASH_MS = 8000;
 /** Earlier turns come from the bridge a few at a time. */
 const TURN_BATCH = 5;
+/** A glance card picture that takes longer than this to show is slow (on the
+ *  glasses a full card shows in about 1 s); two slow cards in a row, or one
+ *  that fails, and cards are lens text for the rest of the run. */
+const CARD_SLOW_MS = 2500;
 
 /** A session's earlier turns, as far back as the person has scrolled. */
 interface History {
@@ -91,11 +96,16 @@ export class Controller {
   /** Sessions started from these glasses in this run: test mode (only=) keeps
    *  them when the Kit renames them after their first prompt. */
   private startedHere = new Set<string>();
+  /** Glance cards as pictures: false after they fail or come slowly (text cards then). */
+  private cardPictures = true;
+  private slowCards = 0;
 
   constructor(
     private bridge: Bridge,
     private lens: Glasses,
-  ) {}
+  ) {
+    lens.onPictures = (r) => this.picturesShown(r);
+  }
 
   // ---------- panel side ----------
 
@@ -347,9 +357,30 @@ export class Controller {
 
   // ---------- drawing ----------
 
-  /** Draw the screen again: after a setting that changes how it looks. */
+  /** Draw the screen again: after a setting that changes how it looks. The
+   *  pictures switch also gives card pictures a new try after a fallback. */
   redraw(): void {
+    this.cardPictures = true;
+    this.slowCards = 0;
     this.render();
+  }
+
+  /** A card picture that failed, or came slowly twice in a row: the card as
+   *  lens text from now on, at once. */
+  private picturesShown(r: PictureResult): void {
+    if (r.group !== 'card' || !this.cardPictures) return;
+    if (r.ok && r.ms <= CARD_SLOW_MS) {
+      this.slowCards = 0;
+      return;
+    }
+    if (r.ok && ++this.slowCards < 2) return;
+    this.cardPictures = false;
+    console.warn(`[kit] glance cards as text from now on: ${r.ok ? `the pictures took ${r.ms} ms` : 'a picture was not shown'}`);
+    this.render();
+  }
+
+  private cardAsPicture(): boolean {
+    return settings().pictures && this.cardPictures && canDraw();
   }
 
   private render(): void {
@@ -411,7 +442,7 @@ export class Controller {
         const d = this.details.get(sc.id) ?? null;
         const row = this.rows.find((r) => r.id === sc.id) ?? null;
         const off = this.offlineWords();
-        const pages = S.sessionPages(d, !!off, settings().tablePictures);
+        const pages = S.sessionPages(d, !!off, settings().pictures);
         sc.page = Math.min(sc.page, pages.length);
         const title = d?.title || row?.title || 'Session';
         if (sc.page === 0) {
@@ -419,7 +450,7 @@ export class Controller {
           const buttons = this.cardButtons(sc);
           const head = notice ? `! ${notice}` : sc.flash ? sc.flash : off ? `! ${off[0].toUpperCase()}${off.slice(1)}: may be old` : null;
           const earlier = (this.histories.get(sc.id)?.latest ?? 0) > 0;
-          return S.cardPage({ title, glance, buttons, sel: sc.sel, first: sc.first, message: sc.message, head, replyPages: pages.length, earlier });
+          return S.cardPage({ title, glance, buttons, sel: sc.sel, first: sc.first, message: sc.message, head, replyPages: pages.length, earlier, picture: this.cardAsPicture() });
         }
         const status = off && !sc.flash ? `! ${off[0].toUpperCase()}${off.slice(1)}: this may be old` : S.statusLine(row, d, sc.flash);
         return S.sessionPage({ title, pages, page: sc.page - 1, status, pending: d?.pending ?? null, notice });
@@ -620,7 +651,7 @@ export class Controller {
       this.swipeEarlier(sc, forward);
       return;
     }
-    const n = S.sessionPages(this.details.get(sc.id) ?? null, false, settings().tablePictures).length;
+    const n = S.sessionPages(this.details.get(sc.id) ?? null, false, settings().pictures).length;
     if (sc.page === 0) {
       // The card: a swipe picks the next answer; past the last one, the full reply.
       const buttons = this.cardButtons(sc);

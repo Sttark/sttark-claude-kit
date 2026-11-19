@@ -4,6 +4,7 @@
 // show there on any screen without taking the input.
 import type { Glance, Pending, SessionDetail, SessionRow, Status, Turn } from './api';
 import type { PageSpec, TextBox } from './glasses';
+import { cardBoxes, cardPicture, restWord } from './cardpicture';
 import { type TableData, type TablePage, tableBoxes, tablePages } from './picture';
 import { LINE_H, SPACE_W, fit, padTo, paginate, plainReply, spread, width, wrapLines } from './text';
 
@@ -382,9 +383,7 @@ export function cardRows(g: Glance, maxRows: number): string[] {
   if (total(wrapped.length, 0) <= maxRows) return wrapped.flat();
   let n = wrapped.length - 1;
   while (n > 0 && total(n, 0) + 1 > maxRows) n--;
-  const rest = (g.states ?? []).slice(n);
-  const kind = rest.length && rest.every((s) => s === 'working') ? 'waiting' : rest.length && rest.every((s) => s === 'done') ? 'done' : 'more';
-  return [...wrapped.slice(0, n).flat(), `+${wrapped.length - n} ${kind}`];
+  return [...wrapped.slice(0, n).flat(), `+${wrapped.length - n} ${restWord((g.states ?? []).slice(n))}`];
 }
 
 /** The "You:" line: what you must do, or the message of an answer on its way. */
@@ -468,10 +467,14 @@ export function cardPage(o: {
   /** Earlier turns are above the card: its hint line starts with "▲ earlier"
    *  (with answer buttons, which take the hint's place, the top line ends with it). */
   earlier?: boolean;
+  /** Draw the card as a picture (cardpicture.ts): a big bold title and large
+   *  lines. The buttons and the hint line stay lens text either way. */
+  picture?: boolean;
 }): PageSpec {
   const hasButtons = o.buttons.length > 0;
   const you = youLine(o.glance, o.message);
   const boxed = !!you && you.bright && !hasButtons;
+  if (o.picture) return cardPicturePage(o, you, boxed);
   const bottom = hasButtons ? BTN_Y - 4 : 254;
   const youH = you ? YOU_GAP + (boxed ? LINE_H + 2 * YOU_EDGE + 1 - YOU_EDGE + 4 : LINE_H + 2) : 0;
   const maxRows = Math.max(1, Math.floor((bottom - CARD_Y - youH) / LINE_H));
@@ -488,6 +491,30 @@ export function cardPage(o: {
   // The title sits level with the word in the box, and stops before the box.
   texts[0] = { ...texts[0], y: 8, w: TW - TAG_W - 8 };
   return { texts };
+}
+
+/** The card as a picture over an empty text box that takes the swipes and
+ *  taps (as on a table page), with the same buttons or hint line under it. */
+function cardPicturePage(o: Parameters<typeof cardPage>[0], you: ReturnType<typeof youLine>, boxed: boolean): PageSpec {
+  const hasButtons = o.buttons.length > 0;
+  const bottom = hasButtons ? BTN_Y - 4 : 254;
+  const pic = cardPicture({
+    title: o.head ?? clean(o.title),
+    notice: !!o.head,
+    word: o.glance.status_word || '',
+    earlier: !!o.earlier && hasButtons && !o.head,
+    lines: (o.glance.lines ?? []).map((l) => clean(l)),
+    states: o.glance.states,
+    // The words in full: the picture cuts them to its own font.
+    you: you && { text: o.message || `You: ${clean(o.glance.you || '')}`, bright: you.bright, boxed },
+    w: TW,
+    bottom,
+  });
+  const texts: TextBox[] = [{ name: 'card', x: X, y: 0, w: TW, h: bottom, content: ' ', capture: true }];
+  if (hasButtons) texts.push(...buttonBoxes(o.buttons, o.sel, o.first));
+  else if (o.replyPages > 0) texts.push(foot(`${o.earlier ? `${EARLIER}   ▼ full reply` : 'Swipe: full reply'}   Tap: reply   Double tap: back`));
+  else texts.push(foot(`${o.earlier ? `${EARLIER}   ` : ''}Tap: reply   Double tap: back`));
+  return { texts, images: cardBoxes(pic, X, 0) };
 }
 
 // ---------- actions ----------

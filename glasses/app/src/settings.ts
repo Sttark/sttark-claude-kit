@@ -11,9 +11,10 @@ export interface Settings {
   token: string;
   folder: string;
   swapSwipe: boolean;
-  /** Draw a reply's tables as pictures with real columns (picture.ts);
-   *  off: each row as a text card. */
-  tablePictures: boolean;
+  /** Draw a reply's tables as pictures with real columns (picture.ts), and
+   *  the glance card with a big bold title (cardpicture.ts); off: lens text
+   *  only (each table row as a text card). */
+  pictures: boolean;
   /** Test mode only, from the address: refuse every change. Never stored. */
   readonly: boolean;
   /** Test mode only, from the address: show only the sessions whose title
@@ -29,7 +30,7 @@ export const DEFAULTS: Settings = {
   token: import.meta.env.VITE_BRIDGE_TOKEN || '',
   folder: '',
   swapSwipe: false,
-  tablePictures: true,
+  pictures: true,
   readonly: false,
   only: '',
 };
@@ -47,7 +48,7 @@ function fromAddress(): Partial<Settings> {
   if (q.get('token')) o.token = q.get('token')!;
   if (q.get('readonly') === '1') o.readonly = true;
   if (q.get('only')?.trim()) o.only = q.get('only')!.trim();
-  if (q.get('pictures') === '0' || q.get('pictures') === '1') o.tablePictures = q.get('pictures') === '1';
+  if (q.get('pictures') === '0' || q.get('pictures') === '1') o.pictures = q.get('pictures') === '1';
   return o;
 }
 

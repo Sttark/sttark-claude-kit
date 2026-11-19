@@ -106,7 +106,7 @@ try {
   await waitLine(/\[kit\] screen home/);
   let mark = log.length;
   await devPost('/__kit/pictures', '1');
-  await waitLine(/table pictures on/, mark);
+  await waitLine(/\[kit\] pictures on/, mark);
   await sleep(1500);
 
   // Tables as pictures.
@@ -135,7 +135,7 @@ try {
   // The same tables as text cards.
   mark = log.length;
   await devPost('/__kit/pictures', '0');
-  await waitLine(/table pictures off/, mark);
+  await waitLine(/\[kit\] pictures off/, mark);
   await open(ROW.asks);
   await textShot('asks-cards');
   await back();
