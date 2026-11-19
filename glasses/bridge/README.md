@@ -62,7 +62,7 @@ So the bridge uses two sign-ins, each for what it can do:
 
 | Action | How | Sign-in |
 |---|---|---|
-| List sessions, follow one, read its reply | `GET /v1/code/sessions`, its change stream `/watch`, and each session's events and event stream | Claude Code's login |
+| List sessions, follow one, read its reply | `GET /v1/code/sessions`, its change stream `/watch`, and each session's events and event stream. When the reply is below the newest 100 events (a waiting session gathers many with no message: each time an app or the Kit connects), older pages of 500, once; the bridge keeps what it read | Claude Code's login |
 | Answer a question, a plan or a permission | `POST /v1/code/sessions/{id}/events`, a `control_response` to the session's `can_use_tool` request (the session accepts it from this login) | Claude Code's login |
 | Send a message | `POST /v1/sessions/{id}/events` with `anthropic-client-platform: web_claude_ai`, as one synchronous XMLHttpRequest in a claude.ai page in the Kit's Claude window in Chrome. The API marks it `web_claude_ai`, so the session acts on it as the person's own message | The person's claude.ai sign-in in Chrome |
 | Start a session in a folder that has a Remote Control server (the Kit's server, `~/src`) | `POST /v1/code/sessions` with the server's `environment_id`, as `claude remote-control` itself does it: the server starts the session. Then its first message goes as above. The session is in the Claude app's list like one started there | Claude Code's login, then claude.ai |
@@ -102,7 +102,7 @@ session, 409 nothing to answer, 503 Chrome, the speech model or the login is not
 |---|---|
 | `GET /api/health` | `{ok: true, version, sessions, list_ok_at, list_error, kit, stt, web: {chrome, last_ok, last_error}}` |
 | `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending, url, connected, unread, effort}]}`: needs you first, then working, waiting, idle; the newest first in each |
-| `GET /api/sessions/:id` | The same fields, and `last_reply` (the last assistant text, plain: no Markdown marks, code blocks as plain lines, each table row a card: its name, then "  Header: cell" lines, status marks as words) and `pending`: `null` or `{kind: "question" \| "permission" \| "plan", text, options: [{id, label}], request_id}` |
+| `GET /api/sessions/:id` | The same fields, and `last_reply` (all the text of the newest turn that has text, from each of its messages, the session's own and not its agents', plain: no Markdown marks, code blocks as plain lines, each table row a card: its name, then "  Header: cell" lines, status marks as words) and `pending`: `null` or `{kind: "question" \| "permission" \| "plan", text, options: [{id, label}], request_id}` |
 | `POST /api/sessions/:id/message` `{text}` | `{ok: true, uuid}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok: true, done: true}`. A question with several questions takes one answer at a time: `{ok: true, done: false, pending}` shows the next; the answers go to the session after the last |
 | `POST /api/sessions` `{prompt, folder?}` | `{id, folder, started: "server" \| "cli"}`. `folder` defaults to `~/src`; it must be in the home folder and trusted in Claude Code. The session's name is the prompt's first line, cut at a word to 60 characters; with the Kit's Name sessions automatically on, the Kit can rename it after its first prompt, as it does any new session. It can take up to 90 seconds |
