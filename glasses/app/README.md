@@ -31,6 +31,8 @@ The glasses have no speaker, and the Even Hub SDK has no sound output. But the a
 - **On the glasses:** in a session's actions, Read to me (the first row when nothing is asked). Or the system menu (tap, then hold), then Read to me: on Home it reads the session the `>` is on. The top line says `♪ Reading aloud: <session>` while it plays. The same row, or Stop reading in the menu, stops it. Reply by voice stops it too, so the mic does not hear it.
 - **The sound:** the bridge makes it on the Mac with macOS `say`, in the Mac's own voice (`GET /api/sessions/:id/speech`), and the app plays it in one `<audio>` element. When the Mac cannot make it (an older bridge, or `say` fails), or the phone refuses the file, the app uses the phone's own voice (`speechSynthesis`), with the same words.
 - **One tap on the phone:** many phone web views play a page's sound only after a tap on the page itself, and a gesture on the glasses is not such a tap. So the first tap anywhere on the Kit page turns sound on, without a sound, and the panel has Turn on sound, which plays a short tone. When the phone still refuses, the lens says `Sound blocked: on the phone, tap Turn on sound in Kit`.
+![Read to me in the simulator, with made-up sessions: the Actions row, reading, the system menu, and from Home](docs/read-to-me.png)
+
 - **Tests make no sound:** `mute=1` in the address plays everything with no volume. The app writes `[kit] speech playing` and `[kit] speech ended` to its console, so a script sees the sound play without listening. `npm run walk` uses it.
 
 ## The phone panel
