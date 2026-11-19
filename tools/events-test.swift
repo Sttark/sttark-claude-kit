@@ -255,6 +255,10 @@ import Foundation
               && cd?.routine == true && cd?.text == "Progress check-in written, not sent (test run): Working 20 min"
               && ce?.routine == true && ce?.text == "Long work ended after 1 hr 31 min; 6 check-ins sent",
               "a hold, a test run and the end of the work are routine rows")
+        let cu = Events.kitLine(f.string(from: Date()) + " checkin cse_01AAAtest1 \"Press color\" skipped: Haiku gave no usable note (it is empty, then it repeats its rules: 'Sentence limit: 50 words. Subject first. Active voice.')", names)
+        check(cu?.name == "Press color" && cu?.routine == true
+              && cu?.text == "Progress check-in skipped: Haiku gave no usable note (it is empty, then it repeats its rules: 'Sentence limit: 50 words. Subject first. Active voice.')",
+              "a check-in skipped as Haiku gave no usable note is a routine row, with why")
         let cx = Events.kitLine(f.string(from: Date()) + " checkin error: KeyError: 'sessions'", names)
         check(cx?.kind == .problem && cx?.text == "A progress check-in failed", "an error is a problem")
 
