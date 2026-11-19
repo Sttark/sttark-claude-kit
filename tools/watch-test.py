@@ -941,5 +941,93 @@ check('the log: a line for each that counts, and a skip line for the post about 
       logged.count('watch  replied %s' % CG[:12]) == 3 and 'in the thread of its Chat post' in logged
       and 'in a Chat space it posted in' in logged and 'on its Asana task 1300000000000077' in logged
       and 'skip %s "Laminator and die" you in Chat: not about this session\'s work: Lunch at noon?' % CG[:12] in logged)
+
+# --- archived sessions: one the person archived with no open wait is not watched; one with a wait is ----------------
+TX = time.time() + 3 * 86400
+ARCH = {}
+for cse, name, who in (('cse_01ArchNoWait000001', 'Ink quote', 'lee@inksample.example'),
+                       ('cse_01ArchWithWait00002', 'Die order', 'kai@diesample.example'),
+                       ('cse_01OpenSession000003', 'Press job 5120', 'ana@platesample.example'),
+                       ('cse_01ArchBackInList004', 'Core quote', 'bo@coresample.example'),
+                       ('cse_01ArchPending000005', 'Label stock', 'mo@stocksample.example')):
+    tp = os.path.join(PROJ, cse + '.jsonl')
+    write(tp, person('Ask %s for a quote' % who, TX - 6000)
+          + use(WR + 'gmail_create_draft', {'to': who, 'subject': name}, TX - 5000,
+                json.dumps({'draft_id': 'r-' + cse[-2:], 'thread_id': 'thr' + cse[-6:], 'to': who, 'subject': name})))
+    ARCH[cse] = {'tp': tp, 'name': name, 'who': who, 'tid': 'thr' + cse[-6:]}
+CA, CW, CO, CB, CP = list(ARCH)
+
+
+def arch_state(app_at=0, shown=()):
+    json.dump({'sessions': {c: {'transcript': a['tp'], 'title': a['name']} for c, a in ARCH.items()},
+               'waits': {'cww001': {'id': 'cww001', 'kind': 'at', 'at': TX + 86400, 'cse': CW, 'transcript': ARCH[CW]['tp'],
+                                    'set_at': TX - 4000, 'title': 'Die order', 'why': 'Fri: ask again'}},
+               'app_list': {'at': app_at, 'sessions': [{'id': c} for c in shown]}},
+              open(os.path.join(KIT, 'state.json'), 'w'))
+
+
+def archive(ids, at):
+    json.dump({'at': at, 'rev': 'x', 'items': [{'cse': c, 'title': ARCH[c]['name']} for c in ids]},
+              open(os.path.join(KIT, 'archived.json'), 'w'))
+
+
+def reply(cse, mid, at):
+    a = ARCH[cse]
+    mail(mid, a['tid'], a['who'], 'Re: ' + a['name'], at, 'Here is the quote')
+
+
+json.dump({ME: '1//rt'}, open(KEYS, 'w'))
+wait._direct.clear()
+fresh()
+MAIL[:] = []
+arch_state()
+archive([], TX - 100)
+del brought[:]
+watch.check(wait, TX)  # all five in the person's list: each is watched from now
+check('sessions in the person\'s list are watched', set(watch.peek()['sessions']) >= set(ARCH)
+      and not any(watch.peek()['sessions'][c].get('archived') for c in ARCH))
+# the person archives four of them; one of those has a wait, and one shows in the account's list read after that
+W = watch.peek()
+W['sessions'][CP]['pending'] = [{'id': 'm-p1', 'kind': 'mail', 'box': ME, 'from': 'Mo <mo@stocksample.example>',
+                                 'subject': 'Re: Label stock', 'at': TX + 30, 'why': 'test'}]
+watch.save(W)
+archive([CA, CW, CB, CP], TX + 50)
+arch_state(app_at=TX + 60, shown=[CO, CB])
+for c, mid in ((CA, 'm-a1'), (CW, 'm-w1'), (CO, 'm-o1'), (CB, 'm-b1')):
+    reply(c, mid, TX + 100)
+logpos = os.path.getsize(os.environ['STTARK_KIT_LOG'])
+watch.check(wait, TX + 301)
+logged = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+W = watch.peek()
+check('archived with no open wait: a reply in its thread does not bring it back',
+      CA not in [c for c, _ in brought] and 'm-a1' not in json.dumps(W['sessions'][CA]))
+check('archived with an open wait, not archived, and back in the account\'s list read after the Archived page: each '
+      'comes back', sorted(c for c, _ in brought) == sorted([CW, CO, CB]))
+check('the log says it in plain words, once for each: not watched, or not told of what came for it',
+      'watch  %s "Ink quote" not watched: archived with no wait' % CA[:12] in logged
+      and 'watch  %s "Label stock" not told of 1 new message: archived with no wait: Mo <mo@stocksample.example> '
+          '"Re: Label stock"' % CP[:12] in logged
+      and not W['sessions'][CP]['pending'] and '"Die order" not' not in logged and '"Core quote" not' not in logged)
+reply(CA, 'm-a2', TX + 400)
+del brought[:]
+watch.check(wait, TX + 700)
+logged = open(os.environ['STTARK_KIT_LOG']).read()[logpos:]
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    watch.listing()
+check('while it stays archived: still nothing, logged once, and claude-wait --watching says why',
+      brought == [] and logged.count('not watched: archived with no wait') == 1
+      and 'Ink quote  %s\n    not watched: archived with no wait, since ' % CA in out.getvalue()
+      and not any(q for q in g['queries'][-3:] if 'inksample' in q))
+# the person brings it back to their list: a message from while it was archived does not count, a newer one does
+archive([CW, CP], TX + 900)
+reply(CA, 'm-a3', TX + 950)
+del brought[:]
+watch.check(wait, TX + 1001)
+reply(CA, 'm-a4', TX + 1100)
+watch.check(wait, TX + 1302)
+check('back in the person\'s list: watched from then on, and only a newer message brings it back',
+      [c for c, _ in brought] == [CA] and 'm-a4' in brought[0][1] and 'm-a3' not in brought[0][1]
+      and 'm-a2' not in brought[0][1] and not watch.peek()['sessions'][CA].get('archived'))
 print('%d failed' % fails if fails else 'all passed')
 sys.exit(1 if fails else 0)

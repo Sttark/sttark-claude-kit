@@ -161,6 +161,16 @@ import Foundation
         let wb = Events.kitLine(f.string(from: Date()) + " watch  cse_01AAAtes \"Press color\" brought back for 1 new message: Sam <help@utility.example> \"[Ticket 1] Contact Us\"", names)
         check(wb?.name == "Press color" && wb?.session == "cse_01AAAtest1" && wb?.kind == .restart && wb?.text == "Brought back: new messages came in from someone it contacted"
               && wb?.detail.first?.contains("help@utility.example") == true, "a session the reply watch brought back, with what came")
+        // An archived session with no open wait: not watched (routine), or messages that came for it, not told.
+        let wa = Events.kitLine(f.string(from: Date()) + " watch  cse_01AAAtes \"Press color\" not watched: archived with no wait", names)
+        check(wa?.name == "Press color" && wa?.session == "cse_01AAAtest1" && wa?.kind == .wait && wa?.routine == true
+              && wa?.text == "Not watched: it is archived and waits on no one",
+              "an archived session with no wait: one routine row, in plain words")
+        let wt = Events.kitLine(f.string(from: Date()) + " watch  cse_01AAAtes \"Press color\" not told of 1 new message: archived with no wait: Sam <help@utility.example> \"Re: color\"", names)
+        check(wt?.name == "Press color" && wt?.kind == .wait && wt?.routine == false
+              && wt?.text == "Not brought back: it is archived and waits on no one"
+              && wt?.detail.first == "Messages: Sam <help@utility.example> \"Re: color\"",
+              "messages for an archived session with no wait: not brought back, with what came")
         let wr = Events.kitLine(f.string(from: Date()) + " watch  person@sample.example read (Haiku through Workrouter): 4 new messages, 0 for a session", names)
         check(wr?.kind == .check && wr?.routine == true && wr?.text == "Reply watch read person@sample.example: 4 new messages, 0 for a session",
               "a read of the reply watch is a routine check")

@@ -98,11 +98,13 @@ read the messenger, so claude-wait at <time> to look at it with claude-window, a
 "from:(<the supplier's domain>)" when the supplier also writes by email. After you ask the person to call someone: \
 claude-wait at <time> to ask them how the call went. A \
 claude-wait at alone is wrong when the answer comes as a message, because it does not see the answer: use the time \
-only as the deadline (--by). The Kit also watches by itself, for 7 days after your last turn: a reply in a thread \
-you used, a comment on an Asana task you commented on, and a reply in the Chat thread of your post bring the \
-session back. Other mail from an address, a domain or a form's site you wrote to, and other posts in a Chat space \
-you posted in, bring it back only when a quick check finds them to be about this session's work. That is a safety \
-net with no deadline, not a wait. Do the same when the person asks \
+only as the deadline (--by). The Kit also watches by itself, for 7 days after your last turn, while the session \
+is not archived: a reply in a thread you used, a comment on an Asana task you commented on, and a reply in the Chat \
+thread of your post bring the session back. Other mail from an address, a domain or a form's site you wrote to, and \
+other posts in a Chat space you posted in, bring it back only when a quick check finds them to be about this \
+session's work. That is a safety net with no deadline, not a wait. When the person archives a session that has no \
+open wait, the Kit stops this watch and does not bring the session back, so set a wait for each answer that you \
+need. Do the same when the person asks \
 "let me know when they reply", "tell me when it merges" or the like, and when they ask "has X replied?" or "how long \
 has it been?" about something no wait covers yet. The Kit watches it with no model calls and brings the session \
 back when it happens, or at the deadline when it has not. You pick the deadline with judgment; there is no \
@@ -334,7 +336,8 @@ def reply_wait_check(data):
     notes(lambda a: a.__setitem__(full, (a.get(full, []) + [
         'Your last work contacted %s (%s) and set no wait for the answer. An answer to a message comes as a message: '
         'set the wait on that channel, with the deadline in --by, for example: %s. A claude-wait at alone does not '
-        'see the answer. The Kit also brings this session back when an answer comes, for %d days.'
+        'see the answer. The Kit also brings this session back when an answer comes, for %d days, but not after the '
+        'person archives it with no open wait.'
         % (names, how, w.wait_hint(miss), w.WATCH_DAYS)])[-3:]))
     log('%s contacted %s (%s) with no reply wait: noted for the next prompt' % (full[:8], names, how), 'watch  ')
 
