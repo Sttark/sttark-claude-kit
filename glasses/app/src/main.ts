@@ -6,7 +6,7 @@ import { Controller } from './controller';
 import { toInput } from './events';
 import { Glasses } from './glasses';
 import { startPanel } from './panel';
-import { loadSettings, settings, withTimeout } from './settings';
+import { loadSettings, setForRun, settings, withTimeout } from './settings';
 
 /** The Even app and the simulator put a Flutter handler in the page; a plain
  *  browser has none, and then only the panel works. */
@@ -37,13 +37,20 @@ async function boot(): Promise<void> {
     });
   }
   startPanel(app);
-  // Dev server only: words a script types in the phone's box, so a test can
-  // reply without keys (scripts/e2e.mjs; vite.config.ts, kitTyped).
+  // Dev server only (vite.config.ts, kitDev): words a script types in the
+  // phone's box, so a test can reply without keys (scripts/e2e.mjs); tables
+  // as pictures or cards, and the glance lab (scripts/pictures.mjs).
   if (import.meta.hot) {
     import.meta.hot.on('kit:typed', (d: { text?: string }) => {
       const used = app.useTyped(String(d?.text || ''));
       console.log(`[kit] typed words ${used ? 'used' : 'not used: the glasses are not listening'}`);
     });
+    import.meta.hot.on('kit:pictures', (d: { on?: boolean }) => {
+      setForRun({ tablePictures: !!d?.on });
+      app.redraw();
+      console.log(`[kit] table pictures ${d?.on ? 'on' : 'off'}`);
+    });
+    import.meta.hot.on('kit:lab', () => location.assign(`./lab.html${location.search}`));
   }
   app.start();
   console.log(`[kit] ready (${even ? 'glasses' : 'panel only'})`);

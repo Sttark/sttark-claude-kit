@@ -25,8 +25,13 @@ export interface Pending {
   options: PendingOption[];
 }
 
+/** The reply in parts: its text, and each table as cells, so the lens can
+ *  draw a table as a picture (picture.ts). An older bridge sends none. */
+export type ReplyPart = { text: string } | { table: { heads: string[]; rows: string[][] } };
+
 export interface SessionDetail extends SessionRow {
   last_reply: string;
+  reply_parts?: ReplyPart[];
   pending: Pending | null;
 }
 

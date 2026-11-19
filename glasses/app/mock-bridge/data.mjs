@@ -57,7 +57,8 @@ export function sampleSessions() {
     {
       // A reply that ended in a 3-column status table (Ask | Status | Need
       // from you, a status emoji in each row). The bridge sends each table
-      // row as a card (glasses/bridge/detail.py); this is its text for it.
+      // row as a card (glasses/bridge/detail.py) in last_reply, and the
+      // table's cells in reply_parts, for the lens to draw as a picture.
       id: 'mock-asks',
       title: "Today's open asks",
       folder: 'src',
@@ -73,6 +74,22 @@ export function sampleSessions() {
         'Job 4490 proof for the customer\n  Needs you: Tell me a day and time for the press check, and I make a reply draft.\n\n' +
         'Die quote from Harbor Dies\n  Dropped\n\n' +
         'Two need you: the laminate and the press check.',
+      reply_parts: [
+        { text: 'Where the open asks stand:' },
+        {
+          table: {
+            heads: ['Ask', 'Status', 'Need from you'],
+            rows: [
+              ['Laminate quote from New Star Labels', 'Needs you', 'Pick 5,000 m or 8,000 m, and I make the order draft.'],
+              ['Press 3 head 2 order', 'In progress', 'Nothing'],
+              ['Rewinder 2 belts', 'Done', 'Nothing'],
+              ['Job 4490 proof for the customer', 'Needs you', 'Tell me a day and time for the press check, and I make a reply draft.'],
+              ['Die quote from Harbor Dies', 'Dropped', 'Nothing'],
+            ],
+          },
+        },
+        { text: 'Two need you: the laminate and the press check.' },
+      ],
       pending: null,
     },
     {
@@ -94,7 +111,26 @@ export function sampleSessions() {
       why: 'Waiting on the supplier price',
       status_line: 'Waiting on the supplier price',
       updated_at: min(48),
-      last_reply: 'I asked the supplier for the price and ship date of two drive belts for Rewinder 2. I will check the inbox again at 2:00 PM.',
+      last_reply:
+        'Two of the three suppliers sent a price for the two drive belts for Rewinder 2.\n\n' +
+        'Belt Supply Co.\n  Belt: HTD 8M-1200-30\n  Price: $38.50 each\n  Ships: 2 days\n  Notes: Same belt as the one on the machine, from stock\n\n' +
+        'Harbor Power Transmission\n  Belt: HTD 8M-1200-30\n  Price: $31.20 each\n  Ships: 3 weeks\n  Notes: Made to order, minimum of 4 belts, so the order is $124.80\n\n' +
+        'Midway Bearing\n  Price: No answer yet\n\n' +
+        'I will check the inbox again at 2:00 PM for the third price.',
+      reply_parts: [
+        { text: 'Two of the three suppliers sent a price for the two drive belts for Rewinder 2.' },
+        {
+          table: {
+            heads: ['Supplier', 'Belt', 'Price', 'Ships', 'Notes'],
+            rows: [
+              ['Belt Supply Co.', 'HTD 8M-1200-30', '$38.50 each', '2 days', 'Same belt as the one on the machine, from stock'],
+              ['Harbor Power Transmission', 'HTD 8M-1200-30', '$31.20 each', '3 weeks', 'Made to order, minimum of 4 belts, so the order is $124.80'],
+              ['Midway Bearing', '', 'No answer yet', '', ''],
+            ],
+          },
+        },
+        { text: 'I will check the inbox again at 2:00 PM for the third price.' },
+      ],
       pending: null,
     },
     {
@@ -135,7 +171,26 @@ export function sampleSessions() {
       why: '',
       status_line: 'Done',
       updated_at: min(180),
-      last_reply: 'The 3 x 2 in die template with 0.125 in corners is saved in the shared drive.',
+      last_reply:
+        'The 3 x 2 in die template with 0.125 in corners is saved in the shared drive. All seven die templates there now:\n\n' +
+        'D-101\n  Size: 3 x 2 in\n  Corners: 0.125 in\n  Across: 4\n  Used for: Wine labels, gloss\n\nD-102\n  Size: 4 x 6 in\n  Corners: 0.25 in\n  Across: 2\n  Used for: Shipping labels\n\nD-103\n  Size: 2 in circle\n  Corners: -\n  Across: 6\n  Used for: Jar lids\n\nD-104\n  Size: 1.5 x 1 in\n  Corners: 0.0625 in\n  Across: 8\n  Used for: Price tags\n\nD-105\n  Size: 5 x 3.5 in\n  Corners: 0.125 in\n  Across: 3\n  Used for: Coffee bags, matte\n\nD-106\n  Size: 2.5 x 4 in oval\n  Corners: -\n  Across: 4\n  Used for: Candle jars\n\nD-107\n  Size: 3 x 3 in\n  Corners: 0.1875 in\n  Across: 4\n  Used for: Sample run, Job 4462',
+      reply_parts: [
+        { text: 'The 3 x 2 in die template with 0.125 in corners is saved in the shared drive. All seven die templates there now:' },
+        {
+          table: {
+            heads: ['Die', 'Size', 'Corners', 'Across', 'Used for'],
+            rows: [
+              ["D-101", "3 x 2 in", "0.125 in", "4", "Wine labels, gloss"],
+              ["D-102", "4 x 6 in", "0.25 in", "2", "Shipping labels"],
+              ["D-103", "2 in circle", "-", "6", "Jar lids"],
+              ["D-104", "1.5 x 1 in", "0.0625 in", "8", "Price tags"],
+              ["D-105", "5 x 3.5 in", "0.125 in", "3", "Coffee bags, matte"],
+              ["D-106", "2.5 x 4 in oval", "-", "4", "Candle jars"],
+              ["D-107", "3 x 3 in", "0.1875 in", "4", "Sample run, Job 4462"],
+            ],
+          },
+        },
+      ],
       pending: null,
     },
   ];

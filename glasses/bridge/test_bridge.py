@@ -94,6 +94,33 @@ class Tables(unittest.TestCase):
         self.assertEqual(detail.plain('Heads 2 | 4 are clean'), 'Heads 2 | 4 are clean')
         self.assertEqual(detail.plain('Press 3 | Press 5\n---\nBoth run.'), 'Press 3 | Press 5\n\nBoth run.')
 
+    def test_parts_keep_the_cells(self):
+        md = ('Where the press jobs stand:\n\n'
+              '| Job | Status | Need from you |\n'
+              '| --- | :---: | --- |\n'
+              '| **Job 4471** gloss wine labels | 🔴 | Pick the cyan head fix. |\n'
+              '| Job 4475 reprint | ✅ |\n\n'
+              'Two need you.')
+        self.assertEqual(detail.parts(md), [
+            {'text': 'Where the press jobs stand:'},
+            {'table': {'heads': ['Job', 'Status', 'Need from you'],
+                       'rows': [['Job 4471 gloss wine labels', 'Needs you', 'Pick the cyan head fix.'],
+                                ['Job 4475 reprint', 'Done', '']]}},
+            {'text': 'Two need you.'},
+        ])
+
+    def test_parts_without_a_table(self):
+        self.assertEqual(detail.parts(''), [])
+        self.assertEqual(detail.parts('**Done.** Belts came in.'), [{'text': 'Done. Belts came in.'}])
+        # In a code block, or a header with no rows: text, as plain() writes it.
+        self.assertEqual(detail.parts('```\n| a | b |\n|---|---|\n| 1 | 2 |\n```'), [{'text': '| a | b |\n|---|---|\n| 1 | 2 |'}])
+        self.assertEqual(detail.parts('| Press | Job |\n|---|---|\n\nNone today.'), [{'text': 'Press, Job\n\nNone today.'}])
+
+    def test_last_reply_parts(self):
+        evs = [ev(2, {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '| A | B |\n|-|-|\n| 1 | 2 |'}]}})]
+        self.assertEqual(detail.last_reply_parts(evs), [{'table': {'heads': ['A', 'B'], 'rows': [['1', '2']]}}])
+        self.assertEqual(detail.last_reply(evs), '1\n  B: 2')
+
     def test_status_marks_in_lists(self):
         self.assertEqual(detail.plain('- ✅ Belts came in\n- 🔴 Pick the laminate'), '- Done, Belts came in\n- Needs you, Pick the laminate')
 

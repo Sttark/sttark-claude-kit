@@ -320,6 +320,11 @@ export class Controller {
 
   // ---------- drawing ----------
 
+  /** Draw the screen again: after a setting that changes how it looks. */
+  redraw(): void {
+    this.render();
+  }
+
   private render(): void {
     const key = this.screenKey();
     if (key !== this.shownKey) {
@@ -372,7 +377,7 @@ export class Controller {
         const d = this.details.get(sc.id) ?? null;
         const row = this.rows.find((r) => r.id === sc.id) ?? null;
         const off = this.offlineWords();
-        const pages = S.sessionPages(d, !!off);
+        const pages = S.sessionPages(d, !!off, settings().tablePictures);
         sc.page = Math.min(sc.page, pages.length - 1);
         const status = off && !sc.flash ? `! ${off[0].toUpperCase()}${off.slice(1)}: this may be old` : S.statusLine(row, d, sc.flash);
         return S.sessionPage({ title: d?.title || row?.title || 'Session', pages, page: sc.page, status, pending: d?.pending ?? null, notice });
@@ -540,7 +545,7 @@ export class Controller {
       return;
     }
     if (sc.kind !== 'session') return;
-    const n = S.sessionPages(this.details.get(sc.id) ?? null).length;
+    const n = S.sessionPages(this.details.get(sc.id) ?? null, false, settings().tablePictures).length;
     const next = Math.max(0, Math.min(n - 1, sc.page + step));
     if (next === sc.page) return;
     sc.page = next;

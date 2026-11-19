@@ -4,6 +4,7 @@
 // show there on any screen without taking the input.
 import type { Pending, SessionDetail, SessionRow, Status } from './api';
 import type { PageSpec, TextBox } from './glasses';
+import { type TableData, type TablePage, tableBoxes, tablePages } from './picture';
 import { LINE_H, fit, padTo, paginate, plainReply, spread, width, wrapLines } from './text';
 
 export const W = 576;
@@ -149,13 +150,48 @@ export function homePage(o: { rows: HomeRow[]; sel: number; first: number; needC
 
 // ---------- one session ----------
 
-export function sessionPages(d: SessionDetail | null, offline = false): string[] {
+/** A page of a reply: lines of text, or a table drawn as a picture under a
+ *  caption line (the reply's short line just before the table, if any). */
+export type ReplyPage = string | { table: TableData; caption: string; page: TablePage };
+
+const BODY_Y = 62;
+const BODY_H = BODY_ROWS * LINE_H + 2;
+
+export function sessionPages(d: SessionDetail | null, offline = false, pictures = true): ReplyPage[] {
   if (!d) return [offline ? 'Your Mac is offline. This reply shows when Kit reaches the Mac again.' : 'Loading...'];
   let text = plainReply(d.last_reply || '');
   // A plan waiting for approval is what to read: show the plan itself.
   if (d.pending?.kind === 'plan' && d.pending.text) text = plainReply(d.pending.text);
+  else if (pictures && d.reply_parts?.some((p) => 'table' in p)) return pictureReply(d.reply_parts);
   if (!text) text = d.status === 'working' ? 'Claude is working. No reply yet.' : 'No reply yet.';
   return paginate(text, TPX, BODY_ROWS);
+}
+
+/** The reply's text in pages as always, and each table as picture pages. */
+function pictureReply(parts: NonNullable<SessionDetail['reply_parts']>): ReplyPage[] {
+  const pages: ReplyPage[] = [];
+  let caption = '';
+  parts.forEach((p, i) => {
+    if ('table' in p) {
+      const tps = tablePages(p.table, TW, BODY_H - (caption ? LINE_H + 2 : 0));
+      for (const page of tps) pages.push({ table: p.table, caption, page });
+      caption = '';
+      return;
+    }
+    let text = plainReply(p.text);
+    const next = parts[i + 1];
+    if (next && 'table' in next) {
+      // The table's lead-in ("Where the press jobs stand:") goes over its picture.
+      const cut = text.lastIndexOf('\n\n');
+      const last = text.slice(cut + 1).trim();
+      if (last && !last.includes('\n') && width(last) <= TPX) {
+        caption = last;
+        text = cut < 0 ? '' : text.slice(0, cut).trim();
+      }
+    }
+    if (text) pages.push(...paginate(text, TPX, BODY_ROWS));
+  });
+  return pages.length ? pages : ['No reply yet.'];
 }
 
 export function statusLine(row: SessionRow | null, d: SessionDetail | null, flash: string | null): string {
@@ -176,7 +212,7 @@ export function statusLine(row: SessionRow | null, d: SessionDetail | null, flas
 
 export function sessionPage(o: {
   title: string;
-  pages: string[];
+  pages: ReplyPage[];
   page: number;
   status: string;
   pending: Pending | null;
@@ -186,14 +222,17 @@ export function sessionPage(o: {
   const pageMark = n > 1 ? `${o.page + 1}/${n}` : '';
   const tapWord = o.pending ? 'answer' : 'reply';
   const hint = n > 1 ? `Swipe: page   Tap: ${tapWord}   Double tap: back` : `Tap: ${tapWord}   Double tap: back`;
-  return {
-    texts: [
-      head(headLine(clean(o.title), pageMark, o.notice)),
-      { name: 'status', x: X, y: 28, w: TW, h: 30, content: o.status, color: 3 },
-      { name: 'body', x: X, y: 62, w: TW, h: BODY_ROWS * LINE_H + 2, content: o.pages[o.page] ?? '', capture: true },
-      foot(hint),
-    ],
-  };
+  const page = o.pages[o.page] ?? '';
+  const texts: TextBox[] = [
+    head(headLine(clean(o.title), pageMark, o.notice)),
+    { name: 'status', x: X, y: 28, w: TW, h: 30, content: o.status, color: 3 },
+    { name: 'body', x: X, y: BODY_Y, w: TW, h: BODY_H, content: typeof page === 'string' ? page : fit(page.caption, TPX), capture: true },
+    foot(hint),
+  ];
+  if (typeof page === 'string') return { texts };
+  // The picture lies over the body box, under its caption; the body box,
+  // behind it, still takes the swipes and taps (Even Hub: image-first pages).
+  return { texts, images: tableBoxes(page.page, X, BODY_Y + (page.caption ? LINE_H + 2 : 0)) };
 }
 
 // ---------- actions ----------

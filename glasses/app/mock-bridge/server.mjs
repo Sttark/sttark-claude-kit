@@ -23,7 +23,9 @@ let spokenIndex = 0;
 let lastAudioBytes = 0;
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
-const row = ({ last_reply, pending, ...r }) => ({ ...r, has_pending: !!pending });
+const row = ({ last_reply, reply_parts, pending, ...r }) => ({ ...r, has_pending: !!pending });
+// A session's detail: the row, its reply (and the reply's tables as cells, when it has any) and its prompt.
+const detailOf = (s) => ({ ...row(s), last_reply: s.last_reply, ...(s.reply_parts ? { reply_parts: s.reply_parts } : {}), pending: s.pending });
 const RANK = { needs_you: 0, working: 1, waiting: 2, idle: 3 };
 const list = () =>
   sessions
@@ -38,7 +40,7 @@ const clients = new Set();
 // Every change: the list to everyone, and the changed session's detail to
 // whoever has it open.
 function broadcast(s) {
-  const detail = s ? { ...row(s), last_reply: s.last_reply, pending: s.pending } : null;
+  const detail = s ? detailOf(s) : null;
   for (const c of clients) {
     send(c, { type: 'sessions', sessions: list() });
     if (detail && c.subscribed === s.id) send(c, { type: 'session', session: detail });
@@ -61,6 +63,7 @@ function work(s, reply, ms = 5000) {
     s.why = 'Reply ready';
     s.status_line = 'Reply ready';
     s.last_reply = reply;
+    delete s.reply_parts;
     s.updated_at = now();
     log(`"${s.title}" replied`);
     broadcast(s);
@@ -118,6 +121,7 @@ const server = http.createServer(async (req, res) => {
     s.status_line = 'Reply ready';
     s.last_reply =
       'The unit locations section is written: South A, B and E, one table each, with the space each unit serves and its rating. Look at it before I publish it?';
+    delete s.reply_parts;
     s.updated_at = now();
     broadcast(s);
     log('flipped HVAC to needs you');
@@ -146,7 +150,7 @@ const server = http.createServer(async (req, res) => {
   if (m) {
     const s = find(decodeURIComponent(m[1]));
     if (!s) return json(res, 404, { error: 'no such session' });
-    if (!m[2] && req.method === 'GET') return json(res, 200, { ...row(s), last_reply: s.last_reply, pending: s.pending });
+    if (!m[2] && req.method === 'GET') return json(res, 200, detailOf(s));
     if (m[3] === 'message' && req.method === 'POST') {
       const { text } = parse(await body(req));
       if (!text) return json(res, 400, { error: 'text is empty' });
@@ -199,7 +203,7 @@ server.on('upgrade', (req, socket, head) => {
       if (msg.type === 'subscribe') {
         ws.subscribed = msg.id || null;
         const s = msg.id && find(msg.id);
-        if (s) send(ws, { type: 'session', session: { ...row(s), last_reply: s.last_reply, pending: s.pending } });
+        if (s) send(ws, { type: 'session', session: detailOf(s) });
       }
     });
     ws.on('close', () => clients.delete(ws));

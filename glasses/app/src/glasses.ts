@@ -6,9 +6,17 @@
 // Every SDK call goes through one queue, one at a time, each with a time
 // limit (a Bluetooth call that never answers must not freeze the lens). A
 // call that fails makes the next draw a full rebuild.
+//
+// A page can also hold pictures (picture.ts): image boxes of at most 288 x
+// 144, 4 to a page. A new page shows them empty; then each picture goes,
+// one at a time, at least 100 ms apart (the SDK holds a send that comes
+// sooner until the next one), and only when it differs from what shows.
 import {
   AudioInputSource,
   CreateStartUpPageContainer,
+  ImageContainerProperty,
+  ImageRawDataUpdate,
+  ImageRawDataUpdateResult,
   RebuildPageContainer,
   StartUpPageCreateResult,
   TextContainerProperty,
@@ -34,11 +42,26 @@ export interface TextBox {
   pad?: number;
 }
 
+export interface ImageBox {
+  name: string; // at most 16 characters, unique on the page
+  x: number;
+  y: number;
+  w: number; // 20 to 288
+  h: number; // 20 to 144
+  /** What the picture shows: a picture is sent again only when this changes. */
+  key: string;
+  /** The picture as PNG bytes, exactly w x h. */
+  data?: () => Promise<Uint8Array>;
+}
+
 export interface PageSpec {
   texts: TextBox[];
+  images?: ImageBox[];
 }
 
 const CALL_MS = 6000;
+/** The least time between two picture sends (SDK 0.0.14+ holds a sooner one). */
+const IMAGE_GAP_MS = 110;
 
 export class Glasses {
   private queue: Promise<unknown> = Promise.resolve();
@@ -47,6 +70,7 @@ export class Glasses {
   private shown: PageSpec | null = null;
   private wanted: PageSpec | null = null;
   private drawing = false;
+  private lastImageAt = 0;
   constructor(private bridge: EvenAppBridge | null) {}
 
   get present(): boolean {
@@ -116,10 +140,11 @@ export class Glasses {
           return this.draw(spec);
         }
       }
-      return;
+      return this.sendImages(spec, performance.now());
     }
 
     const page = toContainers(spec);
+    const t0 = performance.now();
     try {
       if (!this.created) {
         const r = await this.call('createStartUpPageContainer', () => b.createStartUpPageContainer(new CreateStartUpPageContainer(page)));
@@ -144,9 +169,50 @@ export class Glasses {
         }
       }
       this.shown = clone(spec);
+      // A new page shows its image boxes empty.
+      for (const im of this.shown.images ?? []) im.key = '';
     } catch {
       this.shown = null;
+      return;
     }
+    return this.sendImages(spec, t0);
+  }
+
+  /** Send the pictures that differ from what shows, one at a time. Stops
+   *  when a newer page waits: its draw sends what is still out of date. */
+  private async sendImages(spec: PageSpec, t0: number): Promise<void> {
+    const b = this.bridge;
+    const images = spec.images ?? [];
+    if (!b || !images.length) return;
+    const took: number[] = [];
+    for (const [i, im] of images.entries()) {
+      const old = this.shown?.images?.find((o) => o.name === im.name);
+      if (!old || old.key === im.key || !im.data) continue;
+      if (this.wanted) return;
+      let bytes: Uint8Array;
+      try {
+        bytes = await im.data();
+      } catch (e) {
+        console.warn(`[glasses] picture ${im.name} not drawn: ${(e as Error)?.message || e}`);
+        continue;
+      }
+      const wait = this.lastImageAt + IMAGE_GAP_MS - performance.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      const t1 = (this.lastImageAt = performance.now());
+      try {
+        const r = await this.call('updateImageRawData', () =>
+          b.updateImageRawData(new ImageRawDataUpdate({ containerID: spec.texts.length + i + 1, containerName: im.name, imageData: bytes })),
+        );
+        if (!ImageRawDataUpdateResult.isSuccess(ImageRawDataUpdateResult.normalize(r))) throw new Error(String(r));
+        old.key = im.key;
+        took.push(Math.round(performance.now() - t1));
+      } catch (e) {
+        console.warn(`[glasses] picture ${im.name} not shown: ${(e as Error)?.message || e}`);
+        this.shown = null;
+        return;
+      }
+    }
+    if (took.length) console.log(`[glasses] pictures ${took.length} sent (${took.join(', ')} ms each), page shown in ${Math.round(performance.now() - t0)} ms`);
   }
 
   /** Start or stop the glasses microphone. */
@@ -194,12 +260,26 @@ function toContainers(spec: PageSpec) {
         ...(t.color !== undefined ? { textColor: t.color } : {}),
       }),
   );
-  return { containerTotalNum: textObject.length, textObject };
+  const imageObject = (spec.images ?? []).map(
+    (im, i) =>
+      new ImageContainerProperty({
+        xPosition: im.x,
+        yPosition: im.y,
+        width: im.w,
+        height: im.h,
+        containerID: textObject.length + i + 1,
+        containerName: im.name,
+      }),
+  );
+  return { containerTotalNum: textObject.length + imageObject.length, textObject, ...(imageObject.length ? { imageObject } : {}) };
 }
 
-/** Everything about a page except the words in its text boxes. */
+/** Everything about a page except the words in its text boxes and what its pictures show. */
 function layoutKey(spec: PageSpec): string {
-  return JSON.stringify(spec.texts.map(({ content: _c, color: _k, ...rest }) => rest));
+  return JSON.stringify([
+    spec.texts.map(({ content: _c, color: _k, ...rest }) => rest),
+    (spec.images ?? []).map(({ key: _k, data: _d, ...rest }) => rest),
+  ]);
 }
 
 function clone(spec: PageSpec): PageSpec {

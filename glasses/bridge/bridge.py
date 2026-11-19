@@ -365,6 +365,7 @@ class Hub:
         req = self.pending_req(s, evs)
         out = dict(row)
         out['last_reply'] = detail.last_reply(evs)
+        out['reply_parts'] = detail.last_reply_parts(evs)
         out['pending'] = detail.view(req, self.partials.get(req['request_id'])) if req else None
         out['has_pending'] = bool(out['pending'])
         return out

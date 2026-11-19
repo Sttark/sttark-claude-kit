@@ -188,6 +188,44 @@ def plain(md):
     return text.strip()
 
 
+def parts(md):
+    """Markdown as parts, for a lens that draws a table as a picture: [{'text': ...}, {'table': {'heads', 'rows'}}].
+    The text between tables is plain() text. A table keeps its cells, as words (no marks, a status emoji as its
+    word), every row as long as the header. A header with no rows stays text, as plain() writes it."""
+    if not md:
+        return []
+    lines = md.replace('\r\n', '\n').split('\n')
+    out, buf, in_code, i = [], [], False, 0
+
+    def flush():
+        t = plain('\n'.join(buf))
+        if t:
+            out.append({'text': t})
+        buf.clear()
+
+    while i < len(lines):
+        line = lines[i]
+        if _FENCE.match(line):
+            in_code = not in_code
+        elif not in_code and _table_start(lines, i):
+            j, rows = i + 2, []
+            while j < len(lines) and lines[j].strip() and '|' in lines[j] and not _FENCE.match(lines[j]):
+                rows.append([_status_text(_cell_text(c)) for c in _cells(lines[j])])
+                j += 1
+            if rows:
+                flush()
+                heads = [_status_text(_cell_text(c)) for c in _cells(line)]
+                n = max([len(heads)] + [len(r) for r in rows])
+                out.append({'table': {'heads': heads + [''] * (n - len(heads)),
+                                      'rows': [r + [''] * (n - len(r)) for r in rows]}})
+                i = j
+                continue
+        buf.append(line)
+        i += 1
+    flush()
+    return out
+
+
 # -- events ---------------------------------------------------------------------------------------------------------
 
 def payload(ev):
@@ -213,15 +251,25 @@ def message_text(p):
     return '\n\n'.join(out)
 
 
-def last_reply(events):
-    """The text of the newest assistant message that has text (events newest first), as plain text."""
+def _last_text(events):
+    """The markdown of the newest assistant message that has text (events newest first)."""
     for ev in events:
         p = payload(ev)
         if p.get('type') == 'assistant':
             t = message_text(p).strip()
             if t:
-                return plain(t)
+                return t
     return ''
+
+
+def last_reply(events):
+    """The text of the newest assistant message that has text (events newest first), as plain text."""
+    return plain(_last_text(events))
+
+
+def last_reply_parts(events):
+    """The same reply as parts(): its tables kept as cells, for the lens to draw as pictures."""
+    return parts(_last_text(events))
 
 
 def find_pending(events):

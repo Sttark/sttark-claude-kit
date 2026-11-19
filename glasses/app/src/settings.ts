@@ -11,6 +11,9 @@ export interface Settings {
   token: string;
   folder: string;
   swapSwipe: boolean;
+  /** Draw a reply's tables as pictures with real columns (picture.ts);
+   *  off: each row as a text card. */
+  tablePictures: boolean;
   /** Test mode only, from the address: refuse every change. Never stored. */
   readonly: boolean;
   /** Test mode only, from the address: show only the sessions whose title
@@ -26,6 +29,7 @@ export const DEFAULTS: Settings = {
   token: import.meta.env.VITE_BRIDGE_TOKEN || '',
   folder: '',
   swapSwipe: false,
+  tablePictures: true,
   readonly: false,
   only: '',
 };
@@ -34,7 +38,7 @@ let current: Settings = { ...DEFAULTS };
 let host: EvenAppBridge | null = null;
 const listeners = new Set<(s: Settings) => void>();
 
-/** Values from the address (?bridge=&token=&readonly=1&only=G2) win for this
+/** Values from the address (?bridge=&token=&readonly=1&only=G2&pictures=0) win for this
  *  run only, so a test can point the simulator at the mock without saving. */
 function fromAddress(): Partial<Settings> {
   const q = new URLSearchParams(location.search);
@@ -43,6 +47,7 @@ function fromAddress(): Partial<Settings> {
   if (q.get('token')) o.token = q.get('token')!;
   if (q.get('readonly') === '1') o.readonly = true;
   if (q.get('only')?.trim()) o.only = q.get('only')!.trim();
+  if (q.get('pictures') === '0' || q.get('pictures') === '1') o.tablePictures = q.get('pictures') === '1';
   return o;
 }
 
@@ -88,6 +93,12 @@ export async function saveSettings(next: Partial<Settings>): Promise<void> {
   }
   // A value given in the address still wins for this run.
   current = { ...current, ...addr };
+  listeners.forEach((f) => f(current));
+}
+
+/** Change settings for this run only, never stored (a dev-server test hook). */
+export function setForRun(next: Partial<Settings>): void {
+  current = { ...current, ...next };
   listeners.forEach((f) => f(current));
 }
 

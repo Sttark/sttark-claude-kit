@@ -14,6 +14,7 @@ export function startPanel(app: Controller): void {
   const token = $<HTMLInputElement>('bridge-token');
   const folder = $<HTMLSelectElement>('new-folder');
   const swap = $<HTMLInputElement>('swap-swipe');
+  const pictures = $<HTMLInputElement>('table-pictures');
   const form = $<HTMLFormElement>('settings');
   const err = $<HTMLParagraphElement>('form-error');
   const show = $<HTMLButtonElement>('token-show');
@@ -22,6 +23,7 @@ export function startPanel(app: Controller): void {
   url.value = s.bridgeUrl;
   token.value = s.token;
   swap.checked = s.swapSwipe;
+  pictures.checked = s.tablePictures;
   $('readonly-chip').hidden = !s.readonly;
   $('only-chip').hidden = !s.only;
   $('only-words').textContent = `Test mode: only sessions whose name starts with ${s.only}`;
@@ -33,10 +35,11 @@ export function startPanel(app: Controller): void {
     show.setAttribute('aria-pressed', String(on));
   });
 
-  // Folder and swipe direction take effect at once; the address and token
+  // Folder, swipe direction and table pictures take effect at once; the address and token
   // on Save, since a half-typed address should not start a connection.
   folder.addEventListener('change', () => void saveSettings({ folder: folder.value }));
   swap.addEventListener('change', () => void saveSettings({ swapSwipe: swap.checked }));
+  pictures.addEventListener('change', () => void saveSettings({ tablePictures: pictures.checked }).then(() => app.redraw()));
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

@@ -52,7 +52,7 @@ The simulator's page sleeps while the Mac is locked or its window is covered: re
 
 The app writes each screen it shows to its console (`[kit] screen home`, `voice:listening`, ...), so a script can wait for a screen. With the dev server, `curl -X POST --data-binary 'the words' http://127.0.0.1:5181/__kit/typed` puts words in the app as if typed in the phone's box while the glasses listen (from this Mac only; a build has none of it).
 
-`npm test` checks the text layout (pages, bytes, the font's glyphs), the screens' rows and lists, and, with a stand-in bridge, what a swipe and a tap do on a list, the pause after the answers open, and a prompt with two questions.
+`npm test` checks the text layout (pages, bytes, the font's glyphs), the table pictures (columns, pages, cut cells, tiles), the screens' rows and lists, and, with a stand-in bridge, what a swipe and a tap do on a list, the pause after the answers open, and a prompt with two questions.
 
 ## Point it at the real bridge
 
@@ -67,6 +67,32 @@ The bridge runs on the Mac on port 8740. Its token is in `~/Library/Application 
 **End to end:** `node scripts/e2e.mjs --yes-start-a-session` drives the simulator on the real bridge with `only=G2`: it starts a session named "G2 e2e test: ...", opens it from Home, reads its pages, answers its question with one tap, replies with typed words and sends Continue, and after each step waits until the bridge shows the result on the Mac side. Then it sends a spoken sample (macOS `say`, written to a file, never played) to the bridge's speech to text. Pictures go to `shots/e2e/` and `docs/end-to-end.png`. It starts a real Claude Code session: archive it afterward. `--session cse_...` goes on with a G2 session that still asks its question.
 
 ![End to end on the real bridge, a G2 test session](docs/end-to-end.png)
+
+## Tables as pictures
+
+A table in a reply shows as a picture with real columns: the header row dim, the rows at full brightness, "Needs you" in bold, lines between the cells. The table's short lead-in line ("Where the open asks stand:") shows over it. A long table goes on over more pages, the header on each; a cell too long for its column is cut at a clause or a word, with "…"; a table with too many columns shows its first column with each group of the others. The panel's **Tables as pictures** switch turns it off (each row as a text card, as before).
+
+![Text cards and pictures side by side, made-up data](docs/pictures-vs-text.png)
+
+How: the bridge sends the reply's tables as cells (`reply_parts`). The app (`src/picture.ts`) lays the table out: a cell takes a second line before it is cut; a long text column is cut after 2 lines before the table splits; only when the columns still do not fit do they go in groups. It draws each page on a canvas at 21 px (header 18 px), turns each gray into the gray the lens shows at that brightness, and cuts the page into tiles, since an image box takes at most 288 x 144 and a page at most 4 of them. Each tile goes as PNG bytes with `updateImageRawData`, one at a time, at least 100 ms apart. A text box behind the picture takes the swipes and taps. A picture is sent again only when what it shows changes, and every page of a table has the same boxes, so a page turn inside a table sends only the pictures.
+
+What the Even Hub docs and SDK say about pictures:
+
+| | |
+| --- | --- |
+| Image box | 20 to 288 px wide, 20 to 144 px high; at most 4 a page, with 8 other boxes |
+| Gray | 4 bits: 16 steps of green; black is off |
+| Text with pictures | Yes, on one page; boxes can overlap |
+| Speed | Sends one at a time, at least 100 ms apart (SDK 0.0.14). A full-screen picture, 4 boxes, shows in about 800 ms on the glasses |
+| Lens text | One font: no sizes, no bold; 5 brightness steps |
+
+Measured in the simulator (0.9.5): a gray `v` shows as step `v >> 4`, and steps 1 to 8 light at 96, 131, 157, 179, 197, 214, 230 and 244 of 255; steps 9 to 15 all at full. So a gray above 144 looks white, and the soft edge of a letter lights up and makes text look bold. `lensGray` corrects for this (the lab's gray screen measures it). The simulator's brightness is not matched to the glasses, so check this on the glasses. Each send returns in 1 to 9 ms there (no Bluetooth): a 2-box page shows in about 120 ms, a 4-box page in about 350 ms, mostly the 100 ms between sends.
+
+Not official (community notes, github.com/nickustinov/even-g2-notes): on the glasses each send costs about 104 ms plus about 4 ms for each KB of 4-bit pixels (288 x 144 is 20 KB, so about 185 ms), and a page rebuild about 165 ms. So a 2-box table page shows in about 0.5 s, a 4-box page in about 0.9 s.
+
+`node scripts/pictures.mjs` (with the dev server) shows each mock table as a picture and as text cards, and the glance lab (`lab.html`, dev server only: a glance card drawn as a picture with a big bold title, against the same card in lens text, and the gray screen), saves their pictures in `shots/pictures/` with the time each took, and puts them side by side in `docs/pictures-vs-text.png`.
+
+Not tried on glasses yet: how fast the pictures show there, how bright each gray is there, and how the phone's own font (the canvas's font) reads on the lens.
 
 ## Try it on the glasses
 
@@ -95,7 +121,7 @@ JSON, with the header `Authorization: Bearer <token>` on every request. What the
 | --- | --- |
 | `GET /api/health` | `{ok, version}` |
 | `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending}]}`, needs you first. `status` is `needs_you`, `working`, `waiting` or `idle` |
-| `GET /api/sessions/:id` | The same fields, and `last_reply` (text) and `pending`: `null` or `{kind, text, options: [{id, label}]}`, `kind` being `question`, `permission` or `plan` |
+| `GET /api/sessions/:id` | The same fields, and `last_reply` (text), `reply_parts` (optional: `[{text}, {table: {heads, rows}}]`, the same reply with each table's cells, for table pictures) and `pending`: `null` or `{kind, text, options: [{id, label}]}`, `kind` being `question`, `permission` or `plan` |
 | `POST /api/sessions/:id/message` `{text}` | `{ok}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok}`. A prompt with several questions takes one answer at a time: `{ok, done: false, pending}` holds the next question, which the app shows at once |
 | `POST /api/sessions` `{prompt, folder?}` | `{id}`. It can take up to 90 s; the app waits 2 minutes. A message waits up to 60 s, since it goes through a claude.ai page in Chrome |
@@ -114,14 +140,16 @@ TypeScript and Vite, with the Even Hub SDK (`@evenrealities/even_hub_sdk`) and t
 | `src/main.ts` | Starts the app: the SDK, settings, the panel, the input |
 | `src/controller.ts` | The screens and what each gesture does there; keeps in step with the bridge |
 | `src/screens.ts` | What each screen puts on the lens (pure functions) |
-| `src/glasses.ts` | Draws a page: a full rebuild only when the layout changes, otherwise in-place text updates, one SDK call at a time, each with a time limit |
+| `src/glasses.ts` | Draws a page: a full rebuild only when the layout changes, otherwise in-place text updates; then the pictures that changed. One SDK call at a time, each with a time limit |
 | `src/text.ts` | Line wrap and pages measured with the glasses' own font, byte limits, glyphs the font has |
+| `src/picture.ts` | A table as a picture: columns, pages, cut cells, tiles of at most 288 x 144 as PNG bytes |
+| `src/lab.ts`, `lab.html` | Dev server only: the glance lab, a glance card as a picture against lens text |
 | `src/events.ts` | One shape for every input (list, text and system events) |
 | `src/voice.ts` | Collects the mic's audio and asks the bridge for the words |
 | `src/api.ts` | The bridge client |
 | `src/panel.ts`, `index.html`, `src/styles/` | The phone panel, on `sttark-shared.css` |
 | `mock-bridge/` | The mock bridge and its made-up sessions |
-| `scripts/` | The simulator (`sim.mjs`, and `simkit.mjs` to drive it), the walk on the mock (`walk.mjs`), the end-to-end run on the real bridge (`e2e.mjs`), pictures with captions (`sheet.mjs`, needs `brew install librsvg`), fonts and packing |
+| `scripts/` | The simulator (`sim.mjs`, and `simkit.mjs` to drive it), the walk on the mock (`walk.mjs`), the end-to-end run on the real bridge (`e2e.mjs`), table pictures against text cards (`pictures.mjs`), pictures with captions (`sheet.mjs`, needs `brew install librsvg`), fonts and packing |
 
 What the lens allows, and how the app lives with it:
 
@@ -130,7 +158,7 @@ What the lens allows, and how the app lives with it:
 - The font has no emoji, `…`, `•` or curly quotes; the app swaps them (`glyphSafe`).
 - The lens's own list draws every row but the highlighted one dim, scrolls itself, tells the app nothing until a tap, and cannot change in place. So the app draws no lens list: Home and Actions are one text box each, every row at full brightness, the chosen row marked with `>`. The app moves the `>` on each swipe with an in-place text update (no flicker), scrolls the rows itself, and acts on the marked row on a tap.
 - A swipe on a text box comes to the app only at the box's top or bottom. Each reply page and each list fits its box exactly, so every swipe turns the page or moves the `>`.
-- Columns never line up in a proportional font, so the bridge sends each table row as a card: the row's name, then `  Header: cell` lines. The app keeps a line's indent when it wraps, never ends a page on a card's name alone, and drops the blank line before a card when that keeps the card on the page.
+- Columns never line up in a proportional font, so the app draws a reply's tables as pictures (below). With Tables as pictures off, or a bridge that sends no `reply_parts`, the bridge's text has each table row as a card: the row's name, then `  Header: cell` lines. The app keeps a line's indent when it wraps, never ends a page on a card's name alone, and drops the blank line before a card when that keeps the card on the page.
 - The first screen must use the system's close question on double tap (Even Hub review checks it).
 
 Not tried on glasses yet (the simulator differs from them): the glasses mic, which way a swipe turns a page (the panel has Swap swipe direction for that), whether the Even app takes a LAN `http://` address in the network list, and how the app keeps up while the phone is locked.
