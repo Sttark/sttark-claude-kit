@@ -11,7 +11,7 @@ import { Dictation } from './voice';
 type Screen =
   | { kind: 'home' }
   | { kind: 'session'; id: string; page: number; flash: string | null; replyKey: string }
-  | { kind: 'actions'; id: string; items: S.ActionItem[]; pending: Pending | null; ask: string[]; message: string | null; busy: boolean }
+  | { kind: 'actions'; id: string; items: S.ActionItem[]; sel: number; first: number; pending: Pending | null; ask: string[]; message: string | null; busy: boolean }
   | { kind: 'voice'; purpose: 'reply' | 'new'; id: string | null; phase: 'listening' | 'finishing' | 'sending' | 'empty' | 'error'; text: string; note: string | null }
   | { kind: 'confirm'; prompt: string; busy: boolean; error: string | null };
 
@@ -42,6 +42,12 @@ export class Controller {
   private loaded = false;
   private details = new Map<string, SessionDetail>();
   private homeRows: S.HomeRow[] = [];
+  /** The marked row on Home: a session id, or null for + New session. It
+   *  follows its session when the rows move; homeAt is the fallback when
+   *  the session leaves the list. */
+  private homeSel: string | null = null;
+  private homeAt = 0;
+  private homeFirst = 0;
   private conn: ConnState = 'connecting';
   private error = '';
   private version: string | null = null;
@@ -61,6 +67,11 @@ export class Controller {
   private openedAt = 0;
   private listeners = new Set<(s: Snapshot) => void>();
   private generation = 0;
+  /** The screen last drawn, as one word, for the log (scripts/e2e.mjs waits on it). */
+  private shownKey = '';
+  /** Sessions started from these glasses in this run: test mode (only=) keeps
+   *  them when the Kit renames them after their first prompt. */
+  private startedHere = new Set<string>();
 
   constructor(
     private bridge: Bridge,
@@ -242,7 +253,9 @@ export class Controller {
 
   // ---------- data in ----------
 
-  private applyRows(rows: SessionRow[]): void {
+  private applyRows(all: SessionRow[]): void {
+    const only = settings().only.toLowerCase();
+    const rows = only ? all.filter((r) => this.startedHere.has(r.id) || (r.title || '').trim().toLowerCase().startsWith(only)) : all;
     if (this.loaded) {
       const before = new Map(this.rows.map((r) => [r.id, r.status]));
       // Not the session on the screen now: its own status line says so.
@@ -276,8 +289,8 @@ export class Controller {
       }
     }
     if (sc.kind === 'actions' && sc.id === d.id && sc.pending && !sameQuestion(sc.pending, d.pending)) {
-      // Answered somewhere else. The rows stay put (a rebuild would move
-      // the highlight under the person's finger); only the words change.
+      // Answered somewhere else. The rows stay put, so the > stays on the
+      // row under the person's finger; only the words change.
       sc.message = 'This was answered on another screen.';
     }
     this.render();
@@ -308,7 +321,28 @@ export class Controller {
   // ---------- drawing ----------
 
   private render(): void {
+    const key = this.screenKey();
+    if (key !== this.shownKey) {
+      this.shownKey = key;
+      console.log(`[kit] screen ${key}`);
+    }
     this.lens.show(this.page());
+  }
+
+  private screenKey(): string {
+    const sc = this.screen;
+    switch (sc.kind) {
+      case 'home':
+        return this.loaded ? 'home' : `connect:${this.conn}`;
+      case 'voice':
+        return `voice:${sc.phase}`;
+      case 'confirm':
+        return sc.busy ? 'confirm:starting' : sc.error ? 'confirm:error' : 'confirm';
+      case 'actions':
+        return sc.busy ? 'actions:sending' : 'actions';
+      default:
+        return sc.kind;
+    }
   }
 
   private offlineWords(): string | null {
@@ -324,8 +358,11 @@ export class Controller {
       case 'home': {
         if (!this.loaded) return this.connectionPage(notice);
         this.homeRows = S.homeRows(this.rows);
+        const sel = this.homeIndex();
         return S.homePage({
           rows: this.homeRows,
+          sel,
+          first: this.homeFirst,
           needCount: this.rows.filter((r) => r.status === 'needs_you').length,
           offline: this.offlineWords(),
           notice,
@@ -345,7 +382,7 @@ export class Controller {
         const row = this.rows.find((r) => r.id === sc.id) ?? null;
         let ask = sc.ask;
         if (sc.message) ask = [sc.message, ...sc.ask.slice(1).map(() => '')];
-        return S.actionsPage({ title: d?.title || row?.title || 'Session', ask, items: sc.items, message: null, notice });
+        return S.actionsPage({ title: d?.title || row?.title || 'Session', ask, items: sc.items, sel: sc.sel, first: sc.first, notice });
       }
       case 'voice': {
         const title = sc.purpose === 'new' ? 'New session' : `Reply to ${S.clean(this.titleOf(sc.id))}`;
@@ -421,6 +458,18 @@ export class Controller {
     return this.details.get(id)?.title || this.rows.find((r) => r.id === id)?.title || 'Session';
   }
 
+  /** The marked Home row's index now: its session's row, wherever it moved;
+   *  the same place when that session left the list. Keeps the rows in view. */
+  private homeIndex(): number {
+    const rows = this.homeRows;
+    let i = rows.findIndex((r) => r.id === this.homeSel);
+    if (i < 0) i = Math.max(0, Math.min(this.homeAt, rows.length - 1));
+    this.homeSel = rows[i]?.id ?? null;
+    this.homeAt = i;
+    this.homeFirst = S.scrollTo(this.homeFirst, i, rows.length, S.HOME_ROWS);
+    return i;
+  }
+
   private newFolder(): Folder | null {
     const want = settings().folder;
     return this.folders.find((f) => f.path === want) ?? this.folders[0] ?? null;
@@ -459,18 +508,13 @@ export class Controller {
         return;
       }
       case 'tap': {
-        const onList = this.screen.kind === 'home' && this.loaded ? true : this.screen.kind === 'actions';
-        if (onList && input.from !== 'list') {
-          // On a list, only the list's own event says which row; a system
-          // tap that comes with it is the same gesture.
-          return;
-        }
+        // One tap can come as a text event and a system event: the same gesture.
         if (now - this.lastTap < 300) return;
-        // On the answer list the first row is an answer: a tap that comes
-        // right after the tap that opened it is not a choice.
+        // On the answer list the marked row can be an answer: a tap that
+        // comes right after the tap that opened it is not a choice.
         if (this.screen.kind === 'actions' && now - this.openedAt < 700) return;
         this.lastTap = now;
-        this.tap(input);
+        this.tap();
         return;
       }
     }
@@ -478,15 +522,32 @@ export class Controller {
 
   private swipe(forward: boolean): void {
     const sc = this.screen;
+    const step = forward ? 1 : -1;
+    if (sc.kind === 'home') {
+      if (!this.loaded || !this.homeRows.length) return;
+      const i = Math.max(0, Math.min(this.homeRows.length - 1, this.homeIndex() + step));
+      this.homeSel = this.homeRows[i].id;
+      this.homeAt = i;
+      this.render();
+      return;
+    }
+    if (sc.kind === 'actions') {
+      const i = Math.max(0, Math.min(sc.items.length - 1, sc.sel + step));
+      if (i === sc.sel) return;
+      sc.sel = i;
+      sc.first = S.scrollTo(sc.first, i, sc.items.length, S.actionRows(sc.ask.length));
+      this.render();
+      return;
+    }
     if (sc.kind !== 'session') return;
     const n = S.sessionPages(this.details.get(sc.id) ?? null).length;
-    const next = Math.max(0, Math.min(n - 1, sc.page + (forward ? 1 : -1)));
+    const next = Math.max(0, Math.min(n - 1, sc.page + step));
     if (next === sc.page) return;
     sc.page = next;
     this.render();
   }
 
-  private tap(input: Extract<Input, { kind: 'tap' }>): void {
+  private tap(): void {
     const sc = this.screen;
     switch (sc.kind) {
       case 'home': {
@@ -494,7 +555,7 @@ export class Controller {
           if (this.conn === 'down' || this.conn === 'auth') this.reconnect();
           return;
         }
-        const row = pick(this.homeRows, input, (r) => r.label);
+        const row = this.homeRows[this.homeIndex()];
         if (!row) return;
         if (row.id === null) this.startVoice('new', null);
         else this.openSession(row.id);
@@ -505,7 +566,7 @@ export class Controller {
         return;
       case 'actions': {
         if (sc.busy) return;
-        const item = pick(sc.items, input, (i) => i.label);
+        const item = sc.items[sc.sel];
         if (!item) return;
         if (item.kind === 'back') this.openSession(sc.id, false);
         else if (item.kind === 'voice') this.startVoice('reply', sc.id);
@@ -557,6 +618,8 @@ export class Controller {
   }
 
   private openSession(id: string, fresh = true): void {
+    // Back on Home, the mark is on this session.
+    this.homeSel = id;
     const d = this.details.get(id);
     this.screen = { kind: 'session', id, page: 0, flash: null, replyKey: d ? replyKey(d) : '' };
     this.socket?.subscribe(id);
@@ -584,9 +647,9 @@ export class Controller {
     const pending = d?.pending ?? null;
     let ask = S.askText(pending);
     // Always one line above the rows, so a message there never changes the
-    // layout (a rebuild would move the highlight under the finger).
+    // layout (a rebuild redraws the whole page, which flickers).
     if (!ask.length) ask = [d?.status === 'working' ? 'Claude is working. A reply adds to the work.' : 'Reply, or tell Claude to continue.'];
-    this.screen = { kind: 'actions', id, items: S.actionItems(pending), pending, ask, message: null, busy: false };
+    this.screen = { kind: 'actions', id, items: S.actionItems(pending), sel: 0, first: 0, pending, ask, message: null, busy: false };
     this.openedAt = Date.now();
     this.render();
     this.changed();
@@ -603,7 +666,16 @@ export class Controller {
     sc.message = `Sending: ${label.replace(/^\d+\s+/, '')}...`;
     this.render();
     try {
-      await this.bridge.answer(sc.id, optionId);
+      const r = await this.bridge.answer(sc.id, optionId);
+      if (r.done === false && r.pending) {
+        // A prompt with more questions: the bridge keeps this answer and
+        // shows the next question; all go to the session after the last.
+        if (this.screen !== sc) return;
+        const d = this.details.get(sc.id);
+        if (d) this.details.set(sc.id, { ...d, pending: r.pending, has_pending: true });
+        this.openActions(sc.id);
+        return;
+      }
       this.afterSend(sc.id, `Sent: ${label.replace(/^\d+\s+/, '')}`);
     } catch (e) {
       if (this.screen !== sc) return;
@@ -749,6 +821,7 @@ export class Controller {
     try {
       const folder = this.newFolder();
       const { id } = await this.bridge.start(sc.prompt, folder?.path);
+      this.startedHere.add(id);
       if (this.screen !== sc) return;
       const title = S.clean(sc.prompt).split(' ').slice(0, 6).join(' ');
       const row: SessionRow = { id, title, status: 'working', has_pending: false };
@@ -774,14 +847,4 @@ function replyKey(d: SessionDetail): string {
 function sameQuestion(a: Pending | null, b: Pending | null): boolean {
   if (!a || !b) return a === b;
   return a.kind === b.kind && a.text === b.text && a.options.map((o) => o.id).join() === b.options.map((o) => o.id).join();
-}
-
-/** The row a list tap meant: by its words first (they survive a rebuild),
- *  then by its index (missing for the first row). */
-function pick<T>(items: T[], input: Extract<Input, { kind: 'tap' }>, label: (t: T) => string): T | undefined {
-  if (input.name) {
-    const byName = items.find((i) => label(i).trim() === input.name!.trim());
-    if (byName) return byName;
-  }
-  return items[input.index ?? 0];
 }

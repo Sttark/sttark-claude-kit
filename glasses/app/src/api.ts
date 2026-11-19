@@ -54,6 +54,11 @@ export interface BridgeConfig {
 
 const TIMEOUT_MS = 8000;
 const TRANSCRIBE_TIMEOUT_MS = 30000;
+// A message goes from the Mac through a claude.ai page in Chrome, which can
+// take a while when Chrome has to open the page first. A new session can
+// wait up to 90 s for its Claude Code to connect (bridge README).
+const SEND_TIMEOUT_MS = 60000;
+const START_TIMEOUT_MS = 120000;
 
 export class Bridge {
   constructor(private cfg: () => BridgeConfig) {}
@@ -111,13 +116,20 @@ export class Bridge {
     return this.req<SessionDetail>('GET', `/api/sessions/${encodeURIComponent(id)}`);
   }
   message(id: string, text: string) {
-    return this.req<{ ok: boolean }>('POST', `/api/sessions/${encodeURIComponent(id)}/message`, JSON.stringify({ text }), 'application/json');
+    return this.req<{ ok: boolean }>('POST', `/api/sessions/${encodeURIComponent(id)}/message`, JSON.stringify({ text }), 'application/json', SEND_TIMEOUT_MS);
   }
+  /** `done: false` with `pending`: the prompt has more questions; this answer is kept and `pending` is the next one. */
   answer(id: string, optionId: string) {
-    return this.req<{ ok: boolean }>('POST', `/api/sessions/${encodeURIComponent(id)}/answer`, JSON.stringify({ option_id: optionId }), 'application/json');
+    return this.req<{ ok: boolean; done?: boolean; pending?: Pending | null }>(
+      'POST',
+      `/api/sessions/${encodeURIComponent(id)}/answer`,
+      JSON.stringify({ option_id: optionId }),
+      'application/json',
+      SEND_TIMEOUT_MS,
+    );
   }
   start(prompt: string, folder?: string) {
-    return this.req<{ id: string }>('POST', '/api/sessions', JSON.stringify(folder ? { prompt, folder } : { prompt }), 'application/json');
+    return this.req<{ id: string }>('POST', '/api/sessions', JSON.stringify(folder ? { prompt, folder } : { prompt }), 'application/json', START_TIMEOUT_MS);
   }
   async folders(): Promise<Folder[]> {
     return (await this.req<{ folders: Folder[] }>('GET', '/api/folders')).folders || [];

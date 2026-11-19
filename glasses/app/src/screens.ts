@@ -3,15 +3,14 @@
 // brightness steps. A header line sits on every screen, so a notice can
 // show there on any screen without taking the input.
 import type { Pending, SessionDetail, SessionRow, Status } from './api';
-import type { ListBox, PageSpec, TextBox } from './glasses';
-import { ITEM_BYTES, LINE_H, byteLength, clampBytes, fit, padTo, paginate, plainReply, spread, width, wrapLines } from './text';
+import type { PageSpec, TextBox } from './glasses';
+import { LINE_H, fit, padTo, paginate, plainReply, spread, width, wrapLines } from './text';
 
 export const W = 576;
 export const H = 288;
 const X = 8;
 const TW = W - 2 * X; // text box width
 const TPX = TW - 4; // what a line may fill, with a little room for rounding
-const ROW_PX = W - 2 * 12 - 16; // a list row's words (12 px padding each side, the highlight border)
 
 export const BODY_ROWS = 7;
 
@@ -59,17 +58,52 @@ function headLine(text: string, right: string, notice: string | null): string {
   return notice ? fit(`! ${notice}`, TPX) : spread(text, right, TPX);
 }
 
-/** A list as tall as its rows (40 px each): the lens centers rows in a
- *  taller list, which leaves a gap under the words above it. */
-function listHeight(rows: number, most: number): number {
-  return Math.min(rows, most) * 40 + 4;
+// ---------- lists ----------
+// The lens's own list widget draws every row but the highlighted one dim,
+// which is hard to read on the move. So a list here is one text box: every
+// row at full brightness, the chosen row marked with ">" in a column of its
+// own. A swipe moves the mark with an in-place text update (no flicker, no
+// redraw of the page), the rows scroll when there are more than the box
+// shows, and a tap acts on the marked row. The box always holds its lines
+// exactly, so every swipe on it comes to the app.
+
+const PICK_COL = 20; // ">" and two spaces, or four spaces: the same width
+const ROW_PX = TPX - PICK_COL; // what a row's words may fill
+
+/** The first row to show, so the marked row is in view with a row of the
+ *  list above and below it when there is one. Moves as little as it can. */
+export function scrollTo(first: number, sel: number, count: number, rows: number): number {
+  if (count <= rows) return 0;
+  const lo = Math.max(0, sel - 1);
+  const hi = Math.min(count - 1, sel + 1);
+  let f = first;
+  if (lo < f) f = lo;
+  if (hi > f + rows - 1) f = hi - rows + 1;
+  return Math.max(0, Math.min(f, count - rows));
+}
+
+/** The lines a list shows: `rows` rows from `first`, the marked row with ">". */
+export function listLines(labels: string[], sel: number, first: number, rows: number): string {
+  const out: string[] = [];
+  for (let i = first; i < Math.min(labels.length, first + rows); i++) {
+    out.push(padTo(i === sel ? '>' : '', PICK_COL) + fit(labels[i], ROW_PX));
+  }
+  return out.join('\n');
+}
+
+/** Where the marked row is, for the header, when the list is longer than its box. */
+function position(sel: number, count: number, rows: number): string {
+  return count > rows ? `${sel + 1}/${count}` : '';
 }
 
 // ---------- home ----------
 
 export const NEW_ROW = '+ New session';
-const MAX_SESSION_ROWS = 19; // a list holds 20 rows
+const MAX_SESSION_ROWS = 40;
 const MARK_COL = 22;
+/** Rows Home shows at once, under the header line. */
+export const HOME_ROWS = 9;
+const HOME_Y = 34;
 
 export interface HomeRow {
   label: string;
@@ -81,28 +115,36 @@ export function homeRows(sessions: SessionRow[]): HomeRow[] {
   for (const s of sortRows(sessions).slice(0, MAX_SESSION_ROWS)) {
     const mark = padTo(MARK[s.status], MARK_COL);
     const words = ` · ${statusWords(s)}`;
-    // A row holds 63 bytes, so the status words follow the title (lining
-    // them up in a column would take more spaces than a row holds).
-    let title = fit(clean(s.title) || 'Untitled session', ROW_PX - width(mark) - width(words));
-    title = clampBytes(title, ITEM_BYTES - byteLength(mark) - byteLength(words));
+    // The status words follow the title, so a short title is not followed
+    // by a run of spaces; a long title is cut to make room for them.
+    const title = fit(clean(s.title) || 'Untitled session', ROW_PX - width(mark) - width(words));
     rows.push({ label: `${mark}${title}${words}`, id: s.id });
   }
   return rows;
 }
 
-export function homePage(o: { rows: HomeRow[]; needCount: number; offline: string | null; notice: string | null }): PageSpec {
+export function homePage(o: { rows: HomeRow[]; sel: number; first: number; needCount: number; offline: string | null; notice: string | null }): PageSpec {
   const count = o.needCount === 0 ? 'Nothing needs you' : `${o.needCount} need${o.needCount === 1 ? 's' : ''} you`;
-  // At most six whole rows of 40 px; the list scrolls for more.
-  const list: ListBox = {
-    name: 'sessions',
-    x: 0,
-    y: 36,
-    w: W,
-    h: listHeight(o.rows.length, 6),
-    items: o.rows.map((r) => r.label),
-    capture: true,
+  const right = [o.offline ?? '', position(o.sel, o.rows.length, HOME_ROWS)].filter(Boolean).join('   ');
+  return {
+    texts: [
+      head(headLine(`Kit   ${count}`, right, o.notice)),
+      {
+        name: 'sessions',
+        x: X,
+        y: HOME_Y,
+        w: TW,
+        h: HOME_ROWS * LINE_H + 2,
+        content: listLines(
+          o.rows.map((r) => r.label),
+          o.sel,
+          o.first,
+          HOME_ROWS,
+        ),
+        capture: true,
+      },
+    ],
   };
-  return { texts: [head(headLine(`Kit   ${count}`, o.offline ?? '', o.notice))], list };
 }
 
 // ---------- one session ----------
@@ -186,18 +228,37 @@ export function askText(pending: Pending | null): string[] {
   return lines;
 }
 
-export function actionsPage(o: { title: string; ask: string[]; items: ActionItem[]; message: string | null; notice: string | null }): PageSpec {
-  const askLines = o.message ? [fit(o.message, TPX)] : o.ask;
-  const texts: TextBox[] = [head(headLine(clean(o.title), '', o.notice), 3)];
-  let y = 32;
-  if (askLines.length) {
-    texts.push({ name: 'ask', x: X, y: 30, w: TW, h: askLines.length * LINE_H + 2, content: askLines.join('\n'), color: 4 });
-    y = 30 + askLines.length * LINE_H + 6;
+/** Where the actions start and how many show at once, under `askLines` lines. */
+function actionsBox(askLines: number): { y: number; rows: number } {
+  const y = askLines ? 30 + askLines * LINE_H + 6 : 34;
+  return { y, rows: Math.floor((H - y - 2) / LINE_H) };
+}
+
+export function actionRows(askLines: number): number {
+  return actionsBox(askLines).rows;
+}
+
+export function actionsPage(o: { title: string; ask: string[]; items: ActionItem[]; sel: number; first: number; notice: string | null }): PageSpec {
+  const box = actionsBox(o.ask.length);
+  const texts: TextBox[] = [head(headLine(clean(o.title), position(o.sel, o.items.length, box.rows), o.notice), 3)];
+  if (o.ask.length) {
+    texts.push({ name: 'ask', x: X, y: 30, w: TW, h: o.ask.length * LINE_H + 2, content: o.ask.map((l) => fit(l, TPX)).join('\n'), color: 4 });
   }
-  return {
-    texts,
-    list: { name: 'actions', x: 0, y, w: W, h: Math.min(H - y, listHeight(o.items.length, 6)), items: o.items.map((i) => i.label), capture: true },
-  };
+  texts.push({
+    name: 'actions',
+    x: X,
+    y: box.y,
+    w: TW,
+    h: box.rows * LINE_H + 2,
+    content: listLines(
+      o.items.map((i) => i.label),
+      o.sel,
+      o.first,
+      box.rows,
+    ),
+    capture: true,
+  });
+  return { texts };
 }
 
 // ---------- voice, confirm, messages: one shape ----------

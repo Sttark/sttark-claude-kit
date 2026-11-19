@@ -12,11 +12,13 @@ The glasses have a touch strip on each temple (and the optional R1 ring): tap, d
 
 | Screen | Swipe | Tap | Double tap |
 | --- | --- | --- | --- |
-| Home: the sessions, needs you first, with `+ New session` on top | Moves the highlight | Opens the session, or starts a new one | Asks to close the app (the system's own question) |
+| Home: the sessions, needs you first, with `+ New session` on top | Moves the `>` | Opens the session, or starts a new one | Asks to close the app (the system's own question) |
 | Session: title, status, the last reply in pages | Next or last page | Opens the actions | Back to Home |
-| Actions: a question's answers first, then Reply by voice, Continue, Back | Moves the highlight | Does it. An answer goes at once | Back to the session |
+| Actions: a question's answers first, then Reply by voice, Continue, Back | Moves the `>` | Does it. An answer goes at once | Back to the session |
 | Reply by voice: Listening, and the words as they come | Nothing | Sends the words | Cancels |
 | New session: speak, then "Start this new session?" | Nothing | Done speaking, then Start | Cancels |
+
+Every row shows at full brightness; `>` marks the row a tap acts on. Back on Home, the `>` is on the session you had open. When a list is longer than the lens, it scrolls with the `>`, and the top line shows where you are (`4/12`).
 
 Status marks on Home: `!` needs you, `▷` working, `○` waiting on someone else, `-` idle. The words after the title say the same thing.
 
@@ -42,13 +44,15 @@ npm run sim     # the Even Hub simulator, on the app and the mock bridge
 
 `npm run sim` opens the simulator's two windows (the lens and the phone page). A new window can take the keyboard, so it starts only when nobody has used the Mac for 2 minutes, and gives the front back to the app that had it. At the Mac, `KIT_SIM_ANYWAY=1 npm run sim` starts it at once. `npm run sim -- --stop` closes it.
 
-In the simulator, its Up and Down controls swipe, Click taps and Double Click double taps. The simulator records the Mac's own microphone; the mock bridge turns any sound into a made-up sentence. On the phone page, the typed box works too.
+In the simulator, the buttons under the lens are the gestures: Down and Up swipe (keys S, J or ↓, and W, K or ↑), Click taps (Space or Enter) and Double Click double taps (Space or Enter two times, fast). The keys work while the Glasses Display window is in front. The simulator records the Mac's own microphone; the mock bridge turns any sound into a made-up sentence. On the phone page, the typed box works too. `../TRY-IT.md` has the shortest way to run it all.
 
-`npm run walk` goes through every screen and action on its own (the dev server must run) and saves a picture of each in `shots/`: the lens as `NN-step.png`, the phone page as `panel-*.png`. It starts its own mock bridge (port 8742) and simulator.
+`npm run walk` goes through every screen and action on its own (the dev server must run) and saves a picture of each in `shots/`: the lens as `NN-step.png`, the phone page as `panel-*.png`, and six of them as `docs/lens-screens.png`. It starts its own mock bridge (port 8742) and simulator.
 
 The simulator's page sleeps while the Mac is locked or its window is covered: replies from the bridge and timers wait until the next input. The walk pokes it with a long press and its release, which the app ignores.
 
-`npm test` checks the text layout (pages, bytes, the font's glyphs) and the screens' rows.
+The app writes each screen it shows to its console (`[kit] screen home`, `voice:listening`, ...), so a script can wait for a screen. With the dev server, `curl -X POST --data-binary 'the words' http://127.0.0.1:5181/__kit/typed` puts words in the app as if typed in the phone's box while the glasses listen (from this Mac only; a build has none of it).
+
+`npm test` checks the text layout (pages, bytes, the font's glyphs), the screens' rows and lists, and, with a stand-in bridge, what a swipe and a tap do on a list, the pause after the answers open, and a prompt with two questions.
 
 ## Point it at the real bridge
 
@@ -57,8 +61,12 @@ The bridge runs on the Mac on port 8740. Its token is in `~/Library/Application 
 - **On the phone:** in the panel, enter `http://<the Mac's address>:8740` and the token, then Save and connect.
 - **In the simulator:** give both in the address, so nothing is saved:
   `KIT_SIM_ANYWAY=1 node scripts/sim.mjs "http://localhost:5181/?bridge=http://127.0.0.1:8740&token=$(cat ~/Library/Application\ Support/Sttark\ Kit\ Glasses/token)&readonly=1"`
-  `readonly=1` makes the app refuse to send anything (messages, answers, new sessions): use it to look at real sessions without touching them.
+  `readonly=1` makes the app refuse to send anything (messages, answers, new sessions): use it to look at real sessions without touching them. `only=G2` shows only the sessions whose name starts with G2, and the ones started from these glasses (the Kit can rename a new session after its first prompt): use it for tests, and for pictures with no other session in them.
 - **With the dev server:** `VITE_BRIDGE_URL` and `VITE_BRIDGE_TOKEN` set the panel's first values for `npm run dev` only. A build never reads them.
+
+**End to end:** `node scripts/e2e.mjs --yes-start-a-session` drives the simulator on the real bridge with `only=G2`: it starts a session named "G2 e2e test: ...", opens it from Home, reads its pages, answers its question with one tap, replies with typed words and sends Continue, and after each step waits until the bridge shows the result on the Mac side. Then it sends a spoken sample (macOS `say`, written to a file, never played) to the bridge's speech to text. Pictures go to `shots/e2e/` and `docs/end-to-end.png`. It starts a real Claude Code session: archive it afterward. `--session cse_...` goes on with a G2 session that still asks its question.
+
+![End to end on the real bridge, a G2 test session](docs/end-to-end.png)
 
 ## Try it on the glasses
 
@@ -89,11 +97,11 @@ JSON, with the header `Authorization: Bearer <token>` on every request. What the
 | `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending}]}`, needs you first. `status` is `needs_you`, `working`, `waiting` or `idle` |
 | `GET /api/sessions/:id` | The same fields, and `last_reply` (text) and `pending`: `null` or `{kind, text, options: [{id, label}]}`, `kind` being `question`, `permission` or `plan` |
 | `POST /api/sessions/:id/message` `{text}` | `{ok}` |
-| `POST /api/sessions/:id/answer` `{option_id}` | `{ok}` |
-| `POST /api/sessions` `{prompt, folder?}` | `{id}` |
+| `POST /api/sessions/:id/answer` `{option_id}` | `{ok}`. A prompt with several questions takes one answer at a time: `{ok, done: false, pending}` holds the next question, which the app shows at once |
+| `POST /api/sessions` `{prompt, folder?}` | `{id}`. It can take up to 90 s; the app waits 2 minutes. A message waits up to 60 s, since it goes through a claude.ai page in Chrome |
 | `GET /api/folders` | `{folders: [{path, label}]}` |
 | `POST /api/transcribe`, body raw PCM (16 kHz, mono, 16-bit little-endian) | `{text}` |
-| `WS /api/live?token=...` | The bridge sends `{type: "sessions", sessions}` and `{type: "session", session}`; the app sends `{type: "subscribe", id}` for the session it shows (`null` on Home) |
+| `WS /api/live?token=...` | The bridge sends `{type: "sessions", sessions}` and `{type: "session", session}`; the app sends `{type: "subscribe", id}` for the session it shows (`null` on Home), which takes the place of the one before |
 
 Without the live socket the app asks for the list every 5 seconds. Voice: the app sends all the audio so far every 2.5 seconds for the words to show, and once more when you tap.
 
@@ -106,22 +114,22 @@ TypeScript and Vite, with the Even Hub SDK (`@evenrealities/even_hub_sdk`) and t
 | `src/main.ts` | Starts the app: the SDK, settings, the panel, the input |
 | `src/controller.ts` | The screens and what each gesture does there; keeps in step with the bridge |
 | `src/screens.ts` | What each screen puts on the lens (pure functions) |
-| `src/glasses.ts` | Draws a page: a full rebuild only when the layout or a list changes, otherwise in-place text updates, one SDK call at a time, each with a time limit |
+| `src/glasses.ts` | Draws a page: a full rebuild only when the layout changes, otherwise in-place text updates, one SDK call at a time, each with a time limit |
 | `src/text.ts` | Line wrap and pages measured with the glasses' own font, byte limits, glyphs the font has |
 | `src/events.ts` | One shape for every input (list, text and system events) |
 | `src/voice.ts` | Collects the mic's audio and asks the bridge for the words |
 | `src/api.ts` | The bridge client |
 | `src/panel.ts`, `index.html`, `src/styles/` | The phone panel, on `sttark-shared.css` |
 | `mock-bridge/` | The mock bridge and its made-up sessions |
-| `scripts/` | Simulator, walk-through, fonts and packing |
+| `scripts/` | The simulator (`sim.mjs`, and `simkit.mjs` to drive it), the walk on the mock (`walk.mjs`), the end-to-end run on the real bridge (`e2e.mjs`), pictures with captions (`sheet.mjs`, needs `brew install librsvg`), fonts and packing |
 
 What the lens allows, and how the app lives with it:
 
 - 576 by 288 pixels, one font with no sizes or bold, 27 px a line, five brightness steps. A full screen holds about 10 lines of about 60 characters; a reply page holds 7 lines.
-- A text box holds at most 999 bytes in the simulator (1000 on the glasses), a list row 63 bytes and a list 20 rows. Everything is cut by bytes, not characters.
+- A text box holds at most 999 bytes in the simulator (1000 on the glasses). Everything is cut by bytes, not characters.
 - The font has no emoji, `…`, `•` or curly quotes; the app swaps them (`glyphSafe`).
-- A list scrolls itself and tells the app nothing until a tap. A list cannot change in place: a new list redraws the page and puts the highlight back on the first row. So the app redraws a list only when its rows change, and a tap finds its row by index (the first row's index arrives empty).
-- A swipe on a text box comes to the app only at the box's top or bottom. Each reply page fits its box exactly, so every swipe turns the page.
+- The lens's own list draws every row but the highlighted one dim, scrolls itself, tells the app nothing until a tap, and cannot change in place. So the app draws no lens list: Home and Actions are one text box each, every row at full brightness, the chosen row marked with `>`. The app moves the `>` on each swipe with an in-place text update (no flicker), scrolls the rows itself, and acts on the marked row on a tap.
+- A swipe on a text box comes to the app only at the box's top or bottom. Each reply page and each list fits its box exactly, so every swipe turns the page or moves the `>`.
 - The first screen must use the system's close question on double tap (Even Hub review checks it).
 
 Not tried on glasses yet (the simulator differs from them): the glasses mic, which way a swipe turns a page (the panel has Swap swipe direction for that), whether the Even app takes a LAN `http://` address in the network list, and how the app keeps up while the phone is locked.

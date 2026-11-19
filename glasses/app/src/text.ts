@@ -10,10 +10,6 @@ export const SPACE_W = getTextWidth(' ') || 5;
 /** The simulator refuses a text container over 999 bytes; the glasses take
  *  1000 on a rebuild. One cap for both keeps the two the same. */
 export const TEXT_BYTES = 990;
-/** A list row holds at most 63 bytes (firmware and simulator). */
-export const ITEM_BYTES = 63;
-/** A list holds at most 20 rows. */
-export const MAX_ITEMS = 20;
 
 const enc = new TextEncoder();
 export const byteLength = (s: string) => enc.encode(s).length;

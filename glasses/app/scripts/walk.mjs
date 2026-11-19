@@ -3,27 +3,21 @@
 // mock bridge's made-up sessions, and saves a picture of each step:
 //   shots/NN-step.png       the lens, lit pixels drawn green on black
 //   shots/panel-*.png       the phone panel, as the simulator shows it
+//   docs/lens-screens.png   six of the lens pictures, with captions
 //
 // Needs the dev server (npm run dev, port 5181). It starts its own mock
 // bridge (port 8742) and its own simulator (scripts/sim.mjs, which waits
 // until this Mac is idle so it never takes the screen).
-//
-// The simulator's page sleeps while this Mac is locked or the window is
-// hidden: network replies and timers wait for the next input. So after each
-// wait the walk "pokes" the page with a long press and its release, which
-// the app ignores.
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { sheet } from './sheet.mjs';
+import { app, lensShot, panelShot, sleep, startSim as sim, step, stopSim, wait } from './simkit.mjs';
 
-const app = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = join(app, 'shots');
-const SIM = 'http://127.0.0.1:9898';
 const MOCK_PORT = 8742;
 const MOCK = `http://127.0.0.1:${MOCK_PORT}`;
 const APP = 'http://localhost:5181/';
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function ok(url) {
   try {
@@ -53,49 +47,17 @@ function stopMock() {
   mock = null;
 }
 
-function sim(url) {
-  execFileSync(process.execPath, [join(app, 'scripts', 'sim.mjs'), url], { stdio: 'inherit' });
-}
-
-async function input(action) {
-  await fetch(`${SIM}/api/input`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) });
-}
-async function poke() {
-  await input('long_press');
-  await input('long_press_release');
-}
-async function step(...actions) {
-  for (const a of actions) {
-    await input(a);
-    await sleep(900);
-  }
-}
-async function wait(ms) {
-  // Poke every second or so, so the sleeping page keeps up.
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    await sleep(Math.min(1000, end - Date.now()));
-    await poke();
-  }
-  await sleep(400);
-}
-
 let n = 0;
+const taken = {};
 async function shot(name) {
   n++;
   const file = join(shots, `${String(n).padStart(2, '0')}-${name}.png`);
-  const raw = file.replace('.png', '.raw.png');
-  const png = Buffer.from(await (await fetch(`${SIM}/api/screenshot/glasses`)).arrayBuffer());
-  (await import('node:fs')).writeFileSync(raw, png);
-  // The simulator gives lit pixels over a clear ground: draw them on black.
-  execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=black:s=576x288', '-i', raw, '-filter_complex', '[0][1]overlay=format=auto', '-frames:v', '1', file]);
-  rmSync(raw);
+  taken[name] = file;
+  await lensShot(file);
   console.log(`walk: ${file.replace(app + '/', '')}`);
 }
 async function panel(name) {
-  const png = Buffer.from(await (await fetch(`${SIM}/api/screenshot/webview`)).arrayBuffer());
-  const file = join(shots, `panel-${name}.png`);
-  (await import('node:fs')).writeFileSync(file, png);
+  const file = await panelShot(join(shots, `panel-${name}.png`));
   console.log(`walk: ${file.replace(app + '/', '')}`);
 }
 async function mockPost(path) {
@@ -108,7 +70,10 @@ try {
   sim(`${APP}?bridge=${encodeURIComponent(MOCK)}&token=mock`);
   await wait(3000);
 
-  // Home: needs-you sessions first, + New session on top.
+  // Home: needs-you sessions first, + New session on top. The rows, in
+  // order: + New session, Press 3, Quote follow-up, South D (all need you),
+  // Atlas, Docs: HVAC (working), Rewinder 2 (waiting), Label die (idle).
+  // Back on Home, the mark stays on the session last opened.
   await shot('home');
   await panel('connected');
   await step('down');
@@ -127,8 +92,8 @@ try {
   await step('double_click', 'double_click');
   await wait(1000);
 
-  // A session that asks for an OK.
-  await step('down', 'down', 'click');
+  // A session that asks for an OK: the next row.
+  await step('down', 'click');
   await wait(1500);
   await shot('session-permission');
   await step('click');
@@ -136,8 +101,8 @@ try {
   await step('double_click', 'double_click');
   await wait(1000);
 
-  // A plan to approve.
-  await step('down', 'down', 'down', 'click');
+  // A plan to approve: the next row.
+  await step('down', 'click');
   await wait(1500);
   await shot('session-plan');
   await step('click');
@@ -146,7 +111,8 @@ try {
   await wait(1000);
 
   // Answer the question with one tap; the session works, then replies.
-  await step('down', 'click');
+  // Press 3 is two rows up.
+  await step('up', 'up', 'click');
   await wait(1500);
   await step('click');
   await step('click');
@@ -175,8 +141,10 @@ try {
   await wait(1500);
   await shot('home-notice');
 
-  // A new session by voice: speak, confirm, start.
+  // A new session by voice: speak, confirm, start. + New session is the
+  // top row; a swipe up at the top stays there.
   await wait(6000); // let the notice go
+  await step(...Array(8).fill('up'));
   await step('click');
   await wait(5000);
   await shot('new-voice');
@@ -196,7 +164,7 @@ try {
   stopMock();
   await wait(12000);
   await shot('home-offline');
-  await step('down', 'click');
+  await step('click');
   await wait(1500);
   await shot('session-offline');
   await panel('offline');
@@ -210,7 +178,20 @@ try {
   await wait(3000);
   await shot('set-up');
   await panel('set-up');
+
+  const out = sheet(
+    [
+      { file: taken['home-row-selected'], title: '1 Home.', text: 'Needs you first. Swipe moves the >, tap opens.' },
+      { file: taken['session-question-page1'], title: '2 Session.', text: 'Status, then the last reply in pages. Swipe for the next page.' },
+      { file: taken['actions-question'], title: '3 Actions.', text: "The question's answers first. One tap answers." },
+      { file: taken['voice-words'], title: '4 Reply by voice.', text: 'Words show as you speak. Tap sends.' },
+      { file: taken['new-confirm'], title: '5 New session.', text: 'Speak the prompt, read it, tap to start.' },
+      { file: taken['home-notice'], title: '6 Notice.', text: 'A session starts to need you: the top line says so.' },
+    ],
+    join(app, 'docs', 'lens-screens.png'),
+  );
+  console.log(`walk: ${out.replace(app + '/', '')}`);
 } finally {
   stopMock();
-  execFileSync(process.execPath, [join(app, 'scripts', 'sim.mjs'), '--stop'], { stdio: 'inherit' });
+  stopSim();
 }

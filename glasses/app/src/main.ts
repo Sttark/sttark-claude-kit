@@ -37,6 +37,14 @@ async function boot(): Promise<void> {
     });
   }
   startPanel(app);
+  // Dev server only: words a script types in the phone's box, so a test can
+  // reply without keys (scripts/e2e.mjs; vite.config.ts, kitTyped).
+  if (import.meta.hot) {
+    import.meta.hot.on('kit:typed', (d: { text?: string }) => {
+      const used = app.useTyped(String(d?.text || ''));
+      console.log(`[kit] typed words ${used ? 'used' : 'not used: the glasses are not listening'}`);
+    });
+  }
   app.start();
   console.log(`[kit] ready (${even ? 'glasses' : 'panel only'})`);
 }

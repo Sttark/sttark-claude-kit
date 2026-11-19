@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { measureTextWrap } from '@evenrealities/pretext';
-import { ITEM_BYTES, TEXT_BYTES, byteLength, clampBytes, glyphSafe, paginate, plainReply, spread, width } from './text';
-import { actionItems, homeRows, sessionPages, statusLine } from './screens';
+import { TEXT_BYTES, byteLength, clampBytes, glyphSafe, paginate, plainReply, spread, width } from './text';
+import { HOME_ROWS, actionItems, homePage, homeRows, listLines, scrollTo, sessionPages, statusLine } from './screens';
 import type { SessionDetail, SessionRow } from './api';
 
 const LONG =
@@ -42,8 +42,8 @@ describe('lens text', () => {
     expect(plainReply('## Plan\n**Heads 2** and `4`: see [the log](https://x.example).')).toBe('Plan\nHeads 2 and 4: see the log.');
   });
   it('cuts to a byte budget at a whole character', () => {
-    const s = clampBytes('▶'.repeat(40), ITEM_BYTES);
-    expect(byteLength(s)).toBeLessThanOrEqual(ITEM_BYTES);
+    const s = clampBytes('▶'.repeat(40), 63);
+    expect(byteLength(s)).toBeLessThanOrEqual(63);
     expect(s.endsWith('...')).toBe(true);
   });
   it('spreads a title and a page mark across one line', () => {
@@ -66,13 +66,41 @@ describe('home rows', () => {
     expect(rows.map((r) => r.id)).toEqual([null, 'Press 3 nozzle report', 'Atlas web tension check', 'Rewinder 2 belt order', 'Label die template']);
     expect(rows[1].label).toContain('needs answer');
   });
-  it('fits every row in the 63 bytes a list row holds', () => {
+  it('fits every row on one lens line, status words kept', () => {
     const rows = homeRows([row({ title: 'A very long session title that goes on and on about the Press 3 nozzle report', status: 'needs_you' })]);
-    for (const r of rows) expect(byteLength(r.label)).toBeLessThanOrEqual(ITEM_BYTES);
+    const lines = listLines(rows.map((r) => r.label), 1, 0, HOME_ROWS).split('\n');
+    for (const l of lines) expect(width(l)).toBeLessThanOrEqual(556);
+    expect(lines[1]).toMatch(/· needs you$/);
   });
-  it('shows at most 19 sessions under New session (a list holds 20 rows)', () => {
-    const many = Array.from({ length: 30 }, (_, i) => row({ id: `s${i}`, title: `Session ${i}` }));
-    expect(homeRows(many)).toHaveLength(20);
+});
+
+describe('lists', () => {
+  const labels = Array.from({ length: 14 }, (_, i) => `Row ${i + 1}`);
+  it('marks the chosen row and lines every row up in one column', () => {
+    const lines = listLines(labels, 2, 0, 9).split('\n');
+    expect(lines).toHaveLength(9);
+    expect(lines[2].startsWith('>')).toBe(true);
+    expect(lines.filter((l) => l.startsWith('>'))).toHaveLength(1);
+    const at = (l: string) => width(l.slice(0, l.indexOf('Row')));
+    for (const l of lines) expect(at(l)).toBe(at(lines[2]));
+  });
+  it('scrolls only as far as it must, with a row of the list past the mark', () => {
+    expect(scrollTo(0, 7, 14, 9)).toBe(0);
+    expect(scrollTo(0, 8, 14, 9)).toBe(1);
+    expect(scrollTo(5, 13, 14, 9)).toBe(5);
+    expect(scrollTo(5, 5, 14, 9)).toBe(4);
+    expect(scrollTo(5, 0, 14, 9)).toBe(0);
+    expect(scrollTo(3, 4, 5, 9)).toBe(0);
+  });
+  it('draws Home as text at full brightness, with no list widget', () => {
+    const rows = homeRows(Array.from({ length: 12 }, (_, i) => row({ id: `s${i}`, title: `Session ${i}` })));
+    const page = homePage({ rows, sel: 10, first: 4, needCount: 0, offline: null, notice: null });
+    const list = page.texts.find((t) => t.name === 'sessions')!;
+    expect(list.capture).toBe(true);
+    expect(list.color ?? 4).toBe(4);
+    expect(list.content.split('\n')).toHaveLength(HOME_ROWS);
+    expect(byteLength(list.content)).toBeLessThanOrEqual(TEXT_BYTES);
+    expect(page.texts[0].content.endsWith('11/13')).toBe(true);
   });
 });
 

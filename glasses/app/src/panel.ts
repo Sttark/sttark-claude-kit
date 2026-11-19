@@ -23,6 +23,8 @@ export function startPanel(app: Controller): void {
   token.value = s.token;
   swap.checked = s.swapSwipe;
   $('readonly-chip').hidden = !s.readonly;
+  $('only-chip').hidden = !s.only;
+  $('only-words').textContent = `Test mode: only sessions whose name starts with ${s.only}`;
 
   show.addEventListener('click', () => {
     const on = token.type === 'password';

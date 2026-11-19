@@ -13,6 +13,10 @@ export interface Settings {
   swapSwipe: boolean;
   /** Test mode only, from the address: refuse every change. Never stored. */
   readonly: boolean;
+  /** Test mode only, from the address: show only the sessions whose title
+   *  starts with these words, and the ones started from these glasses, so a
+   *  real Mac's other sessions never show. Never stored. */
+  only: string;
 }
 
 const KEY = 'kit-glasses-settings';
@@ -23,20 +27,22 @@ export const DEFAULTS: Settings = {
   folder: '',
   swapSwipe: false,
   readonly: false,
+  only: '',
 };
 
 let current: Settings = { ...DEFAULTS };
 let host: EvenAppBridge | null = null;
 const listeners = new Set<(s: Settings) => void>();
 
-/** Values from the address (?bridge=&token=&readonly=1) win for this run
- *  only, so a test can point the simulator at the mock without saving. */
+/** Values from the address (?bridge=&token=&readonly=1&only=G2) win for this
+ *  run only, so a test can point the simulator at the mock without saving. */
 function fromAddress(): Partial<Settings> {
   const q = new URLSearchParams(location.search);
   const o: Partial<Settings> = {};
   if (q.get('bridge')) o.bridgeUrl = q.get('bridge')!;
   if (q.get('token')) o.token = q.get('token')!;
   if (q.get('readonly') === '1') o.readonly = true;
+  if (q.get('only')?.trim()) o.only = q.get('only')!.trim();
   return o;
 }
 
@@ -60,6 +66,7 @@ export async function loadSettings(bridge: EvenAppBridge | null): Promise<Settin
     } catch {}
   }
   delete stored.readonly;
+  delete stored.only;
   current = { ...DEFAULTS, ...stored, ...fromAddress() };
   return current;
 }
@@ -71,7 +78,7 @@ export function settings(): Settings {
 export async function saveSettings(next: Partial<Settings>): Promise<void> {
   const addr = fromAddress();
   current = { ...current, ...next };
-  const { readonly: _ro, ...keep } = current;
+  const { readonly: _ro, only: _only, ...keep } = current;
   const raw = JSON.stringify(keep);
   localStorage.setItem(KEY, raw);
   if (host) {
