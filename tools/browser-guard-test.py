@@ -158,7 +158,8 @@ def prompt(text, sid=SID):
 
 for text in ("don't use Claude in Chrome for this", 'never use control chrome', 'the window takes my screen',
              'claude sometimes takes my chrome', "don't use my own chrome",
-             '<task-notification>agent used Claude in Chrome</task-notification>'):
+             '<task-notification>agent used Claude in Chrome</task-notification>',
+             '[Sttark Claude Kit] Check-in: The agent tried to use Claude in Chrome, and the Kit stopped it.'):
     out = prompt(text)
     check(f'no opt-in: {text[:45]!r}', out == '' and SID not in (json.load(open(STATE)).get('chrome_ok') or {}), out)
 out = prompt('Please use Claude in Chrome to check the order page')

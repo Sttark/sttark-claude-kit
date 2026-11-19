@@ -39,6 +39,7 @@ CHECKPOINTS = (10, 25, 50)  # tool calls into a turn when the level is checked a
 SETTLE = 30  # seconds after a send when a different reported level is just the change still arriving
 IDS = 20  # change ids kept per session, the kit's own and the ones it saw on the server
 DRY = bool(os.environ.get('STTARK_EFFORT_DRY'))  # tests: send nothing
+CHECKIN = '[Sttark Claude Kit] Check-in:'  # the start of a progress check-in the Kit types into a session (checkin.py)
 
 RULES = """You set the effort level for a Claude Code agent before it starts on \
 the user's latest message. Higher effort means more thinking and more careful \
@@ -2046,6 +2047,10 @@ def on_prompt(data, sid):
             st = s
         x = dict(st['sessions'][sid])
     title_later(sid, x)
+    if prompt.startswith(CHECKIN):  # the Kit's check-in typed into the chat (checkin.py): the session answers it in a
+        remember(sid)               # line or two at the level it has, so no model call picks one
+        log(f'keep   {sid} {x.get("level", "?")} - a check-in from the Kit, which needs no new level | {snippet}')
+        return
     if st.get('paused') or x.get('manual'):
         remember(sid)
         log(f'{"paused" if st.get("paused") else "manual"} {sid} left at {x.get("level", "?")} | {snippet}')

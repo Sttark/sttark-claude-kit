@@ -34,6 +34,20 @@ import Foundation
               !Checkins.on && KitDefaults.turnedOff("checkins") && State.read()["checkins"] as? Bool == false)
         Checkins.set(true)
         check("check-ins on again: the record is gone", Checkins.on && State.read()["checkins"] as? Bool == true)
+        // Check-ins in the session: on unless turned off by hand, beside the check-ins' own switch in the state file
+        check("check-ins in the session: on with no record, and the state file says so",
+              Checkins.chatOn && State.read()["checkins_chat"] as? Bool == true)
+        Checkins.setChat(false)
+        check("check-ins in the session off by hand: the record and the state file say so, and the check-ins stay on",
+              !Checkins.chatOn && KitDefaults.turnedOff("checkinsChat") && State.read()["checkins_chat"] as? Bool == false
+              && Checkins.on && State.read()["checkins"] as? Bool == true)
+        Checkins.set(false)
+        check("check-ins off: each switch keeps its own record",
+              State.read()["checkins"] as? Bool == false && State.read()["checkins_chat"] as? Bool == false)
+        Checkins.set(true)
+        Checkins.setChat(true)
+        check("check-ins in the session on again: the record is gone",
+              Checkins.chatOn && !KitDefaults.turnedOff("checkinsChat") && State.read()["checkins_chat"] as? Bool == true)
         // the notes the Kit app shows: only the latest of a run that goes on; none while the switch is off
         let t = Date().timeIntervalSince1970
         let runs: [String: Any] = ["sessions": [

@@ -12,6 +12,7 @@
 //   whats-new/parallel-agents.png     a still: one build divided into agents that run at once; new work gets a new agent
 //   whats-new/progress-check-ins.png  a still: a note every 15 minutes while an agent works, none at the end, and one note
 //   whats-new/same-work.png           a still: a new session's first prompt, and the question Claude asks first, with its answers
+//   whats-new/check-ins-in-the-chat.png a still: a session's chat, the Kit's check-in as a prompt in it, and the one-line answer
 // Each also as <slug>-dark.gif, in the dark tokens, which the app shows in dark mode.
 // Run from the repo root:
 //   swiftc -o /tmp/pictures tools/whats-new-pictures.swift && /tmp/pictures [slug ...]   (slugs draw only those)
@@ -544,6 +545,41 @@ func sameWorkPicture() -> NSBitmapImageRep {
     }
 }
 
+// MARK: check-ins in the session's chat
+
+/// A still: a session's chat in the Claude app. The session started an agent and said so; 15 minutes later the Kit's
+/// check-in comes in as a prompt, on the person's side of the chat, and the session answers it in one line.
+func chatCheckinPicture() -> NSBitmapImageRep {
+    func tall(_ s: String, _ size: CGFloat, bold: Bool = false, width w: CGFloat) -> CGFloat {
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = 2
+        return ceil(NSAttributedString(string: s, attributes: [.font: font(size, bold), .paragraphStyle: para])
+            .boundingRect(with: NSSize(width: w, height: 400), options: [.usesLineFragmentOrigin]).height)
+    }
+    return frame(280) {
+        text("Bottle labels", 16, 12, size: 13, bold: true, color: C.steel)
+        C.line.setFill(); NSRect(x: 16, y: 36, width: W - 32, height: 1).fill()
+        // the session's turn that started the agent
+        var y: CGFloat = 48
+        y += text("I started an agent that checks the barcodes on the bottle labels. I tell you when it is done.",
+                  16, y, size: 14, width: W - 56) + 12
+        let later = "15 min later"
+        text(later, (W - width(later, size: 12)) / 2, y, size: 12, color: C.steel)
+        y += 24
+        // the Kit's check-in, a prompt on the person's side of the chat
+        let p = "[Sttark Claude Kit] Check-in: The label agent finished the barcode check and opened pull request 318. Next it adds the print test."
+        let pw = W - 72, inner = pw - 28
+        let ph = tall(p, 13.5, width: inner) + 18
+        let pr = NSRect(x: W - 16 - pw, y: y, width: pw, height: ph)
+        card(pr, fill: C.infoSoft, border: C.infoBorder, radius: 10)
+        text(p, pr.minX + 14, pr.minY + 8, size: 13.5, width: inner)
+        y += ph + 14
+        // the session's answer: one line, no tools, no new work
+        y += text("The barcode check is done, in pull request 318. The print test is next.", 16, y, size: 14, width: W - 56)
+        assert(y <= 272, "the chat must fit the picture")
+    }
+}
+
 func png(_ rep: NSBitmapImageRep, to path: String) {
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
     print("wrote \(path)")
@@ -567,4 +603,5 @@ for dark in [false, true] {
     if wanted("reply-watch") { png(replyWatchPicture(), to: "whats-new/reply-watch" + (dark ? "-dark.png" : ".png")) }
     if wanted("progress-check-ins") { png(checkinsPicture(), to: "whats-new/progress-check-ins" + (dark ? "-dark.png" : ".png")) }
     if wanted("same-work") { png(sameWorkPicture(), to: "whats-new/same-work" + (dark ? "-dark.png" : ".png")) }
+    if wanted("check-ins-in-the-chat") { png(chatCheckinPicture(), to: "whats-new/check-ins-in-the-chat" + (dark ? "-dark.png" : ".png")) }
 }
