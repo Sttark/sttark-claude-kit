@@ -1901,14 +1901,17 @@ def typed_edit(cse, edit):
 
 
 def typed_state(tp, rec, before=None):
-    """Where a prompt the Kit typed in stands in the session's record: 'answered' (its turn ended), 'waiting' (it is in
-    the record, or in Claude Code's queue, and its turn did not end) or 'missing'. Only lines from when the Kit typed it
-    count, and with `before` (when another copy took the session over) only lines from before then: what the Kit's copy
-    wrote after that reached no one."""
+    """Where a prompt the Kit typed in stands in the session's record, and when its line was written: ('answered' (its
+    turn ended), 'waiting' (it is in the record, or in Claude Code's queue, and its turn did not end) or 'missing', that
+    time or None). Only lines from when the Kit typed it count, and with `before` (when another copy took the session
+    over) only lines from before then: what the Kit's copy wrote after that reached no one. Once a check saw its line
+    (`seen` on the record, confirm_typed()), it counts as in the record, also when its turn wrote more than the last
+    ENDS_TAIL read since then."""
     needle = rec.get('needle') or ''
     if not needle or not tp:
-        return 'missing'
-    found, since = 'missing', rec.get('at', 0) - 5
+        return 'missing', None
+    seen = rec.get('seen')
+    found, since = ('waiting', seen) if seen else ('missing', rec.get('at', 0) - 5)
     for raw in tail_bytes(tp, ENDS_TAIL).split(b'\n'):
         if b'"timestamp"' not in raw:
             continue
@@ -1923,14 +1926,14 @@ def typed_state(tp, rec, before=None):
         msg = x.get('message') if isinstance(x.get('message'), dict) else {}
         if typ == 'user' and not x.get('isMeta') and x.get('toolUseResult') is None:
             if needle in re.sub(r'\s+', ' ', text_of(msg.get('content'))):
-                found = 'waiting'
+                found, seen = 'waiting', seen or t
         elif typ == 'queue-operation':
             if found == 'missing' and needle in re.sub(r'\s+', ' ', str(x.get('content') or '')):
                 found = 'waiting'
         elif found == 'waiting' and ((typ == 'assistant' and msg.get('stop_reason') in END_STOPS)
                                      or (typ == 'system' and x.get('subtype') in ('stop_hook_summary', 'turn_duration'))):
             found = 'answered'
-    return found
+    return found, seen
 
 
 def copy_state(pid):
@@ -1961,7 +1964,7 @@ def kit_copy_works(cse, a, cid, rows=None, now=None):
                 out.append('its turn runs')
                 break
     for rec in typed_list(cse):
-        if not rec.get('lost') and now - rec.get('at', 0) < TYPED_START and typed_state(tp, rec) != 'answered':
+        if not rec.get('lost') and now - rec.get('at', 0) < TYPED_START and typed_state(tp, rec)[0] != 'answered':
             out.append('it has not answered the prompt the Kit typed in at %s' % hm(rec['at']))
             break
     try:
@@ -1976,8 +1979,19 @@ def kit_copy_works(cse, a, cid, rows=None, now=None):
 
 def confirm_typed(cse, title, tp):
     """keep(), every 15 seconds: each prompt the Kit typed into a session that the session answered goes, with a
-    `prompt in` line."""
-    done = [r for r in typed_list(cse) if not r.get('lost') and typed_state(tp, r, r.get('taken')) == 'answered']
+    `prompt in` line. The first time it sees a prompt's line, it keeps when (`seen`): a long turn can write more than
+    the part of the record typed_state() reads."""
+    done, seen = [], {}
+    for r in typed_list(cse):
+        if r.get('lost'):
+            continue
+        state_, at = typed_state(tp, r, r.get('taken'))
+        if state_ == 'answered':
+            done.append(r)
+        elif state_ == 'waiting' and at and not r.get('seen'):
+            seen[r['id']] = at
+    if seen:
+        typed_edit(cse, lambda rs: [dict(r, seen=seen[r['id']]) if r.get('id') in seen else r for r in rs])
     if not done:
         return
     ids = {r['id'] for r in done}
@@ -2003,7 +2017,7 @@ def settle_typed(cse, title, tp, cid, rows, now=None):
     pids = [p for p, kind in copies(cse, cid, rows).items() if kind == 'kit'] if old else []
     if len(pids) != 1 or copy_state(pids[0]) != ('idle', ''):
         return
-    seen = {r['id']: typed_state(tp, r, r.get('taken')) for r in old}
+    seen = {r['id']: typed_state(tp, r, r.get('taken'))[0] for r in old}
     done = {r['id'] for r in old if seen[r['id']] == 'waiting'}
     if done:
         typed_edit(cse, lambda rs: [r for r in rs if r.get('id') not in done])

@@ -693,7 +693,7 @@ def typed_in(e, w, cse, tp, prompt, now, level, reason, again):
         for r in rs:
             if r.get('id') in again:
                 r.update(at=now, tries=(r.get('tries') or 1) + 1, level=level, reason=reason)
-                for k in ('lost', 'taken', 'waits_said', 'fail_said'):
+                for k in ('lost', 'taken', 'seen', 'waits_said', 'fail_said'):
                     r.pop(k, None)
         if not w.get('again'):
             rid = uuid.uuid4().hex[:10]
