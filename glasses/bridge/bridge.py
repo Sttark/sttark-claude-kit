@@ -44,6 +44,8 @@ LOG_FILE = os.environ.get('G2_LOG') or os.path.join(HOME, 'Library/Logs/sttark-k
 DEFAULT_FOLDER = os.path.join(HOME, 'src')
 CLAUDE = os.path.join(HOME, '.local/share/claude/stable/claude')
 SESSION_ID = re.compile(r'^(cse|session)_[A-Za-z0-9]{10,64}$')
+OLDER_PAGE = 500  # events per read when the last reply is below the newest page (the API takes up to 1000)
+OLDER_PAGES = 40  # at most this many reads back for it: 20,000 events
 MAX_BODY = 12 * 1024 * 1024  # 6 minutes of 16 kHz 16-bit audio, with room
 PRIVATE_EXTRA = [ipaddress.ip_network('100.64.0.0/10')]  # carrier-grade NAT / VPN ranges
 
@@ -201,6 +203,7 @@ class Hub:
         self.trackers = {}
         self.sent = {}  # cse -> json of the last detail pushed
         self.partials = {}  # request id -> {question index: label}, for prompts with several questions
+        self.older = {}  # cse -> {'events': the events its last reply needs (slim, newest first), 'start': bool}
         self.web = web.Web(rcapi.LOGIN.org())
         self.last_message_at = 0.0
         self.stop = threading.Event()
@@ -297,6 +300,9 @@ class Hub:
                         t.stop.set()
                         self.trackers.pop(cse, None)
                         self.sent.pop(cse, None)
+                for cse in list(self.older):
+                    if cse not in self.api and cse not in self.trackers:
+                        self.older.pop(cse, None)
             if n % 48 == 0 and time.time() - self.last_message_at < 2 * 3600:
                 self.web.touch()  # every 20 minutes while messages go out: keep the claude.ai page
 
@@ -341,6 +347,43 @@ class Hub:
         evs, _ = rcapi.events(cse, limit=100, desc=True)
         return evs
 
+    def reply_events(self, cse, evs):
+        """`evs` (newest first) and the older events that the last reply needs: the newest assistant turn with text,
+        back to its start. A session that waits gathers many events with no message in them (each time a Claude app
+        or the Kit connects, and when its Claude Code starts again), so that turn is often far below the newest
+        page. The older events read are kept (slim), so the next read needs none of them again."""
+        if not evs or detail.reply_whole(evs):
+            return evs
+        with self.lock:
+            kept = self.older.get(cse) or {}
+        out, start = list(evs), False
+        low = detail.seq(out[-1])
+        if kept.get('events') and detail.seq(kept['events'][0]) >= low:  # they reach up to these: no gap
+            out += [e for e in kept['events'] if detail.seq(e) < low]
+            start = kept.get('start', False)
+        pages, size = 0, OLDER_PAGE
+        while not start and not detail.reply_whole(out):
+            if pages >= OLDER_PAGES:
+                log(f'reply  {cse}: no whole reply in the newest {len(out)} events')
+                start = True
+                break
+            low = detail.seq(out[-1])
+            try:
+                page, nxt = rcapi.events(cse, limit=size, desc=True, cursor=low)  # the events before `low`
+            except rcapi.APIError as e:
+                if e.status == 400 and size > 100:
+                    size = 100  # as Claude Code reads them when the API takes no bigger pages
+                    continue
+                raise
+            pages += 1
+            out += [detail.slim(e) for e in page if detail.seq(e) < low]
+            if not page or not nxt:
+                start = True  # the session's first event
+        need = out[:detail.reply_start(out)]
+        with self.lock:
+            self.older[cse] = {'events': [detail.slim(e) for e in need], 'start': start and len(need) == len(out)}
+        return out
+
     def pending_req(self, s, evs):
         """The prompt that waits now: from the events, and only while the session says it waits for the person."""
         if s.get('worker_status') != 'requires_action':
@@ -364,7 +407,7 @@ class Hub:
             row = kitstate.summarize(s, self.kit, self.env_dirs)
         req = self.pending_req(s, evs)
         out = dict(row)
-        out['last_reply'] = detail.last_reply(evs)
+        out['last_reply'] = detail.last_reply(self.reply_events(cse, evs))
         out['pending'] = detail.view(req, self.partials.get(req['request_id'])) if req else None
         out['has_pending'] = bool(out['pending'])
         return out

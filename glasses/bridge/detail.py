@@ -1,7 +1,10 @@
 """One session's detail for the glasses: its last reply as plain text, and the prompt that waits for the person.
 
 All from the session's events, as the Claude API keeps them (GET /v1/code/sessions/{id}/events, newest first, and
-the live stream). A prompt is a `control_request` from the session (`source: worker`) with subtype `can_use_tool`:
+the live stream). The last reply is all the text of the newest turn that has text: a turn starts with a message
+the person typed (or the Kit typed for them) and ends with its `result`; its agents' messages (with a
+`parent_tool_use_id`) are not part of it. A prompt is a `control_request` from the session (`source: worker`) with
+subtype `can_use_tool`:
 AskUserQuestion (a question with options), ExitPlanMode (a plan to approve) or any other tool (a permission). It is
 settled by a `control_response` or a `control_cancel_request` that names its request id, or by the end of its turn.
 """
@@ -213,15 +216,77 @@ def message_text(p):
     return '\n\n'.join(out)
 
 
-def last_reply(events):
-    """The text of the newest assistant message that has text (events newest first), as plain text."""
-    for ev in events:
+def main_thread(p):
+    """The session's own message, not one of its agents' (they carry the agent's Task call as parent_tool_use_id)."""
+    return not p.get('parent_tool_use_id') and not p.get('isSidechain')
+
+
+def prompt(p):
+    """A user message that starts a turn: one the person typed (in a Claude app, or on the Mac, as the Kit types it
+    when a wait ends). Not a tool's result, an agent's message, a background task's notice, or text Claude Code adds
+    itself (isSynthetic, isMeta)."""
+    if p.get('type') != 'user' or not main_thread(p) or p.get('isSynthetic') or p.get('isMeta'):
+        return False
+    if (p.get('origin') or {}).get('kind') == 'task-notification':
+        return False
+    c = (p.get('message') or {}).get('content')
+    if isinstance(c, str):
+        return bool(c.strip())
+    blocks = [b for b in c or [] if isinstance(b, dict)]
+    return any(b.get('type') in ('text', 'image') for b in blocks) and not any(b.get('type') == 'tool_result'
+                                                                               for b in blocks)
+
+
+def turn_edge(p):
+    """The end of a turn (its result) or the start of one (a prompt)."""
+    return (p.get('type') == 'result' and main_thread(p)) or prompt(p)
+
+
+def _reply(events):
+    """The texts of the newest assistant turn that has text (events newest first), oldest first, and the index of
+    the edge before that turn (None when the events stop before it). A turn's text is often in several messages,
+    with tool steps between them, and the turn after it may have no text yet (it runs, or it only used tools)."""
+    texts = []
+    for i, ev in enumerate(events):
         p = payload(ev)
-        if p.get('type') == 'assistant':
+        if p.get('type') == 'assistant' and main_thread(p):
             t = message_text(p).strip()
             if t:
-                return plain(t)
-    return ''
+                texts.append(t)
+        elif texts and turn_edge(p):
+            return texts[::-1], i
+    return texts[::-1], None
+
+
+def reply_whole(events):
+    """True when `events` (newest first) hold the newest assistant turn with text from its start."""
+    return _reply(events)[1] is not None
+
+
+def reply_start(events):
+    """How many of `events` (newest first) the reply needs: down to the edge before its turn, with it."""
+    edge = _reply(events)[1]
+    return len(events) if edge is None else edge + 1
+
+
+def slim(ev):
+    """An event with only what the reply needs: its number, kind, flags and text (no tool inputs or results)."""
+    p = payload(ev)
+    q = {k: p[k] for k in ('type', 'subtype', 'parent_tool_use_id', 'isSidechain', 'isSynthetic', 'isMeta', 'origin')
+         if k in p}
+    m = p.get('message')
+    if isinstance(m, dict):
+        c = m.get('content')
+        if isinstance(c, list):
+            c = [b if b.get('type') == 'text' else {'type': b.get('type')} for b in c if isinstance(b, dict)]
+        q['message'] = {'content': c}
+    return {'sequence_num': ev.get('sequence_num'), 'payload': q}
+
+
+def last_reply(events):
+    """The newest assistant turn that has text (events newest first), as plain text: all of the turn's text, from
+    each of its messages, not an agent's."""
+    return '\n\n'.join(t for t in (plain(x) for x in _reply(events)[0]) if t)
 
 
 def find_pending(events):
