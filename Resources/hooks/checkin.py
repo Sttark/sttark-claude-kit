@@ -35,34 +35,24 @@ reading each record, and the latest note of the run (note, note_at). The app rea
 row in Claude working and its side panel, and sends it to the phone with the row; a run that ends drops its note, so
 the line goes away when the work ends. Each note is also a log line starting "checkin", one row on the Events page.
 
-In the session's chat too (in_chat()): a note Haiku wrote also goes into the session as a prompt, "[Sttark Claude
-Kit] Check-in: <the note>", which the session answers in a line or two (the working rules say how), while its own
-turn is idle and its agents work in the background. Only where the Kit can type into the live process: the Kit's own
-copy of the session, Claude Code in a kit- screen (effort-hook.py start_screen()). The text goes in through the
-screen (its paste register), and the Enter key alone after it once the text shows in the input box, as a person
-types at its keyboard: nothing ends, starts again or stops the session or its work. The server's copy of a session
-takes its input from Anthropic's server, not a keyboard (a prompt posted there is held, wait.py), the Claude desktop
-app's copy from the app, and a terminal's from the keys typed in that app: none gets one, and the log line says why.
-Nor when the turn runs (a typed prompt would only wait for it), when Claude Code's own record of the copy
-(~/.claude/sessions/<pid>.json) says it is busy or waits on the person, when the last one in the chat has no answer
-yet (a prompt of the person's own after it clears that), after one that did not go in, for that copy, or with the
-working rules off (they tell the session how to answer). Logged in the same "checkin" line: "in the chat", or "not
-in the chat: <why>".
+In the session's chat: checkin-timer.py, a hook, has each session keep its own check-in timer (Claude Code's CronCreate)
+while its work runs in the background; the timer's prompt asks the session for a line or two in its own chat, and the
+hook gives it what runs and the latest note from here. Nothing here types into a session.
 
-The switches: "checkins" in the state file, false when the person turns Progress check-ins off in Settings, and
-"checkins_chat", false when they turn Check-ins in the session off (the app writes both).
+The switch: "checkins" in the state file, false when the person turns Progress check-ins off in Settings (the app
+writes it).
 
     checkin.py --check      the minute check (wait.py --check starts it in a process of its own)
-    checkin.py --list       the work that runs now in each session, when its next check-in is due, and whether it
-                            would go in the session's chat too (and why not)
+    checkin.py --list       the work that runs now in each session, when its next check-in is due, and its check-in
+                            timer in the session, when it has one
 
 A test never saves and never calls the model: STTARK_KIT_DIR (a test folder) or STTARK_CHECKIN_DRY, STTARK_WAIT_DRY
 or STTARK_NOTIFY_DRY writes each note, prints it and saves nothing, in this process; only STTARK_CHECKIN_DRY calls the
-model then (a dry run on real records), and nothing is typed into any session ("would go in the chat").
+model then (a dry run on real records).
 STTARK_CHECKIN_MODEL is a command that stands in for the Haiku call: the work on its input, the note on its output.
 STTARK_KIT_LOG points the log at a test file, STTARK_CLAUDE_DIR the copies' records at a test ~/.claude.
 """
-import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, tempfile, time
+import calendar, fcntl, importlib.util, json, os, re, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 KIT = os.environ.get('STTARK_KIT_DIR') or os.path.expanduser('~/Library/Application Support/SttarkClaudeKit')
@@ -85,22 +75,7 @@ PARTS = 8              # pieces of work the summary reads at most, the oldest fi
 TAIL = 4 * 1024 * 1024  # bytes read back from the end of a record the check-ins have no place in yet
 STABLE = os.path.expanduser('~/.local/share/claude/stable/claude')  # the Kit's fixed copy, when the server is on
 CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/bin/claude')
-MARK = '[Sttark Claude Kit] Check-in:'   # the start of a check-in typed into a session (the working rules' word for it)
-CHAT_MAX = 790         # characters a check-in typed into a session holds at most: Claude Code shows a paste of more
-                       # than 800 as a placeholder, [Pasted text #1], and the Kit looks for the text in the input box
-KEY_WAIT = 1.0         # seconds between the text and the Enter key, so Claude Code reads Enter as a key of its own
-SHOW_WAIT = 4          # seconds the Kit looks for the text in the input box before it gives up, with no Enter key
-START_WAIT = 30        # seconds the Kit waits, after the Enter key, for the prompt to start (the prompt hooks run first)
-STARTING = 120         # seconds after the Kit starts a copy of a session in which it types nothing into it
-SCREEN = '/usr/bin/screen'
-REGISTER = 'k'         # the screen register the text goes in through: a paste of a file, word for word
-WHERE = {              # why a session's copy gets no check-in in its chat: the Kit can type only into its own copy
-    'server': "it runs in this Mac's server, which takes no typed prompt",
-    'app': 'it runs in the Claude desktop app or another program, which takes no typed prompt from the Kit',
-    'terminal': 'it runs in a terminal, which the Kit does not type into',
-    'twice': 'it runs in more than one copy',
-    'none': 'the Kit sees no copy of it on this Mac',
-}
+MARK = '[Sttark Claude Kit] Check-in:'   # the start of the check-in timer's prompt in a session (checkin-timer.py)
 
 ASK = """You write a short progress note for a person. One of their Claude Code sessions has worked for a long \
 time, often through agents that run in the background. The note shows on the session's row in the person's list of \
@@ -630,8 +605,7 @@ def check(now=None):
 
 def end_run(c):
     """A run of work ended: no note; its last note goes too (the Kit app shows a note only while its work runs), and
-    the record keeps only when the last check-in was written, and the last one typed into the session's chat
-    (`chat`), so a check-in with no answer yet holds the next one back also in the next run of work."""
+    the record keeps only when the last check-in was written."""
     for k in ('start', 'seen', 'idle', 'n', 'files', 'said', 'empty', 'note', 'note_at', 'subject', 'tried'):
         c.pop(k, None)
 
@@ -688,7 +662,7 @@ def run(now=None):
         if not due(c, x, st, work, now):
             continue
         try:
-            write(c, cse, x, title, work, now, st)
+            write(c, cse, x, title, work, now)
         except Exception as w:
             log('%s "%s" error: %s: %s' % (cse, title, type(w).__name__, str(w)[:200]))
             c['sent'] = now  # tried: the next one in EVERY, not each minute
@@ -720,11 +694,10 @@ def due(c, x, st, work, now):
     return any((w['kind'] == 'agent' and not w.get('fg')) or now - w['start'] >= TURN_MIN for w in work)
 
 
-def write(c, cse, x, title, work, now, st=None):
+def write(c, cse, x, title, work, now):
     """One check-in for the session, kept in its record for the Kit app to show (`note`, `note_at`), unless it holds
-    at its usage limit (logged once for each run of work). It goes out no way: no Reach me by, no Mac notice. A note
-    Haiku wrote also goes into the session's own chat when the Kit can type it in there (in_chat()); `st` is the state
-    file, read again when not given."""
+    at its usage limit (logged once for each run of work). It goes out no way: no Reach me by, no Mac notice. The
+    session's own check-in timer (checkin-timer.py) gives the latest note to the session while it is fresh."""
     tp = x.get('transcript') or ''
     try:
         held = load('limit-hook').held(os.path.basename(tp)[:-len('.jsonl')], tp, cse)
@@ -747,12 +720,11 @@ def write(c, cse, x, title, work, now, st=None):
     c.pop('said', None)
     subj = subject(work, age)
     clean = lambda s: one_line(s, 400).replace(' | ', ' / ').replace('; ', ', ')
-    why, kind = '', 'empty'   # kind: what wrote the note, 'haiku', or 'empty' (no new step) or 'failed' (the call)
+    why = ''
     if any(p['lines'] for p in parts):
         read = [p for p in parts if p['lines'] or not p.get('done')]
         try:
             body = summary(model_input(title, age, read, window), title, [p.get('name') or '' for p in read])
-            kind = 'haiku'
         except Unusable as w:
             # two answers and no note: none this time, and the last note stays. Nothing is marked read, so the next
             # check-in, in EVERY, covers this work too
@@ -764,7 +736,6 @@ def write(c, cse, x, title, work, now, st=None):
         except Exception as w:
             why = one_line(str(w), 120) or type(w).__name__
             body = plain(parts, window)
-            kind = 'failed'
     else:
         body = plain(parts, window)  # nothing new to read: no model call
     c['empty'] = not any(p['lines'] for p in parts)
@@ -773,8 +744,7 @@ def write(c, cse, x, title, work, now, st=None):
     c['sent'], c['n'] = now, c.get('n', 0) + 1
     c['note'], c['note_at'], c['subject'] = body, now, subj
     # the line: <session> "<name>" <status> | <subject> | <note>; the status is "shown in the Kit", then "; no
-    # summary (<why>)" when it applies, then "; in the chat" or "; not in the chat: <why>" while Check-ins in the
-    # session is on (the Events page reads it this way)
+    # summary (<why>)" when it applies (the Events page reads it this way)
     if DRY:
         status = ['written (dry)']
         print('would show for %s "%s": %s\n%s' % (cse, title, subj, body))
@@ -782,231 +752,12 @@ def write(c, cse, x, title, work, now, st=None):
         status = ['shown in the Kit']
     if why:
         status.append('no summary (%s)' % clean(why)[:160])
-    try:
-        chat = in_chat(c, cse, x, work, kind, body, now, read_json(STATE) if st is None else st)
-    except Exception as w:  # the note stays in the Kit; the next check-in tries the chat again
-        chat = 'not in the chat: the Kit could not type it in: %s: %s' % (type(w).__name__, one_line(str(w), 120))
-    if chat:
-        status.append(clean(chat)[:240])
-        if DRY:
-            print(chat)
     log('%s "%s" %s | %s | %s' % (cse, title, '; '.join(status), clean(subj), clean(body)))
 
 
-# --- the check-in in the session's chat ---------------------------------------------------------------------------------
-
-def chat_on(st):
-    return st.get('checkins_chat', True) is not False
-
-
-def chat_text(note):
-    """The prompt typed into a session: the mark, then the note on one line, with no control character (an Escape or a
-    Ctrl key would act in Claude Code), no "@" that starts a word (Claude Code would show its list of files, and the
-    Enter key would pick one) and no backslash at the end (Claude Code would take the Enter key as a new line)."""
-    t = re.sub(r'[\x00-\x1f\x7f-\x9f]+', ' ', note or '')
-    t = re.sub(r'(^|\s)@+', r'\1', t)
-    t = re.sub(r'\s+', ' ', t).strip().rstrip('\\').strip()
-    t = '%s %s' % (MARK, t)
-    return t if len(t) <= CHAT_MAX else t[:CHAT_MAX - 1].rstrip().rstrip('\\') + '…'
-
-
-def copy_of(e, cse, cid):
-    """Where a session runs now, for the chat: {'kind': 'kit', 'pid', 'screen'} when its one copy is the Kit's own, its
-    Claude Code (claude --resume <conversation>) in the screen kit-<first 8> (start_screen()), the one place the Kit
-    types into. Else {'kind': ...}: 'server' (this Mac's server runs it), 'app' (the Claude desktop app or another
-    program, with the session's own record in ~/.claude/sessions), 'terminal' (claude --resume <conversation> outside
-    the Kit's screen, or a record that says cli), 'twice' (two copies of the Kit's), 'none'."""
-    rows = e.ps_rows()
-    procs = e.copies(cse, cid, rows)
-    if not procs:
-        return {'kind': 'none'}
-    if 'server' in procs.values():
-        return {'kind': 'server'}
-    parent = {pid: ppid for pid, ppid, _ in rows}
-    screens = {int(s.split('.', 1)[0]): s for s in e.screen_ids('kit-' + cid[:8])}
-    kit = []
-    for pid, kind in sorted(procs.items()):
-        if kind == 'kit':
-            p, n = parent.get(pid), 0
-            while p and p > 1 and p not in screens and n < 10:  # up to the screen it runs in, when it has one
-                p, n = parent.get(p), n + 1
-            if p not in screens:
-                return {'kind': 'terminal'}
-            kit.append((pid, screens[p]))
-            continue
-        try:
-            with open(os.path.join(e.CLAUDE_DIR, 'sessions', '%d.json' % pid)) as f:
-                entry = json.load(f).get('entrypoint') or ''
-        except (OSError, ValueError, AttributeError):
-            entry = ''
-        return {'kind': 'terminal' if entry == 'cli' else 'app'}
-    if len(kit) != 1:
-        return {'kind': 'twice'}
-    return {'kind': 'kit', 'pid': kit[0][0], 'screen': kit[0][1]}
-
-
-def claude_state(e, pid):
-    """What Claude Code's own record of a copy says (~/.claude/sessions/<pid>.json): (its status, such as 'idle' or
-    'busy', and what it waits on from the person, such as a permission), or ('', '') with no record."""
-    try:
-        with open(os.path.join(e.CLAUDE_DIR, 'sessions', '%d.json' % pid)) as f:
-            d = json.load(f)
-        return str(d.get('status') or ''), str(d.get('waitingFor') or '')
-    except (OSError, ValueError, AttributeError):
-        return '', ''
-
-
-def chat_reply(tp, since):
-    """The check-in typed into the session at `since`, as the session's record has it: 'answered' (the session wrote
-    words after it), 'waiting' (it is in the chat, or in Claude Code's queue, with no answer yet) or 'missing'."""
-    entries, _ = new_entries(tp, None, since - 5, tail=2 * 1024 * 1024)
-    state = 'missing'
-    for x in entries:
-        if x.get('isSidechain'):
-            continue
-        msg = x.get('message') if isinstance(x.get('message'), dict) else {}
-        if x.get('type') == 'queue-operation' and MARK in str(x.get('content') or ''):
-            state = 'waiting' if state == 'missing' else state
-        elif x.get('type') == 'user' and not x.get('isMeta') and MARK in text_of(msg.get('content')):
-            state = 'waiting'
-        elif x.get('type') == 'assistant' and state == 'waiting' and NOTE.sub('', text_of(msg.get('content'))).strip():
-            state = 'answered'
-    return state
-
-
-def vim_mode(e):
-    """Whether Claude Code takes keys as vim does, where typed text can act as commands: `editorMode` in its settings."""
-    for path in (e.CLAUDE_JSON, os.path.join(e.CLAUDE_DIR, 'settings.json')):
-        try:
-            with open(path) as f:
-                if json.load(f).get('editorMode') == 'vim':
-                    return True
-        except (OSError, ValueError, AttributeError):
-            pass
-    return False
-
-
-def visible(sid):
-    """What screen `sid` (<pid>.<name>) shows now, without its scrollback; '' when it can't be read."""
-    fd, path = tempfile.mkstemp(prefix='kit-checkin-screen-')
-    os.close(fd)
-    try:
-        subprocess.run([SCREEN, '-S', sid, '-p', '0', '-X', 'hardcopy', path], capture_output=True, timeout=10)
-        for _ in range(25):  # screen writes the copy a moment after the command returns
-            time.sleep(0.1)
-            with open(path, 'rb') as f:
-                text = f.read().decode('utf-8', 'replace')
-            if text.strip():
-                return text
-        return ''
-    except (OSError, subprocess.SubprocessError):
-        return ''
-    finally:
-        os.unlink(path)
-
-
-def letters(s):
-    """Only the letters and digits of a text: the screen's copy wraps the input box's lines and can drop a character
-    that is not ASCII."""
-    return re.sub(r'[^A-Za-z0-9]', '', s or '')
-
-
-def type_in(e, sid, pid, text, tp, since):
-    """Types `text` into the Kit's own copy of a session (screen `sid`, Claude Code `pid`), as a person types at its
-    keyboard: the text through the screen's paste register, word for word, then, once it shows in the input box, the
-    Enter key alone. No other key: nothing that ends, stops or starts the copy again. '' when the prompt started
-    (Claude Code marks the copy busy, or the record has it), else why not."""
-    folder = os.path.join(KIT, 'checkin-chat')
-    os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, '%d.txt' % pid)
-    with open(path, 'w') as f:
-        f.write(text)
-
-    def screen(*args):
-        r = subprocess.run([SCREEN, '-S', sid, '-p', '0', '-X'] + list(args), capture_output=True, text=True, timeout=10)
-        return '' if r.returncode == 0 else 'screen %s failed: %s' % (args[0], one_line(r.stdout + r.stderr, 100) or
-                                                                     'exit %d' % r.returncode)
-    try:
-        why = screen('readreg', REGISTER, path) or screen('paste', REGISTER)
-        if why:
-            return why
-        time.sleep(KEY_WAIT)
-        tail, end = letters(text)[-30:], time.time() + SHOW_WAIT
-        while tail not in letters(visible(sid)):
-            if time.time() > end:
-                return 'its text did not show in the input box, so the Kit did not press Enter'
-            time.sleep(0.5)
-        why = screen('stuff', '\r')
-        if why:
-            return why
-        end = time.time() + START_WAIT
-        while time.time() < end:
-            time.sleep(0.5)
-            if claude_state(e, pid)[0] == 'busy' or chat_reply(tp, since) != 'missing':
-                return ''
-        return 'it did not start after the Enter key'
-    finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-
-
-def in_chat(c, cse, x, work, kind, note, now, st, dry=False):
-    """The check-in in the session's own chat: the note as a prompt typed into the session, which the session answers
-    in a line or two, while its own turn is idle and its agents work in the background. Only a note Haiku wrote, only
-    into the Kit's own copy of the session (copy_of()), and only when the last one has an answer. The words for the
-    check-in's log line: 'in the chat', 'would go in the chat' (a test run types nothing), 'not in the chat: <why>',
-    or '' while Check-ins in the session is off. `c['chat']` keeps the last one: when, into which copy, and whether it
-    went in. `dry`: decide only (checkin.py --list)."""
-    if not chat_on(st):
-        return ''
-
-    def no(why):
-        return 'not in the chat: ' + why
-    if kind != 'haiku':
-        return no('it has no new steps to tell' if kind == 'empty' else 'Haiku gave no summary to send')
-    if any(w['kind'] == 'turn' for w in work):
-        return no('its turn runs, and a prompt would only wait for it')
-    tp = x.get('transcript') or ''
-    cid = os.path.basename(tp)[:-len('.jsonl')]
-    e = load('effort-hook')
-    where = copy_of(e, cse, cid)
-    if where['kind'] != 'kit':
-        return no(WHERE[where['kind']])
-    pid, sid = where['pid'], where['screen']
-    started = ((((st.get('keep') or {}).get('alone') or {}).get(cse)) or {}).get('at', 0)
-    if 0 <= now - started < STARTING:
-        return no('the Kit started its copy moments ago')
-    status, waits = claude_state(e, pid)
-    if waits:
-        return no('it waits on you')
-    if status != 'idle':
-        return no('its turn runs, and a prompt would only wait for it' if status
-                  else 'Claude Code keeps no record of its copy, so the Kit cannot see that its turn is idle')
-    last = c.get('chat') or {}
-    if last.get('pid') == pid and not last.get('ok'):
-        return no('the last check-in did not go in, so the Kit types no more into this copy')
-    if last.get('ok') and (x.get('asked_at') or 0) < last.get('at', 0) and chat_reply(tp, last['at']) != 'answered':
-        return no('the last check-in in the chat has no answer yet')
-    if os.path.exists(os.path.join(KIT, 'working-rules.off')):
-        return no('the Sttark working rules are off, and they tell the session how to answer one')
-    if vim_mode(e):
-        return no('Claude Code is in vim mode, where typed text can act as keys')
-    if e.stood_down('kit-' + cid[:8]):
-        return no('its copy in the Kit stood down, as another place has the session now')
-    if DRY or dry:
-        return 'would go in the chat'
-    at = time.time()
-    c['chat'] = {'at': at, 'pid': pid, 'ok': False}   # until it went in: a failure part way types no more there
-    why = type_in(e, sid, pid, chat_text(note), tp, at)
-    c['chat']['ok'] = not why
-    return 'in the chat' if not why else no('the Kit could not type it in: ' + why)
-
-
 def listing(now=None):
-    """--list: the work that runs now in each session, when its next check-in is due, and whether a check-in Haiku
-    wrote now would go in its chat too. Reads only: it types nothing."""
+    """--list: the work that runs now in each session, when its next check-in is due, and the check-in timer the
+    session keeps itself (checkin-timer.py), when it has one. Reads only."""
     now = now or time.time()
     st = read_json(STATE)
     runs = read_json(FILE).get('sessions') or {}
@@ -1017,9 +768,10 @@ def listing(now=None):
         if 'tasks' not in found:
             found['tasks'] = e.open_tasks()
         return found['tasks']
-    print('Progress check-ins are %s.' % ('on' if on(st) else 'off (Settings > Sessions)'))
-    if on(st):
-        print('Check-ins in the session are %s.' % ('on' if chat_on(st) else 'off (Settings > Sessions)'))
+    timers = read_json(os.path.join(KIT, 'checkin-timers.json'))
+    print('Progress check-ins in the Kit are %s.' % ('on' if on(st) else 'off (Settings > Sessions)'))
+    print('Check-ins in the session are %s.' % ('on' if st.get('checkins_chat', True) is not False
+                                               else 'off (Settings > Sessions)'))
     shown = 0
     for cse, x in candidates(st, now):
         work = work_of(e, cse, x, st, now, tasks)
@@ -1035,9 +787,14 @@ def listing(now=None):
                                          'no check-in while only a short turn runs'))
         for w in work:
             print('  - %s, %s' % ('the turn' if w['kind'] == 'turn' else 'agent "%s"' % (w['what'] or 'unnamed'), words(now - w['start'])))
-        chat = in_chat(c, cse, x, work, 'haiku', '', now, st, dry=True) if on(st) else ''
-        if chat:
-            print('  ' + chat.replace('would go in the chat', 'a check-in now would go in its chat too'))
+        cid = os.path.basename(x.get('transcript') or '')[:-len('.jsonl')]
+        t = timers.get(cid) if isinstance(timers.get(cid), dict) else {}
+        if t.get('job'):
+            print('  check-in timer in the session: job %s, set %s ago%s' % (
+                t['job'], words(now - (t.get('set_at') or now)),
+                ', last check-in %s ago' % words(now - t['fired_at']) if t.get('fired_at') else ''))
+        else:
+            print('  no check-in timer in the session')
     if not shown:
         print('No session has work that runs now.')
 

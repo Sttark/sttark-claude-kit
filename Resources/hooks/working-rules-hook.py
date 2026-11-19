@@ -43,7 +43,7 @@ CLAUDE = STABLE if os.access(STABLE, os.X_OK) else os.path.expanduser('~/.local/
 MODEL = 'haiku'     # Claude Code's alias for the newest Haiku: fast and cheap, enough for a word check
 TIMEOUT = 45        # seconds the check may take; the hook entry allows 60
 MIN_PROSE = 40      # characters of prose below which a reply is not checked
-CHECKIN = '[Sttark Claude Kit] Check-in:'  # the start of a progress check-in the Kit types into a session (checkin.py)
+CHECKIN = '[Sttark Claude Kit] Check-in:'  # the start of the check-in timer's prompt in a session (checkin-timer.py)
 
 LEAD = 'Sttark working rules (from Sttark Claude Kit): how Claude works for people at Sttark.'
 
@@ -132,9 +132,12 @@ the turn with one line that says why, with no claude-notify.
 - When the Kit says the person replied themselves (a note that starts "[Sttark Claude Kit] The person replied \
 themselves"), the item that waited on that reply is done: mark it handled in your notes and your status table. \
 Send no claude-notify for it, and do not ask the person about it.
-- When a prompt starts "[Sttark Claude Kit] Check-in:", it is the Kit's progress note on your work that runs in \
-the background, put in this chat for the person to read. Reply with only one or two short lines on the progress, \
-in the person's terms, with no status table. Use no tools, send no claude-notify, ask nothing, and start no new work.
+- While an agent or a background command of yours runs, keep one check-in timer. When the Kit asks, set it one \
+time with CronCreate, as the Kit says, and keep its id. A prompt that starts "[Sttark Claude Kit] Check-in:" comes \
+from that timer: reply with only one or two short lines on the progress of that work, in the person's terms, with no \
+status table. Use no tools but CronDelete, send no claude-notify, ask nothing, and start no new work. When no agent or \
+background command of yours still runs, call CronDelete with the timer's id; in a check-in, then reply in one line \
+that the work is done.
 - Repo work: pull latest from remote before you work, and read the project docs before you change anything. The \
 projects have history.
 - UI and layout: function over form. Usability is king. See it rendered before calling it done.
@@ -238,8 +241,8 @@ def is_prompt(e):
 
 
 def is_person(e):
-    """A prompt of the person: not a task notification, and not the Kit's progress check-in (checkin.py), which, as a
-    notification does, starts a new turn of the same piece of work."""
+    """A prompt of the person: not a task notification, and not the check-in timer's prompt (checkin-timer.py), which,
+    as a notification does, starts a new turn of the same piece of work."""
     return is_prompt(e) and not text_of((e.get('message') or {}).get('content')).lstrip().startswith(
         ('<task-notification>', CHECKIN))
 

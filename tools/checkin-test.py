@@ -98,9 +98,9 @@ c.load = fake_load
 real_write = c.write
 
 
-def write_and_keep(cc, cse, x, title, work, now, st=None):
+def write_and_keep(cc, cse, x, title, work, now):
     n_before = cc.get('n', 0)
-    real_write(cc, cse, x, title, work, now, st)
+    real_write(cc, cse, x, title, work, now)
     if cc.get('n', 0) > n_before:
         SENT.append(('%s: %s' % (title, cc['subject']), cc['note'], None, title, x.get('url'), cse))
 
@@ -200,9 +200,8 @@ write(E, use('TURNSTEP one', S - 10 * 60) + say('The build passes. TURNSAID', S 
 
 
 def state(now, ways=('email',), on=None, turn=False, more=None):
-    """The state file at `now`: E's turn runs with `turn`; `more` gives other sessions' own fields (a turn, a prompt).
-    Check-ins in the session are off here: tools/checkin-chat-test.py tests them."""
-    s = {'sessions': {}, 'reach': {'ways': list(ways), 'email': 'name@sttark.com'}, 'checkins_chat': False}
+    """The state file at `now`: E's turn runs with `turn`; `more` gives other sessions' own fields (a turn, a prompt)."""
+    s = {'sessions': {}, 'reach': {'ways': list(ways), 'email': 'name@sttark.com'}}
     for tp, cse in CSE.items():
         x = {'transcript': tp, 'title': NAMES[tp], 'url': 'https://claude.ai/code/session_' + cse[4:], 'at': now - 120,
              'app': {'checked': now - 20, 'working': False, 'archived': tp == R}}
@@ -598,7 +597,8 @@ check('another part\'s test run (STTARK_WAIT_DRY) makes no model call: the note 
       and any('no summary (a test run of another part: no model call)' in l for l in log_lines()))
 r = subprocess.run([sys.executable, os.path.join(HOOKS, 'checkin.py'), '--list'], capture_output=True, text=True, timeout=60)
 check('--list says what runs and when the next one is due: %r' % r.stdout[:200],
-      'Progress check-ins are on.' in r.stdout and 'agent "Long job q2"' in r.stdout)
+      'Progress check-ins in the Kit are on.' in r.stdout and 'agent "Long job q2"' in r.stdout
+      and 'no check-in timer in the session' in r.stdout)
 
 print('%d failed' % fails if fails else 'all ok')
 sys.exit(1 if fails else 0)
