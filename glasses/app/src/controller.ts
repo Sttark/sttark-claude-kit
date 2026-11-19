@@ -1,7 +1,7 @@
 // The app: what screen shows, what each gesture does there, and how it keeps
 // in step with the bridge. Gestures: swipe moves, tap opens or acts, double
 // tap goes back (on the first screen, the system asks to close the app).
-import { Bridge, BridgeError, type Folder, type LiveSocket, type Pending, type SessionDetail, type SessionRow } from './api';
+import { Bridge, BridgeError, type Folder, type LiveSocket, type Pending, type SessionDetail, type SessionRow, type Turn } from './api';
 import type { Input } from './events';
 import type { Glasses } from './glasses';
 import * as S from './screens';
@@ -10,9 +10,13 @@ import { Dictation } from './voice';
 
 type Screen =
   | { kind: 'home' }
-  | { kind: 'session'; id: string; page: number; flash: string | null; replyKey: string }
+  // page 0 is the glance card, 1 and on the reply's pages; sel is the card's
+  // chosen button, first the first button in view. turn: null for the latest
+  // turn; else the earlier turn shown (its index), and page is a page of
+  // that turn's reply.
+  | { kind: 'session'; id: string; page: number; flash: string | null; replyKey: string; sel: number; first: number; btnKey: string; message: string | null; busy: boolean; turn: number | null }
   | { kind: 'actions'; id: string; items: S.ActionItem[]; sel: number; first: number; pending: Pending | null; ask: string[]; message: string | null; busy: boolean }
-  | { kind: 'voice'; purpose: 'reply' | 'new'; id: string | null; phase: 'listening' | 'finishing' | 'sending' | 'empty' | 'error'; text: string; note: string | null }
+  | { kind: 'voice'; purpose: 'reply' | 'new'; id: string | null; phase: 'listening' | 'finishing' | 'sending' | 'empty' | 'error'; text: string; note: string | null; back: 'session' | 'actions' }
   | { kind: 'confirm'; prompt: string; busy: boolean; error: string | null };
 
 export type ConnState = 'unset' | 'connecting' | 'ok' | 'down' | 'auth';
@@ -35,12 +39,27 @@ const POLL_MS = 5000;
 const RETRY_MS = 10000;
 const NOTICE_MS = 6000;
 const FLASH_MS = 8000;
+/** Earlier turns come from the bridge a few at a time. */
+const TURN_BATCH = 5;
+
+/** A session's earlier turns, as far back as the person has scrolled. */
+interface History {
+  total: number;
+  /** The turn the session screen shows (its reply is last_reply); the earlier ones are below it. */
+  latest: number;
+  turns: Map<number, Turn>;
+  loaded: boolean;
+  /** Requests on the way: "new" for the newest turns, else the `before` index. */
+  pending: Set<string>;
+  error: string | null;
+}
 
 export class Controller {
   private screen: Screen = { kind: 'home' };
   private rows: SessionRow[] = [];
   private loaded = false;
   private details = new Map<string, SessionDetail>();
+  private histories = new Map<string, History>();
   private homeRows: S.HomeRow[] = [];
   /** The marked row on Home: a session id, or null for + New session. It
    *  follows its session when the rows move; homeAt is the fallback when
@@ -131,6 +150,7 @@ export class Controller {
     this.rows = [];
     this.loaded = false;
     this.details.clear();
+    this.histories.clear();
     if (this.screen.kind !== 'home') this.stopMic();
     this.screen = { kind: 'home' };
     this.conn = 'connecting';
@@ -283,9 +303,16 @@ export class Controller {
     if (sc.kind === 'session' && sc.id === d.id) {
       const key = replyKey(d);
       if (key !== sc.replyKey) {
-        if (prev && sc.replyKey) this.flash(sc, 'New reply');
-        sc.page = 0;
+        if (sc.turn !== null) {
+          // Reading an earlier turn: stay there, and say a new reply came.
+          if (prev && sc.replyKey) this.showNotice('New reply. Tap for the latest.');
+        } else {
+          if (prev && sc.replyKey) this.flash(sc, 'New reply');
+          sc.page = 0;
+        }
         sc.replyKey = key;
+        // The reply before this one is an earlier turn now.
+        if (prev) void this.loadTurns(d.id);
       }
     }
     if (sc.kind === 'actions' && sc.id === d.id && sc.pending && !sameQuestion(sc.pending, d.pending)) {
@@ -345,8 +372,14 @@ export class Controller {
         return sc.busy ? 'confirm:starting' : sc.error ? 'confirm:error' : 'confirm';
       case 'actions':
         return sc.busy ? 'actions:sending' : 'actions';
-      default:
-        return sc.kind;
+      case 'session': {
+        if (sc.turn !== null) {
+          const h = this.histories.get(sc.id);
+          return `earlier:${(h?.latest ?? 0) - sc.turn}${h?.turns.has(sc.turn) ? '' : ':loading'}`;
+        }
+        // The glance card is page 0; the reply's pages follow.
+        return sc.page === 0 ? (sc.busy ? 'card:sending' : 'card') : 'session';
+      }
     }
   }
 
@@ -374,13 +407,22 @@ export class Controller {
         });
       }
       case 'session': {
+        if (sc.turn !== null) return this.earlierPage(sc, notice);
         const d = this.details.get(sc.id) ?? null;
         const row = this.rows.find((r) => r.id === sc.id) ?? null;
         const off = this.offlineWords();
         const pages = S.sessionPages(d, !!off, settings().tablePictures);
-        sc.page = Math.min(sc.page, pages.length - 1);
+        sc.page = Math.min(sc.page, pages.length);
+        const title = d?.title || row?.title || 'Session';
+        if (sc.page === 0) {
+          const glance = S.cardOf(d, row);
+          const buttons = this.cardButtons(sc);
+          const head = notice ? `! ${notice}` : sc.flash ? sc.flash : off ? `! ${off[0].toUpperCase()}${off.slice(1)}: may be old` : null;
+          const earlier = (this.histories.get(sc.id)?.latest ?? 0) > 0;
+          return S.cardPage({ title, glance, buttons, sel: sc.sel, first: sc.first, message: sc.message, head, replyPages: pages.length, earlier });
+        }
         const status = off && !sc.flash ? `! ${off[0].toUpperCase()}${off.slice(1)}: this may be old` : S.statusLine(row, d, sc.flash);
-        return S.sessionPage({ title: d?.title || row?.title || 'Session', pages, page: sc.page, status, pending: d?.pending ?? null, notice });
+        return S.sessionPage({ title, pages, page: sc.page - 1, status, pending: d?.pending ?? null, notice });
       }
       case 'actions': {
         const d = this.details.get(sc.id) ?? null;
@@ -420,6 +462,16 @@ export class Controller {
         return S.textPage({ title: 'Start this new session?', body, hint, notice });
       }
     }
+  }
+
+  private earlierPage(sc: Extract<Screen, { kind: 'session' }>, notice: string | null) {
+    const h = this.histories.get(sc.id);
+    const i = sc.turn ?? 0;
+    const latest = h?.latest ?? 0;
+    const turn = h?.turns.get(i) ?? null;
+    const pages = !turn && h?.error ? [`! Earlier turns did not load: ${h.error}.\nSwipe to try again.`] : S.turnPages(turn);
+    sc.page = Math.min(sc.page, pages.length - 1);
+    return S.turnPage({ k: latest - i, count: latest, turn, pages, page: sc.page, next: i + 1 >= latest ? 'latest' : 'later', notice });
   }
 
   private connectionPage(notice: string | null) {
@@ -475,6 +527,22 @@ export class Controller {
     return i;
   }
 
+  /** The card's buttons now. A new question puts the choice back on its first answer. */
+  private cardButtons(sc: Extract<Screen, { kind: 'session' }>): S.CardButton[] {
+    const d = this.details.get(sc.id) ?? null;
+    const row = this.rows.find((r) => r.id === sc.id) ?? null;
+    const buttons = S.cardButtons(S.cardOf(d, row), d?.pending ?? null);
+    const key = buttons.map((b) => (b.kind === 'option' ? b.id : b.kind)).join(',');
+    if (key !== sc.btnKey) {
+      sc.btnKey = key;
+      sc.sel = 0;
+      sc.first = 0;
+    }
+    sc.sel = Math.max(0, Math.min(sc.sel, buttons.length - 1));
+    sc.first = S.scrollTo(sc.first, sc.sel, buttons.length, S.MAX_BUTTONS);
+    return buttons;
+  }
+
   private newFolder(): Folder | null {
     const want = settings().folder;
     return this.folders.find((f) => f.path === want) ?? this.folders[0] ?? null;
@@ -515,9 +583,12 @@ export class Controller {
       case 'tap': {
         // One tap can come as a text event and a system event: the same gesture.
         if (now - this.lastTap < 300) return;
-        // On the answer list the marked row can be an answer: a tap that
-        // comes right after the tap that opened it is not a choice.
-        if (this.screen.kind === 'actions' && now - this.openedAt < 700) return;
+        // On the answer list and on a card with answers the marked one can be
+        // an answer: a tap that comes right after the tap that opened it is
+        // not a choice.
+        const sc = this.screen;
+        const answers = sc.kind === 'actions' || (sc.kind === 'session' && sc.page === 0 && !!this.details.get(sc.id)?.pending?.options.length);
+        if (answers && now - this.openedAt < 700) return;
         this.lastTap = now;
         this.tap();
         return;
@@ -545,10 +616,37 @@ export class Controller {
       return;
     }
     if (sc.kind !== 'session') return;
+    if (sc.turn !== null) {
+      this.swipeEarlier(sc, forward);
+      return;
+    }
     const n = S.sessionPages(this.details.get(sc.id) ?? null, false, settings().tablePictures).length;
-    const next = Math.max(0, Math.min(n - 1, sc.page + step));
+    if (sc.page === 0) {
+      // The card: a swipe picks the next answer; past the last one, the full reply.
+      const buttons = this.cardButtons(sc);
+      const i = sc.sel + step;
+      if (buttons.length && i >= 0 && i < buttons.length) {
+        sc.sel = i;
+        sc.first = S.scrollTo(sc.first, i, buttons.length, S.MAX_BUTTONS);
+        if (!sc.busy) sc.message = null;
+        this.render();
+        return;
+      }
+      // Up at the top of the card (its first answer): the turn before.
+      if (!forward) {
+        this.toEarlier(sc);
+        return;
+      }
+    }
+    const next = Math.max(0, Math.min(n, sc.page + step));
     if (next === sc.page) return;
     sc.page = next;
+    if (next === 0) {
+      // Back on the card from the reply: the last button, where the swipe left it.
+      const buttons = this.cardButtons(sc);
+      sc.sel = Math.max(0, buttons.length - 1);
+      sc.first = S.scrollTo(sc.first, sc.sel, buttons.length, S.MAX_BUTTONS);
+    }
     this.render();
   }
 
@@ -566,22 +664,39 @@ export class Controller {
         else this.openSession(row.id);
         return;
       }
-      case 'session':
+      case 'session': {
+        if (sc.turn !== null) {
+          this.toLatest(sc);
+          return;
+        }
+        if (sc.page === 0) {
+          const buttons = this.cardButtons(sc);
+          const b = buttons[sc.sel];
+          if (b?.kind === 'say') {
+            this.startVoice('reply', sc.id, 'session');
+            return;
+          }
+          if (b?.kind === 'option') {
+            if (!sc.busy) void this.answerFromCard(sc, b.id, b.label);
+            return;
+          }
+        }
         this.openActions(sc.id);
         return;
+      }
       case 'actions': {
         if (sc.busy) return;
         const item = sc.items[sc.sel];
         if (!item) return;
         if (item.kind === 'back') this.openSession(sc.id, false);
-        else if (item.kind === 'voice') this.startVoice('reply', sc.id);
+        else if (item.kind === 'voice') this.startVoice('reply', sc.id, 'actions');
         else if (item.kind === 'continue') void this.sendFromActions(sc, 'Continue');
         else void this.answer(sc, item.id, item.label);
         return;
       }
       case 'voice':
         if (sc.phase === 'listening') void this.finishVoice();
-        else if (sc.phase === 'empty') this.startVoice(sc.purpose, sc.id);
+        else if (sc.phase === 'empty') this.startVoice(sc.purpose, sc.id, sc.back);
         else if (sc.phase === 'error') void this.gotWords(sc.text);
         return;
       case 'confirm':
@@ -597,15 +712,18 @@ export class Controller {
         void this.lens.exit();
         return;
       case 'session':
-        this.goHome();
+        if (sc.turn !== null) this.toLatest(sc);
+        else this.goHome();
         return;
       case 'actions':
         this.openSession(sc.id, false);
         return;
       case 'voice':
         this.stopMic();
-        if (sc.purpose === 'reply' && sc.id) this.openActions(sc.id);
-        else this.goHome();
+        if (sc.purpose === 'reply' && sc.id) {
+          if (sc.back === 'session') this.openSession(sc.id, false);
+          else this.openActions(sc.id);
+        } else this.goHome();
         return;
       case 'confirm':
         this.goHome();
@@ -626,11 +744,119 @@ export class Controller {
     // Back on Home, the mark is on this session.
     this.homeSel = id;
     const d = this.details.get(id);
-    this.screen = { kind: 'session', id, page: 0, flash: null, replyKey: d ? replyKey(d) : '' };
+    this.screen = { kind: 'session', id, page: 0, flash: null, replyKey: d ? replyKey(d) : '', sel: 0, first: 0, btnKey: '', message: null, busy: false, turn: null };
+    this.openedAt = Date.now();
     this.socket?.subscribe(id);
     this.render();
     this.changed();
     if (fresh || !d) void this.loadDetail(id);
+    // The newest turns now, so the first swipe up shows one at once.
+    if (fresh || !this.histories.get(id)?.loaded) void this.loadTurns(id);
+  }
+
+  // ---------- earlier turns ----------
+
+  /** A swipe up at the top of the latest turn: the turn before it, from its top. */
+  private toEarlier(sc: Extract<Screen, { kind: 'session' }>): void {
+    const h = this.histories.get(sc.id);
+    if (!h?.loaded) {
+      this.flash(sc, 'Getting the earlier turns...');
+      this.render();
+      void this.loadTurns(sc.id);
+      return;
+    }
+    if (h.latest <= 0) {
+      this.flash(sc, 'No earlier turns in this session');
+      this.render();
+      return;
+    }
+    sc.turn = h.latest - 1;
+    sc.page = 0;
+    this.ensureTurns(sc);
+    this.render();
+  }
+
+  /** In an earlier turn: its pages, then the turn before (up) or after (down);
+   *  down at the end of the newest earlier turn is the latest turn again. */
+  private swipeEarlier(sc: Extract<Screen, { kind: 'session' }>, forward: boolean): void {
+    const h = this.histories.get(sc.id);
+    const i = sc.turn ?? 0;
+    if (!h) return this.toLatest(sc);
+    const pages = S.turnPages(h.turns.get(i) ?? null).length;
+    if (forward) {
+      if (h.turns.has(i) && sc.page < pages - 1) sc.page++;
+      else if (i + 1 >= h.latest) return this.toLatest(sc);
+      else {
+        sc.turn = i + 1;
+        sc.page = 0;
+      }
+    } else if (sc.page > 0) {
+      sc.page--;
+    } else if (i > 0) {
+      sc.turn = i - 1;
+      sc.page = 0;
+    } else {
+      return; // the first turn: nothing above
+    }
+    this.ensureTurns(sc);
+    this.render();
+  }
+
+  /** The latest turn again, at its top: the card, its first answer marked. A
+   *  tap right after is the same finger, not an answer (see handle). */
+  private toLatest(sc: Extract<Screen, { kind: 'session' }>): void {
+    sc.turn = null;
+    sc.page = 0;
+    sc.sel = 0;
+    sc.first = 0;
+    this.openedAt = Date.now();
+    this.render();
+  }
+
+  /** Load the turn on the screen and the next ones up, before the person gets there. */
+  private ensureTurns(sc: Extract<Screen, { kind: 'session' }>): void {
+    const h = this.histories.get(sc.id);
+    if (!h || sc.turn === null) return;
+    // The oldest turn held without a gap below the latest one.
+    let low = h.latest;
+    while (low > 0 && h.turns.has(low - 1)) low--;
+    if (low > 0 && sc.turn - 2 < low) void this.loadTurns(sc.id, low);
+  }
+
+  /** The newest turns (no `before`), or the ones before turn `before`. */
+  private async loadTurns(id: string, before?: number): Promise<void> {
+    let h = this.histories.get(id);
+    if (!h) {
+      h = { total: 0, latest: -1, turns: new Map(), loaded: false, pending: new Set(), error: null };
+      this.histories.set(id, h);
+    }
+    const key = before === undefined ? 'new' : String(before);
+    if (h.pending.has(key)) return;
+    h.pending.add(key);
+    const gen = this.generation;
+    try {
+      const r = await this.bridge.turns(id, before, TURN_BATCH);
+      if (gen !== this.generation) return;
+      for (const t of r.turns) h.turns.set(t.index, t);
+      if (before === undefined || !h.loaded) {
+        h.total = r.total;
+        h.latest = r.latest;
+      }
+      h.loaded = true;
+      h.error = null;
+    } catch (e) {
+      if (gen !== this.generation) return;
+      h.error = (e as Error).message;
+    } finally {
+      h.pending.delete(key);
+    }
+    const sc = this.screen;
+    if (sc.kind === 'session' && sc.id === id) {
+      if (sc.turn !== null && sc.turn >= h.latest) sc.turn = null; // the history moved under it
+      if (sc.flash === 'Getting the earlier turns...' && h.loaded) sc.flash = null;
+      this.ensureTurns(sc);
+      this.render();
+    }
   }
 
   private async loadDetail(id: string): Promise<void> {
@@ -690,6 +916,39 @@ export class Controller {
     }
   }
 
+  /** An answer from the card's buttons: it goes at once, as from the answer list. */
+  private async answerFromCard(sc: Extract<Screen, { kind: 'session' }>, optionId: string, label: string): Promise<void> {
+    const latest = this.details.get(sc.id)?.pending;
+    if (!latest || !latest.options.some((o) => o.id === optionId)) {
+      sc.message = 'Already answered. Nothing was sent.';
+      this.render();
+      return;
+    }
+    sc.busy = true;
+    sc.message = `Sending: ${label}...`;
+    this.render();
+    try {
+      const r = await this.bridge.answer(sc.id, optionId);
+      if (this.screen !== sc) return;
+      if (r.done === false && r.pending) {
+        // The next question of the same prompt: its answers take the buttons.
+        const d = this.details.get(sc.id);
+        if (d) this.details.set(sc.id, { ...d, pending: r.pending, has_pending: true });
+        sc.busy = false;
+        sc.message = null;
+        this.openedAt = Date.now();
+        this.render();
+        return;
+      }
+      this.afterSend(sc.id, `Sent: ${label}`);
+    } catch (e) {
+      if (this.screen !== sc) return;
+      sc.busy = false;
+      sc.message = `! Not sent: ${(e as Error).message}`;
+      this.render();
+    }
+  }
+
   private async sendFromActions(sc: Extract<Screen, { kind: 'actions' }>, text: string): Promise<void> {
     sc.busy = true;
     sc.message = `Sending: ${text}...`;
@@ -706,11 +965,12 @@ export class Controller {
   }
 
   private afterSend(id: string, flash: string): void {
-    // Until the bridge says otherwise, Claude is now working on it.
+    // Until the bridge says otherwise, Claude is now working on it. The
+    // card it wrote was for the question: the bridge sends a new one.
     const i = this.rows.findIndex((r) => r.id === id);
-    if (i >= 0) this.rows[i] = { ...this.rows[i], status: 'working', has_pending: false };
+    if (i >= 0) this.rows[i] = { ...this.rows[i], status: 'working', has_pending: false, glance: null };
     const d = this.details.get(id);
-    if (d) this.details.set(id, { ...d, status: 'working', pending: null, has_pending: false });
+    if (d) this.details.set(id, { ...d, status: 'working', pending: null, has_pending: false, glance: null });
     this.openSession(id, true);
     const sc = this.screen;
     if (sc.kind === 'session') this.flash(sc, flash);
@@ -719,9 +979,9 @@ export class Controller {
 
   // ---------- voice ----------
 
-  private startVoice(purpose: 'reply' | 'new', id: string | null): void {
+  private startVoice(purpose: 'reply' | 'new', id: string | null, back: 'session' | 'actions' = 'actions'): void {
     this.stopMic();
-    const sc: Screen = { kind: 'voice', purpose, id, phase: 'listening', text: '', note: null };
+    const sc: Screen = { kind: 'voice', purpose, id, phase: 'listening', text: '', note: null, back };
     this.screen = sc;
     const dict = new Dictation(
       this.bridge,

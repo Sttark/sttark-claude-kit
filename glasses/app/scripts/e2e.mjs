@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // End to end on the real Kit glasses bridge (glasses/bridge/) in the Even Hub
-// simulator: a new session from typed words, the session on Home, its reply
-// pages, a one-tap answer, a typed reply and Continue. After each step it
+// simulator: a new session from typed words, the session on Home, its glance
+// card and reply pages, a one-tap answer on the card, a typed reply and
+// Continue. After each step it
 // reads the session on the Mac side, through the bridge's own API, and waits
 // for the bridge to show the result. Then the bridge's speech to text with a
 // spoken sample (macOS `say`, written to a file, never played aloud).
@@ -157,13 +158,13 @@ async function startOne() {
   await wait(1000);
   await shot('new-confirm', '2 Start this new session?', 'The prompt to read before it goes. Tap starts it in the folder set on the phone.');
   await input('click');
-  await waitScreen('session', 130000);
+  await waitScreen('card', 130000);
   const added = await until('the new session on the bridge', async () => (await sessions()).find((s) => !before.has(s.id) && s.title.startsWith(ONLY)), 60000);
   const id = added.id;
   facts.id = id;
   log(`Mac: the bridge lists ${id} "${added.title}" (${added.status})`);
   await wait(1500);
-  await shot('new-started', '3 Started.', `The session screen at once. Mac: the bridge lists the new session, "${short(added.title, 30)}...", ${added.status}.`);
+  await shot('new-started', '3 Started.', `The session's card at once. Mac: the bridge lists the new session, "${short(added.title, 30)}...", ${added.status}.`);
 
   // Claude writes, then asks its question.
   const asked = await until('the question', async () => {
@@ -175,28 +176,34 @@ async function startOne() {
   return { id, asked };
 }
 
-/** 3 to 6: open it, read its pages, answer, reply, Continue. */
+/** 3 to 6: open it, read its card and pages, answer, reply, Continue. */
 async function openAndFinish(id, asked) {
-  // 3. Open it and read the reply pages.
+  // 3. Open it: the glance card, the answers as buttons; past them, the reply.
   await input('click');
-  await waitScreen('session');
+  await waitScreen('card');
   await wait(2500);
-  await shot('session-page1', '5 The reply, page 1.', `Mac: the bridge's detail has the reply (${asked.last_reply.length} characters) and the question.`);
-  await input('down');
+  const card = (await detail(id)).glance;
+  await shot('card', '5 The glance card.', `Mac: the bridge's card says "${short((card?.lines || []).join(' / '), 50)}". The answers are buttons.`);
+  const past = asked.pending.options.length + 1; // the answers and Say it
+  for (let i = 0; i < past; i++) {
+    await input('down');
+    await sleep(900);
+  }
+  await waitScreen('session');
   await wait(1200);
-  await shot('session-page2', '6 Page 2.', 'A swipe turns the page; the status line keeps the question in view.');
-  await input('up');
-  await sleep(900);
+  await shot('session-page1', '6 The full reply.', `One swipe past Say it. Mac: the reply has ${asked.last_reply.length} characters.`);
+  for (let i = 0; i < past; i++) {
+    await input('up');
+    await sleep(900);
+  }
+  await waitScreen('card');
 
-  // 4. Answer with one tap: the first answer is marked.
-  await input('click');
-  await waitScreen('actions');
+  // 4. Answer with one tap on the card: the first answer is chosen.
   await wait(1200);
-  await shot('actions-question', "7 The question's answers.", `"${short(asked.pending.text, 50)}" One tap answers.`);
   await input('click');
-  await waitScreen('session', 70000);
-  await wait(1200);
-  await shot('answer-sent', '8 Answered.', `Sent: ${asked.pending.options[0].label}. Back on the session, Claude works.`);
+  await waitScreen('card', 70000);
+  await wait(2500);
+  await shot('answer-sent', '7 Answered.', `Sent: ${asked.pending.options[0].label}, from its button. Claude works.`);
   const answered = await until('the reply to the answer', async () => {
     const d = await detail(id);
     return !d.pending && d.status !== 'working' && d.last_reply && d.last_reply !== asked.last_reply ? d : null;
@@ -204,20 +211,20 @@ async function openAndFinish(id, asked) {
   facts.answered = answered.last_reply;
   log(`Mac: no question now; reply "${short(answered.last_reply)}"`);
   await wait(3000);
-  await shot('answer-reply', '9 Its reply.', `Mac: the bridge's detail says "${short(answered.last_reply, 40)}".`);
+  await shot('answer-reply', '8 Its reply.', `Mac: the bridge's detail says "${short(answered.last_reply, 40)}".`);
 
   // 5. Reply by typed words: Reply by voice is the first row now.
   await input('click');
   await waitScreen('actions');
   await wait(1200);
-  await shot('actions-reply', '10 Actions, no question.', 'Reply by voice, Continue, Back. All rows full brightness; > marks the row a tap does.');
+  await shot('actions-reply', '9 Actions, no question.', 'Reply by voice, Continue, Back. All rows full brightness; > marks the row a tap does.');
   await input('click');
   await waitScreen('voice:listening');
   await wait(3500);
   await typed(REPLY);
-  await waitScreen('session', 70000);
+  await waitScreen('card', 70000);
   await wait(1200);
-  await shot('reply-sent', '11 Reply sent.', `"${REPLY}" went from the claude.ai page in Chrome, as typed in the Claude app.`);
+  await shot('reply-sent', '10 Reply sent.', `"${REPLY}" went from the claude.ai page in Chrome, as typed in the Claude app.`);
   const replied = await until('the reply to the message', async () => {
     const d = await detail(id);
     return d.status !== 'working' && d.last_reply && d.last_reply !== answered.last_reply ? d : null;
@@ -225,7 +232,7 @@ async function openAndFinish(id, asked) {
   facts.replied = replied.last_reply;
   log(`Mac: reply "${short(replied.last_reply)}"`);
   await wait(3000);
-  await shot('reply-reply', '12 Its reply.', `Mac: the bridge's detail says "${short(replied.last_reply, 40)}".`);
+  await shot('reply-reply', '11 Its reply.', `Mac: the bridge's detail says "${short(replied.last_reply, 40)}".`);
 
   // 6. Continue: one swipe down to it.
   await input('click');
@@ -233,11 +240,11 @@ async function openAndFinish(id, asked) {
   await wait(1200);
   await input('down');
   await wait(1200);
-  await shot('actions-continue', '13 Continue.', 'One swipe moves the > to Continue; a tap sends it.');
+  await shot('actions-continue', '12 Continue.', 'One swipe moves the > to Continue; a tap sends it.');
   await input('click');
-  await waitScreen('session', 70000);
+  await waitScreen('card', 70000);
   await wait(1200);
-  await shot('continue-sent', '14 Continue sent.', 'Sent: Continue. The session works again.');
+  await shot('continue-sent', '13 Continue sent.', 'Sent: Continue. The session works again.');
   const continued = await until('the reply to Continue', async () => {
     const d = await detail(id);
     return d.status !== 'working' && d.last_reply && d.last_reply !== replied.last_reply ? d : null;
@@ -245,7 +252,7 @@ async function openAndFinish(id, asked) {
   facts.continued = continued.last_reply;
   log(`Mac: reply "${short(continued.last_reply)}"`);
   await wait(3000);
-  await shot('continue-reply', '15 Its reply.', `Mac: the bridge's detail says "${short(continued.last_reply, 40)}".`);
+  await shot('continue-reply', '14 Its reply.', `Mac: the bridge's detail says "${short(continued.last_reply, 40)}".`);
 }
 
 // 7. Speech to text on the Mac, with a spoken sample.

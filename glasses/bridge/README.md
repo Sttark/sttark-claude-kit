@@ -62,7 +62,7 @@ So the bridge uses two sign-ins, each for what it can do:
 
 | Action | How | Sign-in |
 |---|---|---|
-| List sessions, follow one, read its reply | `GET /v1/code/sessions`, its change stream `/watch`, and each session's events and event stream | Claude Code's login |
+| List sessions, follow one, read its reply | `GET /v1/code/sessions`, its change stream `/watch`, and each session's events and event stream. When the reply is below the newest 100 events (a waiting session gathers many with no message: each time an app or the Kit connects), older pages of 500, once; the bridge keeps what it read | Claude Code's login |
 | Answer a question, a plan or a permission | `POST /v1/code/sessions/{id}/events`, a `control_response` to the session's `can_use_tool` request (the session accepts it from this login) | Claude Code's login |
 | Send a message | `POST /v1/sessions/{id}/events` with `anthropic-client-platform: web_claude_ai`, as one synchronous XMLHttpRequest in a claude.ai page in the Kit's Claude window in Chrome. The API marks it `web_claude_ai`, so the session acts on it as the person's own message | The person's claude.ai sign-in in Chrome |
 | Start a session in a folder that has a Remote Control server (the Kit's server, `~/src`) | `POST /v1/code/sessions` with the server's `environment_id`, as `claude remote-control` itself does it: the server starts the session. Then its first message goes as above. The session is in the Claude app's list like one started there | Claude Code's login, then claude.ai |
@@ -93,6 +93,33 @@ Sessions page:
 Archived sessions, runs of scheduled tasks, and sessions of their own whose Claude Code has ended are left out.
 Opening a session on the glasses does not mark it read.
 
+## The glance card
+
+What the glasses show first for a session (`glance` on the list and the detail): its newest reply in a few short
+words, for someone who reads slowly and on the move. `glance.py` makes it.
+
+- A status word: `NEEDS YOU`, `WORKING`, `WAITING` or `DONE`. The live state sets it; for a finished turn (`idle`),
+  the reply does: one that asks the person to act is `NEEDS YOU`.
+- At most 3 short lines, the key fact or number first ("Harbor Film: $4,820 for 10", "Lead: 3 wk after deposit"),
+  and `you`: what the person must do ("sign + pay 50%"), or "nothing now".
+- When the reply ends with a status table (a Status column, or cells that start with ✅ 🔄 🔴 ⚪ and the like), the
+  card is the table: one line per row, "Ask: what to do" for the rows that need the person (first, with `! `), "Ask:
+  short status" for the others; `states` says each line's state, and `you` is `null` (the `! ` lines say it).
+- `options`: the waiting prompt's answers in short words, with the prompt's own ids. `phrase`: a few words for the
+  list row.
+
+Haiku writes the words through Claude Code, as the Kit's own checks call it (`claude -p --model haiku`, hooks off,
+no tools, no saved conversation), and only from the reply: a line with a number the reply does not have is dropped.
+It runs once per reply, in the background, 2 at a time, the session the glasses show first, then needs you,
+working, waiting, idle. The list never waits for it: until it comes, and when the call fails or the Kit says its
+side calls wait (the account at its usage limit), the card holds the reply's first sentence, or the table's own
+cells. The cards are kept by the reply's hash in `glances.json` beside the token (mode 600), so a restart asks
+Haiku again only for new replies.
+
+For a test copy: `G2_GLANCE_ONLY=G2` makes cards only for sessions whose name starts with G2, `G2_GLANCE_OFF=1`
+makes no Haiku call at all (first sentences only), and `G2_SUPPORT_DIR` keeps the token and the cards in another
+folder. To try the words on a reply in a file: `/usr/bin/python3 glasses/bridge/glance.py reply.md "Title"`.
+
 ## API
 
 All JSON. Errors: `{"ok": false, "error": "..."}` with the HTTP status (400 bad input, 401 no token, 404 no such
@@ -101,8 +128,9 @@ session, 409 nothing to answer, 503 Chrome, the speech model or the login is not
 | Call | Answer |
 |---|---|
 | `GET /api/health` | `{ok: true, version, sessions, list_ok_at, list_error, kit, stt, web: {chrome, last_ok, last_error}}` |
-| `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending, url, connected, unread, effort}]}`: needs you first, then working, waiting, idle; the newest first in each |
-| `GET /api/sessions/:id` | The same fields, and `last_reply` (the last assistant text, plain: no Markdown marks, code blocks as plain lines, each table row a card: its name, then "  Header: cell" lines, status marks as words), `reply_parts` (the same reply in parts, for a lens that draws tables as pictures: `[{text}, {table: {heads, rows}}, ...]`, the text as in `last_reply`, a table's cells as words, every row as long as the header) and `pending`: `null` or `{kind: "question" \| "permission" \| "plan", text, options: [{id, label}], request_id}` |
+| `GET /api/sessions` | `{sessions: [{id, title, folder, status, why, status_line, updated_at, has_pending, url, connected, unread, effort, glance}]}`: needs you first, then working, waiting, idle; the newest first in each. `glance` (above) is `null` until its card is made |
+| `GET /api/sessions/:id` | The same fields, and `last_reply` (all the text of the newest turn that has text, from each of its messages, the session's own and not its agents', plain: no Markdown marks, code blocks as plain lines, each table row a card: its name, then "  Header: cell" lines, status marks as words), `reply_parts` (the same reply in parts, for a lens that draws tables as pictures: `[{text}, {table: {heads, rows}}, ...]`, the text as in `last_reply`, a table's cells as words, every row as long as the header) and `pending`: `null` or `{kind: "question" \| "permission" \| "plan", text, options: [{id, label}], request_id}`, and `glance`: `{status_word, lines, states?, you, options, phrase, from: "summary" \| "table", source: "model" \| "short"}`, or `null` with no reply yet |
+| `GET /api/sessions/:id/turns?before=&limit=` | `{turns: [{index, at, from, user_text, reply_text}], total, latest}`: the session's turns, for scrolling back on the lens. A turn is one prompt and all the session's own text after it, until the next prompt or the end of its run, as for `last_reply`; `index` counts from 0, the first turn. It gives the `limit` turns (1 to 20, default 5) before turn `before` (the newest ones without it), oldest first. `from`: `you` (the person's prompt, as plain text), `kit` (a message the Kit typed: its first sentence), `task` (a background task's notice: what ended), `claude` (text after a finished turn with no prompt: no `user_text`). `at` is when the prompt came (ISO 8601). `latest` is the newest turn with text, whose reply is `last_reply` (-1 for none). The first call reads all of the session's events (a few seconds for a long session); later calls read only the new ones |
 | `POST /api/sessions/:id/message` `{text}` | `{ok: true, uuid}` |
 | `POST /api/sessions/:id/answer` `{option_id}` | `{ok: true, done: true}`. A question with several questions takes one answer at a time: `{ok: true, done: false, pending}` shows the next; the answers go to the session after the last |
 | `POST /api/sessions` `{prompt, folder?}` | `{id, folder, started: "server" \| "cli"}`. `folder` defaults to `~/src`; it must be in the home folder and trusted in Claude Code. The session's name is the prompt's first line, cut at a word to 60 characters; with the Kit's Name sessions automatically on, the Kit can rename it after its first prompt, as it does any new session. It can take up to 90 seconds |
@@ -123,7 +151,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 ## What stays on the Mac
 
 Prompts, replies and audio go only between the Mac and the glasses on the local network, and to Claude's own API as
-the Claude app sends them. The bridge sends nothing to kit.sttark.com or any other server. Speech to text runs on
+the Claude app sends them. For the glance card, each new reply goes to Claude's API once more, to Haiku through
+Claude Code with its login, as the Kit's own checks send text. The bridge sends nothing to kit.sttark.com or any other server. Speech to text runs on
 the Mac (whisper.cpp). The token stays in the file above.
 
 ## Files
@@ -134,7 +163,8 @@ the Mac (whisper.cpp). The token stays in the file above.
 | `rcapi.py` | Claude's Remote Control API with Claude Code's login |
 | `web.py` | Calls through the claude.ai page in Chrome (messages) |
 | `kitstate.py` | The Kit's state files and each session's status |
-| `detail.py` | A session's last reply as plain text (tables as cards), and its prompt and answers |
+| `detail.py` | A session's last reply as plain text (tables as cards), its turns, and its prompt and answers |
+| `glance.py` | The glance card of each session: the status table or Haiku's short lines, kept per reply |
 | `stt.py` | Speech to text with whisper.cpp |
 | `wsock.py` | The WebSocket frames |
 | `test_bridge.py` | Tests on made-up data: `/usr/bin/python3 -m unittest discover -s glasses/bridge -p 'test_*.py'` |

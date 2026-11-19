@@ -2,10 +2,10 @@
 // The lens is 576 x 288, one fixed font, 27 px a line, no colors, only five
 // brightness steps. A header line sits on every screen, so a notice can
 // show there on any screen without taking the input.
-import type { Pending, SessionDetail, SessionRow, Status } from './api';
+import type { Glance, Pending, SessionDetail, SessionRow, Status, Turn } from './api';
 import type { PageSpec, TextBox } from './glasses';
 import { type TableData, type TablePage, tableBoxes, tablePages } from './picture';
-import { LINE_H, fit, padTo, paginate, plainReply, spread, width, wrapLines } from './text';
+import { LINE_H, SPACE_W, fit, padTo, paginate, plainReply, spread, width, wrapLines } from './text';
 
 export const W = 576;
 export const H = 288;
@@ -115,7 +115,9 @@ export function homeRows(sessions: SessionRow[]): HomeRow[] {
   const rows: HomeRow[] = [{ label: NEW_ROW, id: null }];
   for (const s of sortRows(sessions).slice(0, MAX_SESSION_ROWS)) {
     const mark = padTo(MARK[s.status], MARK_COL);
-    const words = ` · ${statusWords(s)}`;
+    // The card's few words ("sign + pay 50%"), else the status in words.
+    const phrase = clean(s.glance?.phrase || '');
+    const words = ` · ${phrase ? fit(phrase, Math.round(ROW_PX * 0.55)) : statusWords(s)}`;
     // The status words follow the title, so a short title is not followed
     // by a run of spaces; a long title is cut to make room for them.
     const title = fit(clean(s.title) || 'Untitled session', ROW_PX - width(mark) - width(words));
@@ -233,6 +235,259 @@ export function sessionPage(o: {
   // The picture lies over the body box, under its caption; the body box,
   // behind it, still takes the swipes and taps (Even Hub: image-first pages).
   return { texts, images: tableBoxes(page.page, X, BODY_Y + (page.caption ? LINE_H + 2 : 0)) };
+}
+
+// ---------- earlier turns ----------
+// Above the latest turn, one turn at a time, the newest first: a swipe up
+// at the top of a turn shows the turn before it, from its top, so its prompt
+// is the first thing to read; a swipe down at the end of a turn shows the
+// next one, and after the newest earlier turn, the latest turn again. The
+// layout is the session screen's (head, one line, the reply's pages, hint),
+// so moving between them is an in-place update.
+
+export const EARLIER = '▲ earlier';
+
+/** The pages of an earlier turn's reply; one page that says so while it loads. */
+export function turnPages(t: Turn | null): string[] {
+  if (!t) return ['Loading earlier turns...'];
+  const text = plainReply(t.reply_text || '');
+  return paginate(text || 'No reply text in this turn. Claude only used tools.', TPX, BODY_ROWS);
+}
+
+/** Who started the turn and what they said, in one line: "You: ...". */
+export function promptLine(t: Turn | null): string {
+  if (!t) return '';
+  const words = clean(t.user_text || '');
+  if (t.from === 'claude' || (!words && t.from !== 'you')) return 'Claude went on, with no new prompt';
+  const who = t.from === 'kit' ? 'Kit' : t.from === 'task' ? 'Task' : 'You';
+  return fit(`${who}: ${words || '(no words)'}`, TPX);
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** When a turn started, as the person reads it: 9:12 AM today, Tue 9:12 AM
+ *  this week, Nov 3 before that. */
+export function when(at: string | number | null | undefined, now = new Date()): string {
+  if (at === null || at === undefined || at === '') return '';
+  const d = new Date(typeof at === 'number' ? at * 1000 : at);
+  if (Number.isNaN(d.getTime())) return '';
+  const h = d.getHours() % 12 || 12;
+  const time = `${h}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'AM' : 'PM'}`;
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(now) - day(d)) / 86400000);
+  if (days === 0) return time;
+  if (days > 0 && days < 7) return `${DAYS[d.getDay()]} ${time}`;
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
+export function turnPage(o: {
+  /** 1 for the turn just before the latest, `count` for the first turn. */
+  k: number;
+  count: number;
+  turn: Turn | null;
+  pages: string[];
+  page: number;
+  /** What a swipe down at the end of this turn shows: the latest turn, or a later earlier one. */
+  next: 'latest' | 'later';
+  notice: string | null;
+}): PageSpec {
+  const n = o.pages.length;
+  const at = when(o.turn?.at);
+  const title = `Earlier ${o.k} of ${o.count}${at ? ` · ${at}` : ''}`;
+  const up = o.page > 0 ? '▲ page' : o.k < o.count ? EARLIER : 'First turn';
+  const down = o.page < n - 1 ? '▼ page' : o.next === 'latest' ? '▼ latest' : '▼ later';
+  return {
+    texts: [
+      head(headLine(title, n > 1 ? `${o.page + 1}/${n}` : '', o.notice)),
+      { name: 'status', x: X, y: 28, w: TW, h: 30, content: o.turn ? promptLine(o.turn) : '', color: 3 },
+      { name: 'body', x: X, y: 62, w: TW, h: BODY_ROWS * LINE_H + 2, content: o.pages[o.page] ?? '', capture: true },
+      foot(`${up}   ${down}   Tap: latest`),
+    ],
+  };
+}
+
+// ---------- the glance card ----------
+// The first thing on the session screen: the title, one status word in a
+// box, then a few short lines with the key fact first, and what you must do.
+// The lens has one font size and no bold, so the card reads by its spacing:
+// a blank line between lines when they fit, and few words on each.
+
+export const CARD_Y = 48;
+const YOU_GAP = 14; // between the lines and You
+const YOU_EDGE = 6; // the You box's border and padding
+const TAG_PAD = 4;
+const TAG_BORDER = 2;
+const TAG_W = width('NEEDS YOU') + 2 * (TAG_PAD + TAG_BORDER) + 16;
+const BTN_Y = 244;
+const BTN_H = 40;
+const BTN_GAP = 8;
+const BTN_PAD = 4;
+/** Buttons on the card at once; more scroll in place. */
+export const MAX_BUTTONS = 4;
+export const SAY_IT = 'Say it';
+
+export type CardButton = { kind: 'option'; id: string; label: string } | { kind: 'say'; label: string };
+
+const WORD: Record<Status, string> = { needs_you: 'NEEDS YOU', working: 'WORKING', waiting: 'WAITING', idle: 'DONE' };
+
+function firstSentence(text: string): string {
+  const t = clean(text);
+  const m = t.match(/^(.+?[.!?])(\s|$)/);
+  return m ? m[1] : t;
+}
+
+/** The card the bridge wrote, or one made here from what is known (an
+ *  older bridge, or one that has not written it yet). */
+export function cardOf(d: SessionDetail | null, row: SessionRow | null): Glance {
+  const g = d?.glance ?? row?.glance;
+  if (g && g.lines?.length) return g;
+  const s = d ?? row;
+  const status: Status = s?.status ?? 'idle';
+  const p = d?.pending ?? null;
+  const text = p && p.kind !== 'plan' && p.text ? p.text : d?.last_reply || s?.why || s?.status_line || '';
+  const line = fit(firstSentence(text), 2 * TPX);
+  const you = p ? (p.options.length ? 'pick below' : 'answer below') : status === 'needs_you' ? 'read the reply' : 'nothing now';
+  return { status_word: WORD[status], lines: line ? [line] : [], you, options: [] };
+}
+
+/** The buttons: the answers of the question that waits, then Say it. None
+ *  when nothing waits. Short labels from the card when they are for this
+ *  same question. */
+export function cardButtons(g: Glance, pending: Pending | null): CardButton[] {
+  const opts = pending?.options ?? [];
+  if (!opts.length) return [];
+  const short = g.options ?? [];
+  const same = short.length === opts.length && short.every((o, i) => o.id === opts[i].id && o.label);
+  return [...opts.map((o, i) => ({ kind: 'option' as const, id: o.id, label: clean(same ? short[i].label : o.label) })), { kind: 'say', label: SAY_IT }];
+}
+
+/** The word in the status box, centered with spaces (the font has no alignment). */
+export function tagText(word: string): string {
+  const inner = TAG_W - 2 * (TAG_PAD + TAG_BORDER) - 4;
+  const w = fit(word, inner);
+  const pad = Math.max(0, Math.floor((inner - width(w)) / 2 / SPACE_W));
+  return ' '.repeat(pad) + w;
+}
+
+/** The card's lines as lens rows: each line wrapped (its words never cut),
+ *  a blank row between lines when all fit that way, and, when even tight
+ *  they do not fit, the first lines (needs-you asks come first) and "+3
+ *  waiting" for the rest. */
+export function cardRows(g: Glance, maxRows: number): string[] {
+  const lines = (g.lines ?? []).map((l) => clean(l)).filter(Boolean);
+  const wrapped = lines.map((l) => wrapLines(l, TPX));
+  const total = (n: number, gap: number) => wrapped.slice(0, n).reduce((a, w) => a + w.length, 0) + gap * Math.max(0, n - 1);
+  if (total(wrapped.length, 1) <= maxRows) return wrapped.flatMap((w, i) => (i ? ['', ...w] : w));
+  if (total(wrapped.length, 0) <= maxRows) return wrapped.flat();
+  let n = wrapped.length - 1;
+  while (n > 0 && total(n, 0) + 1 > maxRows) n--;
+  const rest = (g.states ?? []).slice(n);
+  const kind = rest.length && rest.every((s) => s === 'working') ? 'waiting' : rest.length && rest.every((s) => s === 'done') ? 'done' : 'more';
+  return [...wrapped.slice(0, n).flat(), `+${wrapped.length - n} ${kind}`];
+}
+
+/** The "You:" line: what you must do, or the message of an answer on its way. */
+export function youLine(g: Glance, message: string | null): { text: string; bright: boolean } | null {
+  if (message) return { text: fit(message, TPX - 2 * YOU_EDGE - 8), bright: true };
+  if (!g.you) return null;
+  const you = clean(g.you);
+  const nothing = /^nothing( now)?\.?$/i.test(you);
+  return { text: fit(`You: ${you}`, TPX - 2 * YOU_EDGE - 8), bright: !nothing };
+}
+
+/** The "You:" line's box: a border around what you must do (the one
+ *  emphasis the lens has), none for "You: nothing now" and when the
+ *  answers are buttons under it. */
+function youBox(you: { text: string; bright: boolean }, y: number, boxed: boolean): TextBox {
+  if (!boxed) return { name: 'you', x: X, y: y + YOU_GAP, w: TW, h: LINE_H + 2, content: you.text, color: you.bright ? 4 : 2 };
+  return {
+    name: 'you',
+    x: X,
+    y: y + YOU_GAP - YOU_EDGE + 4,
+    w: Math.min(TW, width(you.text) + 2 * YOU_EDGE + 14),
+    h: LINE_H + 2 * YOU_EDGE + 1,
+    content: you.text,
+    border: 2,
+    borderColor: 15,
+    radius: 6,
+    pad: YOU_EDGE - 2,
+  };
+}
+
+/** The buttons in view: up to MAX_BUTTONS from `first`, each as wide as its
+ *  words (all the same width when they scroll, so a swipe never changes the
+ *  layout). The chosen one has "▶ " in front. */
+export function buttonBoxes(buttons: CardButton[], sel: number, first: number): TextBox[] {
+  const shown = buttons.slice(first, first + MAX_BUTTONS);
+  const room = TW - BTN_GAP * (shown.length - 1);
+  const mark = width('▶ ');
+  const inner = (l: string) => mark + width(l) + 2 * (BTN_PAD + 2) + 4;
+  let widths = shown.map((b) => inner(b.label));
+  if (buttons.length > MAX_BUTTONS) {
+    // They scroll: equal widths, so a swipe changes only the words.
+    widths = shown.map(() => Math.floor(room / shown.length));
+  } else if (widths.reduce((a, b) => a + b, 0) > room) {
+    // Too wide: the widest give way first, down to one cap; their words are cut.
+    let cap = Math.max(...widths);
+    while (cap > 40 && widths.reduce((a, w) => a + Math.min(w, cap), 0) > room) cap--;
+    widths = widths.map((w) => Math.min(w, cap));
+  }
+  let x = X;
+  return shown.map((b, i) => {
+    const w = widths[i];
+    const on = first + i === sel;
+    const text = fit(b.label, w - 2 * (BTN_PAD + 2) - mark - 4);
+    const box: TextBox = {
+      name: `btn${i}`,
+      x,
+      y: BTN_Y,
+      w,
+      h: BTN_H,
+      content: on ? `▶ ${text}` : `${' '.repeat(Math.round(mark / SPACE_W))}${text}`,
+      color: on ? 4 : 3,
+      border: 2,
+      borderColor: 12,
+      radius: 6,
+      pad: BTN_PAD,
+    };
+    x += w + BTN_GAP;
+    return box;
+  });
+}
+
+export function cardPage(o: {
+  title: string;
+  glance: Glance;
+  buttons: CardButton[];
+  sel: number;
+  first: number;
+  message: string | null;
+  head: string | null;
+  replyPages: number;
+  /** Earlier turns are above the card: its hint line starts with "▲ earlier"
+   *  (with answer buttons, which take the hint's place, the top line ends with it). */
+  earlier?: boolean;
+}): PageSpec {
+  const hasButtons = o.buttons.length > 0;
+  const you = youLine(o.glance, o.message);
+  const boxed = !!you && you.bright && !hasButtons;
+  const bottom = hasButtons ? BTN_Y - 4 : 254;
+  const youH = you ? YOU_GAP + (boxed ? LINE_H + 2 * YOU_EDGE + 1 - YOU_EDGE + 4 : LINE_H + 2) : 0;
+  const maxRows = Math.max(1, Math.floor((bottom - CARD_Y - youH) / LINE_H));
+  const rows = cardRows(o.glance, maxRows);
+  const texts: TextBox[] = [
+    head(o.head ? fit(o.head, TW - TAG_W - 12) : o.earlier && hasButtons ? spread(clean(o.title), EARLIER, TW - TAG_W - 24) : fit(clean(o.title), TW - TAG_W - 12)),
+    { name: 'tag', x: W - X - TAG_W, y: 2, w: TAG_W, h: LINE_H + 2 * (TAG_PAD + TAG_BORDER) + 1, content: tagText(o.glance.status_word || ''), border: TAG_BORDER, borderColor: 15, radius: 6, pad: TAG_PAD },
+    { name: 'lines', x: X, y: CARD_Y, w: TW, h: Math.max(1, rows.length) * LINE_H + 2, content: rows.join('\n'), capture: true },
+  ];
+  if (you) texts.push(youBox(you, CARD_Y + rows.length * LINE_H, boxed));
+  if (hasButtons) texts.push(...buttonBoxes(o.buttons, o.sel, o.first));
+  else if (o.replyPages > 0) texts.push(foot(`${o.earlier ? `${EARLIER}   ▼ full reply` : 'Swipe: full reply'}   Tap: reply   Double tap: back`));
+  else texts.push(foot(`${o.earlier ? `${EARLIER}   ` : ''}Tap: reply   Double tap: back`));
+  // The title sits level with the word in the box, and stops before the box.
+  texts[0] = { ...texts[0], y: 8, w: TW - TAG_W - 8 };
+  return { texts };
 }
 
 // ---------- actions ----------

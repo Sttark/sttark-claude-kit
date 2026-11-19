@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 
 import detail  # noqa: E402
+import glance  # noqa: E402
 import kitstate  # noqa: E402
 import rcapi  # noqa: E402
 import stt  # noqa: E402
@@ -44,6 +45,8 @@ LOG_FILE = os.environ.get('G2_LOG') or os.path.join(HOME, 'Library/Logs/sttark-k
 DEFAULT_FOLDER = os.path.join(HOME, 'src')
 CLAUDE = os.path.join(HOME, '.local/share/claude/stable/claude')
 SESSION_ID = re.compile(r'^(cse|session)_[A-Za-z0-9]{10,64}$')
+OLDER_PAGE = 500  # events per read when the last reply is below the newest page (the API takes up to 1000)
+OLDER_PAGES = 40  # at most this many reads back for it: 20,000 events
 MAX_BODY = 12 * 1024 * 1024  # 6 minutes of 16 kHz 16-bit audio, with room
 PRIVATE_EXTRA = [ipaddress.ip_network('100.64.0.0/10')]  # carrier-grade NAT / VPN ranges
 
@@ -188,6 +191,48 @@ class Tracker:
                 backoff = min(backoff * 2, 60)
 
 
+class History:
+    """One session's events, every one since its start, slim and oldest first, for its turns (scrolling back on the
+    lens). The first read takes all of them, 1000 at a time (a few seconds for a long session); later reads take
+    only the events after the newest one held."""
+
+    PAGE = 1000
+
+    def __init__(self, cse):
+        self.cse = cse
+        self.lock = threading.Lock()
+        self.events = []
+        self.seq = 0
+        self.turns = []
+        self.read_at = 0.0
+        self.used = time.time()
+
+    def update(self, newest_seen=0):
+        """The turns now. Asks the API only when the session may have new events: always after 3 seconds, sooner
+        when the session's live stream (`newest_seen`) shows events this history does not have."""
+        with self.lock:
+            self.used = time.time()
+            if self.read_at and time.time() - self.read_at < 3 and newest_seen <= self.seq:
+                return self.turns
+            started, got = time.time(), 0
+            while True:
+                evs, nxt = rcapi.events(self.cse, limit=self.PAGE, desc=False, cursor=self.seq or None)
+                new = sorted((e for e in evs if detail.seq(e) > self.seq), key=detail.seq)
+                if new:
+                    self.events += [detail.slim_event(e) for e in new]
+                    self.seq = detail.seq(new[-1])
+                    got += len(new)
+                if len(evs) < self.PAGE or not nxt or not new:
+                    break
+            self.read_at = time.time()
+            if got or not self.turns:
+                self.turns = detail.turns(self.events)
+            if got > self.PAGE:
+                log(f'turns  {self.cse}: read {got} events in {time.time() - started:.1f} s, '
+                    f'{len(self.turns)} turns')
+            return self.turns
+
+
 class Hub:
     def __init__(self):
         self.lock = threading.RLock()
@@ -199,13 +244,19 @@ class Hub:
         self.rows_json = ''
         self.clients = set()
         self.trackers = {}
+        self.histories = {}  # cse -> History, while the glasses scroll back in it
         self.sent = {}  # cse -> json of the last detail pushed
         self.partials = {}  # request id -> {question index: label}, for prompts with several questions
+        self.older = {}  # cse -> {'events': the events its last reply needs (slim, newest first), 'start': bool}
         self.web = web.Web(rcapi.LOGIN.org())
         self.last_message_at = 0.0
         self.stop = threading.Event()
         self.list_ok_at = 0.0
         self.list_error = ''
+        self.cards = glance.Cards(SUPPORT, fetch=self.glance_input, ready=self.glance_ready,
+                                  ask=glance_off if os.environ.get('G2_GLANCE_OFF') else glance.ask_haiku,
+                                  held=lambda: glance.kit_held(kitstate.KIT),
+                                  only=os.environ.get('G2_GLANCE_ONLY', ''), log=log)
 
     # -- data in
     def envs(self, force=False):
@@ -297,6 +348,12 @@ class Hub:
                         t.stop.set()
                         self.trackers.pop(cse, None)
                         self.sent.pop(cse, None)
+                for cse in list(self.older):
+                    if cse not in self.api and cse not in self.trackers:
+                        self.older.pop(cse, None)
+                for cse, h in list(self.histories.items()):  # and their history after 15 minutes
+                    if time.time() - h.used > 900:
+                        self.histories.pop(cse, None)
             if n % 48 == 0 and time.time() - self.last_message_at < 2 * 3600:
                 self.web.touch()  # every 20 minutes while messages go out: keep the claude.ai page
 
@@ -305,6 +362,12 @@ class Hub:
         with self.lock:
             rows = [kitstate.summarize(s, self.kit, self.env_dirs) for s in self.api.values()]
             rows = kitstate.ordered(rows)
+            shown = set(self.trackers)
+            for r in rows:
+                s = self.api.get(r['id']) or {}
+                rank = 0 if r['id'] in shown else 1 + kitstate.ORDER.get(r['status'], 3)
+                self.cards.note(r['id'], r['title'], marker(s), rank)
+                r['glance'] = glance.serve(self.cards.card(r['id']), r['status'])
             js = json.dumps(rows, sort_keys=True)
             changed = js != self.rows_json
             self.rows, self.rows_json = rows, js
@@ -341,6 +404,43 @@ class Hub:
         evs, _ = rcapi.events(cse, limit=100, desc=True)
         return evs
 
+    def reply_events(self, cse, evs):
+        """`evs` (newest first) and the older events that the last reply needs: the newest assistant turn with text,
+        back to its start. A session that waits gathers many events with no message in them (each time a Claude app
+        or the Kit connects, and when its Claude Code starts again), so that turn is often far below the newest
+        page. The older events read are kept (slim), so the next read needs none of them again."""
+        if not evs or detail.reply_whole(evs):
+            return evs
+        with self.lock:
+            kept = self.older.get(cse) or {}
+        out, start = list(evs), False
+        low = detail.seq(out[-1])
+        if kept.get('events') and detail.seq(kept['events'][0]) >= low:  # they reach up to these: no gap
+            out += [e for e in kept['events'] if detail.seq(e) < low]
+            start = kept.get('start', False)
+        pages, size = 0, OLDER_PAGE
+        while not start and not detail.reply_whole(out):
+            if pages >= OLDER_PAGES:
+                log(f'reply  {cse}: no whole reply in the newest {len(out)} events')
+                start = True
+                break
+            low = detail.seq(out[-1])
+            try:
+                page, nxt = rcapi.events(cse, limit=size, desc=True, cursor=low)  # the events before `low`
+            except rcapi.APIError as e:
+                if e.status == 400 and size > 100:
+                    size = 100  # as Claude Code reads them when the API takes no bigger pages
+                    continue
+                raise
+            pages += 1
+            out += [detail.slim(e) for e in page if detail.seq(e) < low]
+            if not page or not nxt:
+                start = True  # the session's first event
+        need = out[:detail.reply_start(out)]
+        with self.lock:
+            self.older[cse] = {'events': [detail.slim(e) for e in need], 'start': start and len(need) == len(out)}
+        return out
+
     def pending_req(self, s, evs):
         """The prompt that waits now: from the events, and only while the session says it waits for the person."""
         if s.get('worker_status') != 'requires_action':
@@ -364,11 +464,47 @@ class Hub:
             row = kitstate.summarize(s, self.kit, self.env_dirs)
         req = self.pending_req(s, evs)
         out = dict(row)
+        evs = self.reply_events(cse, evs)
+        md = detail.last_reply_md(evs)
         out['last_reply'] = detail.last_reply(evs)
-        out['reply_parts'] = detail.last_reply_parts(evs)
+        out['reply_parts'] = detail.parts(md)
         out['pending'] = detail.view(req, self.partials.get(req['request_id'])) if req else None
         out['has_pending'] = bool(out['pending'])
+        out['glance'] = glance.serve(self.cards.for_reply(cse, row['title'], md, out['pending'], marker(s)),
+                                     row['status'])
         return out
+
+    def turns(self, cse, before=None, limit=5):
+        """Turns of the session, oldest first: the `limit` turns before turn `before` (all of them by default),
+        with how many there are and which one the session screen shows now (detail.latest_turn)."""
+        self.session_record(cse)
+        with self.lock:
+            h = self.histories.get(cse)
+            if h is None:
+                h = self.histories[cse] = History(cse)
+            t = self.trackers.get(cse)
+        newest = t.last_seq() if t and t.ready.is_set() else 0
+        ts = h.update(newest)
+        total = len(ts)
+        end = total if before is None else max(0, min(before, total))
+        return {'turns': ts[max(0, end - limit):end], 'total': total, 'latest': detail.latest_turn(ts)}
+
+    # -- glance cards (glance.py)
+    def glance_input(self, cse):
+        """What a session's card is made from: its title, its newest reply (Markdown) and the prompt that waits."""
+        try:
+            s = self.session_record(cse)
+        except HTTPError:
+            return None
+        evs = self.events_of(cse)
+        req = self.pending_req(s, evs)
+        pending = detail.view(req, self.partials.get(req['request_id'])) if req else None
+        with self.lock:
+            title = (self.row(cse) or {}).get('title') or s.get('title') or ''
+        return title, detail.last_reply_md(self.reply_events(cse, evs)), pending
+
+    def glance_ready(self, cse):
+        self.recompute()
 
     def session_changed(self, cse):
         watchers = [c for c in list(self.clients) if cse in c.subs]
@@ -520,6 +656,15 @@ class Hub:
         log(f'start  {cse} in its own Claude Code ({label_of(folder)})')
         threading.Thread(target=self.refresh_session, args=(cse,), daemon=True).start()
         return {'id': cse, 'folder': folder, 'started': 'cli'}
+
+
+def marker(s):
+    """What changes when anything in a session changes: its last event, and whether it works or asks."""
+    return f"{s.get('last_event_at') or s.get('updated_at') or ''}|{s.get('worker_status') or ''}"
+
+
+def glance_off(system, text):
+    raise RuntimeError('G2_GLANCE_OFF is set')
 
 
 def web_ready(w):
@@ -691,7 +836,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method, path, q):
         hub = self.hub
-        m = re.fullmatch(r'/api/sessions/([^/]+)(?:/(message|answer))?', path)
+        m = re.fullmatch(r'/api/sessions/([^/]+)(?:/(message|answer|turns))?', path)
         if m and not SESSION_ID.match(m.group(1)):
             raise HTTPError(400, 'That is not a session id.')
         cse = ('cse_' + m.group(1).split('_', 1)[1]) if m else None
@@ -707,6 +852,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'sessions': rows})
         elif method == 'GET' and m and not m.group(2):
             self._json(hub.detail(cse, fresh=True))
+        elif method == 'GET' and m and m.group(2) == 'turns':
+            def number(name, default, lo, hi):
+                v = (q.get(name) or [''])[0]
+                if v == '':
+                    return default
+                if not re.fullmatch(r'\d{1,7}', v) or not lo <= int(v) <= hi:
+                    raise HTTPError(400, f'{name} must be a whole number from {lo} to {hi}.')
+                return int(v)
+            self._json(hub.turns(cse, number('before', None, 0, 9999999), number('limit', 5, 1, 20)))
         elif method == 'POST' and m and m.group(2) == 'message':
             text = (self._json_body().get('text') or '').strip()
             if not text:
