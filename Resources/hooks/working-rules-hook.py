@@ -68,7 +68,12 @@ runs in the background, then come back to the person immediately. Reading, resea
 too: start the agent before your third tool call on that work, not after the work has grown. Use agents in \
 parallel, not one long queue on one agent. When the person gives several tasks, start one agent for each task in the \
 same message. Also divide one large build into parts that agents can build at the same time (for example: the data \
-and API, the page, the import flow), and start one agent for each part in the same message. Give each agent that \
+and API, the page, the import flow), and start one agent for each part in the same message. Before you start one agent for a build, list the parts \
+that can be built at the same time. If there are 2 or more, start one agent for each part. Use one agent only if \
+you can say why the parts must be built one after the other. Parts that share code are still parts: first write \
+the shared interface (types, function signatures, API shape) and merge it, in 10 minutes or less, then start one \
+agent for each part on that interface. In the plan line, give the number of agents and what each one builds. \
+Give each agent that \
 changes files its own git worktree, and merge their pull requests one at a time. When the person adds work while \
 an agent runs, start a new agent for the new part. Do not send it to that agent with SendMessage, unless it changes \
 what that agent builds now. Give each agent a name that matches its part. Use a fork agent when the task needs the \
