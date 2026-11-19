@@ -405,6 +405,42 @@ import Foundation
         check(![kd, kk, kh, kb, ka, kt, kn].contains { ($0?.text ?? "").contains("cse_") || ($0?.detail ?? []).joined().contains("a1b2c3d4e5f6a7b8c") },
               "no session, agent or command id in the rows")
 
+        // A handover that waits for the Kit's copy, and a prompt the Kit typed in (effort-hook.py keep(), wait.py redeliver())
+        let hw = Events.kitLine(now + " handover cse_01AAAtest1 \"Press color\" waits: the server runs it now, but the Kit's copy still works (its turn runs; it has not answered the prompt the Kit typed in at 1:16 PM; 1 agent (a1b2c3d4e5f6a7b8c \"Build the color page\")); it tries again every 15 seconds, at most 2 hours", names)
+        check(hw?.name == "Press color" && hw?.kind == .restart && hw?.level == .info
+              && hw?.text == "The server runs it again, but the Kit's copy still works, so the Kit waits to close it"
+              && hw?.detail.first == "Still at work: its turn runs; it has not answered the prompt the Kit typed in at 1:16 PM; 1 agent (\u{201C}Build the color page\u{201D}).",
+              "a handover that waits: what still works in the Kit's copy, with no ids")
+        let hd = Events.kitLine(now + " handover cse_01AAAtest1 \"Press color\" the server runs it now; quit its own copy (kit-a0b1c2d3) after its work ended (4 min)", names)
+        check(hd?.text == "The server runs it again, so the Kit closed its own copy" && hd?.detail == ["It waited 4 min for the work in the Kit's copy to end."],
+              "a handover after the wait says how long it waited")
+        let hs = Events.kitLine(now + " standdown cse_01AAAtest1 \"Press color\" waits: its own copy was taken over elsewhere (code 4090), but the Kit's copy still works (its turn runs); it tries again every 15 seconds, at most 2 hours", names)
+        check(hs?.text == "Taken over in another place, but the Kit's copy still works, so the Kit waits to close it", "a stand-down that waits")
+        let pl = Events.kitLine(now + " prompt lost   cse_01AAAtest1 \"Press color\" the copy that received the prompt the Kit typed in at 1:16 PM (same work) ended before it answered: this Mac's server took control of the session; the Kit types it in again | Why does the order page show no totals?", names)
+        check(pl?.name == "Press color" && pl?.kind == .same && pl?.level == .warn && pl?.text == "The copy that received a prompt ended before it answered"
+              && pl?.detail == ["Why: this Mac's server took control of the session.", "The Kit typed it in at 1:16 PM, for a prompt you sent here from another session (Send to).",
+                                "The Kit types it in again in the copy that runs the session next.", "Prompt: \u{201C}Why does the order page show no totals?\u{201D}"],
+              "a lost prompt: why, when, where it came from, that it goes again, and its words")
+        let pa = Events.kitLine(now + " prompt again  cse_01AAAtest1 \"Press color\" typed in again the prompt from 1:16 PM (same work), try 2 of 3 | Why does the order page show no totals?", names)
+        check(pa?.text == "Typed a prompt in again" && pa?.detail.first == "It first went in at 1:16 PM, for a prompt you sent here from another session (Send to), and had no answer. This was try 2 of 3.",
+              "a prompt typed in again")
+        let pi = Events.kitLine(now + " prompt in     cse_01AAAtest1 \"Press color\" answered the prompt the Kit typed in at 1:19 PM (same work), try 2 of 3", names)
+        let p1 = Events.kitLine(now + " prompt in     cse_01AAAtest1 \"Press color\" answered the prompt the Kit typed in at 1:16 PM (a wait)", names)
+        check(pi?.text == "Answered the prompt the Kit typed in again" && pi?.routine == false && p1?.routine == true && p1?.kind == .wait
+              && p1?.text == "Answered the prompt the Kit typed in", "an answered prompt: a routine row, unless it went again")
+        let pw = Events.kitLine(now + " prompt waits  cse_01AAAtest1 \"Press color\" the prompt the Kit typed in at 1:16 PM (new messages) goes again when its turn ends", names)
+        check(pw?.text == "A prompt waits to go in again" && pw?.detail == ["It goes when the session's turn ends."] && pw?.kind == .wait, "a prompt that waits for the turn")
+        let pf = Events.kitLine(now + " prompt failed cse_01AAAtest1 \"Press color\" the prompt the Kit typed in at 1:16 PM (same work) did not go in: the session did not answer it after 3 tries (this Mac's server took control of the session); the Kit sent you a message with its text | Why does the order page show no totals?", names)
+        check(pf?.kind == .problem && pf?.level == .error && pf?.text == "A prompt did not go in"
+              && pf?.detail.first == "Why: the session did not answer it after 3 tries (this Mac's server took control of the session)."
+              && pf?.detail.contains("The Kit sent you a message with its text. Send it again in the session if you still need it.") == true,
+              "a prompt that did not go in is a problem, with why and what the Kit sent")
+        let eh = Events.kitLine(now + " keep   cse_01AAAtest1 xhigh (2.0s) max - not set now: the Kit's copy has not answered the prompt the Kit typed in. A change now makes this Mac's server take control of the session | <task-notification>", names)
+        check(eh?.text == "Effort stays at Extra" && eh?.detail == ["It needs Max, but the Kit did not set it now. The Kit's copy has not answered the prompt the Kit typed in. A change now makes this Mac's server take control of the session."],
+              "an effort change not sent while the Kit's copy answers a prompt it typed in")
+        check(![hw, hd, hs, pl, pa, pi, pw, pf].contains { ($0?.text ?? "").contains("cse_") || ($0?.detail ?? []).joined().contains("cse_") },
+              "no session id in the new rows")
+
         print(failed == 0 ? "all passed" : "\(failed) failed")
         exit(failed == 0 ? 0 : 1)
     }

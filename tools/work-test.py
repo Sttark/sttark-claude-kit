@@ -11,8 +11,10 @@ screen or server of this Mac is touched, no model is called and nothing is sent.
   open and a record names it as sent to the background (a command in the turn has a file too), or, with no file
   list (the Mac shuts down), until its end notice; one copy's work by the copy that wrote its record last, from
   that copy's start; each agent's last step, whether it had a result, and the folder its last command named;
-- keep(): at a handover, a stand-down and an archive it ends the Kit's copy at once, logs what stopped with it
-  (`work kill`, with the agents' ids) and keeps the list for the session; a copy with nothing at work gets no list;
+- keep(): a handover waits while the Kit's copy still works (`handover ... waits`, once), and after 2 hours ends it,
+  logs what stopped with it (`work kill`, with the agents' ids) and keeps the list for the session; an archive ends it
+  at once, the same way; a copy with nothing at work ends at once and gets no list (tools/handover-test.py tests the
+  wait for a turn and for a prompt the Kit typed in);
 - the Mac shuts down (halt_copies()): the same, for each copy it ends;
 - the session's next prompt carries the list once (`work told`), with each agent's id, its folder, its last step and
   SendMessage;
@@ -250,12 +252,25 @@ if fake:
     server_line[:] = ['/sample/claude --print --sdk-url https://api.anthropic.com/v1/code/sessions/%s --session-id %s\n' % (CSE2, CSE2)]
     eh.keep()
     time.sleep(0.5)
-    check('handover: the Kit\'s copy ends at once (the server\'s copy holds the session now)', not up(CID2) and not eh.screen_ids(name2))
+    waits = [l for l in log_lines('handover') if ' waits: ' in l]
+    check('handover while its agent runs: the Kit\'s copy is not ended; it waits, with one `handover ... waits` line',
+          up(CID2) and len(waits) == 1 and waits[0].startswith('handover %s "Bottle labels" waits: the server runs it now, but the '
+                                                                "Kit's copy still works (1 agent (%s" % (CSE2, LABELS))
+          and not [l for l in log_lines() if l.startswith('work   kill')]
+          and CSE2 in state()['keep']['alone'], waits)
+    eh.keep()
+    check('the next check waits too, and logs nothing new', up(CID2) and len([l for l in log_lines('handover') if ' waits: ' in l]) == 1)
+    state(lambda s: s['keep']['alone'][CSE2]['hold'].update(since=time.time() - eh.HANDOVER_MAX - 5))
+    eh.keep()
+    time.sleep(0.5)
+    check('after 2 hours of work, the handover ends the Kit\'s copy', not up(CID2) and not eh.screen_ids(name2))
     kills = [l for l in log_lines() if l.startswith('work   kill')]
     check('handover: a `work kill` line with the session, its name and each agent\'s id',
           len(kills) == 1 and kills[0].startswith('work   kill %s "Bottle labels" handover: 1 agent (%s "Bottle labels with a barcode")' % (CSE2, LABELS))
           and kills[0].endswith('the session is told at its next prompt'), kills)
-    check('handover: still logged as a handover', any(l.startswith('handover %s' % CSE2) for l in log_lines('handover')))
+    check('handover: still logged as a handover, with why it ended the work', any(
+        l.startswith('handover %s "Bottle labels" the server runs it now; quit its own copy (%s): its work still ran after 2 hours' % (CSE2, name2))
+        for l in log_lines('handover')))
     kept = (state().get('sessions') or {}).get(CSE2, {}).get('stopped') or []
     text = kept[0]['text'] if kept else ''
     check('the list kept for the session: why, each agent\'s id and task, its folder, its last step, and SendMessage',

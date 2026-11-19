@@ -1908,7 +1908,7 @@ def deliver_one(wm, cse, e, cache, now):
         e['pending'] = []
         return
     w = {'id': 'w' + cse[-5:], 'cse': cse, 'transcript': e['transcript'], 'cwd': e.get('cwd') or '',
-         'title': title, 'session_url': e.get('url', '')}
+         'title': title, 'session_url': e.get('url', ''), 'source': 'new messages'}
     try:
         ok = wm.bring_back(w, '\n\n'.join(x for x in (prompt_for(cse, e, others, wm) if others else '', note) if x))
     except RuntimeError as x:

@@ -302,6 +302,10 @@ enum Events {
         func named(_ s: String) {
             if let q = quoted(s) { e.name = e.name ?? q; e.session = e.session ?? names.cseByName[q] }
         }
+        func sentence(_ s: Substring) -> String {   // a reason from the log as a sentence of its own
+            let t = s.trimmingCharacters(in: .whitespaces)
+            return t.prefix(1).uppercased() + t.dropFirst() + (t.hasSuffix(".") ? "" : ".")
+        }
         func promptDetail(_ p: String) {
             let clean = p.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
             guard !clean.isEmpty, !clean.hasPrefix("<") else { return }
@@ -357,7 +361,11 @@ enum Events {
                     e.text = x.prefix(1).uppercased() + x.dropFirst()
                 }
             }
-            if !reason.isEmpty { e.detail.append("Why: " + reason) }
+            if let r = reason.range(of: "not set now: ") {   // effort-hook.py typed_waits(): no change goes out now
+                e.detail.append("It needs \(level(w.last ?? "")), but the Kit did not set it now. " + sentence(reason[r.upperBound...]))
+            } else if let r = reason.range(of: "not checked now: ") {
+                e.detail.append("Not checked now. " + sentence(reason[r.upperBound...]))
+            } else if !reason.isEmpty { e.detail.append("Why: " + reason) }
             promptDetail(prompt)
         case "manual":
             e.kind = .effort
@@ -385,7 +393,9 @@ enum Events {
                 if !reason.isEmpty { e.detail.append("Why: " + reason) }
             } else if typ == "fork" {
                 e.text = "\(what) starts at \(level(w.count > 3 ? w[3] : "")) effort, the session's level"; e.routine = true
-                if !reason.isEmpty { e.detail.append("It needs: " + reason) }
+                if let r = reason.range(of: "not raised now: ") {
+                    e.detail.append("It needs \(level(w.count > 5 ? w[5] : "")), but the Kit did not raise the level now. " + sentence(reason[r.upperBound...]))
+                } else if !reason.isEmpty { e.detail.append("It needs: " + reason) }
             } else {
                 e.text = "\(what) set to \(level(tail.replacingOccurrences(of: "->", with: ""))) effort"
                 if !reason.isEmpty { e.detail.append("Why: " + reason) }
@@ -420,9 +430,82 @@ enum Events {
                 }
             case "move": e.text = "Moved to a new link; the old entry stays in your list"; e.level = .warn
                 e.detail = ["Claude Code could not keep its old link. Its Routines moved with it. The old entry has \"(old link)\" after its name; archive it in the Claude app when you want."]
-            case "handover": e.text = "The server runs it again, so the Kit closed its own copy"
+            case "handover", "standdown":
+                let other = tag == "handover" ? "The server runs it again" : "Taken over in another place"
+                if rest.contains("\" waits: ") {
+                    // "handover cse_… "Name" waits: the server runs it now, but the Kit's copy still works (<what>); …"
+                    e.text = "\(other), but the Kit's copy still works, so the Kit waits to close it"
+                    if let a = rest.range(of: "still works ("), let b = rest.range(of: "); it tries again", range: a.upperBound..<rest.endIndex) {
+                        let what = rest[a.upperBound..<b.lowerBound]
+                            .replacingOccurrences(of: #"\b[A-Za-z0-9]{8,} (?=")"#, with: "", options: .regularExpression)
+                            .replacingOccurrences(of: #""([^"]*)""#, with: "\u{201C}$1\u{201D}", options: .regularExpression)
+                        e.detail.append("Still at work: \(what).")
+                    }
+                    e.detail.append("The Kit tries again every 15 seconds, at most 2 hours. A prompt from the Kit that has no answer goes again.")
+                } else {
+                    e.text = "\(other), so the Kit closed its own copy"
+                    if tag == "standdown" { e.level = .warn }
+                    if let r = rest.range(of: #"after its work ended \((\d+) min\)"#, options: .regularExpression) {
+                        let n = rest[r].filter(\.isNumber)
+                        e.detail.append("It waited \(n) min for the work in the Kit's copy to end.")
+                    } else if rest.contains("its work still ran after") {
+                        e.level = .warn
+                        e.detail.append("Its work still ran after 2 hours, the most the Kit waits for it.")
+                    }
+                }
             default: e.text = "Taken over in another place, so the Kit closed its own copy"; e.level = .warn
             }
+        case "prompt":   // a prompt the Kit typed into its own copy of a session, until the session answers it
+            // (effort-hook.py confirm_typed(), lose_typed(); wait.py redeliver(), tell_typed()):
+            // "prompt lost   cse_… "Name" the copy that received the prompt the Kit typed in at 1:16 PM (same work) ended …"
+            if words.count > 1 { who(words[1]) }
+            named(rest)
+            let (main, prompt) = rest.range(of: " | ").map { (String(rest[..<$0.lowerBound]), String(rest[$0.upperBound...])) } ?? (rest, "")
+            let source = main.range(of: #"\((same work|a wait|new messages|the Kit)\)"#, options: .regularExpression)
+                .map { String(main[$0].dropFirst().dropLast()) } ?? "the Kit"
+            e.kind = source == "same work" ? .same : source == "the Kit" ? .restart : .wait
+            let from = ["same work": "a prompt you sent here from another session (Send to)", "a wait": "a wait that ended",
+                        "new messages": "new messages that came in"][source] ?? "the Kit's own message"
+            let at = main.range(of: #"\d{1,2}:\d\d [AP]M"#, options: .regularExpression).map { String(main[$0]) }
+            let tries = main.range(of: #"try \d of \d"#, options: .regularExpression).map { String(main[$0]) }
+            func after(_ mark: String) -> String? { main.range(of: mark).map { String(main[$0.upperBound...]) } }
+            switch String(first) {
+            case "in":
+                e.text = tries == nil ? "Answered the prompt the Kit typed in" : "Answered the prompt the Kit typed in again"
+                e.routine = tries == nil
+                e.detail.append("The Kit typed it in" + (at.map { " at \($0)" } ?? "") + ", for \(from).")
+            case "lost":
+                e.level = .warn
+                e.text = "The copy that received a prompt ended before it answered"
+                if let why = after("ended before it answered: ")?.components(separatedBy: "; ").first {
+                    e.detail.append("Why: " + why + ".")
+                }
+                e.detail.append("The Kit typed it in" + (at.map { " at \($0)" } ?? "") + ", for \(from).")
+                e.detail.append(main.contains("the Kit tells you") ? "It does not go again: the Kit tells you, with its text."
+                                : "The Kit types it in again in the copy that runs the session next.")
+            case "again":
+                e.text = "Typed a prompt in again"
+                e.detail.append("It first went in" + (at.map { " at \($0)" } ?? "") + ", for \(from), and had no answer." + (tries.map { " This was \($0)." } ?? ""))
+            case "waits":
+                e.text = "A prompt waits to go in again"
+                if let why = after("could not start it to type a prompt in again: ") {
+                    e.level = .warn
+                    e.detail.append("The Kit could not start the session: " + (why.components(separatedBy: "; ").first ?? why) + ". It tries again each minute.")
+                } else {
+                    e.detail.append(main.contains("agents") ? "It goes when the session's agents and background commands end."
+                                    : "It goes when the session's turn ends.")
+                }
+            case "failed":
+                e.kind = .problem; e.level = .error
+                e.text = "A prompt did not go in"
+                if let why = after("did not go in: ")?.components(separatedBy: "; ").first { e.detail.append("Why: " + why + ".") }
+                e.detail.append("The Kit typed it in" + (at.map { " at \($0)" } ?? "") + ", for \(from).")
+                e.detail.append(main.contains("kept a message") ? "The Kit kept a message with its text on the session, in the Kit app."
+                                : "The Kit sent you a message with its text. Send it again in the session if you still need it.")
+            default:
+                e.text = "Prompt: " + rest.prefix(160)
+            }
+            promptDetail(prompt)
         case "work":   // what runs in a session's copy when the Kit would end it (effort-hook.py running_work()): a
             // bring-back that waits for it (defer, done), work the Kit ended (kill) and the session told (told).
             // "work   kill cse_… "Name" handover: 1 agent (a1b2… "Build the page"); the session is told at its next prompt"

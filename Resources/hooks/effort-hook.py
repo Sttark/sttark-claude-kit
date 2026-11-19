@@ -1438,7 +1438,7 @@ def connector_hold():
         separators=(',', ':'))
 
 
-def start_screen(cid, cwd, model='', first=''):
+def start_screen(cid, cwd, model='', first='', effort=''):
     """Start saved conversation `cid` with Remote Control in a screen named kit-<first 8 of cid>, so it needs no
     Terminal window: the one way the Kit starts a chat by itself (start_alone() here, migrate.py, and wait.py's
     bring_back()). In its folder `cwd` (the home folder when that is gone), which trust_folder() marks trusted
@@ -1446,6 +1446,8 @@ def start_screen(cid, cwd, model='', first=''):
     saving off). Its first turn waits for Claude's connectors (connector_hold()). A screen of the same name that
     still runs is quit first, so the chat runs in one copy.
     `model`: the model it ran on, for a chat the server never ran. `first`: a file whose text is its first message.
+    `effort`: the level its first turn runs at (wait.py bring_back() picks it for the prompt it types in, so the
+    effort hook need send no change through the server: see typed_waits()).
     Returns the screen's name."""
     name = 'kit-' + cid[:8]
     home = os.path.expanduser('~')
@@ -1458,6 +1460,7 @@ def start_screen(cid, cwd, model='', first=''):
     cmd = (f'cd {shlex.quote(folder)} && exec {shlex.quote(claude)} --resume {shlex.quote(cid)} --remote-control '
            f'--permission-mode bypassPermissions --settings {shlex.quote(connector_hold())}'
            + (f' --model {shlex.quote(model)}' if re.fullmatch(r'[\w.\[\]-]+', model or '') else '')
+           + (f' --effort {effort}' if effort in LEVELS else '')
            + (f' "$(cat {shlex.quote(first)})"' if first else ''))
     quit_screen(name)  # every copy: `screen -S <name>` acts on none when two have the name
     if folder == cwd:
@@ -1834,6 +1837,227 @@ def archived_now():
     return 0
 
 
+# --- prompts the Kit typed into its own copy, until the session answers them ----------------------------------------
+# wait.py bring_back() types a prompt into a copy of its own (a wait that ended, new messages, a prompt the person sent
+# from another session: same-work.py), and keeps it in `typed` in the state file: {cse: [{id, file, needle, at,
+# first_at, tries, source, title, transcript, cwd, level, taken, lost}]}. keep() drops each one the session answered
+# (`prompt in`). When the copy ends before that (another copy took the session over, it stopped, it was archived),
+# the prompt is `lost`: wait.py redeliver() types it in again, at most TYPED_TRIES times in all, or tells the person
+# with its text. The record a copy of the server's reads is the one the server keeps: a prompt only the Kit's copy had
+# is not in it.
+TYPED_START = 300     # seconds a prompt the Kit typed in may take to start its turn (the copy's connector hold, hooks)
+TYPED_TRIES = 3       # times the Kit types a prompt in before it tells the person that it did not go in
+TYPED_MAX = 86400     # seconds after it first typed a prompt in that the Kit still types it in again; then it tells
+HANDOVER_MAX = 7200   # seconds a handover or a stand-down waits at most for the work of the Kit's copy (as wait.py's
+                      # HOLD_MAX for a bring-back: DESIGN-DECISIONS.md)
+END_STOPS = ('end_turn', 'stop_sequence', 'max_tokens', 'refusal')  # an assistant message that ends a turn
+HOLD_WHY = ("the Kit's copy has not answered the prompt the Kit typed in. A change now makes this Mac's server take "
+            "control of the session")  # the effort hook sends no level then (typed_waits())
+TYPED_WHY = {  # why the copy that received a prompt ended before it answered, in the words of the log and the person's message
+    'handover': "this Mac's server took control of the session",
+    'standdown': 'a copy in another place took control of the session',
+    'archived': 'the session was archived',
+    'halt': 'the Mac shut down',
+    'stopped': 'its copy stopped',
+    'missing': 'its copy did not take the prompt',
+}
+
+
+def hm(t):
+    return time.strftime('%-I:%M %p', time.localtime(t))
+
+
+def needle_of(text):
+    """The words that find a prompt the Kit typed in, in the session's record: its first 160 characters, each run of
+    spaces and line breaks as one space."""
+    return re.sub(r'\s+', ' ', text or '').strip()[:160]
+
+
+def typed_list(cse, s=None):
+    """The prompts the Kit typed into a session that have no answer yet (see above), oldest first."""
+    return [r for r in (((s if s is not None else peek()).get('typed') or {}).get(cse) or []) if isinstance(r, dict)]
+
+
+def typed_edit(cse, edit):
+    """Change one session's prompts under the state lock: edit(list) gives the new list. A prompt that goes loses its
+    file too."""
+    with state() as s:
+        t = s.setdefault('typed', {})
+        old = [r for r in t.get(cse) or [] if isinstance(r, dict)]
+        new = edit([dict(r) for r in old])
+        if new:
+            t[cse] = new
+        else:
+            t.pop(cse, None)
+    keep_files = {r.get('file') for r in new}
+    for r in old:
+        if r.get('file') and r['file'] not in keep_files:
+            try:
+                os.unlink(r['file'])
+            except OSError:
+                pass
+
+
+def typed_state(tp, rec, before=None):
+    """Where a prompt the Kit typed in stands in the session's record: 'answered' (its turn ended), 'waiting' (it is in
+    the record, or in Claude Code's queue, and its turn did not end) or 'missing'. Only lines from when the Kit typed it
+    count, and with `before` (when another copy took the session over) only lines from before then: what the Kit's copy
+    wrote after that reached no one."""
+    needle = rec.get('needle') or ''
+    if not needle or not tp:
+        return 'missing'
+    found, since = 'missing', rec.get('at', 0) - 5
+    for raw in tail_bytes(tp, ENDS_TAIL).split(b'\n'):
+        if b'"timestamp"' not in raw:
+            continue
+        try:
+            x = json.loads(raw)
+        except ValueError:
+            continue
+        t = iso_time(x.get('timestamp'))
+        if t < since or (before and t >= before) or x.get('isSidechain'):
+            continue
+        typ = x.get('type')
+        msg = x.get('message') if isinstance(x.get('message'), dict) else {}
+        if typ == 'user' and not x.get('isMeta') and x.get('toolUseResult') is None:
+            if needle in re.sub(r'\s+', ' ', text_of(msg.get('content'))):
+                found = 'waiting'
+        elif typ == 'queue-operation':
+            if found == 'missing' and needle in re.sub(r'\s+', ' ', str(x.get('content') or '')):
+                found = 'waiting'
+        elif found == 'waiting' and ((typ == 'assistant' and msg.get('stop_reason') in END_STOPS)
+                                     or (typ == 'system' and x.get('subtype') in ('stop_hook_summary', 'turn_duration'))):
+            found = 'answered'
+    return found
+
+
+def copy_state(pid):
+    """What Claude Code's own record of a copy says (~/.claude/sessions/<pid>.json): (its status, such as 'idle' or
+    'busy', and what it waits on from the person, such as a permission), or ('', '') with no record."""
+    try:
+        with open(os.path.join(CLAUDE_DIR, 'sessions', '%d.json' % pid)) as f:
+            d = json.load(f)
+        return str(d.get('status') or ''), str(d.get('waitingFor') or '')
+    except (OSError, ValueError, AttributeError, TypeError):
+        return '', ''
+
+
+def kit_copy_works(cse, a, cid, rows=None, now=None):
+    """What still works in the Kit's own copy of a session, in words for the log; [] when nothing does: its turn runs
+    (Claude Code's own record of the copy, ~/.claude/sessions/<pid>.json, says it is not idle, and it waits on no one:
+    a question to the person can't be answered in that copy any more), a prompt the Kit typed in has no answer yet and
+    the copy got it moments ago (TYPED_START), or its agents, background commands or Monitors run (copy_work(), as
+    before a bring-back)."""
+    now = now or time.time()
+    rows = rows if rows is not None else ps_rows()
+    tp = a.get('transcript') or ''
+    out = []
+    for pid, kind in sorted(copies(cse, cid, rows).items()):
+        if kind == 'kit':
+            status, waiting = copy_state(pid)
+            if status and status != 'idle' and not waiting:
+                out.append('its turn runs')
+                break
+    for rec in typed_list(cse):
+        if not rec.get('lost') and now - rec.get('at', 0) < TYPED_START and typed_state(tp, rec) != 'answered':
+            out.append('it has not answered the prompt the Kit typed in at %s' % hm(rec['at']))
+            break
+    try:
+        work = copy_work(tp, cse, 'kit', rows)[0]
+    except Exception as e:
+        work = None
+        log(f'error  {cse} could not read what runs in the Kit\'s copy: {e!r}'[:300])
+    if work_ids(work):
+        out.append(work_words(work))
+    return out
+
+
+def confirm_typed(cse, title, tp):
+    """keep(), every 15 seconds: each prompt the Kit typed into a session that the session answered goes, with a
+    `prompt in` line."""
+    done = [r for r in typed_list(cse) if not r.get('lost') and typed_state(tp, r, r.get('taken')) == 'answered']
+    if not done:
+        return
+    ids = {r['id'] for r in done}
+    typed_edit(cse, lambda rs: [r for r in rs if r.get('id') not in ids])
+    for r in done:
+        log(f'prompt in     {cse} "{title}" answered the prompt the Kit typed in at {hm(r["at"])} ({r.get("source") or "the Kit"})'
+            + (f', try {r.get("tries")} of {TYPED_TRIES}' if (r.get('tries') or 1) > 1 else ''))
+
+
+def mark_taken(cse, when):
+    """Another copy took the session over at `when`: what the Kit's copy writes from then on does not count as an
+    answer to a prompt the Kit typed in (typed_state())."""
+    if any(not r.get('lost') and not r.get('taken') for r in typed_list(cse)):
+        typed_edit(cse, lambda rs: [dict(r, taken=when) if not r.get('lost') and not r.get('taken') else r for r in rs])
+
+
+def settle_typed(cse, title, tp, cid, rows, now=None):
+    """keep(): the Kit's copy is idle (Claude Code's own record of it says so, and it waits on no one), and a prompt it
+    got TYPED_START ago has no clear end of its turn: a turn that ended another way (an error, a stop) showed as it
+    came, so the prompt counts as answered; a prompt that is not in the record at all did not go in, and goes again."""
+    now = now or time.time()
+    old = [r for r in typed_list(cse) if not r.get('lost') and now - r.get('at', 0) > TYPED_START]
+    pids = [p for p, kind in copies(cse, cid, rows).items() if kind == 'kit'] if old else []
+    if len(pids) != 1 or copy_state(pids[0]) != ('idle', ''):
+        return
+    seen = {r['id']: typed_state(tp, r, r.get('taken')) for r in old}
+    done = {r['id'] for r in old if seen[r['id']] == 'waiting'}
+    if done:
+        typed_edit(cse, lambda rs: [r for r in rs if r.get('id') not in done])
+        for r in old:
+            if r['id'] in done:
+                log(f'prompt in     {cse} "{title}" ended its turn for the prompt the Kit typed in at {hm(r["at"])} '
+                    f'({r.get("source") or "the Kit"}) with no mark of an answer, so the Kit counts it as answered')
+    missing = {r['id'] for r in old if seen[r['id']] == 'missing'}
+    if missing:
+        lose_typed(cse, title, tp, 'missing', only=missing)
+
+
+def lose_typed(cse, title, tp, why, only=None):
+    """The Kit's copy of a session ended (`why`, a key of TYPED_WHY): each prompt the Kit typed into it that the
+    session did not answer is lost, and wait.py redeliver() types it in again (or tells the person); one it answered
+    goes, as in confirm_typed(). `only`: the ids of the prompts it is about, else all."""
+    confirm_typed(cse, title, tp)
+    lost = [r for r in typed_list(cse) if not r.get('lost') and (only is None or r.get('id') in only)]
+    if not lost:
+        return
+    now = time.time()
+    ids = {r['id'] for r in lost}
+    typed_edit(cse, lambda rs: [dict(r, lost={'at': now, 'why': why}) if r.get('id') in ids else r for r in rs])
+    for r in lost:
+        last = (r.get('tries') or 1) >= TYPED_TRIES or why == 'archived'
+        log(f'prompt lost   {cse} "{title}" the copy that received the prompt the Kit typed in at {hm(r["at"])} '
+            f'({r.get("source") or "the Kit"}) ended before it answered: {TYPED_WHY.get(why, why)}; '
+            + ('the Kit tells you, with its text' if last else 'the Kit types it in again')
+            + f' | {needle_of(r.get("needle"))[:80]}')
+
+
+def in_server_copy():
+    """Whether this hook runs in this Mac's server's copy of a session (its Claude Code has --sdk-url)."""
+    pid = os.environ.get('CLAUDE_PID', '')
+    if not pid:
+        return False
+    args = subprocess.run(['ps', '-ww', '-o', 'args=', '-p', pid], capture_output=True, text=True).stdout
+    return '--sdk-url' in args
+
+
+def typed_waits(sid):
+    """The prompt the Kit typed into its own copy of the session that has no answer yet, or None. While there is one,
+    the effort hook sends no level through the server: a change sent there makes this Mac's server start its own copy
+    of a session it ran before, which takes the session over. The Kit's copy then stands down (code 4090) before it
+    answers, and the server's copy reads the session's record as the server keeps it, without the prompt. So
+    bring_back() starts the copy at the level the effort check picks for the prompt (start_screen()), and the next
+    prompt sets the level again."""
+    s = peek()
+    if sid not in ((s.get('keep') or {}).get('alone') or {}):
+        return None
+    rec = next((r for r in typed_list(sid, s) if not r.get('lost') and time.time() - r.get('at', 0) < HANDOVER_MAX), None)
+    if rec and in_server_copy():  # the server runs it now: a change there starts nothing new
+        return None
+    return rec
+
+
 def keep(dry=False, server_down=False):
     """Every 15 seconds, from the app: keep every chat on this Mac running unless it's archived, in one copy.
     A Mac restart ends every chat, and the server only starts a chat again when something reaches it. Each stopped
@@ -1884,35 +2108,59 @@ def keep(dry=False, server_down=False):
     # stopped and forgotten. A copy that ended any other way (a forced shutdown, a crash) may have archived the
     # chat as it ended, so that one is started again even when it shows as archived: the same link comes back.
     by_id = {c['id']: c for c in chats}
+    rows = []  # every process, read once, when a copy's work is looked at
     for sid, a in list(alone.items()):
         cid = os.path.basename(a['transcript'])[:-len('.jsonl')]
         name, title = 'kit-' + cid[:8], a.get('title', '')
         up = f'--resume {cid}' in ps
-        # Each of the three below ends the Kit's copy at once, also while its agents, background commands or Monitors
-        # run (note_stopped() keeps their list for the session's next prompt): once the server runs the chat, the
-        # server's copy holds its connection (the Kit's copy stands down, code 4090) and writes its record, so a copy
-        # kept for its work would answer nothing and write into the same record; one taken over elsewhere is the
-        # same; and an archive is the person's own stop.
-        if sid in running:  # the server runs it now: its own copy goes, so reminders reach the server's copy
+        typed = [r for r in typed_list(sid) if not r.get('lost')]  # prompts the Kit typed in, with no answer yet
+        if typed and not dry:
+            confirm_typed(sid, title, a['transcript'])
+        # Another copy has the session: the server runs it now (handover), or the Kit's copy was taken over elsewhere
+        # and stood down (code 4090): its own copy goes, so reminders reach the other copy. But never while the Kit's
+        # copy still works: its turn runs, a prompt the Kit typed in has no answer yet, or its agents, background
+        # commands or Monitors run (kit_copy_works()). It waits, and tries again at each check, HANDOVER_MAX at most;
+        # then it ends the copy, and note_stopped() keeps the list of work that stopped for the session's next prompt.
+        # Its prompts with no answer go again (lose_typed()): what the Kit's copy wrote after the other copy took
+        # the session over reached no one, and the server's copy reads the record the server keeps, without them.
+        taken = 'handover' if sid in running else 'standdown' if up and stood_down(name) else ''
+        if taken:
+            works = []
+            if up:
+                rows = rows or ps_rows()
+                if not dry:  # when the other copy took it: the server's copy's start, else this check's last run
+                    srv = [p for p, kind in copies(sid, cid, rows).items() if kind == 'server']
+                    mark_taken(sid, min(started(srv).values() or [now - 15]))
+                works = kit_copy_works(sid, a, cid, rows, now)
+            hold = a.get('hold') or {}
+            since = hold.get('since') or now
+            where = ('the server runs it now' if taken == 'handover'
+                     else 'its own copy was taken over elsewhere (code 4090)')
+            if works and now - since < HANDOVER_MAX:
+                words = '; '.join(works)
+                if dry:
+                    print(f'would wait to hand over {sid} "{title}": {words}')
+                elif hold.get('what') != words:  # once, and again when what works changes
+                    log(f'{taken} {sid} "{title}" waits: {where}, but the Kit\'s copy still works ({words}); '
+                        f'it tries again every 15 seconds, at most {HANDOVER_MAX // 3600} hours')
+                a['hold'] = {'since': since, 'what': words, 'why': taken}
+                continue
             if dry:
-                print(f'would hand over {sid} "{title}" to the server' + (f' and quit {name}' if up else ''))
+                print(f'would hand over {sid} "{title}"' + (f' and quit {name}' if up else ''))
             else:
                 work = end_kit_copy(sid, a, name) if up else None
-                log(f'handover {sid} "{title}" the server runs it now' + (f'; quit its own copy ({name})' if up else ''))
+                waited = (f' after its work ended ({max(1, round((now - since) / 60))} min)' if hold and not works
+                          else f': its work still ran after {HANDOVER_MAX // 3600} hours' if works else '')
+                log(f'{taken} {sid} "{title}" {where}' + (f'; quit its own copy ({name}){waited}' if up else ''))
                 if work:
-                    note_stopped(sid, title, work, 'handover')
+                    note_stopped(sid, title, work, taken)
+                lose_typed(sid, title, a['transcript'], taken)
             alone.pop(sid)
             continue
-        if up and stood_down(name):  # taken over elsewhere: open but doing nothing; the server wakes it below
-            if dry:
-                print(f'would quit {name}: {sid} "{title}" was taken over elsewhere (code 4090)')
-            else:
-                work = end_kit_copy(sid, a, name)
-                log(f'standdown {sid} "{title}" its own copy was taken over elsewhere (code 4090); quit {name}')
-                if work:
-                    note_stopped(sid, title, work, 'standdown')
-            alone.pop(sid)
-            continue
+        if a.pop('hold', None):  # the other copy is gone before the Kit's copy ended: the Kit's copy keeps the session
+            log(f'keep   {sid} "{title}" the other copy ended, so the Kit\'s copy runs it on its own again')
+            if not dry and typed:  # and what it writes from now on counts again
+                typed_edit(sid, lambda rs: [{k: v for k, v in r.items() if k != 'taken'} for r in rs])
         if status.get(sid) not in ('active', 'archived') or (status.get(sid) == 'archived' and (
                 (up and now - a.get('at', 0) > 120) or (not up and a.get('halted')))):
             if not dry:
@@ -1925,8 +2173,15 @@ def keep(dry=False, server_down=False):
                     + ('; stopped it' if up else ' while it was stopped; left it so'))
                 if work and status.get(sid) == 'archived':  # it may come back (a wait, the Archived page)
                     note_stopped(sid, title, work, 'archived')
+                lose_typed(sid, title, a['transcript'], 'archived')
             alone.pop(sid)
             continue
+        if typed and up and not dry:  # an idle copy, and a prompt with no clear answer: answered another way, or not in
+            rows = rows or ps_rows()
+            settle_typed(sid, title, a['transcript'], cid, rows, now)
+        if not up and typed and not dry and now - min(r.get('at', 0) for r in typed) > 120:
+            # its copy stopped (the Mac shut down, or it ended by itself) before it answered: the prompt goes again
+            lose_typed(sid, title, a['transcript'], 'halt' if a.get('halted') else 'stopped')
         if up or now - a.get('at', 0) < KEEP_RETRY:
             continue
         tries = a.get('tries', 0)
@@ -2058,6 +2313,12 @@ def on_prompt(data, sid):
     if by_hand(sid, snippet):
         return
     current = os.environ.get('CLAUDE_EFFORT') or x.get('level', '')
+    typed = typed_waits(sid)  # a prompt the Kit typed into its own copy has no answer yet: no change goes out now
+    if typed and typed.get('level') and typed.get('needle', '-') in re.sub(r'\s+', ' ', prompt) \
+            and (os.environ.get('CLAUDE_EFFORT') or launched) == typed['level']:
+        remember(sid, level=typed['level'], reason=typed.get('reason') or '')
+        log(f'keep   {sid} {typed["level"]} - the level the Kit selected when it typed this prompt in | {snippet}')
+        return
     t0 = time.time()
     try:
         context = recent(data.get('transcript_path', ''), prompt)
@@ -2080,6 +2341,10 @@ def on_prompt(data, sid):
         log(f'keep   {sid} {current} ({secs:.1f}s) {answer} | {snippet}')
         return
     if by_hand(sid, snippet):  # picked while the judge was thinking
+        return
+    if typed:
+        remember(sid, reason=reason)
+        log(f'keep   {sid} {current or "?"} ({secs:.1f}s) {level} - not set now: {HOLD_WHY} | {snippet}')
         return
     status, text, rid = send(sid, level)
     if 200 <= status < 300:
@@ -2130,6 +2395,9 @@ def on_tool(data, sid):
         x['checks'] = ck
     current = level_now or x.get('level', '')
     snippet = re.sub(r'\s+', ' ', prompt)[:60]
+    if typed_waits(sid):  # no change can go out now, so no check
+        log(f'steady {sid} {current or "?"} at {calls} steps - not checked now: {HOLD_WHY} | {snippet}')
+        return
     t0 = time.time()
     try:
         level, answer = judge(f'User request:\n{prompt[:3000]}\n\n'
@@ -2221,6 +2489,9 @@ def on_agent(data, sid):
         log(f'agent  {who} fork at {current or "?"} ({secs:.1f}s) {level} - {reason} | {desc}')
         return None
     if by_hand(sid, desc):
+        return None
+    if typed_waits(sid):  # the fork starts at the session's level: no change can go out now
+        log(f'agent  {who} fork at {current or "?"} ({secs:.1f}s) {level} - not raised now: {HOLD_WHY} | {desc}')
         return None
     status, text, rid = send(sid, level)
     if 200 <= status < 300:

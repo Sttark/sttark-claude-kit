@@ -49,6 +49,9 @@ the reply watch puts `replied` on the wait ({at, where, id}: its row says "You r
 the other person. A wait that brings its session back notes its thread for the watch (watch.py note_back()).
 Then a prompt the person sent from a new session to an open one that does the same work (same-work.py) goes to that
 session, when it waited for the session's turn to end; bring_back() is its start too.
+Then each prompt bring_back() typed into its copy, that the copy ended before the session answered it, goes again
+(redeliver()): bring_back() keeps each prompt it types in (`typed` in the state file, effort-hook.py) until the session
+answers it. After 3 tries, or when the session was archived, the Kit tells the person instead, with the prompt's text.
 Then, with the wait lock free and in a process of their own, the progress check-ins (checkin.py) tell the person how
 a session's long work goes.
 Logged with lines starting "wait". STTARK_KIT_DIR and STTARK_KIT_LOG point it at a test folder and log;
@@ -606,8 +609,17 @@ def bring_back(w, prompt=None):
     pending = e.pending_stopped(cse) if prompt else []  # work the Kit ended before (a handover): the session hears now
     replied = [r for r in (e.pending_replied(cse) if prompt else []) if r not in prompt]  # the person's own replies
     told = pending + replied + ([e.stopped_notice(ended, why, time.time(), '%d hours' % (HOLD_MAX // 3600))] if prompt and ended else [])
+    again = list(w.get('again') or [])  # redeliver(): the prompts this message types in again
+    if prompt:  # a prompt typed in before that had no answer goes with this one (redeliver() would send it next)
+        for r in [r for r in e.typed_list(cse) if r.get('lost') and r.get('id') not in again
+                  and (r.get('tries') or 1) < e.TYPED_TRIES and r['lost'].get('why') != 'archived']:
+            text = again_text(e, r)
+            if text:
+                told.append(text)
+                again.append(r['id'])
     if told:
         prompt = '\n\n'.join([prompt] + told)
+    level, reason = pick_level(e, cse, tp, prompt) if prompt else ('', '')
     cid = os.path.basename(tp)[:-len('.jsonl')]
     with open(os.path.join(KIT, 'keep.lock'), 'w') as lock:  # the keep check starts chats too: one at a time
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -620,7 +632,8 @@ def bring_back(w, prompt=None):
             pfile = os.path.join(pf, w['id'] + '.txt')
             with open(pfile, 'w') as f:
                 f.write(prompt)
-        e.start_screen(cid, w.get('cwd') or '', first=pfile)  # in its folder, marked trusted first, as every start
+        # in its folder, marked trusted first, as every start; at the level picked for the prompt (pick_level())
+        e.start_screen(cid, w.get('cwd') or '', first=pfile, **({'effort': level} if level else {}))
         now = time.time()
 
         def alone(s):
@@ -628,6 +641,8 @@ def bring_back(w, prompt=None):
             k.setdefault('alone', {})[cse] = {'transcript': tp, 'title': w.get('title', ''), 'at': now}
             (s.get('work_wait') or {}).pop(cse, None)
         change(alone)
+    if prompt:
+        typed_in(e, w, cse, tp, prompt, now, level, reason, again)
     if ended:
         e.note_stopped(cse, w.get('title', ''), ended, why, in_message=bool(prompt))
     if pending:
@@ -635,6 +650,172 @@ def bring_back(w, prompt=None):
     if replied:
         e.take_replied(cse, "in the Kit's message", only=replied)
     return True
+
+
+def pick_level(e, cse, tp, prompt):
+    """The effort level for the prompt bring_back() types in, from the effort hook's own check (effort-hook.py judge(),
+    with the same question as at a prompt), so the copy starts at that level (--effort) and the hook sends no change
+    through the server while the copy answers it (effort-hook.py typed_waits()). (level, reason); ('', '') when Auto
+    effort is off, at the usage limit, or when the check fails: the copy then starts at Claude Code's own level. A
+    session on Manual starts at its own level. STTARK_WAIT_LEVEL stands in for the check in tests, and a test folder
+    (STTARK_KIT_DIR) never calls the model."""
+    stub = os.environ.get('STTARK_WAIT_LEVEL')
+    if stub is not None:
+        return (stub, 'a test level') if stub in e.LEVELS else ('', '')
+    if os.environ.get('STTARK_KIT_DIR'):
+        return '', ''
+    st = peek()
+    x = (st.get('sessions') or {}).get(cse) or {}
+    if x.get('manual'):
+        return (x.get('level'), 'the session is on Manual') if x.get('level') in e.LEVELS else ('', '')
+    if st.get('paused'):
+        return '', ''
+    try:  # the session's own usage setting decides whether the check waits, as at its prompts
+        e.limit_for(os.path.basename(tp)[:-len('.jsonl')], tp, cse)
+        level, answer = e.judge(f'Recent conversation:\n{e.recent(tp, prompt) or "(none)"}\n\n'
+                                f'Current effort: {x.get("level") or "unknown"}\n\n'
+                                f'Latest user message:\n{prompt[:4000]}\n\nEffort level?')
+    except Exception as err:
+        e.log(f'error  {cse} judge failed before the Kit typed a prompt in: {err!r}'[:300])
+        return '', ''
+    return (level, answer.split(' - ', 1)[-1]) if level else ('', '')
+
+
+def typed_in(e, w, cse, tp, prompt, now, level, reason, again):
+    """bring_back() typed `prompt` into its copy: it goes in `typed` in the state file until the session answers it
+    (effort-hook.py confirm_typed()), with its text in typed/<id>.txt in the Kit's folder. The prompts in `again`
+    (typed in before, and lost: redeliver()) count one more try each; a message that only types those in again
+    (w['again']) adds no new one."""
+    url = w.get('session_url') or 'https://claude.ai/code/session_' + cse.split('_', 1)[-1]
+    source = w.get('source') or ('a wait' if w.get('kind') else 'the Kit')
+
+    def edit(rs):
+        for r in rs:
+            if r.get('id') in again:
+                r.update(at=now, tries=(r.get('tries') or 1) + 1, level=level, reason=reason)
+                for k in ('lost', 'taken', 'waits_said', 'fail_said'):
+                    r.pop(k, None)
+        if not w.get('again'):
+            rid = uuid.uuid4().hex[:10]
+            folder = os.path.join(KIT, 'typed')
+            os.makedirs(folder, exist_ok=True)
+            path = os.path.join(folder, rid + '.txt')
+            with open(path, 'w') as f:
+                f.write(prompt)
+            rs.append({'id': rid, 'file': path, 'needle': e.needle_of(prompt), 'at': now, 'first_at': now, 'tries': 1,
+                       'source': source, 'title': w.get('title', ''), 'transcript': tp, 'cwd': w.get('cwd') or '',
+                       'level': level, 'reason': reason, 'url': url})
+        return rs
+    e.typed_edit(cse, edit)
+
+
+def again_text(e, r):
+    """A prompt the Kit types in again: a line that says why, then the prompt as it went the first time. '' when its
+    text is gone."""
+    try:
+        with open(r['file']) as f:
+            text = f.read()
+    except (OSError, KeyError):
+        return ''
+    why = e.TYPED_WHY.get((r.get('lost') or {}).get('why'), e.TYPED_WHY['stopped'])
+    return ('[Sttark Claude Kit] The Kit sends this prompt again. It went in at %s, but the copy of this session that '
+            'received it ended before it answered. Why: %s. That copy may have done some of its steps, so check what '
+            'changed before you do a step again. The prompt follows.\n\n%s' % (e.hm(r.get('first_at') or r.get('at', 0)), why, text))
+
+
+def tell_typed(e, cse, r, reason):
+    """The Kit tells the person that a prompt it typed in did not go in, with its text: its own message through Reach me
+    by (notify.py send(), which keeps it in the Kit app on the session when it can't go out), and a `prompt failed`
+    line, which the Events page shows as a problem."""
+    try:
+        with open(r['file']) as f:
+            text = f.read()
+    except (OSError, KeyError):
+        text = r.get('needle') or ''
+    title, first = r.get('title') or 'a session', e.hm(r.get('first_at') or r.get('at', 0))
+    body = ('The Kit typed this prompt into “%s” at %s, but it did not go in. Why: %s. Open the session and send it '
+            'again if you still need it. The prompt: “%s”' % (title, first, reason, text.strip()[:1500] + ('…' if len(text.strip()) > 1500 else '')))
+    res = load('notify').send('A prompt did not go in: %s' % title, body, '', title=title, url=r.get('url', ''),
+                              cse=cse, source='kit')
+    kept = bool(res) and res[0][0] == load('notify').IN_KIT
+    e.log(f'prompt failed {cse} "{title}" the prompt the Kit typed in at {first} ({r.get("source") or "the Kit"}) did '
+          f'not go in: {reason}; the Kit ' + ('kept a message with its text in the Kit app (%s)' % res[0][1][1] if kept
+                                              else 'sent you a message with its text')
+          + f' | {e.needle_of(text)[:80]}')
+
+
+def redeliver(now=None):
+    """The minute check, after the prompts that wait for their session (same-work.py deliver()): each prompt the Kit
+    typed into its own copy of a session, that the copy ended before it answered (effort-hook.py lose_typed()), goes
+    again through bring_back(), to the copy that runs the session next, with a line that says why (again_text()).
+    At most TYPED_TRIES tries in all; after that, or when the session was archived, its conversation is not on this
+    Mac, or a day passed, the Kit tells the person instead, with its text (tell_typed()). Returns how many went again."""
+    e = load('effort-hook')
+    now, went = now or time.time(), 0
+    for cse, recs in list((peek().get('typed') or {}).items()):
+        lost = [r for r in recs if isinstance(r, dict) and r.get('lost')]
+        if not lost:
+            continue
+        out = []
+        for r in lost:
+            why = (r.get('lost') or {}).get('why')
+            if why == 'archived':
+                out.append((r, 'the session was archived before it answered it'))
+            elif not os.path.exists(r.get('file') or ''):
+                out.append((r, 'its text is not on this Mac any more'))
+            elif (r.get('tries') or 1) >= e.TYPED_TRIES:
+                out.append((r, 'the session did not answer it after %d tries (%s)' % (r.get('tries') or 1, e.TYPED_WHY.get(why, why))))
+            elif now - (r.get('first_at') or now) > e.TYPED_MAX:
+                out.append((r, 'the session did not answer it in a day'))
+        for r, reason in out:
+            tell_typed(e, cse, r, reason)
+        gone = {r['id'] for r, _ in out}
+        if gone:
+            e.typed_edit(cse, lambda rs: [x for x in rs if x.get('id') not in gone])
+        rest = [r for r in lost if r['id'] not in gone]
+        if not rest:
+            continue
+        first, title = rest[0], rest[0].get('title') or ''
+        if DRY:
+            print('would type in again for %s: %d prompt(s)' % (title or cse, len(rest)))
+            continue
+        w = {'id': 'again-' + cse[-6:], 'cse': cse, 'transcript': first.get('transcript'), 'cwd': first.get('cwd') or '',
+             'title': title, 'source': first.get('source'), 'session_url': first.get('url', ''),
+             'again': [r['id'] for r in rest]}
+        try:
+            ok = bring_back(w, '\n\n'.join(again_text(e, r) for r in rest))
+        except RuntimeError as x:
+            if str(x) == 'busy':
+                quiet = [r for r in rest if not r.get('waits_said')]
+                for r in quiet:
+                    e.log(f'prompt waits  {cse} "{title}" the prompt the Kit typed in at {e.hm(r.get("first_at") or r["at"])} '
+                          f'({r.get("source") or "the Kit"}) goes again when '
+                          + ('its agents and background commands end' if getattr(x, 'work', False) else 'its turn ends'))
+                if quiet:
+                    ids = {r['id'] for r in quiet}
+                    e.typed_edit(cse, lambda rs: [dict(x, waits_said=True) if x.get('id') in ids else x for x in rs])
+                continue
+            ok, err = None, str(x)[:160]
+        except Exception as x:
+            ok, err = None, '%s: %s' % (type(x).__name__, str(x)[:140])
+        if ok is None:  # it could not start now: the next minute tries again, and a day at most (TYPED_MAX)
+            if not first.get('fail_said'):
+                e.log(f'prompt waits  {cse} "{title}" the Kit could not start it to type a prompt in again: {err}; '
+                      'it tries again each minute')
+                e.typed_edit(cse, lambda rs: [dict(x, fail_said=True) if x.get('id') == first['id'] else x for x in rs])
+            continue
+        if not ok:  # its conversation is not on this Mac
+            for r in rest:
+                tell_typed(e, cse, r, 'its conversation is not on this Mac')
+            ids = {r['id'] for r in rest}
+            e.typed_edit(cse, lambda rs: [x for x in rs if x.get('id') not in ids])
+            continue
+        went += len(rest)
+        for r in rest:
+            e.log(f'prompt again  {cse} "{title}" typed in again the prompt from {e.hm(r.get("first_at") or r["at"])} '
+                  f'({r.get("source") or "the Kit"}), try {(r.get("tries") or 1) + 1} of {e.TYPED_TRIES} | '
+                  f'{e.needle_of(r.get("needle"))[:80]}')
+    return went
 
 
 BACK_WAIT = 45  # seconds to wait for the Claude app to show an unarchived session back
@@ -911,6 +1092,10 @@ def check(only=None, by=None):
             load('same-work').deliver()
         except Exception as e:
             log('the same work prompts failed: %s: %s' % (type(e).__name__, str(e)[:200]))
+        try:  # a prompt the Kit typed into its copy of a session, that the copy ended before it answered: again
+            redeliver()
+        except Exception as e:
+            log('the prompts to type in again failed: %s: %s' % (type(e).__name__, str(e)[:200]))
         lock.close()  # free for Bring it back now (--now) while the progress check-ins start (checkins())
     return result
 
