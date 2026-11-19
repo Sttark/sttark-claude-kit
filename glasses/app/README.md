@@ -130,6 +130,7 @@ What the lens allows, and how the app lives with it:
 - The font has no emoji, `…`, `•` or curly quotes; the app swaps them (`glyphSafe`).
 - The lens's own list draws every row but the highlighted one dim, scrolls itself, tells the app nothing until a tap, and cannot change in place. So the app draws no lens list: Home and Actions are one text box each, every row at full brightness, the chosen row marked with `>`. The app moves the `>` on each swipe with an in-place text update (no flicker), scrolls the rows itself, and acts on the marked row on a tap.
 - A swipe on a text box comes to the app only at the box's top or bottom. Each reply page and each list fits its box exactly, so every swipe turns the page or moves the `>`.
+- Columns never line up in a proportional font, so the bridge sends each table row as a card: the row's name, then `  Header: cell` lines. The app keeps a line's indent when it wraps, never ends a page on a card's name alone, and drops the blank line before a card when that keeps the card on the page.
 - The first screen must use the system's close question on double tap (Even Hub review checks it).
 
 Not tried on glasses yet (the simulator differs from them): the glasses mic, which way a swipe turns a page (the panel has Swap swipe direction for that), whether the Even app takes a LAN `http://` address in the network list, and how the app keeps up while the phone is locked.

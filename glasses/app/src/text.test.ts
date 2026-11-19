@@ -34,9 +34,72 @@ describe('paginate', () => {
   });
 });
 
+// What the bridge sends for a Markdown table: one card per row, the row's
+// name, then "  Header: cell" lines (made-up press jobs and supplier quotes).
+const CARDS =
+  'Where the press jobs and quotes stand:\n\n' +
+  'Job 4471 gloss wine labels, 12,000 pieces on Press 3\n' +
+  '  Needs you: Pick the head 2 fix (a second purge, a hand wipe of the plate or a new head), and I start it before the 2:00 PM run.\n\n' +
+  'Job 4480 coffee bags\n  In progress\n\n' +
+  'Laminate quote from New Star Labels\n  Price: $0.12 per m for 5,000 m of 330 mm matte\n  Lead time: 3 weeks to the Engineering Office\n\n' +
+  'Laminate quote from Harbor Film Co.\n  Price: $0.10 per m\n  Lead time: 6 weeks\n  Notes: Matte only, no gloss\n\n' +
+  'Rewinder 2 belts\n  Done\n\n' +
+  'Job 4462 sample run\n  Dropped';
+
+describe('cards', () => {
+  const PX = 552;
+  const pages = paginate(CARDS, PX, 7);
+  const lines = pages.join('\n').split('\n');
+
+  it('fits every page and keeps every word', () => {
+    expect(pages.length).toBeGreaterThan(1);
+    for (const p of pages) {
+      expect(measureTextWrap(p, PX).lineCount).toBeLessThanOrEqual(7);
+      expect(p.split('\n').length).toBeLessThanOrEqual(7);
+      expect(byteLength(p)).toBeLessThanOrEqual(TEXT_BYTES);
+    }
+    for (const l of lines) expect(width(l)).toBeLessThanOrEqual(PX);
+    expect(pages.join(' ').replace(/\s+/g, ' ').trim()).toBe(CARDS.replace(/\s+/g, ' ').trim());
+  });
+
+  it('keeps a detail line and its wrapped lines indented under the title', () => {
+    const at = lines.findIndex((l) => l.startsWith('  Needs you: Pick the head 2 fix'));
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at - 1]).toBe('Job 4471 gloss wine labels, 12,000 pieces on Press 3');
+    expect(lines[at + 1].startsWith('  ') && !lines[at + 1].startsWith('   ')).toBe(true);
+  });
+
+  it('never ends a page with a title whose first detail is on the next page', () => {
+    for (const p of pages) {
+      const last = p.split('\n').slice(-1)[0];
+      const card = CARDS.split('\n').indexOf(last);
+      if (card >= 0) expect(CARDS.split('\n')[card + 1]?.startsWith('  ')).not.toBe(true);
+    }
+  });
+
+  it('moves a title to the next page instead of leaving it alone', () => {
+    const text = 'One\ntwo\nthree\nfour\nfive\nsix\n\nPress 3 heads\n  Needs you: Pick a fix';
+    expect(paginate(text, PX, 7)).toEqual(['One\ntwo\nthree\nfour\nfive\nsix', 'Press 3 heads\n  Needs you: Pick a fix']);
+  });
+
+  it('drops the blank line between cards only when that keeps a card whole', () => {
+    const a = 'Rewinder 2 belts\n  Price: $38 each\n  Lead time: 2 days';
+    const b = 'Job 4480 coffee bags\n  Status: In progress\n  Press: 5\n  Due: Friday';
+    expect(paginate(`${a}\n\n${b}`, PX, 7)).toEqual([`${a}\n${b}`]);
+    expect(paginate(`${a}\n\n${b}`, PX, 8)).toEqual([`${a}\n\n${b}`]);
+  });
+});
+
 describe('lens text', () => {
   it('swaps what the font cannot draw', () => {
     expect(glyphSafe('Done… “ok” — ✓ 🚀')).toBe('Done... "ok"  -  yes ');
+  });
+  it('drops an emoji with the space after it, so no line starts with a space', () => {
+    expect(glyphSafe('✅ Belts came in')).toBe('Belts came in');
+    expect(glyphSafe('Press 3 🚀 runs')).toBe('Press 3 runs');
+  });
+  it('keeps nested list items in, and the blank line before a list', () => {
+    expect(plainReply('Heads:\n\n- Head 2\n  - 6 nozzles out')).toBe('Heads:\n\n- Head 2\n  - 6 nozzles out');
   });
   it('turns Markdown into plain words', () => {
     expect(plainReply('## Plan\n**Heads 2** and `4`: see [the log](https://x.example).')).toBe('Plan\nHeads 2 and 4: see the log.');

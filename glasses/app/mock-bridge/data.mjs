@@ -55,6 +55,27 @@ export function sampleSessions() {
       },
     },
     {
+      // A reply that ended in a 3-column status table (Ask | Status | Need
+      // from you, a status emoji in each row). The bridge sends each table
+      // row as a card (glasses/bridge/detail.py); this is its text for it.
+      id: 'mock-asks',
+      title: "Today's open asks",
+      folder: 'src',
+      status: 'needs_you',
+      why: 'Two asks need you',
+      status_line: 'Two asks need you',
+      updated_at: min(7),
+      last_reply:
+        'Where the open asks stand:\n\n' +
+        'Laminate quote from New Star Labels\n  Needs you: Pick 5,000 m or 8,000 m, and I make the order draft.\n\n' +
+        'Press 3 head 2 order\n  In progress\n\n' +
+        'Rewinder 2 belts\n  Done\n\n' +
+        'Job 4490 proof for the customer\n  Needs you: Tell me a day and time for the press check, and I make a reply draft.\n\n' +
+        'Die quote from Harbor Dies\n  Dropped\n\n' +
+        'Two need you: the laminate and the press check.',
+      pending: null,
+    },
+    {
       id: 'mock-hvac',
       title: 'Docs: HVAC chapter',
       folder: 'sttark-docs',

@@ -62,14 +62,25 @@ const SWAPS: Record<string, string> = {
 /** Make any text safe for the lens font. */
 export function glyphSafe(s: string): string {
   let out = '';
+  let dropSpace = false; // the space after an emoji that started a line or a word
   for (const c of s.replace(/\r/g, '')) {
     if (SWAPS[c] !== undefined) {
       out += SWAPS[c];
+      dropSpace = false;
       continue;
     }
-    // Emoji and pictographs: the font has none.
-    if (/\p{Extended_Pictographic}/u.test(c) && c.codePointAt(0)! > 0x2700) continue;
+    // Emoji and pictographs: the font has none. "✅ Done" is "Done", not
+    // " Done", which would read as an indented line.
+    if (/\p{Extended_Pictographic}/u.test(c) && c.codePointAt(0)! > 0x2700) {
+      dropSpace = out === '' || /\s$/.test(out);
+      continue;
+    }
     if (c === '️' || c === '‍') continue;
+    if (dropSpace && c === ' ') {
+      dropSpace = false;
+      continue;
+    }
+    dropSpace = false;
     out += c;
   }
   return out;
@@ -85,9 +96,9 @@ export function plainReply(md: string): string {
   s = s.replace(/(\*\*|__)(.+?)\1/g, '$2'); // bold
   s = s.replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s).,;:!?]|$)/g, '$1$2'); // italic
   s = s.replace(/`([^`]+)`/g, '$1'); // inline code
-  s = s.replace(/^\s*[-*+]\s+/gm, '- '); // bullets
-  s = s.replace(/^\s*>\s?/gm, ''); // quotes
-  s = s.replace(/^\s*\|?\s*:?-{3,}.*$/gm, ''); // table rules
+  s = s.replace(/^([ \t]*)[-*+][ \t]+/gm, '$1- '); // bullets, nested ones kept in
+  s = s.replace(/^[ \t]*>[ \t]?/gm, ''); // quotes
+  s = s.replace(/^[ \t]*\|?[ \t]*:?-{3,}.*$/gm, ''); // table rules
   s = s.replace(/[ \t]+$/gm, '');
   s = s.replace(/\n{3,}/g, '\n\n');
   return glyphSafe(s.trim());
@@ -96,43 +107,72 @@ export function plainReply(md: string): string {
 /** Break text into lens lines no wider than `px`, the way LVGL wraps:
  *  at spaces, and inside a word only when the word alone is too wide. */
 export function wrapLines(text: string, px: number): string[] {
-  const lines: string[] = [];
-  for (const para of text.split('\n')) {
-    if (para.trim() === '') {
-      lines.push('');
-      continue;
-    }
-    const words = para.split(/ +/);
-    let line = '';
-    for (const word of words) {
-      const next = line ? `${line} ${word}` : word;
-      if (getTextWidth(next) <= px) {
-        line = next;
+  return wrapParas(text, px).flat();
+}
+
+/** The lens lines of each line of `text`. A line keeps its indent, and its
+ *  wrapped lines hang under its words: a card's "  Needs you: ..." stays
+ *  in under its title, and a list item's words under the item's first word. */
+function wrapParas(text: string, px: number): string[][] {
+  return text.split('\n').map((para) => {
+    if (para.trim() === '') return [''];
+    let lead = para.match(/^ */)![0];
+    const body = para.slice(lead.length);
+    const mark = body.match(/^(- |\d{1,3}[.)] )/)?.[0] ?? '';
+    let hang = lead + ' '.repeat(Math.round(width(mark) / SPACE_W));
+    if (width(hang) > px / 3) hang = lead.length && width(lead) <= px / 3 ? lead : '';
+    if (width(lead) > px / 3) lead = '';
+    const lines: string[] = [];
+    let pre = lead; // the indent of the line being built
+    let cur = ''; // its words
+    const push = () => {
+      lines.push(pre + cur);
+      pre = hang;
+      cur = '';
+    };
+    for (const word of body.split(/ +/)) {
+      if (!word) continue;
+      const next = cur ? `${cur} ${word}` : word;
+      if (width(pre + next) <= px) {
+        cur = next;
         continue;
       }
-      if (line) lines.push(line);
+      if (cur) push();
       // A word wider than the line: cut it into pieces that fit.
       let rest = word;
-      while (getTextWidth(rest) > px) {
+      while (width(pre + rest) > px && Array.from(rest).length > 1) {
         const chars = Array.from(rest);
         let cut = chars.length - 1;
-        while (cut > 1 && getTextWidth(chars.slice(0, cut).join('')) > px) cut--;
-        lines.push(chars.slice(0, cut).join(''));
+        while (cut > 1 && width(pre + chars.slice(0, cut).join('')) > px) cut--;
+        cur = chars.slice(0, cut).join('');
+        push();
         rest = chars.slice(cut).join('');
       }
-      line = rest;
+      cur = rest;
     }
-    lines.push(line);
-  }
-  return lines;
+    lines.push(pre + cur);
+    return lines;
+  });
 }
 
 /** Split text into pages of at most `rows` lens lines, each `px` wide.
  *  Each page carries its own line breaks, so the lens never wraps it again
  *  and a page never overflows (an overflowing page would scroll inside
- *  itself and swallow the swipe). */
+ *  itself and swallow the swipe).
+ *
+ *  Cards (a line, then lines indented under it, as the bridge makes of a
+ *  table row): a card's title never ends a page without its first indented
+ *  line, and the blank line before a card goes when only it keeps the card
+ *  off this page. */
 export function paginate(text: string, px: number, rows: number): string[] {
-  const lines = wrapLines(text, px);
+  const paras = wrapParas(text, px).map((lines) => ({ lines, blank: lines[0] === '', indented: lines[0].startsWith(' ') }));
+  const isTitle = (i: number) => !!paras[i] && !paras[i].blank && !paras[i].indented && !!paras[i + 1] && !paras[i + 1].blank && paras[i + 1].indented;
+  const cardRows = (i: number) => {
+    if (!isTitle(i)) return 0;
+    let n = paras[i].lines.length;
+    for (let j = i + 1; paras[j] && !paras[j].blank && paras[j].indented; j++) n += paras[j].lines.length;
+    return n;
+  };
   const pages: string[] = [];
   let page: string[] = [];
   const flush = () => {
@@ -140,11 +180,24 @@ export function paginate(text: string, px: number, rows: number): string[] {
     if (page.length) pages.push(page.join('\n'));
     page = [];
   };
-  for (const line of lines) {
-    if (page.length === 0 && line === '') continue; // no blank first line
+  const add = (line: string) => {
+    if (page.length === 0 && line === '') return; // no blank first line
     page.push(line);
     if (page.length === rows) flush();
-  }
+  };
+  paras.forEach((p, i) => {
+    if (p.blank) {
+      const card = cardRows(i + 1);
+      if (card && page.length && page.length + 1 + card > rows && page.length + card <= rows) return;
+      add('');
+      return;
+    }
+    if (isTitle(i)) {
+      const need = p.lines.length + 1;
+      if (page.length && page.length + need > rows && need <= rows) flush();
+    }
+    p.lines.forEach(add);
+  });
   flush();
   // Guard against a measuring mismatch and the byte cap.
   return (pages.length ? pages : ['']).map((p) => {
