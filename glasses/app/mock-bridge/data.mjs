@@ -141,6 +141,59 @@ export function sampleSessions() {
   ];
 }
 
+// The glance pictures (scripts/glance-shots.mjs, MOCK_SET=glance): replies
+// like the ones that were hard to read on the lens. Made up: no real quote,
+// job or person.
+export function glanceSessions() {
+  return [
+    {
+      id: 'mock-film-quote',
+      title: 'Harbor Film quote',
+      folder: 'src',
+      status: 'needs_you',
+      why: 'Wants a go on the quote',
+      status_line: 'Wants a go on the quote',
+      updated_at: min(6),
+      last_reply:
+        'Harbor Film price: $4,820 for 10 rolls ($482 each), delivered. The lead time is 3 weeks after you sign and pay the 50% deposit. ' +
+        'Payment by credit card costs 3% more. For comparison, the 2023 order cost about $410 for each roll, so the price for each roll is up about 18%.\n\n' +
+        'The quote is good for 30 days. To go ahead, sign the quote and pay the 50% deposit ($2,410). I can write the reply to Harbor Film when you say go.',
+      pending: null,
+    },
+    {
+      id: 'mock-feeder',
+      title: 'Laminator feeder',
+      folder: 'src',
+      status: 'working',
+      why: '1 agent working · adds the feeder to the LX-210 model',
+      status_line: 'feeder CAD downloaded; agent adding it to the LX-210 model',
+      updated_at: min(1),
+      last_reply:
+        'Where the feeder work stands:\n\n' +
+        '1. Download the feeder CAD from the supplier\n  Status: Done: the STEP file is in the LX-210 folder\n\n' +
+        '2. Add the feeder to the LX-210 laminator model and check it\n  Status: In progress: the agent adds and checks the feeder\n\n' +
+        '3. Send the fit check to the shift lead\n  Status: Not yet: after step 2\n\n' +
+        'Nothing needs you now. I tell you when the fit check is ready.',
+      pending: null,
+    },
+    {
+      id: 'mock-die-error',
+      title: 'Press 5 die change',
+      folder: 'src',
+      status: 'needs_you',
+      why: 'The job ticket did not save',
+      status_line: 'The job ticket did not save',
+      updated_at: min(9),
+      last_reply:
+        'What I did: I opened job 4471 in the press queue, set the new die (3 x 2 in, 0.125 in corners) and saved the job ticket.\n\n' +
+        'Error: the save failed. The queue says "Job 4471 is locked by another user". The ticket still shows the old die.\n\n' +
+        'What I need from you: close job 4471 on the Press 3 PC (it is open there since 6:40 AM), then tell me, and I save it again.',
+      pending: null,
+    },
+    ...sampleSessions().filter((s) => s.id === 'mock-press3' || s.id === 'mock-asks'),
+  ];
+}
+
 export const FOLDERS = [
   { path: '/Users/sample/src', label: 'src' },
   { path: '/Users/sample/src/sttark-docs', label: 'sttark-docs' },

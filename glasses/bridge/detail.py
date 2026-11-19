@@ -289,6 +289,11 @@ def last_reply(events):
     return '\n\n'.join(t for t in (plain(x) for x in _reply(events)[0]) if t)
 
 
+def last_reply_md(events):
+    """The same turn's text as its Markdown, for the glance card (glance.py), which reads its status table."""
+    return '\n\n'.join(_reply(events)[0])
+
+
 def find_pending(events):
     """The prompt that waits now, or None: the newest worker can_use_tool request with no answer, no withdrawal
     and no end of its turn after it (events newest first)."""

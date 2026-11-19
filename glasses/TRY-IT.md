@@ -43,14 +43,18 @@ KIT_SIM_ANYWAY=1 node scripts/sim.mjs "http://localhost:5181/?bridge=http://127.
 
 ## 4. The controls
 
+A session opens on its glance card: a status word, a few short lines, and what you must do. When it asks something,
+its answers are buttons under them. The full reply is one swipe past the last button (or one swipe down, with no
+buttons).
+
 Two windows open: Glasses Display (the lens, with buttons under it) and the phone page. Use the buttons, or the
 keys while Glasses Display is the front window.
 
 | On the glasses | Button | Keys |
 | --- | --- | --- |
-| Swipe down: the next row, the next page | Down | S, J or ↓ |
-| Swipe up: the row above, the page before | Up | W, K or ↑ |
-| Tap: open, answer, send. It acts on the row with `>` | Click | Space or Enter |
+| Swipe down: the next row, the next answer button, the next page | Down | S, J or ↓ |
+| Swipe up: the row above, the button before, the page before | Up | W, K or ↑ |
+| Tap: open, answer, send. It acts on the row or button with `>` | Click | Space or Enter |
 | Double tap: back (on Home, the question to close the app) | Double Click | Space or Enter two times, fast |
 
 To speak a reply or a new session, the simulator records the Mac's microphone. Or type the words on the phone page,

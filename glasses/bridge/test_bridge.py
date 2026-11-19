@@ -16,6 +16,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 import detail  # noqa: E402
+import glance  # noqa: E402
 import kitstate  # noqa: E402
 import stt  # noqa: E402
 import wsock  # noqa: E402
@@ -434,6 +435,175 @@ class Live(unittest.TestCase):
         self.hub.live_message(self.client, {'type': 'ping'})
         self.assertEqual(self.client.sent, [{'type': 'pong'}])
         self.hub.live_message(self.client, ['not', 'a', 'dict'])
+
+
+# -- glance cards (glance.py): made-up press jobs and supplier quotes --------------------------------------------------
+
+QUOTE = ('Harbor Film price: $4,820 for 50,000 labels ($0.0964 each), delivered. The lead time is 2 weeks after you '
+         'approve the proof. A rush order costs 15% more.\n\nTo go ahead, approve the proof in the portal.')
+ASKS = ('Where the open asks stand:\n\n'
+        '| Ask | Status | Need from you |\n|---|---|---|\n'
+        '| Laminate quote from New Star Labels | 🔄 Waiting on New Star, Mon 11/30 | Nothing |\n'
+        '| Job 4490 proof for the customer | 🔴 Needs you | Tell me a day and time for the press check. |\n'
+        '| Rewinder 2 belts | ✅ Done | - |\n'
+        '| Press 3 head 2 order | 🔴 | Pick 1 or 2 heads, and I make the order draft. |\n'
+        '| Die quote from Harbor Dies | ⚪ Dropped | |\n\nTwo need you.')
+QUESTION_VIEW = {'kind': 'question', 'text': 'Which press runs job 4471?', 'options': [
+    {'id': 'q0.o0', 'label': 'Press 3 (gloss line)'}, {'id': 'q0.o1', 'label': 'Press 5 (matte line)'}],
+    'request_id': 'r1'}
+
+
+class FakeHaiku:
+    """Stands in for Haiku: answers with a fixed text and counts the calls."""
+
+    def __init__(self, answer):
+        self.answer, self.calls = answer, []
+
+    def __call__(self, system, text):
+        self.calls.append((system, text))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+class GlanceTable(unittest.TestCase):
+    def test_status_table_rows(self):
+        rows = glance.status_table(ASKS)
+        self.assertEqual([r['state'] for r in rows], ['working', 'needs', 'done', 'needs', 'dropped'])
+        self.assertEqual(rows[1]['need'], 'Tell me a day and time for the press check.')
+        self.assertEqual(rows[0]['status'], 'Waiting on New Star, Mon 11/30')
+        self.assertIsNone(glance.status_table(QUOTE))
+        self.assertIsNone(glance.status_table('| Head | Nozzles |\n|---|---|\n| 2 | 6 out |'))  # no status column
+
+    def test_card_from_table_needs_you_first(self):
+        haiku = FakeHaiku(json.dumps({'rows': [
+            {'ask': 'Laminate quote', 'what': 'wait New Star, Mon 11/30'},
+            {'ask': 'Job 4490 proof', 'what': 'pick a day + time'},
+            {'ask': 'Rewinder 2 belts', 'what': 'done'},
+            {'ask': 'Head 2 order', 'what': 'pick 1 or 2 heads'},
+            {'ask': 'Harbor die quote', 'what': 'dropped'}], 'options': []}))
+        g = glance.serve(glance.make('Open asks', ASKS, None, haiku), 'idle')
+        self.assertEqual(g['lines'], ['! Job 4490 proof: pick a day + time', '! Head 2 order: pick 1 or 2 heads',
+                                      'Laminate quote: wait New Star, Mon 11/30', 'Rewinder 2 belts: done',
+                                      'Harbor die quote: dropped'])
+        self.assertEqual(g['states'], ['needs', 'needs', 'working', 'done', 'dropped'])
+        self.assertEqual(g['status_word'], 'NEEDS YOU')
+        self.assertIsNone(g['you'])  # the ! lines say what to do
+        self.assertEqual(g['phrase'], '2 asks need you')
+        self.assertIn('"Laminate quote from New Star Labels"', haiku.calls[0][1])
+
+    def test_table_row_with_a_new_number_keeps_its_own_words(self):
+        haiku = FakeHaiku(json.dumps({'rows': [{'ask': 'Laminate', 'what': 'wait, Mon 12/7'}] + [
+            {'ask': 'x', 'what': 'y'}] * 4}))
+        g = glance.serve(glance.make('Open asks', ASKS, None, haiku), 'idle')
+        self.assertEqual(g['lines'][2], 'Laminate quote: Waiting on New Star, Mon 11/30')
+
+    def test_table_with_nothing_for_you(self):
+        md = '| Job | Status |\n|---|---|\n| Job 4471 | 🔄 On Press 3 |\n| Job 4475 | ✅ |'
+        g = glance.serve(glance.short_card(md, None, glance.status_table(md)), 'idle')
+        self.assertEqual(g['lines'], ['Job 4471: On Press 3', 'Job 4475: done'])
+        self.assertEqual(g['you'], 'nothing now')
+        self.assertEqual(g['status_word'], 'WAITING')  # a finished turn whose asks still run
+
+
+class GlanceSummary(unittest.TestCase):
+    def test_key_fact_first_and_numbers_kept(self):
+        haiku = FakeHaiku('Here it is:\n```json\n' + json.dumps({
+            'status_word': 'NEEDS YOU', 'lines': ['Harbor Film: $4,820 for 50,000', 'Lead: 2 wk after proof OK',
+                                                  'Rush: +15%'], 'you': 'approve the proof', 'options': []}) + '\n```')
+        g = glance.serve(glance.make('Label quote', QUOTE, None, haiku), 'idle')
+        self.assertEqual(g['lines'], ['Harbor Film: $4,820 for 50,000', 'Lead: 2 wk after proof OK', 'Rush: +15%'])
+        self.assertEqual((g['you'], g['status_word'], g['phrase']), ('approve the proof', 'NEEDS YOU',
+                                                                      'approve the proof'))
+
+    def test_a_line_with_a_number_not_in_the_reply_goes(self):
+        haiku = FakeHaiku(json.dumps({'status_word': 'DONE', 'lines': ['Harbor Film: $4,280 for 50,000',
+                                                                       'Lead: 2 wk'], 'you': 'nothing now'}))
+        g = glance.serve(glance.make('Label quote', QUOTE, None, haiku), 'idle')
+        self.assertEqual(g['lines'], ['Lead: 2 wk'])
+        self.assertEqual(g['phrase'], 'Lead: 2 wk')
+
+    def test_live_state_sets_the_word(self):
+        card = {'from': 'summary', 'word': 'DONE', 'lines': ['Job 4471: on Press 3'], 'you': 'nothing now',
+                'options': []}
+        self.assertEqual(glance.serve(card, 'working')['status_word'], 'WORKING')
+        self.assertEqual(glance.serve(card, 'waiting')['status_word'], 'WAITING')
+        self.assertEqual(glance.serve(card, 'needs_you')['status_word'], 'NEEDS YOU')
+        self.assertEqual(glance.serve(card, 'idle')['status_word'], 'DONE')
+
+    def test_short_answers_for_the_buttons(self):
+        haiku = FakeHaiku(json.dumps({'status_word': 'NEEDS YOU', 'lines': ['Job 4471: which press?'],
+                                      'you': 'pick a press', 'options': ['Press 3', 'Press 5']}))
+        g = glance.serve(glance.make('Job 4471', 'Job 4471 is ready to run.', QUESTION_VIEW, haiku), 'needs_you')
+        self.assertEqual(g['options'], [{'id': 'q0.o0', 'label': 'Press 3'}, {'id': 'q0.o1', 'label': 'Press 5'}])
+        self.assertIn('Options: 1. Press 3 (gloss line) | 2. Press 5 (matte line)', haiku.calls[0][1])
+        # A list of another length: the question's own labels.
+        haiku.answer = json.dumps({'status_word': 'NEEDS YOU', 'lines': ['Job 4471: which press?'], 'you': 'pick',
+                                   'options': ['Press 3']})
+        g = glance.serve(glance.make('Job 4471', 'Job 4471 is ready to run.', QUESTION_VIEW, haiku), 'needs_you')
+        self.assertEqual([o['label'] for o in g['options']], ['Press 3 (gloss line)', 'Press 5 (matte line)'])
+
+    def test_first_sentence_without_the_model(self):
+        g = glance.serve(glance.short_card(QUOTE, None), 'idle')
+        self.assertEqual(g['lines'], ['Harbor Film price: $4,820 for 50,000 labels ($0.0964 each), delivered.'])
+        self.assertEqual(g['source'], 'short')
+        g = glance.serve(glance.short_card(QUOTE, QUESTION_VIEW), 'needs_you')
+        self.assertEqual((g['lines'], g['you']), (['Which press runs job 4471?'], 'pick below'))
+
+
+class GlanceCards(unittest.TestCase):
+    """The cards of every session: made once per reply, in the background, kept on disk."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.ready = []
+        self.inputs = {'cse_quote': ('Label quote', QUOTE, None)}
+
+    def cards(self, haiku, **kw):
+        return glance.Cards(self.dir, fetch=lambda cse: self.inputs.get(cse), ready=self.ready.append, ask=haiku,
+                            log=lambda *_: None, **kw)
+
+    def wait_ready(self, n=1):
+        for _ in range(200):
+            if len(self.ready) >= n:
+                return
+            time.sleep(0.01)
+        self.fail('no card was made')
+
+    def test_once_per_reply_and_kept_on_disk(self):
+        haiku = FakeHaiku(json.dumps({'status_word': 'DONE', 'lines': ['Harbor Film: $4,820'], 'you': 'nothing now'}))
+        c = self.cards(haiku)
+        short = c.for_reply('cse_quote', 'Label quote', QUOTE, None, 'm1')
+        self.assertEqual(short['source'], 'short')  # at once: the first sentence
+        self.wait_ready()
+        self.assertEqual(c.for_reply('cse_quote', 'Label quote', QUOTE, None, 'm2')['lines'], ['Harbor Film: $4,820'])
+        c.note('cse_quote', 'Label quote', 'm3', 2)  # the list moved on, the reply did not
+        self.wait_ready(2)
+        self.assertEqual(len(haiku.calls), 1)
+        c.stop.set()
+        again = self.cards(FakeHaiku(RuntimeError('not called')))
+        self.assertEqual(again.card('cse_quote')['lines'], ['Harbor Film: $4,820'])
+        self.assertEqual(oct(os.stat(os.path.join(self.dir, 'glances.json')).st_mode & 0o777), '0o600')
+
+    def test_a_failed_call_leaves_the_first_sentence(self):
+        c = self.cards(FakeHaiku(RuntimeError('exit 1')))
+        c.note('cse_quote', 'Label quote', 'm1', 1)
+        self.wait_ready()
+        self.assertEqual(c.card('cse_quote')['source'], 'short')
+
+    def test_held_at_the_limit_calls_nothing(self):
+        haiku = FakeHaiku('{}')
+        c = self.cards(haiku, held=lambda: True)
+        c.note('cse_quote', 'Label quote', 'm1', 1)
+        self.wait_ready()
+        self.assertEqual(haiku.calls, [])
+
+    def test_only_sessions_named_so(self):
+        haiku = FakeHaiku('{}')
+        c = self.cards(haiku, only='G2')
+        c.note('cse_quote', 'Label quote', 'm1', 1)
+        time.sleep(0.1)
+        self.assertEqual((haiku.calls, self.ready), ([], []))
 
 
 if __name__ == '__main__':

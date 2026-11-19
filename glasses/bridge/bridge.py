@@ -30,6 +30,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 
 import detail  # noqa: E402
+import glance  # noqa: E402
 import kitstate  # noqa: E402
 import rcapi  # noqa: E402
 import stt  # noqa: E402
@@ -209,6 +210,10 @@ class Hub:
         self.stop = threading.Event()
         self.list_ok_at = 0.0
         self.list_error = ''
+        self.cards = glance.Cards(SUPPORT, fetch=self.glance_input, ready=self.glance_ready,
+                                  ask=glance_off if os.environ.get('G2_GLANCE_OFF') else glance.ask_haiku,
+                                  held=lambda: glance.kit_held(kitstate.KIT),
+                                  only=os.environ.get('G2_GLANCE_ONLY', ''), log=log)
 
     # -- data in
     def envs(self, force=False):
@@ -311,6 +316,12 @@ class Hub:
         with self.lock:
             rows = [kitstate.summarize(s, self.kit, self.env_dirs) for s in self.api.values()]
             rows = kitstate.ordered(rows)
+            shown = set(self.trackers)
+            for r in rows:
+                s = self.api.get(r['id']) or {}
+                rank = 0 if r['id'] in shown else 1 + kitstate.ORDER.get(r['status'], 3)
+                self.cards.note(r['id'], r['title'], marker(s), rank)
+                r['glance'] = glance.serve(self.cards.card(r['id']), r['status'])
             js = json.dumps(rows, sort_keys=True)
             changed = js != self.rows_json
             self.rows, self.rows_json = rows, js
@@ -407,10 +418,31 @@ class Hub:
             row = kitstate.summarize(s, self.kit, self.env_dirs)
         req = self.pending_req(s, evs)
         out = dict(row)
-        out['last_reply'] = detail.last_reply(self.reply_events(cse, evs))
+        evs = self.reply_events(cse, evs)
+        md = detail.last_reply_md(evs)
+        out['last_reply'] = detail.last_reply(evs)
         out['pending'] = detail.view(req, self.partials.get(req['request_id'])) if req else None
         out['has_pending'] = bool(out['pending'])
+        out['glance'] = glance.serve(self.cards.for_reply(cse, row['title'], md, out['pending'], marker(s)),
+                                     row['status'])
         return out
+
+    # -- glance cards (glance.py)
+    def glance_input(self, cse):
+        """What a session's card is made from: its title, its newest reply (Markdown) and the prompt that waits."""
+        try:
+            s = self.session_record(cse)
+        except HTTPError:
+            return None
+        evs = self.events_of(cse)
+        req = self.pending_req(s, evs)
+        pending = detail.view(req, self.partials.get(req['request_id'])) if req else None
+        with self.lock:
+            title = (self.row(cse) or {}).get('title') or s.get('title') or ''
+        return title, detail.last_reply_md(self.reply_events(cse, evs)), pending
+
+    def glance_ready(self, cse):
+        self.recompute()
 
     def session_changed(self, cse):
         watchers = [c for c in list(self.clients) if cse in c.subs]
@@ -562,6 +594,15 @@ class Hub:
         log(f'start  {cse} in its own Claude Code ({label_of(folder)})')
         threading.Thread(target=self.refresh_session, args=(cse,), daemon=True).start()
         return {'id': cse, 'folder': folder, 'started': 'cli'}
+
+
+def marker(s):
+    """What changes when anything in a session changes: its last event, and whether it works or asks."""
+    return f"{s.get('last_event_at') or s.get('updated_at') or ''}|{s.get('worker_status') or ''}"
+
+
+def glance_off(system, text):
+    raise RuntimeError('G2_GLANCE_OFF is set')
 
 
 def web_ready(w):
