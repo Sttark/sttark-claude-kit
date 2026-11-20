@@ -10,11 +10,12 @@
   the timer; a second timer gets a note to delete it; CronDelete of the job clears it, and the next background work
   asks again; a timer of a Claude Code that ended, or of a process that now runs another conversation, counts as gone;
 - the check-in: what runs (each agent's task and last step, the Kit's fresh note) goes to the session, with the job;
-  with no work, the session is told to delete the timer with its id; with the switch off, too;
+  with no work, the session is told to delete the timer with its id; with the switch off, too; when the Kit cannot
+  read what runs, the session still gets how to answer (the working rules hold none of it);
 - other prompts: a timer left set with no work gets a reminder; with work, or with no timer, nothing;
 - the log lines the Events page reads; bad input never fails; install-hooks.py adds the two entries and takes them out.
 Run from the repo root: /usr/bin/python3 tools/checkin-timer-test.py"""
-import importlib.util, json, os, subprocess, sys, tempfile, time
+import contextlib, importlib.util, io, json, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOKS = os.path.join(ROOT, 'Resources', 'hooks')
@@ -139,6 +140,9 @@ cron = T.cron_for(time.time())
 check('an agent the session starts in the background: one ask, with CronCreate, the cron, durable false and the prompt',
       r.returncode == 0 and 'CronCreate' in ctx and '"%s"' % cron in ctx and 'durable false' in ctx and 'recurring true' in ctx
       and T.PROMPT in ctx and 'select:CronCreate,CronDelete' in ctx and 'set no timer' in ctx.lower())
+check('the ask carries the whole timer rule, as the working rules hold none of it: one timer, keep its id, CronDelete '
+      'when no work runs', 'Set no second timer' in ctx and 'Keep the job id' in ctx
+      and 'When no agent or background command of yours still runs, call CronDelete with that id' in ctx)
 check('the prompt starts with the mark and tells the session to delete the timer when its work ends',
       T.PROMPT.startswith('[Sttark Claude Kit] Check-in:') and 'CronDelete' in T.PROMPT and '—' not in T.PROMPT + ctx
       and '--' not in T.PROMPT)
@@ -238,6 +242,23 @@ check('a check-in with the switch off: the session is told to delete the timer',
 ctx, _ = run(prompt(SID, 'Next step?'), copy1.pid, off)
 check('the person\'s prompt with the switch off and a timer set: told to delete it', 'CronDelete with id "3f9a2c1d"' in ctx)
 run({}, copy1.pid, STATE)
+os.environ['CLAUDE_PID'] = str(copy1.pid)   # the hook in this process, as copy1
+
+
+def unreadable(tp, now):
+    raise OSError('the records cannot be read')
+
+
+T.running, real_running = unreadable, T.running
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    T.on_prompt(prompt(SID, T.PROMPT), time.time())
+T.running = real_running
+os.environ.pop('CLAUDE_PID')
+ctx = json.loads(buf.getvalue())['hookSpecificOutput']['additionalContext'] if buf.getvalue().strip() else ''
+check('a check-in when the Kit cannot read what runs: the session still gets how to answer, and to delete the timer '
+      'with its id when no work runs', T.REPLY in ctx and 'CronDelete with id "3f9a2c1d"' in ctx and 'one line' in ctx
+      and timers()[SID]['job'] == '3f9a2c1d')
 delete = {'hook_event_name': 'PostToolUse', 'session_id': SID, 'transcript_path': TP[SID], 'tool_name': 'CronDelete',
           'tool_input': {'id': '77ee88ff'}, 'tool_response': {'id': '77ee88ff'}}
 run(delete, copy1.pid)

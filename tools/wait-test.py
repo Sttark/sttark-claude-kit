@@ -45,4 +45,26 @@ for k, v in json.load(open(os.path.join(d, 'state.json')))['waits'].items():
     if v['why'] == 'closed one':
         assert run('--cancel', k)[0] == 0
 assert len(run('--list')[1].strip().splitlines()) == 3
+
+# --help (and no arguments) carries the forms and the advice for each channel, which the working rules leave out
+code, usage = run('--help')
+assert code == 0 and run()[1] == usage and usage.strip() == w.USAGE, usage[:200]
+for words in ('claude-wait pr <owner/repo#n> merged|closed', 'email-reply <thread id> --from <sender>',
+              '--query "from:(<the site\'s domain>)"', 'claude-mail sign-in <address>', 'claude-mail search',
+              "supplier's messenger", 'claude-window', 'how\n          the call went', 'check-script <path>',
+              'Exit 0 means it happened', 'only when nothing free works', 'Prefer pr, at and check-script',
+              'A claude-wait at alone is wrong', 'only as the deadline (--by)', '3 weekdays', 'Monday afternoon',
+              'in --why, in one line', 'safety net', 'set a wait for each answer that you need', '--cancel <id>'):
+    assert words in usage, words
+assert '—' not in usage and ' -- ' not in usage, 'no em-dashes or double hyphens in prose'
+
+# the prompt that brings a session back carries the whole claude-notify instruction (the working rules do not)
+w.KIT, w.STATE, w.LOG = d, os.path.join(d, 'state.json'), os.path.join(d, 'log')  # the copies, in this process too
+p = w.prompt_for({'id': 'abc123', 'kind': 'at', 'at': time.time(), 'set_at': time.time() - 60, 'why': 'look at it'},
+                 'The time you set came', False)
+for words in ('[Sttark Claude Kit] A wait you handed to the Kit has ended.',
+              'claude-notify "<subject>" "<message>" [--link <url>]', 'Reach me by', 'PushNotification tool',
+              'stand alone', 'Nothing needed from you.', 'Example: "Your reporter works again',
+              'in a live chat stays in the session: no claude-notify'):
+    assert words in p, words
 print('ok')

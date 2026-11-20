@@ -399,6 +399,10 @@ p = watch.prompt_for(CSE1, W['sessions'][CSE1], [dict(MAIL[1], kind='mail', box=
 check('the prompt: what came, why it counts, how to read it, the question, and the open waits',
       p.startswith('[Sttark Claude Kit] New messages came in that may concern this session') and 'claude-mail read %s m-ans' % ME in p
       and 'you sent a web form on utilitysample.example' in p and 'decide if it needs action' in p and 'aaa111' in p)
+check('the prompt carries the whole claude-notify instruction, as the working rules do not: the command, Reach me by, '
+      'the push, a message that stands alone, the example, no claude-notify in a live chat or for no action',
+      wait.NOTIFY in p and 'claude-notify "<subject>" "<message>" [--link <url>]' in p and 'PushNotification' in p
+      and 'Nothing needed from you.' in p and 'live chat' in p and 'with no claude-notify' in p)
 
 # --- the person's own mailbox with no sign-in: one Haiku run for all sessions ---------------------------------------
 json.dump({}, open(KEYS, 'w'))
@@ -829,6 +833,8 @@ check('the kept note depends on it, so the session comes back at once with a not
       and brought[0][1].startswith('[Sttark Claude Kit] The person replied themselves in a place this session watches')
       and 'In the email thread "Lunch", ' in brought[0][1] and ', the person sent it: "Tuesday works for me, at noon."' in brought[0][1]
       and 'claude-mail read %s m-mine' % ME in brought[0][1] and 'do not send claude-notify' in brought[0][1]
+      and 'that item is done: mark it handled in your notes and your status table' in brought[0][1]
+      and 'do not ask the person about it' in brought[0][1]
       and 'You replied' in brought[0][1] and 'wrote:' not in brought[0][1])
 check('one log line, for the Events page: where, when, the first words and what the Kit did',
       'watch  replied %s "Laminator quote" in the email thread "Lunch", ' % CL[:12] in logged
