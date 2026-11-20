@@ -69,7 +69,7 @@ enum KitActions {
 
     // MARK: the actions
 
-    /// Bring it back now: this wait ends now, and its session comes back to the person's list (wait.py --now).
+    /// End a wait now: its session comes back with the wait-ended message (wait.py --now). No button sends it now (the window and the phone dropped Bring it back now); a phone page from before still can.
     static func bringBack(wait id: String, origin: Origin, done: @escaping (Result) -> Void = { _ in }) {
         run(done) {
             let open = Waits.list()
@@ -188,7 +188,7 @@ enum KitActions {
         }
     }
 
-    /// Bring it back, for an archived session: unarchived on the same link, with its whole conversation and nothing
+    /// Unarchive, for an archived session (on the Archived page, or one that waits): unarchived on the same link, with its whole conversation and nothing
     /// sent to it (wait.py --unarchive, which reads its status and archived.json when it runs).
     static func unarchive(cse: String, origin: Origin, done: @escaping (Result) -> Void = { _ in }) {
         run(done) {

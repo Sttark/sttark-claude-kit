@@ -123,6 +123,11 @@ check('a bad id is refused', code == 4 and 'Usage' in out)
 log = open(os.path.join(tmp, 'kit.log')).read()
 check('each refusal is logged as a wait line', log.count('wait   cse_') == 4 and '(phone)' in log and 'not archived now' in log)
 
+code, out = run(WAIT, '--unarchive', 'cse_W')
+check('--unarchive of an archived one that waits, not in the list: its wait gives the conversation (%d) %s' % (code, out),
+      code == 0 and 'would bring cse_W back from ' + w in out)
+check('its wait stays open', 'w1' in json.load(open(os.path.join(kit, 'state.json')))['waits'])
+
 state['sessions']['cse_W'] = {'title': 'Supplier reply', 'transcript': w}  # its hooks recorded it too
 json.dump(dict(state, waits={}), open(os.path.join(kit, 'state.json'), 'w'))
 run(HOOK, '--archived')

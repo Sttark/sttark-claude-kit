@@ -149,12 +149,12 @@ import Foundation
         check(m?.name == "Press color" && m?.text == "Opened in the Claude app", "a menu open names the session, no link")
         let w = Events.kitLine(f.string(from: Date()) + " wait   7f15a1 cse_01AAAtest1 \"Press color\" set: a reply on email thread 1a1d6158534acc04, by Wed 5:00 PM", names)
         check(w.map { !$0.text.contains("1a1d6158") && !$0.text.contains("cse_") } == true, "no email thread id in a wait row")
-        // Bring it back on the Archived page (claude-wait --unarchive): the session, in plain words, and who asked
+        // Unarchive on the Archived page (claude-wait --unarchive): the session, in plain words, and who asked
         let b = Events.kitLine(f.string(from: Date()) + " wait   cse_01AAAtest1 \"Press color\" brought back from the archive (window)", names)
-        check(b?.name == "Press color" && b?.text == "Brought back from the archive, on the same link" && b?.kind == .restart
+        check(b?.name == "Press color" && b?.text == "Unarchived, on the same link" && b?.kind == .restart
               && b?.detail.first?.contains("the Kit window") == true, "a session brought back from the archive")
         let n = Events.kitLine(f.string(from: Date()) + " wait   cse_01AAAtest1 \"Press color\" not brought back from the archive (phone): its conversation is not on this Mac", names)
-        check(n?.text == "Not brought back: its conversation is not on this Mac" && n?.level == .warn
+        check(n?.text == "Not unarchived: its conversation is not on this Mac" && n?.level == .warn
               && n?.detail.first?.contains("the phone") == true, "one that could not come back says why")
         // The reply watch (watch.py): a session brought back for new messages, a read, a failed read, and the working
         // rules' reply wait check.

@@ -179,6 +179,7 @@
           "items": { "$ref": "#/$defs/message" }
         },
         "alerts": { "type": "boolean", "description": "The session's alerts. true: the person turned them on for this session, so it reaches them the Reach me by ways. false: off, as every session starts and stays until the person turns them on, so nothing about it goes out and its messages stay in the Kit app on the Mac. Optional: a Kit from before the switch sends none, and the phone reads that as true, since such a Kit has no switch." },
+        "archived": { "const": true, "description": "Optional: the session waits on someone else and is archived, so its page offers Unarchive, which sends it nothing. None for every other row." },
         "folder": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[^/\\\\~]*$", "description": "Optional: the folder the session works in, its own name only (for example src), as an archived session's goes up; the phone's search finds a session by it, and its page shows it. A slash, a backslash or a tilde means a path, which never leaves the Mac. None when the Mac does not know the folder, or it is the home folder." }
       }
     },

@@ -823,8 +823,9 @@ BACK_WAIT = 45  # seconds to wait for the Claude app to show an unarchived sessi
 
 def unarchive(cse, by='window'):
     """An archived session back in the person's list, on its own link with its whole conversation and no first
-    message: the Kit window's Archived page (or the phone) asks for it. The facts come from archived.json, which
-    effort-hook.py archived() writes; the start is bring_back(), as for a wait. Prints one line; returns the exit code:
+    message: Unarchive in the Kit window (or the phone) asks for it, on the Archived page or on an archived session
+    that waits on someone else. The facts come from archived.json, which effort-hook.py archived() writes, else from
+    the session's open wait (its waits stay open); the start is bring_back(), as for a wait. Prints one line; returns the exit code:
     0 ok, 1 not_now (Claude did not answer, the start failed, or the Claude app does not show it back yet), 2 not_here,
     3 gone (phone/DESIGN.md, section 13).
     STTARK_ARCHIVED_TEST (a JSON file {"sessions": [...]}) stands in for the session's status; STTARK_WAIT_DRY starts
@@ -836,6 +837,10 @@ def unarchive(cse, by='window'):
         listing = {}
     items = listing.get('items') or []
     item = next((x for x in items if x.get('cse') == cse), None)
+    if not item:  # an archived session that waits on someone else: archived.json leaves it out; its wait knows it
+        wt = next((x for x in (peek().get('waits') or {}).values() if x.get('cse') == cse and x.get('transcript')), None)
+        if wt:
+            item = {'cse': cse, 'title': wt.get('title') or '', 'transcript': wt['transcript'], 'folder': wt.get('cwd') or ''}
     test = os.environ.get('STTARK_ARCHIVED_TEST')
 
     def status():

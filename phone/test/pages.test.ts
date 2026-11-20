@@ -115,7 +115,7 @@ describe('Sessions', () => {
     const d = draw({ page: 'archived-item', cse: 'session_01SampleLaminatorRfq', from: 'search' }, kit(), emptyUi());
     expect(d.html).toContain('<a href="/?find=1" data-act="back">');
     expect(d.tab).toBe('sessions');
-    expect(d.html).toContain('Bring it back');
+    expect(d.html).toContain('Unarchive</button>');
     // from the Archived tab, back to it
     const a = draw({ page: 'archived-item', cse: 'session_01SampleLaminatorRfq' }, kit(), emptyUi());
     expect(a.html).toContain('<a href="/archived" data-act="back">');
@@ -163,15 +163,24 @@ describe('One session', () => {
     expect(h).toContain('A new one every 15 min while the work runs.');
     expect(html({ page: 'session', cse: 'session_01SampleHvacUpdates', from: 'sessions' }, one())).not.toContain('check-in');
   });
-  it('has Open in Claude as its one green button, and Stop, Bring it back now and Stop waiting for a wait', () => {
+  it('has Open in Claude as its one green button, and Stop and Stop watching for a wait, with no Bring it back now', () => {
     const h = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' });
     expect(h.match(/class="btn full"/g)?.length).toBe(1);
     expect(h).toContain('Waits on 2 email replies');
     expect(h.match(/data-act="stop"/g)?.length).toBe(2);
-    expect(h).toContain('Bring it back now');
-    expect(h).toContain('Stop waiting');
+    expect(h).not.toContain('Bring it back now');
+    expect(h).toContain('Stop watching');
+    expect(h).not.toContain('data-act="unarchive"');
     expect(h).toContain('It does not run while it waits.');
     expect(h).toContain('Check failing since');
+  });
+  it('offers Unarchive next to Stop watching on a wait whose session is archived', () => {
+    const k = one();
+    for (const s of Object.values(k.snaps)) for (const r of s.rows) if (r.cse === 'session_01SampleLaminator') r.archived = true;
+    const h = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' }, k);
+    expect(h).toContain('data-act="unarchive"');
+    expect(h.indexOf('data-act="unarchive"')).toBeLessThan(h.indexOf('data-act="stopall"'));
+    expect(h).not.toContain('Bring it back');
   });
   it('says You replied on a wait whose thread the person replied in, and that it still waits; its row says so first', () => {
     const h = html({ page: 'session', cse: 'session_01SampleLaminator', from: 'sessions' }, one());
@@ -272,9 +281,9 @@ describe('Archived, Usage, a Mac, Menu', () => {
     // a q in its address does nothing here: the whole list
     expect(h).toContain('South E building model');
   });
-  it('offers Bring it back for an archived session', () => {
+  it('offers Unarchive for an archived session', () => {
     const h = html({ page: 'archived-item', cse: 'session_01SampleDoorPi' });
-    expect(h).toContain('Bring it back');
+    expect(h).toContain('Unarchive</button>');
     expect(h).toContain('It goes back to your list on the same link');
   });
   it('shows the limits, the marks, the held sessions and the read time', () => {

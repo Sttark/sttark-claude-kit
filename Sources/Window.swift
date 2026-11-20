@@ -192,7 +192,7 @@ final class KitModel: ObservableObject {
     /// The session being moved now (its row id), and the one whose "close it there?" question shows.
     @Published var moving: String? = nil
     @Published var confirmMove: String? = nil
-    /// The Archived page: the list, the selected session, the one being brought back, and what the last Bring it back
+    /// The Archived page: the list, the selected session, the one being unarchived, and what the last Unarchive
     /// said (over the list, with its session's name, so Show it can open it on the Sessions page). The top bar's search
     /// finds archived sessions too.
     @Published var archived = Archived.List()
@@ -289,7 +289,7 @@ final class KitModel: ObservableObject {
         page = p
     }
 
-    /// A session on the Sessions page, selected in its group (Show it, after Bring it back).
+    /// A session on the Sessions page, selected in its group (Show it, after Unarchive).
     func showOnSessions(_ id: String) {
         go(.sessions)
         selected = id
@@ -349,15 +349,18 @@ final class KitModel: ObservableObject {
                 set: { d in self.setUsagePeriod(SessionUsage.Period(key: SessionUsage.span(self.usagePeriod).from + ".." + SessionUsage.day(d)) ?? .week) })
     }
 
-    /// Bring it back: the session goes back to the Claude app's list, and the Sessions page, on the same link.
+    /// Unarchive: the session goes back to the Claude app's list, and the Sessions page, on the same link, with
+    /// nothing sent to it. From the Archived page, or from an archived session that waits (its waits stay open).
     /// One that is not archived any more is in the list already, so that note is not a problem either.
-    func bringBack(_ x: Archived.Item) {
-        bringing = x.id
+    func bringBack(_ x: Archived.Item) { bringBack(id: x.id, title: x.title) }
+
+    func bringBack(id: String, title: String) {
+        bringing = id
         backNote = nil
-        KitActions.unarchive(cse: x.id, origin: .window) { [weak self] r in
+        KitActions.unarchive(cse: id, origin: .window) { [weak self] r in
             guard let self else { return }
             self.bringing = nil
-            self.backNote = (r.reason == .ok || r.reason == .gone, r.words, Date(), x.id, x.title)
+            self.backNote = (r.reason == .ok || r.reason == .gone, r.words, Date(), id, title)
             self.changed()
         }
     }
@@ -819,7 +822,7 @@ struct MoveNote: View {
     }
 }
 
-/// What the last Bring it back said, over the list, for 5 minutes or until hidden; Show it opens the session on the
+/// What the last Unarchive said, over the list, for 5 minutes or until hidden; Show it opens the session on the
 /// Sessions page.
 struct BackNote: View {
     @ObservedObject var model: KitModel
@@ -1180,10 +1183,16 @@ struct DetailView: View {
         if let w = row.wait {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Button("Bring it back now") { KitActions.bringBack(wait: w.id, origin: .window) { _ in model.changed() } }
-                        .help("Brings the session back to your list now, and it tells you where it stands.")
-                    Button("Stop waiting") { KitActions.stopWaits((row.waits.isEmpty ? [w] : row.waits).map(\.id), origin: .window) { _ in model.changed() } }
-                        .help(row.waits.count > 1 ? "Drops all its waits. The session stays where it is." : "Drops this wait. The session stays where it is.")
+                    if row.archived {
+                        Button(model.bringing == w.cse ? "Unarchiving…" : "Unarchive") { model.bringBack(id: w.cse, title: row.title) }
+                            .disabled(model.bringing != nil)
+                            .help("Puts the session back in your list and sends it nothing. The Kit still watches for its waits.")
+                    }
+                    Button("Stop watching") { KitActions.stopWaits((row.waits.isEmpty ? [w] : row.waits).map(\.id), origin: .window) { _ in model.changed() } }
+                        .help("The Kit stops watching for " + (row.waits.count > 1 ? "all its waits" : "this wait") + ". It sends the session nothing.")
+                }
+                if let n = model.backNote, n.id == w.cse, -n.at.timeIntervalSinceNow < 300 {
+                    Text(n.words).font(K.font(12.5)).foregroundColor(n.ok ? K.ink : K.warnText).fixedSize(horizontal: false, vertical: true)
                 }
                 if w.kind == "pr", !w.url.isEmpty {
                     Button { Waiting.open(w.url) } label: { Label("Open the pull request", systemImage: "arrow.up.right").labelStyle(TrailingIcon()) }
@@ -1459,7 +1468,7 @@ struct SearchField: View {
 
 /// What the top bar's search found, over the page it was on: the Sessions page's groups and rows, with their counts,
 /// then Archived, the archived sessions this Mac can bring back. The picked one shows on the right in its own panel: a
-/// session as on the Sessions page, an archived one with Open and Bring it back, as on the Archived page.
+/// session as on the Sessions page, an archived one with Open and Unarchive, as on the Archived page.
 struct SearchPage: View {
     @ObservedObject var model: KitModel
     var body: some View {
@@ -1524,7 +1533,7 @@ struct SearchPage: View {
 // MARK: archived
 
 /// The archived sessions this Mac can bring back, by the day each was last active; the selected one on the right,
-/// with Open and Bring it back, as on the Sessions page. The top bar's search finds them too, with every other session.
+/// with Open and Unarchive, as on the Sessions page. The top bar's search finds them too, with every other session.
 struct ArchivedPage: View {
     @ObservedObject var model: KitModel
     var body: some View {
@@ -1609,7 +1618,7 @@ struct ArchivedRow: View {
     }
 }
 
-/// One archived session: Open, and Bring it back, which unarchives it on the same link with its whole conversation.
+/// One archived session: Open, and Unarchive, which unarchives it on the same link with its whole conversation.
 struct ArchivedDetail: View {
     @ObservedObject var model: KitModel
     let item: Archived.Item
@@ -1647,7 +1656,7 @@ struct ArchivedDetail: View {
         let busy = model.bringing == item.id
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Button(busy ? "Bringing it back…" : "Bring it back") { model.bringBack(item) }
+                Button(busy ? "Unarchiving…" : "Unarchive") { model.bringBack(item) }
                     .buttonStyle(GreenButtonStyle())
                     .disabled(model.bringing != nil)
                     .help("Unarchives this session and starts it again on the same link, with its whole conversation.")

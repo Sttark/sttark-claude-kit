@@ -79,6 +79,9 @@ enum Inbox {
         /// handled now), or a wait's thread (it still waits for the other person). The row says "You replied <time>"
         /// first, so it does not read as an open item.
         var replied: Date? = nil
+        /// A session that waits on someone else and is archived: the Claude app's list (fresh) does not show it.
+        /// Its panel offers Unarchive, which sends it nothing.
+        var archived = false
         /// The time with what it is, for the menu: "waiting 15 min", "continues Sat 2:00 AM", "deadline Mon 9:00 AM".
         var timeLabel: String {
             guard !time.isEmpty else { return "" }
@@ -253,6 +256,7 @@ enum Inbox {
             r.wait = w
             r.waits = ws
             r.replied = ws.compactMap(\.replied).max()
+            r.archived = !w.cse.isEmpty && listedIds.map { !$0.contains(w.cse) } ?? false
             snap.rows.append(r)
         }
 

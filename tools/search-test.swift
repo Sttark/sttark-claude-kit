@@ -175,7 +175,7 @@ import Foundation
         check(model.selected == "cse_01Wait", "back on Sessions, the session picked in the search is selected")
         model.search = "dryer"
         model.showOnSessions("cse_01Needs")
-        check(!model.searching && model.page == .sessions && model.selected == "cse_01Needs", "Show it, after Bring it back: the Sessions page, with the search cleared")
+        check(!model.searching && model.page == .sessions && model.selected == "cse_01Needs", "Show it, after Unarchive: the Sessions page, with the search cleared")
 
         // the phone gets a session's folder as its own name only, and none for the home folder
         let snap = Inbox.snapshot()

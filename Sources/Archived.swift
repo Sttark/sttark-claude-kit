@@ -3,7 +3,7 @@ import Foundation
 /// The window's Archived page: the person's archived sessions that this Mac can bring back, newest first.
 /// effort-hook.py writes the list to archived.json: keep() from the session list it reads every 15 seconds while the
 /// server runs, and `effort-hook.py --archived` on a Mac with no server (every 10 minutes, and when the page opens).
-/// The phone reads the same file, so both show the same list. Bring it back is KitActions.unarchive.
+/// The phone reads the same file, so both show the same list. Unarchive is KitActions.unarchive.
 enum Archived {
     struct Item: Identifiable {
         /// The session's Remote Control id (cse_…).

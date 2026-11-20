@@ -305,7 +305,7 @@ describe('actions', () => {
     expect((await p.next('record')).payload).toMatchObject({ reason: 'timeout', words: WORDS.timeout, before: null, after: null });
     c.send({ event: 'result', success: true, payload: { id: sent.payload.id, reason: 'ok', words: 'Stopped waiting. The session stays where it is.', before: { waits: ['w02'] }, after: { waits: [] } } });
     const late = await p.next('record');
-    expect(late.payload).toMatchObject({ reason: 'ok', words: 'Stopped waiting from the phone.', after: { waits: [] } });
+    expect(late.payload).toMatchObject({ reason: 'ok', words: 'Stopped watching from the phone.', after: { waits: [] } });
     expect(records().map((r) => [r.result, r.session])).toEqual([['timeout', late.payload.cse], ['ok', late.payload.cse]]);
     // No second action_result for the same id.
     await sleep(50);
