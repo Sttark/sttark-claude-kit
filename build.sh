@@ -10,6 +10,8 @@ command -v swiftc >/dev/null || { echo "Needs Apple's command line tools. Run: x
 APP=build/SttarkClaudeKit.app
 # the hooks run on macOS's own Python (3.9), which rejects some newer syntax
 for f in Resources/hooks/*.py; do /usr/bin/python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$f" || exit 1; done
+# the working rules reach a session whole only in parts under Claude Code's 10,000 characters per hook
+/usr/bin/python3 tools/working-rules-test.py >/dev/null || { /usr/bin/python3 tools/working-rules-test.py | grep FAIL; exit 1; }
 BUILD=${BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}
 rm -rf build
 mkdir -p $APP/Contents/MacOS $APP/Contents/Resources

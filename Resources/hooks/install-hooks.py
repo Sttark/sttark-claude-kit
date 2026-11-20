@@ -97,6 +97,7 @@ def set_rules(hooks, on):
 
 WORKING = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'working-rules-hook.py')
 WORKING_OFF = os.path.expanduser('~/Library/Application Support/SttarkClaudeKit/working-rules.off')
+WORKING_PARTS = 3  # working-rules-hook.py's PARTS: one UserPromptSubmit entry per part
 
 
 def is_working(cmd):
@@ -114,7 +115,8 @@ def set_working(hooks, on):
         if on and event == 'UserPromptSubmit':
             after = [i for i, g in enumerate(groups) if any(is_profile(h.get('command', '')) for h in g['hooks'])]
             groups.insert(after[0] + 1 if after else 0,
-                          {'hooks': [{'type': 'command', 'command': f'"{WORKING}"', 'timeout': 10}]})
+                          {'hooks': [{'type': 'command', 'command': f'"{WORKING}" {i}', 'timeout': 10}
+                                     for i in range(1, WORKING_PARTS + 1)]})
         if on and event == 'Stop':
             groups.append({'hooks': [{'type': 'command', 'command': f'"{WORKING}" --check', 'timeout': 60,
                                       'async': True}]})

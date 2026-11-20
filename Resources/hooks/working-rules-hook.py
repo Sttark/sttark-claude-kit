@@ -2,9 +2,13 @@
 """Claude Code hooks for "Sttark working rules" in the Sttark Claude Kit menu: how Claude works for
 people at Sttark, in every session, on unless the switch is turned off.
 
-UserPromptSubmit (no argument): puts the rules below in front of every prompt, as the profile hook does
-with a person's own instructions. No model call; it costs nothing per prompt. The rules are the text
-in RULES here: to change them, change this file and open a pull request.
+UserPromptSubmit (a part number, 1 to PARTS; none is 1): puts the rules below in front of every prompt, as the
+profile hook does with a person's own instructions. Claude Code shows a session at most 10,000 characters of one
+hook's text: past that it saves the text to a file and shows only its first 2,000. So the rules go in parts of
+at most SIZE characters, cut between rules, one hook entry per part (install-hooks.py adds PARTS entries); a part
+with nothing to say prints nothing. No model call; it costs nothing per prompt. The rules are the text in RULES
+here: to change them, change this file and open a pull request. tools/working-rules-test.py fails when the
+rules need more than PARTS parts.
 
 Stop (--check, runs in the background): the last rule says replies are written in ASD-STE100 Simplified
 Technical English. A rule in the context is a request; this is the check. When Claude finishes a reply, the
@@ -46,6 +50,9 @@ MIN_PROSE = 40      # characters of prose below which a reply is not checked
 CHECKIN = '[Sttark Claude Kit] Check-in:'  # the start of the check-in timer's prompt in a session (checkin-timer.py)
 
 LEAD = 'Sttark working rules (from Sttark Claude Kit): how Claude works for people at Sttark.'
+MORE = 'Sttark working rules (from Sttark Claude Kit), part %d of %d, continued:'
+PARTS = 3     # hook entries install-hooks.py adds: room for the rules to grow
+SIZE = 9000   # characters per part, under Claude Code's 10,000 (the note from the last reply's check comes too)
 
 RULES = """\
 - Visuals are better than text. A diagram is a real image, never text art.
@@ -494,6 +501,22 @@ def pending(data):
     return notes(lambda a: a.pop(full, [])) if full else []
 
 
+def parts():
+    """LEAD and RULES in pieces of at most SIZE characters, cut between rules (each rule is one line that starts
+    "- "); every piece after the first starts with MORE, so the session knows it goes on from the one before."""
+    rules = ['- ' + r for r in RULES.strip('\n').split('\n- ')]
+    rules[0] = rules[0][2:]
+    out, cur = [], LEAD
+    for r in rules:
+        if len(cur) + 2 + len(r) > SIZE:
+            out.append(cur)
+            cur = MORE
+        cur += ('\n\n' if cur in (LEAD, MORE) else '\n') + r
+    out.append(cur)
+    n = len(out)
+    return [p.replace(MORE, MORE % (i + 1, n), 1) if i else p for i, p in enumerate(out)]
+
+
 def main():
     if os.environ.get('STE_JUDGE') or os.environ.get('EFFORT_JUDGE'):
         return
@@ -519,13 +542,21 @@ def main():
         except Exception as e:
             log('%s error reply wait check %s: %s' % ((data.get('session_id') or '')[:8], type(e).__name__, e), 'watch  ')
         return check(data)
-    text = LEAD + '\n\n' + RULES
     try:
-        missed = pending(data)
-    except OSError:
-        missed = []
-    if missed:
-        text += '\n\nFrom the check of your last reply: ' + ' '.join(missed)
+        part = int(sys.argv[1])
+    except (IndexError, ValueError):
+        part = 1
+    pieces = parts()
+    if not 1 <= part <= len(pieces):
+        return
+    text = pieces[part - 1]
+    if part == len(pieces):  # the note from the last reply's check, once, after the rules
+        try:
+            missed = pending(data)
+        except OSError:
+            missed = []
+        if missed:
+            text += '\n\nFrom the check of your last reply: ' + ' '.join(missed)
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': text}}))
 
 
