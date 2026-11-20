@@ -685,14 +685,14 @@ enum Events {
                 e.kind = .restart
                 let from = main.contains("(phone)") ? "the phone" : "the Kit window"
                 if main.contains(" brought back from the archive") && !main.contains("not brought back") {
-                    e.text = "Brought back from the archive, on the same link"
-                    e.detail = ["Asked from \(from). It came back with its whole conversation."]
+                    e.text = "Unarchived, on the same link"
+                    e.detail = ["Asked from \(from). It came back with its whole conversation, and nothing was sent to it."]
                 } else {
                     e.kind = .problem; e.level = .warn
-                    e.text = main.contains("not archived now") ? "Not brought back: it is not archived now"
-                        : main.contains("not on this Mac") ? "Not brought back: its conversation is not on this Mac"
+                    e.text = main.contains("not archived now") ? "Not unarchived: it is not archived now"
+                        : main.contains("not on this Mac") ? "Not unarchived: its conversation is not on this Mac"
                         : main.contains("was not back after") ? "Started from the archive, but the Claude app did not show it back"
-                        : "Did not come back from the archive"
+                        : "Not unarchived: it did not come back"
                     e.detail = ["Asked from \(from)."]
                     if main.contains("not archived now") { e.level = .info; e.kind = .restart }
                 }
@@ -1111,9 +1111,9 @@ enum Events {
                 let asker = parts.first ?? "", reason = parts.count > 1 ? parts[1] : "", said = parts.count > 2 ? parts[2...].joined(separator: ": ") : ""
                 if head.count > 1, head[1] != "-" { who(head[1]) }
                 e.text = "From the phone: " + (said.isEmpty ? "the Kit did not run it" : said)
-                let asked = ["bring_back": "Bring it back now", "stop_waits": "Stop waiting", "set_level": "an effort level",
+                let asked = ["bring_back": "Bring it back now", "stop_waits": "Stop watching", "set_level": "an effort level",
                              "set_auto": "Auto effort", "set_limit": "At the usage limit", "set_alerts": "Alerts",
-                             "unarchive": "Bring it back, from Archived"][String(head.first ?? "")]
+                             "unarchive": "Unarchive"][String(head.first ?? "")]
                 e.detail = ["Asked by \(asker)" + (asked.map { ", with \($0)" } ?? "") + "."]
                 if reason == "bad" { e.level = .warn }
             } else if rest.hasPrefix("linked to ") {

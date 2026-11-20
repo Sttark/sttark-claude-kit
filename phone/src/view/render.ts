@@ -249,7 +249,7 @@ function awayHead(m: MacInfo): string {
 
 // ---------- Sessions ----------
 
-/** An archived session's row: a tap opens its page, with Bring it back. On
+/** An archived session's row: a tap opens its page, with Unarchive. On
  *  the Archived tab the day is the heading over it, so the row says the
  *  time; among what a search found, the day too. */
 function archivedRow(k: Kit, a: PlacedArchived, search: boolean): string {
@@ -493,8 +493,8 @@ function pageSession(k: Kit, cse: string, from: string, ui: Ui): Drawn {
       row.waits.map((w) => waitCard(k, w, ro, ui, tz, now)).join('');
     if (!ro) {
       html +=
-        `<div class="btn-row">${actBtn(ui, 'bring', 'Bring it back now', 'data-act="bring"')}` +
-        `${actBtn(ui, 'stopall', 'Stop waiting', 'data-act="stopall"')}</div>`;
+        `<div class="btn-row">${row.archived ? actBtn(ui, 'unarchive', 'Unarchive', 'data-act="unarchive"') : ''}` +
+        `${actBtn(ui, 'stopall', 'Stop watching', 'data-act="stopall"')}</div>`;
     }
     html += `</section>`;
   } else if (row.group === 'held' && row.hold) {
@@ -634,14 +634,14 @@ function pageArchivedItem(k: Kit, cse: string, ui: Ui, from = 'archived'): Drawn
   let html =
     crumbs(back.href, back.label) +
     `<div class="title-row"><h1 class="page-title">${esc(item.title)}</h1>${chip('', 'Archived')}</div>` +
-    // Any answer for it: also Stop waiting's, after which it shows here.
+    // Any answer for it: also Stop watching's, after which it shows here.
     (ui.result && ui.result.scope === cse ? resultHtml(ui.result) : '') +
     `<div class="card facts">` +
     (item.archived_at ? `<div class="f"><span>Archived</span><span>${esc(`${dayLabel(item.archived_at, k.now, tz)}, ${clock(item.archived_at, tz)}`)}</span></div>` : '') +
     `<div class="f"><span>Folder</span><span class="folder">${esc(item.folder)}</span></div>` +
     (multi(k) ? `<div class="f"><span>Mac</span><span>${esc(mac.name)}</span></div>` : '') +
     `</div>`;
-  // The Mac said its conversation is not there: Bring it back cannot work.
+  // The Mac said its conversation is not there: Unarchive cannot work.
   const cannot = ui.result?.scope === cse && ui.result.reason === 'not_here';
   if (live && !cannot) {
     const sending = ui.sending === 'unarchive';
@@ -649,7 +649,7 @@ function pageArchivedItem(k: Kit, cse: string, ui: Ui, from = 'archived'): Drawn
       `<div class="sec">${
         sending
           ? `<button type="button" class="btn full sending" aria-disabled="true" data-k="unarchive">Sending...</button>`
-          : `<button type="button" class="btn full" data-act="unarchive" data-k="unarchive"${ui.sending ? ' aria-disabled="true"' : ''}>${ic('rotate-ccw')}Bring it back</button>`
+          : `<button type="button" class="btn full" data-act="unarchive" data-k="unarchive"${ui.sending ? ' aria-disabled="true"' : ''}>${ic('rotate-ccw')}Unarchive</button>`
       }` +
       `<p class="why">It goes back to your list on the same link, and Claude goes on with it.</p>` +
       `${openLink(item.url, 'btn ghost full open-second', true)}</div>`;
@@ -657,7 +657,7 @@ function pageArchivedItem(k: Kit, cse: string, ui: Ui, from = 'archived'): Drawn
     html += `<div class="sec">${openLink(item.url, 'btn full', true)}</div>`;
   } else {
     html +=
-      `<div class="sec"><div class="card away-head">${ic('moon')}<span><b>${esc(awayHead(mac))}</b> Bring it back works when this Mac is back.</span></div>` +
+      `<div class="sec"><div class="card away-head">${ic('moon')}<span><b>${esc(awayHead(mac))}</b> Unarchive works when this Mac is back.</span></div>` +
       `${openLink(item.url, 'btn full', true)}</div>`;
   }
   html += changesHtml(k, cse);

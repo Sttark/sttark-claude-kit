@@ -176,6 +176,7 @@ enum Phone {
         // optional: the folder's own name, never its path, as an archived session's goes up; the phone's search finds it
         let folder = folderName(r.folder)
         if !folder.isEmpty { x["folder"] = folder }
+        if r.archived { x["archived"] = true }   // optional: an archived session that waits; its page offers Unarchive
         switch r.target.map({ Limit.mode($0, in: state) }) ?? .follow {
         case .follow: x["limit_mode"] = ["mode": "follow", "at": NSNull()]
         case .credits: x["limit_mode"] = ["mode": "credits", "at": NSNull()]

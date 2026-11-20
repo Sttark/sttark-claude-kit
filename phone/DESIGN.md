@@ -127,14 +127,14 @@ A kept message's subject and text do go up (the last 24 hours, at most 3 per ses
 
 | Phone control | Action | `KitActions` (the window calls it too) | What runs |
 |---|---|---|---|
-| Bring it back now | `bring_back {wait}` | `bringBack(wait:origin:)` | `wait.py --now <id> --by <origin>`, `check(only=id)` |
-| Stop waiting | `stop_waits {waits}` | `stopWaits(_:origin:)` with each wait of the row | `wait.py --cancel <id> --by <origin>` for each |
+| (no button since Unarchive replaced it; a page from before can still send it) | `bring_back {wait}` | `bringBack(wait:origin:)` | `wait.py --now <id> --by <origin>`, `check(only=id)` |
+| Stop watching | `stop_waits {waits}` | `stopWaits(_:origin:)` with each wait of the row | `wait.py --cancel <id> --by <origin>` for each |
 | Stop (one wait) | `stop_waits {waits: [id]}` | `stopWaits(_:origin:)` with one id | `wait.py --cancel <id> --by <origin>` |
 | Effort level | `set_level {cse, level}` | `setLevel(cse:level:origin:)` | `effort-hook.py --set <cse> <level> --by <origin>`: Manual, then `apply_flag_settings` |
 | Auto | `set_auto {cse, on}` | `setAuto(cse:on:origin:)` | `State.setManual`: `sessions[cse].manual` |
 | At the usage limit | `set_limit {cse, sid, mode, at}` | `setLimit(cse:sid:mode:origin:)` | `Limit.setMode`: `limit_modes` |
 | Alerts | `set_alerts {cse, alerts}` | `setAlerts(cse:on:origin:)` | `Alerts.set`: `alerts[cse]`, `{on, at, by, title}`, which `notify.py` and `Waiting.notifyDue` read |
-| Bring it back (archived) | `unarchive {cse}` | `unarchive(cse:origin:)` (section 13) | `wait.py --unarchive <cse> --by <origin>`, then the existing `bring_back(w, None)` |
+| Unarchive (Archived, and an archived session that waits) | `unarchive {cse}` | `unarchive(cse:origin:)` (section 13) | `wait.py --unarchive <cse> --by <origin>`, then the existing `bring_back(w, None)` |
 | Open in Claude | none | `Waiting.open` | The phone opens the claude.ai link. Nothing runs on the Mac |
 | Use credits at the usage limit | none | `Menu.toggleCredits` | Read only on the phone: "Change it in Settings on your Mac" |
 
@@ -151,9 +151,9 @@ No other action exists. The server sends no free text, no command and no prompt.
 - The wait is gone (it ended, or the person stopped it on the Mac): `gone`, "That wait already ended. Nothing was changed."
 - The session is in no group, idle included: `gone`, "This session is no longer on your Mac. It may be archived. Nothing was changed."
 - An effort change for a session that waits on someone else: `not_now`, "It does not run while it waits. Set the effort when it comes back."
-- A wait the phone did not show (added since) is never stopped by Stop waiting. The Mac stops only the ids the phone sent.
-- Bring it back for a session that is no longer archived: `gone`, "It is not archived now. It is in your list."
-- Bring it back for a session whose conversation is not on this Mac: `not_here`, "Its conversation is not on this Mac, so this Mac cannot bring it back."
+- A wait the phone did not show (added since) is never stopped by Stop watching. The Mac stops only the ids the phone sent.
+- Unarchive for a session that is no longer archived: `gone`, "It is not archived now. It is in your list."
+- Unarchive for a session whose conversation is not on this Mac: `not_here`, "Its conversation is not on this Mac, so this Mac cannot bring it back."
 
 The Mac always sends a new snapshot after, so the phone draws the truth.
 
@@ -274,7 +274,7 @@ On by default, the Kit's rule: `KitDefaults` turns `phone` on at the first start
     - On your phone, open building.sttark.com/kit, add it to the Home Screen, and turn on notices.
     - When a session needs you for 10 minutes and you are away, your phone gets one notice.
 
-    ![The Kit on a phone: sessions in groups, one session with Bring it back now, and the usage bars.](kit-on-your-phone.png)
+    ![The Kit on a phone: sessions in groups, one session with Stop watching, and the usage bars.](kit-on-your-phone.png)
 
 Run `python3 tools/whats-new.py check` and `ste` on it, and check the words against the code.
 
@@ -370,7 +370,7 @@ Results:
 
 **On the server.** Table `archived`: one row per Mac with its `rev` and list, replaced at each update, deleted with the Mac.
 
-**On the phone.** The Archived tab sends `open_archived`, and so does Sessions while its search shows (section 15); the server answers with `archived {mac, rev, items}` from its copy and asks the Mac for a newer one if needed. The tab has no search of its own: the top bar's search finds archived sessions with every other session. Rows show the name and when archived, with the ↗ button. A tap on a row opens its page with **Bring it back** and **Open in Claude**.
+**On the phone.** The Archived tab sends `open_archived`, and so does Sessions while its search shows (section 15); the server answers with `archived {mac, rev, items}` from its copy and asks the Mac for a newer one if needed. The tab has no search of its own: the top bar's search finds archived sessions with every other session. Rows show the name and when archived, with the ↗ button. A tap on a row opens its page with **Unarchive** and **Open in Claude**.
 
 ## 14. Usage by session
 

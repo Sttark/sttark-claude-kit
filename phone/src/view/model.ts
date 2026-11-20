@@ -74,6 +74,8 @@ export type Row = {
   /** The folder it works in, its own name only (src), when the Mac knows
    *  it. A Kit from before it sends none. */
   folder?: string;
+  /** The session waits on someone else and is archived: its page offers Unarchive. */
+  archived?: boolean;
 };
 
 /** A session's alerts, as its Mac says them (on for a Kit that sends none). */

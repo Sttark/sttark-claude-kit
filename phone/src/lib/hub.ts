@@ -453,11 +453,11 @@ function describe(act: string, args: any): string {
     case 'set_alerts':
       return args.alerts ? 'Turned alerts on from the phone.' : 'Turned alerts off from the phone.';
     case 'stop_waits':
-      return args.waits.length === 1 ? 'Stopped waiting from the phone.' : `Stopped ${args.waits.length} waits from the phone.`;
+      return args.waits.length === 1 ? 'Stopped watching from the phone.' : `Stopped ${args.waits.length} waits from the phone.`;
     case 'bring_back':
       return 'Brought it back now from the phone.';
     case 'unarchive':
-      return 'Brought it back from the archive from the phone.';
+      return 'Unarchived from the phone.';
     default:
       return 'Changed from the phone.';
   }

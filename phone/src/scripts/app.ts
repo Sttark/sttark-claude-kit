@@ -410,9 +410,6 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
       case 'stopall':
         if (row) act('stopall', 'waits', 'stop_waits', { waits: row.waits.map((w) => w.id) });
         return;
-      case 'bring':
-        if (row?.waits[0]) act('bring', 'waits', 'bring_back', { wait: row.waits[0].id });
-        return;
       case 'level':
         if (row) act(`lvl:${el.dataset.level}`, 'effort', 'set_level', { cse: row.cse, level: el.dataset.level });
         return;
@@ -424,6 +421,7 @@ function run(kit: Kit, view: View, ui: Ui, root: HTMLElement) {
         return;
       case 'unarchive':
         if (view.page === 'archived-item') act('unarchive', 'top', 'unarchive', { cse: view.cse });
+        else if (row?.archived) act('unarchive', 'waits', 'unarchive', { cse: row.cse });
         return;
       case 'period': {
         // Custom starts at the days the list shows now (else the 7 days to

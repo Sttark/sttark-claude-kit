@@ -515,7 +515,7 @@ state(lambda s: s.update(waits={'w60002': {'id': 'w60002', 'kind': 'at', 'at': t
 WORK['now'] = {'agents': [AGENT], 'commands': [], 'monitors': []}
 fresh()
 r = wm.check(only='w60002', by='window')
-check("Bring it back now while the work runs: 'working', and the wait comes back when it ends", r == 'working'
+check("claude-wait --now while the work runs: 'working', and the wait comes back when it ends", r == 'working'
       and bool(state()['waits']['w60002'].get('ready')), (r, state()['waits']['w60002']))
 out = io.StringIO()
 with redirect_stdout(out):

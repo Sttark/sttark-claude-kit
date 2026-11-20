@@ -3,9 +3,9 @@
 //   docs/menu.png             the menu: what needs you, one row for each other group, one group's submenu open
 //   docs/window-sessions.png  the window's Sessions page, a session that waits on someone else selected, each row with
 //                             its alerts bell (off, as each session starts; two sessions have their alerts turned on)
-//   docs/window-archived.png  the window's Archived page, by day, the newest selected with Bring it back
+//   docs/window-archived.png  the window's Archived page, by day, the newest selected with Unarchive
 //   docs/window-search.png    the top bar's search for "report": a session in each of two groups, then Archived, with
-//                             the archived one picked and its Bring it back
+//                             the archived one picked and its Unarchive
 //   docs/window-search-none.png  a search that finds no session
 //   docs/window-usage.png     the window's Usage page, 7 days, the biggest session selected with its days and models
 //   docs/window-settings.png  the window's Settings page
@@ -119,11 +119,11 @@ import SwiftUI
             try? FileManager.default.removeItem(atPath: folder + "/window-archived.png")
             try? FileManager.default.copyItem(atPath: arch, toPath: folder + "/window-archived.png")
             print("wrote \(folder)/window-archived.png")
-            // the archived note's picture: the selected session with Open and Bring it back
+            // the archived note's picture: the selected session with Open and Unarchive
             Shot.crop(arch, NSRect(x: 840, y: 56, width: 340, height: 256),
                       to: "whats-new/archived-sessions" + (look ? "-dark" : "") + ".png")
             // the top bar's search, over the page it was on: "report" finds a session that waits, an idle one and an
-            // archived one, picked, with its Bring it back; and a search that finds nothing
+            // archived one, picked, with its Unarchive; and a search that finds nothing
             model.search = "report"
             model.searchPick = model.found.archived.first.map { "archived:" + $0.id }
             Shot.capture(w, to: folder + "/window-search.png")
@@ -313,6 +313,15 @@ import SwiftUI
             Shot.capture(w, to: local)
             Shot.crop(local, NSRect(x: 845, y: 74, width: 335, height: 280),
                       to: "whats-new/move-to-remote-control" + (look ? "-dark" : "") + ".png")
+            // the Unarchive note's picture: the email wait's session, archived, with Unarchive and Stop watching
+            if let i = model.snap.rows.firstIndex(where: { $0.wait?.kind == "email-reply" }) {
+                model.snap.rows[i].archived = true
+                model.selected = model.snap.rows[i].id
+                let un = "/tmp/kit-shot-\(getpid())-unarchive.png"
+                Shot.capture(w, to: un)
+                Shot.crop(un, NSRect(x: 845, y: 412, width: 335, height: 228), to: "whats-new/unarchive-not-bring-back" + (look ? "-dark" : "") + ".png")
+                model.snap.rows[i].archived = false
+            }
             // the check-ins note's picture: the Claude working group at the window's narrowest, the blade change's row with its
             // latest check-in
             model.selected = model.snap.rows.first { $0.checkin != nil }?.id
