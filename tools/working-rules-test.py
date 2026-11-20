@@ -37,6 +37,14 @@ rules = [l for l in w.RULES.strip('\n').split('\n') if l.startswith('- ')]
 lines = [l for p in pieces for l in p.split('\n') if l.startswith('- ')]
 check('every rule is in exactly one part, in order (%d rules)' % len(rules), lines == rules)
 check('part 1 starts with the lead line', pieces[0].startswith(w.LEAD))
+check('a rule for a Kit prompt is in that prompt, not here (wait ended, new messages, own reply, check-in)',
+      not any(s in w.RULES for s in ('A wait you handed', 'New messages came in', 'replied themselves', 'Check-in:',
+                                     'claude-notify', 'CronCreate')))
+waits = [r for r in rules if r.startswith('- Waits on others:')]
+check('the waits rule says when and points at claude-wait --help for the forms, which are not here',
+      len(waits) == 1 and 'claude-wait --help' in waits[0] and 'channel that the answer comes on' in waits[0]
+      and 'safety net' in waits[0] and '--why' in waits[0] and 'handoff line' in waits[0]
+      and not any(s in w.RULES for s in ('check-script', 'check-prompt', '--query', '--mailbox', 'email-reply')))
 check('each later part says which part it is', all(p.startswith(w.MORE % (i + 2, len(pieces))) for i, p in enumerate(pieces[1:])))
 
 

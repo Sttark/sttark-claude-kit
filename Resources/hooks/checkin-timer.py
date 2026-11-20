@@ -23,8 +23,12 @@ One hook, at two events (install-hooks.py adds it on every launch; it reads the 
   id) and reply in one line. On any other prompt (the person's, or the notice that an agent ended) while a timer is
   set and nothing runs, it tells the session to delete it in that turn.
 - The timer ends itself: its prompt tells the session to delete it when no agent or background command of its own
-  still runs, and the working rules say so too. CronCreate also ends a recurring job after 7 days, and a job made
+  still runs, and the ask to set it says so too. CronCreate also ends a recurring job after 7 days, and a job made
   with durable false ends with the Claude Code process.
+
+The whole instruction is in the Kit's own texts, not in the working rules: the ask says to keep one timer, set it,
+keep its id and delete it when the work ends; each check-in gets how to answer (REPLY), also when the hook cannot
+read what runs. A session needs none of it before the Kit asks.
 
 A timer counts as set while the Claude Code process that set it (CLAUDE_PID, which Claude Code gives its hooks)
 still runs as this session (its ~/.claude/sessions/<pid>.json, when there is one, names the same conversation), and
@@ -51,7 +55,7 @@ CHECKINS = os.path.join(KIT, 'checkins.json')
 LOG = os.environ.get('STTARK_KIT_LOG') or os.path.expanduser('~/Library/Logs/sttark-claude-kit.log')
 CLAUDE_DIR = os.environ.get('STTARK_CLAUDE_DIR') or os.path.expanduser('~/.claude')
 
-MARK = '[Sttark Claude Kit] Check-in:'  # the start of the timer's prompt (the working rules' word for it)
+MARK = '[Sttark Claude Kit] Check-in:'  # the start of the timer's prompt
 EVERY = 15             # minutes between two check-ins
 ASK_AGAIN = 7200       # seconds before the Kit asks the same copy of a session again, when it set no timer
 LIFE = 7 * 86400       # a recurring CronCreate job ends itself after 7 days
@@ -407,9 +411,13 @@ def on_prompt(data, now):
     tp = data.get('transcript_path') or ''
     try:
         work = running(tp, now)
-    except Exception as w:  # the session answers from what it knows
+    except Exception as w:  # the session answers from what it knows, still told how to answer a check-in
         say(sid, 'check-in %s' % (job or '?') if checkin else 'reminder %s' % job,
             'could not read its work: %s: %s' % (type(w).__name__, one_line(str(w), 120)))
+        if checkin:
+            out('UserPromptSubmit', '[Sttark Claude Kit] This is your check-in timer. %s When no agent or background '
+                                    'command of yours still runs, call CronDelete with %s, then reply in one line that '
+                                    'the work is done.' % (REPLY, the_id))
         return
     busy = work['agents'] or work['commands']
     if not checkin:

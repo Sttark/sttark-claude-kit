@@ -1491,8 +1491,8 @@ def own_note(mine, wm, wake=False, cse='', e=None):
         lines.append('You have no email reply wait on %s. If you expect an answer to this mail, set the wait now, with '
                      'a deadline you select: %s' % (re.sub(r'^in ', '', m['where']), wait_line(m, e or {})))
     lines.append('If an item of yours waited on this reply (a question to the person, a draft for them to send, a '
-                 'next step), mark it handled in your notes and your status now. This needs no message: do not send '
-                 'claude-notify for it, and do not ask the person about it.' + (
+                 'next step), that item is done: mark it handled in your notes and your status table now. This needs '
+                 'no message: do not send claude-notify for it, and do not ask the person about it.' + (
                      ' Then end the turn with one line.' if wake else ''))
     return '\n'.join(lines)
 
@@ -1859,10 +1859,9 @@ def prompt_for(cse, e, msgs, wm):
     if len(msgs) > 6:
         lines.append('- And %d more like them.' % (len(msgs) - 6))
     waits = [w for w in (wm.peek().get('waits') or {}).values() if w.get('cse') == cse and w.get('stage') != 'back']
-    lines.append('Read each one in full and decide if it needs action. If it does, go on with the work as far as you '
-                 'can, then send the person one message with claude-notify that stands alone: what came in, what you '
-                 'did, and what they must do. If it does not (a receipt, an automatic reply, or a thing you already '
-                 'did), do nothing more: end the turn with one line that says why, with no claude-notify.')
+    lines.append('Read each one in full and decide if it needs action. If it does not (a receipt, an automatic reply, '
+                 'or a thing you already did), do nothing more: end the turn with one line that says why, with no '
+                 'claude-notify. If it does, go on with the work as far as you can, then ' + wm.NOTIFY)
     if waits:
         lines.append('Your waits with the Kit: %s. If a message answers one, cancel it (claude-wait --cancel <id>) or '
                      'set the next wait.' % '; '.join('%s (id %s, deadline %s)' % (

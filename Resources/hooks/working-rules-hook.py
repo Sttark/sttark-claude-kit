@@ -8,7 +8,9 @@ hook's text: past that it saves the text to a file and shows only its first 2,00
 at most SIZE characters, cut between rules, one hook entry per part (install-hooks.py adds PARTS entries); a part
 with nothing to say prints nothing. No model call; it costs nothing per prompt. The rules are the text in RULES
 here: to change them, change this file and open a pull request. tools/working-rules-test.py fails when the
-rules need more than PARTS parts.
+rules need more than PARTS parts. Keep them short, as each prompt carries them: a rule that matters only when the
+Kit sends a session a certain prompt goes in that prompt (wait.py NOTIFY, watch.py, checkin-timer.py), and command
+syntax goes in the command's --help (claude-wait --help), not here.
 
 Stop (--check, runs in the background): the last rule says replies are written in ASD-STE100 Simplified
 Technical English. A rule in the context is a request; this is the check. When Claude finishes a reply, the
@@ -94,63 +96,14 @@ never two in one cell (not "🔄 In progress. Then 🔴 you select"). When one p
 one part needs the person, show the icon of the state that matters now and say the other part in words, or \
 split the ask into two rows.
 - Waits on others: before you end a turn that waits on someone or something outside the session (a pull request \
-someone else merges, a reply to an email, a check at a set time), hand the wait to Sttark Claude Kit with \
-claude-wait (claude-wait pr <owner/repo#n> merged --by <deadline> --what "<what you watch for>" --why "<line>"; \
-claude-wait email-reply <thread id> [--from <sender>] --by ... ; for mail to a shared mailbox, such as a team \
-address, claude-wait email-reply --query "<Gmail search>" --mailbox <address> --by ... (claude-mail search and \
-claude-mail read show that mailbox; if this Mac cannot read it yet, claude-mail sign-in <address> prints a link that \
-the person opens on this Mac); claude-wait at <time> --why ...; claude-wait \
-check-script <path> --every 10m --by ... for anything a small script can check with no model, such as an API value, a \
-page that changes or a tracking number, where exit 0 means it happened; claude-wait check-prompt "<yes/no question>" \
---every 1h --by ... only when nothing free works, since each check is a Haiku call). Prefer pr, at and check-script. \
-Set the wait on the channel that the answer comes on. After an email or a draft: claude-wait email-reply <thread id> \
---from <sender>. After a web form: claude-wait email-reply --query "from:(<the site's domain>)", because the answer \
-comes by email to the address you gave in the form. After a message on a supplier's messenger: the Kit cannot \
-read the messenger, so claude-wait at <time> to look at it with claude-window, and claude-wait email-reply --query \
-"from:(<the supplier's domain>)" when the supplier also writes by email. After you ask the person to call someone: \
-claude-wait at <time> to ask them how the call went. A \
-claude-wait at alone is wrong when the answer comes as a message, because it does not see the answer: use the time \
-only as the deadline (--by). The Kit also watches by itself, for 7 days after your last turn, while the session \
-is not archived: a reply in a thread you used, a comment on an Asana task you commented on, and a reply in the Chat \
-thread of your post bring the session back. Other mail from an address, a domain or a form's site you wrote to, and \
-other posts in a Chat space you posted in, bring it back only when a quick check finds them to be about this \
-session's work. That is a safety net with no deadline, not a wait. When the person archives a session that has no \
-open wait, the Kit stops this watch and does not bring the session back, so set a wait for each answer that you \
-need. Do the same when the person asks \
-"let me know when they reply", "tell me when it merges" or the like, and when they ask "has X replied?" or "how long \
-has it been?" about something no wait covers yet. The Kit watches it with no model calls and brings the session \
-back when it happens, or at the deadline when it has not. You pick the deadline with judgment; there is no \
-default. Weigh who you wait on and how fast they usually are (look at their past replies or merge times when that \
-is cheap), how urgent the work is, and weekends. For example: a teammate who merges within hours, on work that \
-blocks the line, gets the end of today; a supplier in China who answers overnight gets their next morning plus a \
-day; a Friday request waits until Monday afternoon. Put the deadline and its reason in --why, in one line \
-("Monday 5 PM: the reviewer merges within a day, and Friday is short"). End the turn with one handoff line, such \
-as: "I am watching for New Star's reply. If none by Mon 11/16 9 AM, I bring this session back and ask if we follow \
-up. You can archive this session."
-- When the Kit brings a session back (a prompt that starts "[Sttark Claude Kit] A wait you handed to the Kit has \
-ended"), go on with the work, then send the person one message with claude-notify "<subject>" "<message>" \
-[--link <url>]. It goes the way they picked under Reach me by. If its output tells you to call the \
-PushNotification tool, do that too. The message must stand alone, so the person never needs to open the \
-session: in a few short sentences, what happened, what the session is for, what is done, what it waits on now \
-(with links, such as a pull request and its state), what it does next, and what the person must do, or "Nothing \
-needed from you." Example: "Your reporter works again (v6, last report 5 min ago). Fix PR Sttark/workrouter#889 \
-adds a retry for the 'fetch failed' error (v7); CI passes; open, waiting for a merge and deploy. After deploy, \
-each person on v2 reinstalls once. Nothing needed from you." A reply to the person in a live chat stays in the \
-session: no claude-notify.
-- When the Kit brings a session back with new messages (a prompt that starts "[Sttark Claude Kit] New messages came \
-in"), read each one in full and decide if it needs action. If it does, go on with the work, then send the person one \
-message with claude-notify, as above. If it does not (a receipt, an automatic reply, or a thing you already did), end \
-the turn with one line that says why, with no claude-notify.
-- When the Kit says the person replied themselves (a note that starts "[Sttark Claude Kit] The person replied \
-themselves"), the item that waited on that reply is done: mark it handled in your notes and your status table. \
-Send no claude-notify for it, and do not ask the person about it. If the person sent a mail, such as your draft, and \
-you expect an answer, set the email reply wait that the note gives, with a deadline, unless one watches that thread.
-- While an agent or a background command of yours runs, keep one check-in timer. When the Kit asks, set it one \
-time with CronCreate, as the Kit says, and keep its id. A prompt that starts "[Sttark Claude Kit] Check-in:" comes \
-from that timer: reply with only one or two short lines on the progress of that work, in the person's terms, with no \
-status table. Use no tools but CronDelete, send no claude-notify, ask nothing, and start no new work. When no agent or \
-background command of yours still runs, call CronDelete with the timer's id; in a check-in, then reply in one line \
-that the work is done.
+someone else merges, a reply to a mail or a form, a check at a set time), hand the wait to Sttark Claude Kit with \
+claude-wait. Do the same when the person asks "let me know when they reply", "has X replied?" or the like about \
+something no wait covers yet. Set the wait on the channel that the answer comes on. Run claude-wait --help for the forms before \
+your first wait in a session. The Kit also watches for replies by itself for 7 days, but that is a safety net, not a \
+wait: it stops when the person archives a session with no open wait. So set a wait for each answer that you need. \
+Pick the deadline with judgment: who you wait on, how fast they answer, how urgent the work is, and weekends. Put the \
+deadline and its reason in --why, in one line. End the turn with one handoff line, such as: "I am watching for New \
+Star's reply until Mon 11/16 9 AM. You can archive this session."
 - Repo work: pull latest from remote before you work, and read the project docs before you change anything. The \
 projects have history.
 - UI and layout: function over form. Usability is king. See it rendered before calling it done.

@@ -4,33 +4,9 @@ the session. The Kit watches the wait with no model calls, and when the thing ha
 it hasn't, brings the session back: it unarchives it on the same link with a prompt saying what happened, and the
 session goes on and tells the person through Reach me by (claude-notify).
 
-    claude-wait pr <owner/repo#n> merged|closed --by <deadline> --why "<deadline and reason, one line>"
-    claude-wait at <time> --why "<what to check then, one line>"
-    claude-wait email-reply <Gmail thread id> [--from <sender or domain>] [--mailbox <address>] --by <deadline> --why "<...>"
-    claude-wait email-reply --query "<Gmail search>" [--mailbox <address>] --by <deadline> --why "<...>"
-                                       any new message that matches the search. --mailbox watches a mailbox other
-                                       than your own, such as a shared team address; this Mac reads it after one
-                                       sign-in (claude-mail sign-in <address>), with no model call.
-    claude-wait check-script <path> --every <10m|2h> --by <deadline> --why "<...>"   (exit 0 = it happened; free)
-    claude-wait check-prompt "<yes/no question>" --every <30m> --by <deadline> --why "<...>"   (a Haiku call)
-    --what "<what you watch for, in the person's words>"  (any wait; e.g. "New Star's reply about the laminator")
-    claude-wait --list                 open waits, every session
-    claude-wait --watching             what the Kit watches for replies with no wait: each session's contacts (the
-                                       people, threads, sites, Asana tasks and Chat spaces it wrote to), watch.py
-    claude-wait --cancel <id> [--by window|phone]
-                                       drop a wait
-    claude-wait --now <id> [--by window|phone]
-                                       bring its session back now
-    claude-wait --check                the app's check, every minute
-    claude-wait --unarchive <cse_id> [--by window|phone]
-                                       bring an archived session back on its link, with no first message (the
-                                       window's Archived page, the phone)
-    --cancel, --now and --unarchive exit with the phone's result names: 0 ok, 1 not_now, 2 not_here, 3 gone,
-    4 bad. Their --by says who asked, the Kit window or the phone, for the log (KitActions in the app).
-
-A time or deadline: 2026-11-16 17:00 (or ISO), 17:00 (today, or tomorrow once past), +90m, +4h, +2d, or
-"3 weekdays" (the same clock time, Saturdays and Sundays skipped). The session picks the deadline; there is none
-by default.
+The commands and how a session uses them: USAGE below, which claude-wait --help (or no arguments) prints. The
+working rules say when to set a wait, and to read USAGE before the first one, so the syntax costs no room in front
+of every prompt.
 
 Waits are "waits" in the shared state file, keyed by a short id, with the session's link (cse_...), its saved
 conversation and its folder, so they outlast archiving, a Mac restart and an app restart.
@@ -72,6 +48,84 @@ MAIL_EVERY = 300    # seconds between reads of a mailbox the Kit reads directly 
 STARTING = 120      # seconds after the Kit starts a session in which it is not started again: its first prompt runs
 HOLD_MAX = 7200     # seconds a bring-back waits at most for a session's agents, background commands and Monitors
                     # (DESIGN-DECISIONS.md): longer than 95% of background agents ran in one Mac's records
+
+# What claude-wait --help prints: the forms, and which one to use on each channel. The working rules keep only when
+# to set a wait and tell the session to read this before its first one.
+USAGE = '''\
+claude-wait: hand a wait on someone or something outside this session to Sttark Claude Kit, so the person can
+archive the session. The Kit watches it (with no model calls, except check-prompt) and brings the session back when
+it happens, or at the deadline when it has not.
+
+Set the wait on the channel that the answer comes on. Prefer pr, at and check-script.
+    claude-wait pr <owner/repo#n> merged|closed --by <deadline> --why "<deadline and reason, one line>"
+          a pull request that someone else merges.
+    claude-wait email-reply <Gmail thread id> [--from <sender or domain>] [--mailbox <address>] --by <deadline> --why "<...>"
+          a reply on an email thread. After an email or a draft: claude-wait email-reply <thread id> --from <sender>.
+    claude-wait email-reply --query "<Gmail search>" [--mailbox <address>] --by <deadline> --why "<...>"
+          any new message that matches the search. After a web form: --query "from:(<the site's domain>)", because
+          the answer comes by email to the address you gave in the form.
+    --mailbox <address>
+          a mailbox other than your own, such as a team address. claude-mail search and claude-mail read show that
+          mailbox. If this Mac cannot read it yet, claude-mail sign-in <address> prints a link that the person opens
+          on this Mac, one time. Then the Kit reads it with no model call.
+    claude-wait at <time> --why "<what to check then, one line>"
+          a check at a set time. After you ask the person to call someone: claude-wait at <time>, to ask them how
+          the call went.
+    claude-wait check-script <path> --every <10m|2h> --by <deadline> --why "<...>"
+          anything a small script can check with no model, such as an API value, a page that changes or a tracking
+          number. Exit 0 means it happened, and its first line of output says what. Free.
+    claude-wait check-prompt "<yes/no question>" --every <30m|1h> --by <deadline> --why "<...>"
+          only when nothing free works, because each check is a Haiku call.
+    --what "<what you watch for, in the person's words>"
+          any wait. For example: "New Star's reply about the laminator".
+
+An answer to a message comes as a message. A claude-wait at alone is wrong then, because it does not see the
+answer: set the wait on that message, and use the time only as the deadline (--by).
+After a message on a supplier's messenger: the Kit cannot read the messenger, so claude-wait at <time> to look at it
+with claude-window, and claude-wait email-reply --query "from:(<the supplier's domain>)" when the supplier also
+writes by email.
+
+A time or deadline: 2026-11-16 17:00 (or ISO), 17:00 (today, or tomorrow once past), +90m, +4h, +2d, or
+"3 weekdays" (the same clock time, Saturdays and Sundays skipped). You pick the deadline with judgment; there is no
+default. Weigh who you wait on and how fast they usually are (look at their past replies or merge times when that is
+cheap), how urgent the work is, and weekends. For example: a teammate who merges within hours, on work that blocks
+the line, gets the end of today; a supplier in China who answers overnight gets their next morning plus a day; a
+Friday request waits until Monday afternoon. Put the deadline and its reason in --why, in one line ("Monday 5 PM: the
+reviewer merges within a day, and Friday is short").
+
+The Kit also watches by itself, for 7 days after your last turn, while the session is not archived: a reply in a
+thread you used, a comment on an Asana task you commented on, and a reply in the Chat thread of your post bring the
+session back. Other mail from an address, a domain or a form's site you wrote to, and other posts in a Chat space you
+posted in, bring it back only when a quick check finds them to be about this session's work. That is a safety net
+with no deadline, not a wait. When the person archives a session that has no open wait, the Kit stops this watch and
+does not bring the session back, so set a wait for each answer that you need.
+
+Other commands:
+    claude-wait --list                 open waits, every session
+    claude-wait --watching             what the Kit watches for replies with no wait: each session's contacts (the
+                                       people, threads, sites, Asana tasks and Chat spaces it wrote to), watch.py
+    claude-wait --cancel <id> [--by window|phone]
+                                       drop a wait
+    claude-wait --now <id> [--by window|phone]
+                                       bring its session back now
+    claude-wait --check                the app's check, every minute
+    claude-wait --unarchive <cse_id> [--by window|phone]
+                                       bring an archived session back on its link, with no first message (the
+                                       window's Archived page, the phone)
+    --cancel, --now and --unarchive exit with the phone's result names: 0 ok, 1 not_now, 2 not_here, 3 gone,
+    4 bad. Their --by says who asked, the Kit window or the phone, for the log (KitActions in the app).'''
+
+# How a session that the Kit brought back tells the person (a wait that ended, here; new messages, watch.py). It is in
+# the Kit's prompt, not in the working rules: only a session the Kit brings back needs it.
+NOTIFY = ('send the person one message with claude-notify "<subject>" "<message>" [--link <url>]. It goes the way they '
+          'picked under Reach me by. If its output tells you to call the PushNotification tool, do that too. The '
+          'message must stand alone, so the person never needs to open the session: in a few short sentences, what '
+          'happened, what this session is for, what is done, what it waits on now (with links, such as a pull request '
+          'and its state), what it does next, and what the person must do, or "Nothing needed from you." Example: '
+          '"Your reporter works again (v6, last report 5 min ago). Fix PR Sttark/workrouter#889 adds a retry for the '
+          '\'fetch failed\' error (v7); CI passes; open, waiting for a merge and deploy. After deploy, each person on '
+          'v2 reinstalls once. Nothing needed from you." A reply to the person in a live chat stays in the session: '
+          'no claude-notify.')
 
 
 def load(name):
@@ -509,10 +563,8 @@ def prompt_for(w, what, late):
         lines.append('Your other waits with the Kit stay open: %s. Cancel one you no longer need with claude-wait '
                      '--cancel <id>.' % '; '.join('%s (id %s, deadline %s)' % (describe(x), x['id'], clock(x['by']) if x.get('by') else 'none')
                                                    for x in others))
-    lines.append('Go on with the work as far as you can. Then send the person one message with claude-notify that '
-                 'stands alone: what happened, what this session is for, what is done, what it waits on now (with '
-                 'links, such as a pull request and its state), what it does next, and what the person must do, or '
-                 '"Nothing needed from you." If it waits on someone again, hand that wait to the Kit with claude-wait.')
+    lines.append('Go on with the work as far as you can. Then ' + NOTIFY + ' If it waits on someone again, hand that '
+                 'wait to the Kit with claude-wait.')
     return '\n'.join(lines)
 
 
@@ -1143,7 +1195,7 @@ def order(item):
 def main():
     args = sys.argv[1:]
     if not args or args[0] in ('-h', '--help'):
-        print(__doc__.split('\n\n')[1])
+        print(USAGE)
         return 0
     if args[0] == '--check':
         try:
@@ -1236,7 +1288,8 @@ def main():
                   '       claude-wait pr <owner/repo#n> merged|closed --by <deadline> --why "<one line>"\n'
                   '       claude-wait at <time> --why "<one line>"\n'
                   '       claude-wait email-reply <thread id> [--from <sender>] [--mailbox <address>] --by <deadline> --why "<one line>"\n'
-                  '       claude-wait email-reply --query "<Gmail search>" [--mailbox <address>] --by <deadline> --why "<one line>"',
+                  '       claude-wait email-reply --query "<Gmail search>" [--mailbox <address>] --by <deadline> --why "<one line>"\n'
+                  'claude-wait --help says which form to use on each channel.',
                   file=sys.stderr)
             return 2
         if kind != 'at' and not by:
