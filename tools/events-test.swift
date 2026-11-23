@@ -27,6 +27,14 @@ import Foundation
             at(8) + " agent  cse_01AAAtest1 Explore ->low (1.9s) low - Simple file search. | Find the color files",
             at(7) + " agent  cse_01AAAtest1 fork high->xhigh (2.2s) xhigh - Builds a feature end to end. | Build the page",
             at(6) + " agent  cse_01AAAtest1 general-purpose kept high - set in the call | Check the build",
+            at(6) + " agent  cse_01AAAtest1 general-purpose replaced xhigh (set in the call) with low (1.9s) low - Simple file search. | List the job fields",
+            at(6) + " agent  cse_01AAAtest1 reviewer replaced high (set by its definition) with high (2.0s) high - Needs judgment. | Review the diff",
+            at(6) + " agent  cse_01AAAtest1 general-purpose replaced higher (set in the call) with medium (2.0s) medium - A short edit. | Fix one label",
+            at(6) + " agent  cse_01AAAtest1 Explore left at high - Auto effort is off | Find the old jobs",
+            at(6) + " agent  cse_01AAAtest1 general-purpose left at xhigh (set in the call) - the session is on Manual | Check the press log",
+            at(6) + " agent  cse_01AAAtest1 fork left at high - the session is on Manual | Build the filters",
+            at(6) + " agent  f46255ef Explore left at ? - Auto effort is off | Find the new jobs",
+            at(6) + " agent  cse_01AAAtest1 fork at high (1.9s) medium - A short edit. | Small edit",
             at(5) + " migrate 3796db69 \"Bin label sizes\" moved to Remote Control as cse_01BBBtest2; closed it in Terminal (window)",
         ]
         for m in stride(from: 50.0, through: 1, by: -7) { lines.append(at(m) + " limit  usage read failed: HTTP Error 429: Too Many Requests; next read in 2 min, using the last read") }
@@ -53,6 +61,34 @@ import Foundation
         check(ev.contains { $0.text == "Effort raised from High to Extra so fork \u{201C}Build the page\u{201D} starts at Extra" },
               "a raise for a fork says why")
         check(ev.contains { $0.text == "Agent \u{201C}Check the build\u{201D} keeps High effort" && $0.routine }, "an effort set in the call is kept, as a routine row")
+        let aRaise = ev.first { $0.text.hasSuffix("so fork \u{201C}Build the page\u{201D} starts at Extra") }
+        check(aRaise?.detail.first == "A fork runs at the session's level, also when that level changes. So the Kit does not set the session back.",
+              "a raise for a fork says that a fork follows the session's level")
+        let aReplaced = ev.first { $0.text == "Agent \u{201C}List the job fields\u{201D} set to Low effort" }
+        check(aReplaced?.name == "Press color" && aReplaced?.routine == false
+              && aReplaced?.detail == ["Why: Simple file search.", "It replaces Extra, the level of the call.",
+                                      "Agent type: general-purpose. It keeps this level until it finishes."],
+              "a level that the Kit replaced in the call reads in plain words")
+        let aSame = ev.first { $0.text == "Agent \u{201C}Review the diff\u{201D} set to High effort" }
+        check(aSame?.detail.contains("The level of its definition was High too.") == true,
+              "the same level as the definition's")
+        let aStep = ev.first { $0.text == "Agent \u{201C}Fix one label\u{201D} set to Medium effort" }
+        check(aStep?.detail.contains("It replaces one step over the session's level, the level of the call.") == true,
+              "a call that asked for one step higher")
+        let aOff = ev.first { $0.text == "Agent \u{201C}Find the old jobs\u{201D} left at High effort" }
+        check(aOff?.routine == true && aOff?.name == "Press color"
+              && aOff?.detail == ["The Kit did not set it: Auto effort is off.", "It runs at the session's level, also when that level changes."],
+              "Auto effort off: an agent left at the session's level, as a routine row")
+        let aManual = ev.first { $0.text == "Agent \u{201C}Check the press log\u{201D} left at Extra effort" }
+        check(aManual?.detail == ["The Kit did not set it: the session is on Manual.", "The call sets this level."],
+              "Manual: an agent left at the level of its call")
+        let aForkLeft = ev.first { $0.text == "Fork \u{201C}Build the filters\u{201D} left at High effort" }
+        check(aForkLeft?.detail.last == "A fork runs at the session's level, also when that level changes.", "Manual: a fork left at the session's level")
+        check(ev.contains { $0.text == "Agent \u{201C}Find the new jobs\u{201D} left at the session's level" },
+              "a level the hook did not know reads as the session's level, never a question mark")
+        let aForkAt = ev.first { $0.text == "Fork \u{201C}Small edit\u{201D} starts at High effort, the session's level" }
+        check(aForkAt?.routine == true && aForkAt?.detail == ["It needs Medium: A short edit.", "A fork runs at the session's level, also when that level changes."],
+              "a fork that needs less starts at the session's level")
         let moved = ev.first { $0.text == "Moved to Remote Control from this Mac only" }
         check(moved?.name == "Bin label sizes" && moved?.detail.contains { $0.contains("open in Terminal") } == true,
               "a move to Remote Control reads in plain words under the session's name")

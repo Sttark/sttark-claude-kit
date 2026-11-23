@@ -384,20 +384,43 @@ enum Events {
             let typ = w.count > 1 ? String(w[1]) : "agent"
             let what = desc.isEmpty ? (typ == "fork" ? "A fork" : "An agent") : (typ == "fork" ? "Fork" : "Agent") + " \u{201C}\(desc)\u{201D}"
             let tail = w.count > 2 ? String(w[2]) : ""
-            if tail == "kept" {
+            // where a level that the Kit replaced or left came from
+            let byCall = main.contains("(set in the call)"), byDefinition = main.contains("(set by its definition)")
+            func own(_ s: Substring) -> String {   // a level of the call's own: a level, or one step from the session's
+                s == "higher" ? "one step over the session's level" : s == "lower" ? "one step under the session's level" : level(s)
+            }
+            if tail == "kept" {   // older lines: the Kit kept a level that the call or the definition set
                 e.text = "\(what) keeps \(level(w.count > 3 ? w[3] : "")) effort"; e.routine = true
                 if !reason.isEmpty { e.detail.append(reason.prefix(1).uppercased() + reason.dropFirst() + ".") }
+            } else if tail == "replaced" {   // "… Explore replaced xhigh (set in the call) with low (1.9s) low - why | desc"
+                let old = w.count > 3 ? w[3] : ""
+                let new = w.firstIndex(of: "with").flatMap { $0 + 1 < w.count ? w[$0 + 1] : nil } ?? ""
+                let source = byDefinition ? "its definition" : "the call"
+                e.text = "\(what) set to \(level(new)) effort"
+                if !reason.isEmpty { e.detail.append("Why: " + reason) }
+                e.detail.append(old == new ? "The level of \(source) was \(level(old)) too." : "It replaces \(own(old)), the level of \(source).")
+                e.detail.append("Agent type: \(typ). It keeps this level until it finishes.")
+            } else if tail == "left" {   // "… Explore left at high (set in the call) - the session is on Manual | desc"
+                let lv = w.count > 4 ? w[4] : ""
+                e.text = levelWords[String(lv)] != nil ? "\(what) left at \(level(lv)) effort" : "\(what) left at the session's level"
+                e.routine = true
+                if !reason.isEmpty { e.detail.append("The Kit did not set it: " + reason + ".") }
+                e.detail.append(byCall ? "The call sets this level." : byDefinition ? "Its definition sets this level."
+                    : typ == "fork" ? "A fork runs at the session's level, also when that level changes."
+                    : "It runs at the session's level, also when that level changes.")
             } else if typ == "fork", tail.contains("->") {
                 let p = tail.split(separator: "-", omittingEmptySubsequences: false)
                 let to = level(p.last?.dropFirst() ?? "")
                 e.text = "Effort raised from \(level(p.first ?? "")) to \(to) so \(what.prefix(1).lowercased() + what.dropFirst()) starts at \(to)"
-                e.detail.append("A fork starts at the session's level and keeps it.")
+                e.detail.append("A fork runs at the session's level, also when that level changes. So the Kit does not set the session back.")
                 if !reason.isEmpty { e.detail.append("Why: " + reason) }
             } else if typ == "fork" {
                 e.text = "\(what) starts at \(level(w.count > 3 ? w[3] : "")) effort, the session's level"; e.routine = true
+                let needs = level(w.count > 5 ? w[5] : "")
                 if let r = reason.range(of: "not raised now: ") {
-                    e.detail.append("It needs \(level(w.count > 5 ? w[5] : "")), but the Kit did not raise the level now. " + sentence(reason[r.upperBound...]))
-                } else if !reason.isEmpty { e.detail.append("It needs: " + reason) }
+                    e.detail.append("It needs \(needs), but the Kit did not raise the level now. " + sentence(reason[r.upperBound...]))
+                } else if !reason.isEmpty { e.detail.append("It needs \(needs): " + reason) }
+                e.detail.append("A fork runs at the session's level, also when that level changes.")
             } else {
                 e.text = "\(what) set to \(level(tail.replacingOccurrences(of: "->", with: ""))) effort"
                 if !reason.isEmpty { e.detail.append("Why: " + reason) }

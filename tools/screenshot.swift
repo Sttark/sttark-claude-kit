@@ -275,6 +275,33 @@ import SwiftUI
             model.openEvent = nil
             try? logBefore.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
             model.readEvents()
+            // the every-agent-effort note's picture: an agent whose level in its call the Kit replaced, opened, a fork the
+            // Kit raised the session for, and an agent the Kit set. Lines for this picture only: the log goes back after.
+            Sample.agents(dir)
+            var picks: [KitEvent] = []
+            let until = Date().addingTimeInterval(10)
+            while picks.count < Sample.agentTasks.count && Date() < until {   // a read that runs makes the next one wait
+                model.readEvents()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+                picks = model.events.filter { e in Sample.agentTasks.contains { e.text.contains($0) } }
+            }
+            model.openEvent = picks.first { $0.text.contains(Sample.agentTasks[0]) }?.id
+            let ae = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            ae.appearance = w.appearance
+            ae.isReleasedWhenClosed = false
+            ae.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(picks.prefix(3))) { e in
+                    EventRow(model: model, e: e, open: model.openEvent == e.id)
+                    Hairline()
+                }
+                Spacer(minLength: 0)
+            }.padding(12).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            ae.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+            Shot.capture(ae, to: "whats-new/every-agent-effort" + (look ? "-dark" : "") + ".png")
+            ae.close()
+            model.openEvent = nil
+            try? logBefore.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
+            model.readEvents()
             // the kit-window note's picture: the top of the session list, at the window's narrowest
             model.page = .sessions
             let f = w.frame
@@ -669,6 +696,24 @@ enum Sample {
             "replied": ["at": now - 8 * 60, "where": "the email thread \"Dock door 3 visit\"", "id": "18c7sample"]]
         try? JSONSerialization.data(withJSONObject: ["items": [item]]).write(to: Kept.file)
         return before
+    }
+
+    /// The tasks of the agents in the every-agent-effort note's picture, newest first.
+    static let agentTasks = ["List the press 2 job fields", "Build the label proof page", "Find the dock door photos"]
+
+    /// Three agents' levels (effort-hook.py on_agent), for the every-agent-effort note's picture: a level in the call
+    /// that the Kit replaced, a fork that the Kit raised the session for, and an agent the Kit set.
+    static func agents(_ dir: URL) {
+        let lf = DateFormatter(); lf.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        func at(_ m: Double) -> String { lf.string(from: Date().addingTimeInterval(-m * 60)) }
+        let lines = [
+            at(3) + " agent  cse_01Sample3 Explore ->low (1.8s) low - A short search for photos. | " + agentTasks[2],
+            at(2) + " agent  cse_01Sample4 fork medium->xhigh (2.1s) xhigh - Builds a new page end to end. | " + agentTasks[1],
+            at(1) + " agent  cse_01Sample4 general-purpose replaced max (set in the call) with medium (2.0s) medium - A short list from known files. | " + agentTasks[0],
+        ]
+        if let h = try? FileHandle(forWritingTo: dir.appendingPathComponent("log")) {
+            h.seekToEndOfFile(); h.write((lines.joined(separator: "\n") + "\n").data(using: .utf8)!); try? h.close()
+        }
     }
 
     /// A bring-back that waits for a session's agents, and work the Kit ended at a handover with the session told
