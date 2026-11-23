@@ -291,6 +291,13 @@ state(sessions={SID: {'level': 'medium', 'agents': many}})
 eh.on_agent(agent(tool='toolu_last'), SID)
 kept = [a['tool_use_id'] for a in rows()]
 check('the list keeps the last 50 entries', len(kept) == 50 and kept[-1] == 'toolu_last' and kept[0] == 'toolu_n011', (len(kept), kept[:2]))
+state(sessions={SID: {'level': 'medium'}, 'cse_01TESTidle': {'level': 'high', 'agents': [old_done]},
+                'cse_01TESTbusy': {'level': 'high', 'agents': [old_done, recent_done]}})
+eh.on_agent(agent(tool='toolu_other'), SID)
+others = json.load(open(eh.STATE))['sessions']
+check('a new entry in one session also takes old entries out of the other sessions\' lists',
+      'agents' not in others['cse_01TESTidle']
+      and [a['tool_use_id'] for a in others['cse_01TESTbusy']['agents']] == ['toolu_recent'], others)
 
 # The hook itself: SubagentStart and SubagentStop through main(), on the test folder
 state()

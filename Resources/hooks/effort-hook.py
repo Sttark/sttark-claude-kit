@@ -2512,6 +2512,13 @@ def agent_entry(sid, data, typ, desc, level, set_by, reason):
         rows.append({'tool_use_id': data.get('tool_use_id') or '', 'agent_id': None, 'type': typ, 'desc': desc,
                      'level': level, 'set_by': set_by, 'reason': reason, 'started_at': now, 'done_at': None})
         x['agents'] = rows[-AGENTS_KEEP:]
+        for other in s['sessions'].values():  # old entries also leave the lists of sessions that start no agent now
+            if isinstance(other, dict) and other is not x and other.get('agents'):
+                kept = agent_rows(other, now)
+                if kept:
+                    other['agents'] = kept
+                else:
+                    other.pop('agents', None)
 
 
 def set_agent_id(rows, e, aid):
