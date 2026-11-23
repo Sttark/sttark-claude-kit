@@ -16,6 +16,8 @@
 // and the pictures of a few What's new notes in whats-new/ (each crop is named where it is made below).
 // Each is light. STTARK_SHOT_DARK=<folder> also draws the window and the sheet in dark mode into that folder.
 // STTARK_SHOT_PANELS=<folder> also draws the whole window with a wait and a message the person replied to selected.
+// STTARK_SHOT_AGENTS=<folder> also draws the whole window, taller, with each session that started agents selected, and
+// with its finished agents open.
 // STTARK_SHOT_SEARCH=<folder> also draws the search's three states, light and dark, at the window's narrowest: the
 // Usage page with nothing typed, a search that finds sessions in several groups, and one that finds none; and the
 // Events page, with its own filter of words in its row of filters.
@@ -111,6 +113,49 @@ import SwiftUI
             w.appearance = NSAppearance(named: look ? .darkAqua : .aqua)
             model.page = .sessions
             Shot.capture(w, to: folder + "/window-sessions.png")
+            // the agents note's picture: the Claude working group's sessions that started agents, each with its agents under
+            // it (three forks at Max; a search that finished and two agents that run), the forks' session selected
+            let withAgents = model.snap.rows(.working).filter { !$0.agents.isEmpty }.map { r -> Inbox.Row in var r = r; r.checkin = nil; return r }
+                .sorted { a, _ in a.agents.contains { $0.isFork } }   // the forks first
+            let agw = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
+            agw.appearance = w.appearance
+            agw.isReleasedWhenClosed = false
+            agw.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 0) {
+                GroupHeader(group: .working, count: model.snap.rows(.working).count)
+                ForEach(Array(withAgents.enumerated()), id: \.element.id) { i, r in
+                    if i > 0 { Color.clear.frame(height: 1) }
+                    RowView(row: r, selected: r.agents.contains { $0.isFork }, alerts: model.snap.alerts(r), reach: model.snap.reach)
+                }
+                Spacer(minLength: 0)
+            }.padding(.horizontal, 14).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
+            agw.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+            Shot.capture(agw, to: "whats-new/agents-under-sessions" + (look ? "-dark" : "") + ".png")
+            agw.close()
+            // STTARK_SHOT_AGENTS=<folder>: the whole window, made taller so every row shows, with each session that has agents
+            // selected, and again with its finished agents open when they are one "N finished" row (not in the README)
+            if let ag = ProcessInfo.processInfo.environment["STTARK_SHOT_AGENTS"] {
+                let sel = model.selected, frame = w.frame
+                w.setContentSize(NSSize(width: 1180, height: 1180))
+                w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+                for r in model.snap.rows where !r.agents.isEmpty {
+                    model.selected = r.id
+                    let name = "agents-" + r.title.lowercased().replacingOccurrences(of: " ", with: "-") + (look ? "-dark" : "-light")
+                    Shot.capture(w, to: ag + "/" + name + ".png")
+                    if Agents.listed(r.agents, open: false).finished != nil {
+                        model.agentsOpen.insert(r.id)
+                        Shot.capture(w, to: ag + "/" + name + "-open.png")
+                        model.agentsOpen.remove(r.id)
+                    }
+                }
+                // and at the window's narrowest, where the agents' types make room for their tasks
+                w.setContentSize(NSSize(width: 960, height: 1180))
+                w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
+                model.selected = model.snap.rows.first { $0.agents.contains { $0.isFork } }?.id
+                Shot.capture(w, to: ag + "/agents-narrow" + (look ? "-dark" : "-light") + ".png")
+                w.setFrame(frame, display: true)
+                ShotWindow.check("the window's size again")
+                model.selected = sel
+            }
             model.page = .archived
             model.reload()
             model.archivedSelected = model.archived.items.first?.id
@@ -760,26 +805,56 @@ enum Sample {
         let text = lines.sorted { $0.0 > $1.0 }.map { logAt($0.0) + " " + $0.1 }.joined(separator: "\n") + "\n"
         try? text.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
         func session(_ n: Int, _ title: String, _ level: String, ago: Double, reason: String = "", manual: Bool = false,
-                     app: [String: Any] = [:], turn: Double? = nil) -> (String, [String: Any]) {
+                     app: [String: Any] = [:], turn: Double? = nil, agents: [[String: Any]] = []) -> (String, [String: Any]) {
             var a: [String: Any] = ["url": "https://claude.ai/code/session_sample\(n)", "working": false, "archived": false]
             a.merge(app) { $1 }
             var x: [String: Any] = ["title": title, "level": level, "reason": reason, "manual": manual, "at": now - ago * 60,
                                     "transcript": "/sample/sid-sample-\(n).jsonl", "app": a]
             if let turn { x["turn_at"] = now - turn * 60 }
+            if !agents.isEmpty { x["agents"] = agents }
             return ("cse_01Sample\(n)", x)
         }
+        // an agent as the effort hook records it: its type, task, level, who set it and why, and when it started and
+        // ended (minutes ago; nil while it runs)
+        func agent(_ id: String, _ type: String, _ desc: String, _ level: String, by: String = "kit", _ reason: String = "",
+                   started: Double, done: Double? = nil) -> [String: Any] {
+            ["tool_use_id": "toolu_sample_" + id, "agent_id": "a" + id, "type": type, "desc": desc, "level": level, "set_by": by,
+             "reason": reason, "started_at": now - started * 60, "done_at": done.map { now - $0 * 60 } as Any? ?? NSNull()]
+        }
         func ago(_ m: Double) -> String { iso(Date().addingTimeInterval(-m * 60)) }
+        // three forks at the session's level, Max; a search that finished and two agents that run; 8 that finished
+        let forkAgents: [[String: Any]] = [
+            agent("41", "fork", "Build the press filters", "max", "Three builds at once, and each must be right.", started: 5),
+            agent("42", "fork", "Build the due date column", "max", by: "session", started: 5),
+            agent("43", "fork", "Build the job card", "max", by: "session", started: 4)]
+        let bladeAgents: [[String: Any]] = [
+            agent("51", "Explore", "Find the blade photos", "low", "A short file search.", started: 34, done: 32),
+            agent("52", "general-purpose", "Photos of the slitter blades", "high", "Reads 12 photos and judges wear.", started: 31),
+            agent("53", "general-purpose", "Blade list for the technician", "medium", "Writes a list from known facts.", started: 12)]
+        let rewinderTasks = ["Rewinder 1 manual", "Rewinder 2 manual", "Belt and roller parts", "Rewinder 3 manual", "Rewinder 4 manual",
+                             "Grease points", "Sensor check steps", "Blade guard checks"]
+        var rewinderAgents: [[String: Any]] = []
+        for (i, task) in rewinderTasks.enumerated() {
+            let reads = i % 3 == 2
+            rewinderAgents.append(agent("2\(i)", reads ? "general-purpose" : "Explore", task, reads ? "medium" : "low",
+                                        reads ? "Reads and sorts the steps." : "A short file search.",
+                                        started: 77 - Double(i) * 3, done: 67 - Double(i) * 3))
+        }
         let list: [(String, [String: Any])] = [
             session(1, "Order page login", "high", ago: 22, app: ["needs": true, "why": "a plan waits for your go-ahead", "last_event_at": ago(22)]),
-            session(2, "Rewinder PM checklist", "medium", ago: 41, app: ["unseen": true, "last_event_at": ago(41)]),
+            session(2, "Rewinder PM checklist", "medium", ago: 41, app: ["unseen": true, "last_event_at": ago(41)],
+                    agents: rewinderAgents),
             session(3, "Dock door repair", "low", ago: 8, app: ["unseen": true, "last_event_at": ago(8)]),
-            session(4, "Press 2 job board", "xhigh", ago: 0, reason: "Design question on a new job board", app: ["working": true], turn: 6),
+            session(4, "Press 2 job board", "max", ago: 0, reason: "Three builds at once, and each must be right", app: ["working": true], turn: 6,
+                    agents: forkAgents),
             session(5, "Slitter blade change", "medium", ago: 1, reason: "Summarizes the agents' photos",
-                    app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the slitter blades", "since": now - 31 * 60]]),
+                    app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the slitter blades", "since": now - 31 * 60]],
+                    agents: bladeAgents),
             session(6, "Ink reorder", "high", ago: 0, manual: true, app: ["working": true], turn: 14),
             session(7, "Shift schedule", "high", ago: 30, reason: "Design work across several pages"),
             session(8, "Spare parts count", "medium", ago: 50),
-            session(9, "Rename report columns", "low", ago: 190, reason: "A simple rename across a few files"),
+            session(9, "Rename report columns", "low", ago: 190, reason: "A simple rename across a few files",
+                    agents: [agent("91", "Explore", "Find the report files", "low", "A short file search.", started: 195)] as [[String: Any]]),
             session(10, "Core supplier quote", "low", ago: 300, reason: "A simple check of the time and the mail", app: ["archived": true]),
         ]
         var sessions: [String: Any] = [:]

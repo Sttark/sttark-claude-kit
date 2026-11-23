@@ -75,6 +75,8 @@ enum Inbox {
         var checkin: Checkins.Note? = nil
         /// Messages kept in the Kit app for this session (Kept), newest first: the last 7 days.
         var kept: [Kept.Message] = []
+        /// The agents the session started (Agents), running first: the page lists them under the row.
+        var agents: [Agents.Item] = []
         /// When the person replied themselves where the row's item is about: an idle row's newest message (it is
         /// handled now), or a wait's thread (it still waits for the other person). The row says "You replied <time>"
         /// first, so it does not read as an open item.
@@ -286,6 +288,20 @@ enum Inbox {
         }
         for i in snap.rows.indices {
             if let cse = snap.rows[i].target?.cse, !cse.isEmpty { snap.rows[i].kept = kept[cse] ?? [] }
+        }
+        // each session's agents: one with no end still runs while the session works or holds at the limit, or worked
+        // in the last 30 min; else its end was lost, and it shows as finished
+        for i in snap.rows.indices {
+            guard let s = snap.rows[i].session, let x = raw[s.id] else { continue }
+            let r = snap.rows[i]
+            let app = x["app"] as? [String: Any]
+            let busy = r.group == .working || r.group == .held || (background(x)?.agents ?? 0) > 0
+            var last = s.at
+            for t in [Limit.num(x["turn_at"]), Limit.num(x["at"])].compactMap({ $0 }) { last = max(last, Date(timeIntervalSince1970: t)) }
+            for v in [app?["last_event_at"], (fresh ? listed.first { $0["id"] as? String == s.id }?["last"] : nil)] {
+                if let t = v as? String, let d = iso.date(from: t) ?? ISO8601DateFormatter().date(from: t) { last = max(last, d) }
+            }
+            snap.rows[i].agents = Agents.read(x, busy: busy, lastActive: last)
         }
         return snap
     }
