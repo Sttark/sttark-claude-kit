@@ -1457,7 +1457,7 @@ struct DetailView: View {
                 }
             }
             Text(all.contains(where: \.isFork)
-                 ? "A fork always runs at the session's level, also when that level changes. When a fork needs more, the Kit raises the session first. Every other agent keeps the level it starts with until it ends."
+                 ? "A fork always runs at the session's level, also when that level changes. The Kit stops forks, except while Auto effort is off or the session is on Manual. Every other agent keeps the level it starts with until it ends."
                  : "Each agent keeps the level it starts with until it ends, also when the session's level changes.")
                 .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
         }

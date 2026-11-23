@@ -45,6 +45,10 @@ check('the waits rule says when and points at claude-wait --help for the forms, 
       len(waits) == 1 and 'claude-wait --help' in waits[0] and 'channel that the answer comes on' in waits[0]
       and 'safety net' in waits[0] and '--why' in waits[0] and 'handoff line' in waits[0]
       and not any(s in w.RULES for s in ('check-script', 'check-prompt', '--query', '--mailbox', 'email-reply')))
+check('the agent rule says to use no fork agents, and to start a new agent with the facts from the chat in its brief',
+      'Do not use fork agents' in w.RULES and 'Use a fork agent' not in w.RULES
+      and 'put the facts it needs from the chat in its brief' in w.RULES)
+check('no em-dash or double hyphen in the rules', '\u2014' not in w.RULES and ' -- ' not in w.RULES)
 check('each later part says which part it is', all(p.startswith(w.MORE % (i + 2, len(pieces))) for i, p in enumerate(pieces[1:])))
 
 

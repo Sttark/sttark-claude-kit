@@ -14,8 +14,9 @@ enum Agents {
         /// The level it runs at: a key of `levelNames` ("low" … "max"), or "" when the Kit has none. A fork has no level
         /// of its own: while it runs, this is its session's level now.
         let level: String
-        /// "kit": the Kit picked the level (for a fork, the session's level, raised first when it was lower). "session":
-        /// the Kit picked none (Auto effort off, Manual, no check), or a fork took the session's level as it was.
+        /// "kit": the Kit picked the level. "session": the Kit picked none (Auto effort off, Manual, no check). A fork has
+        /// an entry only when the Kit let it run (Auto effort off, Manual): the Kit stops every other fork. Entries from
+        /// before that can still show a fork with "kit" (the Kit raised the session for it) for up to 7 days.
         let setBy: String
         let reason: String
         let started: Date
@@ -56,8 +57,8 @@ enum Agents {
             let r = reason.trimmingCharacters(in: .whitespacesAndNewlines)
             let said = r.isEmpty ? "" : (r.prefix(1).uppercased() + r.dropFirst()) + (r.hasSuffix(".") ? "" : ".")
             if isFork {
-                // the Kit picked the session's level for it (and raised the session to it when it was lower), or the fork
-                // took the level as it was, with the Kit's note on why
+                // the fork took the session's level as it was (Auto effort off, Manual); older entries: the Kit picked the
+                // session's level for it (and raised the session to it when it was lower), with the Kit's note on why
                 let at = levelName.map { "the session's level, \($0)" } ?? "the session's level"
                 let start = levelNames[startLevel]
                 let moved = start != nil && startLevel != level
