@@ -210,6 +210,13 @@ final class KitModel: ObservableObject {
     @Published var usageReading = false
     /// The ⓘ notes that are open, by key (InfoButton and InfoNote).
     @Published var openNotes: Set<String> = []
+    /// The sessions (row ids) whose finished agents the person opened, on the list and in the panel.
+    @Published var agentsOpen: Set<String> = []
+
+    /// A session's finished agents shown or hidden ("8 finished" under its row, or Show all in its panel).
+    func toggleAgents(_ id: String) {
+        if agentsOpen.contains(id) { agentsOpen.remove(id) } else { agentsOpen.insert(id) }
+    }
 
     /// Whether the ⓘ note `key` is open, for an InfoButton and its InfoNote.
     func note(_ key: String) -> Binding<Bool> {
@@ -781,7 +788,8 @@ struct SessionsPage: View {
                                 Hairline().padding(.horizontal, 10)
                             } else if i > 0 { Color.clear.frame(height: 1) }
                             RowView(row: r, selected: r.id == model.selected, alerts: model.snap.alerts(r),
-                                    reach: model.snap.reach) { on in model.setAlerts(r, on: on) }
+                                    reach: model.snap.reach, setAlerts: { on in model.setAlerts(r, on: on) },
+                                    agentsOpen: model.agentsOpen.contains(r.id), toggleAgents: { model.toggleAgents(r.id) })
                                 .onTapGesture { model.selected = r.id }
                         }
                     }
@@ -884,11 +892,16 @@ struct ListHeader: View {
 struct LevelChip: View {
     let level: String
     let manual: Bool
+    /// A finished agent's level: its words in steel, as the rest of its row.
+    var dim = false
+    /// Its tip, when it is not a session's (an agent's level).
+    var tip: String? = nil
     var body: some View {
         Text(levelNames[level] ?? level).font(K.font(12, true))
+            .foregroundColor(dim ? K.steel : K.ink)
             .padding(.horizontal, 6).frame(height: 17)
             .overlay(Capsule().strokeBorder(K.gray, style: StrokeStyle(lineWidth: 1, dash: manual ? [2, 2] : [])))
-            .help(manual ? "Manual: you set this level" : "Auto: Claude picks the level")
+            .help(tip ?? (manual ? "Manual: you set this level" : "Auto: Claude picks the level"))
     }
 }
 
@@ -900,6 +913,9 @@ struct RowView: View {
     var alerts: Bool? = nil
     var reach: Reach.Settings? = nil
     var setAlerts: (Bool) -> Void = { _ in }
+    /// The session's finished agents are open under it ("8 finished"), and the click that opens or closes them.
+    var agentsOpen = false
+    var toggleAgents: () -> Void = {}
 
     /// What the bell's tip says: the state, where messages go, and what a click does.
     static func tip(on: Bool, reach: Reach.Settings?) -> String {
@@ -956,6 +972,8 @@ struct RowView: View {
             }
             // the latest check-in under both, the row's whole width, so more of the note shows
             if let n = row.checkin { CheckinLine(note: n) }
+            // its agents, one step in, behind a thin line
+            if !row.agents.isEmpty { AgentLines(agents: row.agents, open: agentsOpen, toggle: toggleAgents) }
         }
         .padding(.leading, K.z(10))
         .padding(.trailing, RowView.edge)
@@ -976,6 +994,99 @@ struct CheckinLine: View {
                 .font(K.font(12)).lineLimit(1).truncationMode(.tail)
         }
         .help(note.text)
+    }
+}
+
+/// A session's agents under its row, one step in, behind a thin line: each running agent, then the finished ones in
+/// steel. More than Agents.inline finished show as one row, "8 finished agents", that opens them. In a narrow list the
+/// agents' types go first, for every row at once (each row's tip still says it), so the tasks show; "Fork" stays. In a
+/// narrower one the times go short too ("31 min", "32 min ago"), and a task that still has no room is cut.
+struct AgentLines: View {
+    let agents: [Agents.Item]
+    let open: Bool
+    var toggle: () -> Void = {}
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            lines(types: true, whole: true)
+            lines(types: false, whole: true)
+            lines(types: false, whole: false, short: true)
+        }
+        .padding(.leading, K.z(4))
+        .padding(.trailing, RowView.bellGap + RowView.bellColumn)
+        .padding(.top, K.z(2))
+    }
+
+    func lines(types: Bool, whole: Bool, short: Bool = false) -> some View {
+        let l = Agents.listed(agents, open: open)
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(l.rows.filter(\.running)) { AgentLine(agent: $0, type: types, whole: whole, short: short) }
+            if let n = l.finished {
+                Button(action: toggle) {
+                    HStack(spacing: 6) {
+                        Image(systemName: open ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9 * K.zoom, weight: .semibold)).foregroundColor(K.steel).frame(width: K.z(10))
+                        Text("\(n) finished agents").font(K.font(12.5)).foregroundColor(K.steel).fixedSize()
+                        Spacer(minLength: 8)
+                    }
+                    .frame(minHeight: K.z(22))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(open ? "Hides the finished agents." : "Shows the finished agents.")
+                .accessibilityLabel("\(n) finished agents")
+                .accessibilityHint(open ? "Hides them." : "Shows them.")
+            }
+            ForEach(l.rows.filter { !$0.running }) { AgentLine(agent: $0, type: types, whole: whole, short: short) }
+        }
+        .padding(.leading, K.z(8))
+        .overlay(alignment: .leading) { Rectangle().fill(K.gray).frame(width: 1) }
+    }
+}
+
+/// One agent under its session: running (a blue dot) or finished (a check, in steel), what it does, its type ("Fork" for
+/// a fork; `type` false leaves out any other type), its level as the session rows show theirs, and how long it runs or
+/// how long ago it finished. `whole`: its task is never cut, so the row fits only where all of it shows. `short`: the
+/// time without "running" or "done"; the dot or the check still says which.
+struct AgentLine: View {
+    let agent: Agents.Item
+    var type = true
+    var whole = false
+    var short = false
+    var body: some View {
+        let dim = !agent.running
+        HStack(spacing: 6) {
+            AgentMark(agent: agent)
+            Text(agent.desc.isEmpty ? agent.typeName : agent.desc).font(K.font(12.5))
+                .foregroundColor(dim ? K.steel : K.ink).lineLimit(1).truncationMode(.tail)
+                .fixedSize(horizontal: whole, vertical: false)
+            if (type || agent.isFork) && !agent.desc.isEmpty {
+                Text(agent.typeName).font(K.font(12)).foregroundColor(K.steel).lineLimit(1).fixedSize()
+            }
+            if agent.levelName != nil {
+                LevelChip(level: agent.level, manual: false, dim: dim, tip: agent.tip).fixedSize()
+            }
+            Spacer(minLength: 8)
+            Text(short ? agent.shortTime : agent.timeWords).font(K.font(12)).foregroundColor(K.steel).fixedSize()
+        }
+        .frame(minHeight: K.z(22))
+        .help(agent.tip)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A running agent's blue dot, or a finished one's check.
+struct AgentMark: View {
+    let agent: Agents.Item
+    var body: some View {
+        Group {
+            if agent.running {
+                Circle().fill(K.infoMark).frame(width: K.z(6), height: K.z(6))
+            } else {
+                Image(systemName: "checkmark").font(.system(size: 9 * K.zoom, weight: .semibold)).foregroundColor(K.steel)
+            }
+        }
+        .frame(width: K.z(10))
+        .accessibilityLabel(agent.running ? "Running" : "Finished")
     }
 }
 
@@ -1005,6 +1116,7 @@ struct DetailView: View {
                 waitList
                 actions
                 if let s = row.session, row.wait == nil { effort(s) }
+                if !row.agents.isEmpty { agents(row.agents) }
                 if let t = row.target { usage(t) }
                 if let on = model.snap.alerts(row) { alerts(on) }
             }
@@ -1303,6 +1415,55 @@ struct DetailView: View {
         .padding(.top, 20)
     }
 
+    /// The session's agents: each one's level, whether it runs, and why it has that level. Running ones first, then the
+    /// newest finished (5, or all of them once opened).
+    func agents(_ all: [Agents.Item]) -> some View {
+        let open = model.agentsOpen.contains(row.id)
+        let run = all.filter(\.running), fin = all.filter { !$0.running }
+        let rows = run + (open ? fin : Array(fin.prefix(5)))
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Agents").font(K.font(12.5, true))
+                Spacer()
+                Text(Agents.counts(all)).font(K.font(12)).foregroundColor(K.steel)
+            }
+            Box {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { i, a in
+                    if i > 0 { Hairline() }
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            AgentMark(agent: a)
+                            Text(a.desc.isEmpty ? a.typeName : a.desc).font(K.font(12.5, true))
+                                .foregroundColor(a.running ? K.ink : K.steel).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 6)
+                            if a.levelName != nil { LevelChip(level: a.level, manual: false, dim: !a.running, tip: a.tip).fixedSize() }
+                        }
+                        Text(a.typeName + " · " + (a.lost ? "ended; the Kit did not see when" : a.timeWords)).font(K.font(12)).foregroundColor(K.steel)
+                            .padding(.leading, K.z(16))
+                        if !a.why.isEmpty {
+                            Text(a.why).font(K.font(12)).fixedSize(horizontal: false, vertical: true)
+                                .padding(.leading, K.z(16))
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .help(a.tip)
+                }
+                if fin.count > 5 {
+                    Hairline()
+                    Button(open ? "Show the newest 5 finished" : "Show all \(fin.count) finished") { model.toggleAgents(row.id) }
+                        .controlSize(.small)
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                }
+            }
+            Text(all.contains(where: \.isFork)
+                 ? "A fork always runs at the session's level, also when that level changes. When a fork needs more, the Kit raises the session first. Every other agent keeps the level it starts with until it ends."
+                 : "Each agent keeps the level it starts with until it ends, also when the session's level changes.")
+                .font(K.font(12)).foregroundColor(K.steel).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 20)
+    }
+
     func usage(_ t: Limit.Target) -> some View {
         let mode = Limit.mode(t)
         var choices = Limit.holdChoices
@@ -1495,7 +1656,8 @@ struct SearchPage: View {
                                 Hairline().padding(.horizontal, 10)
                             } else if i > 0 { Color.clear.frame(height: 1) }
                             RowView(row: r, selected: r.id == pick, alerts: model.snap.alerts(r),
-                                    reach: model.snap.reach) { on in model.setAlerts(r, on: on) }
+                                    reach: model.snap.reach, setAlerts: { on in model.setAlerts(r, on: on) },
+                                    agentsOpen: model.agentsOpen.contains(r.id), toggleAgents: { model.toggleAgents(r.id) })
                                 .onTapGesture { model.searchPick = r.id }
                         }
                     }
