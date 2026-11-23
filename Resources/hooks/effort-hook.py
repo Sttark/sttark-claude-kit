@@ -14,6 +14,8 @@ to match how the work is actually going.
 
 PreToolUse on the Agent tool: the side call picks the level of each agent the
 session starts, from its brief, and it goes in the agent's call (on_agent()).
+A fork is stopped: it can only run at the session's level, so Claude starts a
+new agent with a full brief in its place.
 SubagentStart and SubagentStop (in the background) keep the session's list of
 its agents in the state file up to date.
 
@@ -2501,8 +2503,9 @@ def agent_entry(sid, data, typ, desc, level, set_by, reason):
     {tool_use_id, agent_id, type, desc, level, set_by, reason, started_at, done_at}. on_agent() writes it just before
     the Agent tool starts the agent; SubagentStart (or the Agent tool's answer) gives it the agent's id, and
     SubagentStop the time the agent ended (on_subagent(), on_agent_answer()). `level` is the level the agent starts at;
-    `set_by` is 'kit' when the Kit picked that level, else 'session' (Auto effort off, Manual, no pick, or a fork at
-    the session's level). Only for a Remote Control session, which has a record in the state file."""
+    `set_by` is 'kit' when the Kit picked that level, else 'session' (Auto effort off, Manual, or no pick; a fork
+    gets an entry only then, at the session's level). Only for a Remote Control session, which has a record in the
+    state file."""
     if not sid or level not in LEVELS:
         return
     now = time.time()
@@ -2589,25 +2592,34 @@ def on_agent_answer(data, sid):
             set_agent_id(rows, e, aid)
 
 
+FORK_STOP = ("Sttark Claude Kit stopped this fork before it started. A fork runs at the session's effort level, so "
+             "it cannot get a level for its own work. Start this agent again as a general-purpose agent (or the agent "
+             "type that fits the work), with a full brief that holds the facts it needs from this chat. The Kit then "
+             "sets its level.")
+
+
 def on_agent(data, sid):
     """Before the Agent tool starts a subagent: the Kit picks its level from the agent's brief, the way it picks a
-    prompt's. Any agent but a fork gets it in its own call (`effort` in the tool input, which Claude Code honors from
-    a hook's updatedInput), also when the call or the agent's definition sets a level: the Kit's level replaces it,
-    and the log says which. An agent with a level of its own keeps it until it ends: a later change to the
-    session's level does not reach it, and no hook or interface changes one agent's level.
-    A fork has no level of its own. It ignores `effort` in its call and runs at the session's level for its whole
-    life: each of its steps reads the session's level at that moment (Claude Code's records show a fork's level
-    change with the session's). So no level can be given to a fork alone. For a fork that needs more, the session
-    is raised first, and it stays there, as setting it back would take the fork back down too.
-    While Auto effort is off or the session is on Manual, the Kit picks nothing and only logs. Every agent of a
-    Remote Control session gets an entry in the session's list of its agents (agent_entry())."""
+    prompt's, and it goes in the agent's own call (`effort` in the tool input, which Claude Code honors from a hook's
+    updatedInput), also when the call or the agent's definition sets a level: the Kit's level replaces it, and the
+    log says which. An agent with a level of its own keeps it until it ends: a later change to the session's level
+    does not reach it, and no hook or interface changes one agent's level.
+    A fork is stopped, with no model call: the deny (FORK_STOP) tells Claude to start a new agent with a full brief
+    in its place, and that agent gets its own level here. A fork has no level of its own. It ignores `effort` in its
+    call and runs at the session's level for its whole life: each of its steps reads the session's level at that
+    moment (Claude Code's records show a fork's level change with the session's). So no level can be given to a fork
+    alone, and a raise of the session for it would put the session off the level for its own work. The session's
+    level follows only its own work (on_prompt(), on_tool()).
+    While Auto effort is off or the session is on Manual, the Kit picks nothing, lets forks run, and only logs.
+    Every agent that starts in a Remote Control session gets an entry in the session's list of its agents
+    (agent_entry()); a stopped fork never starts, so it gets none."""
     ti = data.get('tool_input') or {}
     typ = ti.get('subagent_type') or 'general-purpose'
     desc = re.sub(r'\s+', ' ', ti.get('description') or '')[:80]
     st = peek()
     x = st.get('sessions', {}).get(sid, {}) if sid else {}
     who = sid or (data.get('session_id') or '')[:8]
-    fork = typ == 'fork'
+    fork = typ.lower() == 'fork'
     current = (data.get('effort') or {}).get('level') or x.get('level', '')
     own, src = '', ''  # a level the call or the agent's definition sets (a fork ignores both)
     if not fork and ti.get('effort'):
@@ -2625,6 +2637,10 @@ def on_agent(data, sid):
         log(f'agent  {who} {typ} left at {start or "?"}{f" ({src})" if own else ""} - {why} | {desc}')
         entry(start, 'session', f'{why[0].upper()}{why[1:]}.')
         return None
+    if fork:
+        log(f'agent  {who} fork stopped - start a briefed agent instead | {desc}')
+        return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                                       'permissionDecisionReason': FORK_STOP}}
     t0 = time.time()
     try:
         level, answer = judge(AGENT_ASK.format(typ=typ, desc=desc or '(none)', brief=(ti.get('prompt') or '')[:4000]))
@@ -2640,39 +2656,12 @@ def on_agent(data, sid):
               else 'The Kit could not read the answer of its check.')
         return None
     reason = answer.split(' - ', 1)[-1]
-    if not fork:
-        if own:
-            log(f'agent  {who} {typ} replaced {own} ({src}) with {level} ({secs:.1f}s) {level} - {reason} | {desc}')
-        else:
-            log(f'agent  {who} {typ} ->{level} ({secs:.1f}s) {level} - {reason} | {desc}')
-        entry(level, 'kit', reason)
-        return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'updatedInput': dict(ti, effort=level)}}
-    up = current in LEVELS and LEVELS.index(level) > LEVELS.index(current)
-    if not (sid and up):
-        log(f'agent  {who} fork at {current or "?"} ({secs:.1f}s) {level} - {reason} | {desc}')
-        entry(current, 'kit' if level == current else 'session',
-              reason if level == current else f'A fork runs at the session\'s level. It needs {level}: {reason}')
-        return None
-    hand = by_hand(sid, desc)
-    if hand:
-        entry(hand, 'session', 'The level of the session was set by hand.')
-        return None
-    if typed_waits(sid):  # the fork starts at the session's level: no change can go out now
-        log(f'agent  {who} fork at {current or "?"} ({secs:.1f}s) {level} - not raised now: {HOLD_WHY} | {desc}')
-        entry(current, 'session', f'It needs {level}, but the Kit did not raise the session now: the session has '
-                                  f'not answered a prompt that the Kit typed in.')
-        return None
-    status, text, rid = send(sid, level)
-    if 200 <= status < 300:
-        remember(sid, level=level, sent=level, sent_at=time.time(), sent_id=rid, seen_id=rid,
-                 reason=f'A fork needs it: {reason}')
-        time.sleep(1.5)  # let the change reach the session before the fork starts and takes its level
-        log(f'agent  {who} fork {current}->{level} ({secs:.1f}s) {level} - {reason} | {desc}')
-        entry(level, 'kit', reason)
+    if own:
+        log(f'agent  {who} {typ} replaced {own} ({src}) with {level} ({secs:.1f}s) {level} - {reason} | {desc}')
     else:
-        log(f'error  {sid} send {level} for a fork failed {status} {text[:120]} | {desc}')
-        entry(current, 'session', f'It needs {level}, but the change of the session level failed.')
-    return None
+        log(f'agent  {who} {typ} ->{level} ({secs:.1f}s) {level} - {reason} | {desc}')
+    entry(level, 'kit', reason)
+    return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'updatedInput': dict(ti, effort=level)}}
 
 
 def set_level(sid, level, by='window'):

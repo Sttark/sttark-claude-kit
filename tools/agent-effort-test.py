@@ -1,7 +1,7 @@
 #!/usr/bin/python3
-"""Tests the effort pick for subagents in Resources/hooks/effort-hook.py (on_agent), the session's list of its agents
-(the `agents` entries that on_agent, SubagentStart, the Agent tool's answer and SubagentStop write), and the hook
-entries install-hooks.py adds for them, on copies: a temp state folder, log and HOME. The model check, the send to the
+"""Tests the effort pick for subagents in Resources/hooks/effort-hook.py (on_agent), the stop of forks, the session's
+list of its agents (the `agents` entries that on_agent, SubagentStart, the Agent tool's answer and SubagentStop write),
+and the hook entries install-hooks.py adds for them, on copies: a temp state folder, log and HOME. The model check, the send to the
 server and the read of the server are stand-ins, so no model is called and no session is changed. Prints each case;
 exits 1 if any fails.
 Run: /usr/bin/python3 tools/agent-effort-test.py"""
@@ -34,7 +34,15 @@ answer = {'v': ('low', 'low - Simple file search.')}
 sent = []
 hand = {'v': ''}
 typed = {'v': None}
-eh.judge = lambda ask, system=eh.RULES: answer['v']
+judged = {'n': 0}
+
+
+def judge(ask, system=eh.RULES):
+    judged['n'] += 1
+    return answer['v']
+
+
+eh.judge = judge
 eh.send = lambda sid, level: (sent.append((sid, level)) or (200, 'ok', 'rid-1'))
 eh.by_hand = lambda sid, why, d=None: hand['v']
 eh.typed_waits = lambda sid: typed['v']
@@ -126,8 +134,20 @@ check('Manual with a level in the call: the call keeps it, and the log and the e
       out is None and 'Explore left at xhigh (set in the call) - the session is on Manual' in last_log()
       and last_row().get('level') == 'xhigh' and last_row().get('set_by') == 'session', (out, last_log(), last_row()))
 sent.clear()
-check('Manual: a fork is left alone too, and nothing is sent', eh.on_agent(agent(typ='fork', level='high'), SID) is None
-      and not sent and 'fork left at high - the session is on Manual' in last_log(), (sent, last_log()))
+judged['n'] = 0
+n = len(rows())
+check('Manual: a fork runs, left at the session\'s level, and nothing is sent',
+      eh.on_agent(agent(typ='fork', level='high'), SID) is None and not sent and judged['n'] == 0
+      and 'fork left at high - the session is on Manual' in last_log(), (sent, judged, last_log()))
+check('Manual: the fork keeps its entry, at the session\'s level', len(rows()) == n + 1 and last_row().get('type') == 'fork'
+      and last_row().get('level') == 'high' and last_row().get('set_by') == 'session', last_row())
+state(paused=True, sessions={SID: {'level': 'medium'}})
+n = len(rows())
+check('Auto effort off: a fork runs too, with no model call and nothing sent',
+      eh.on_agent(agent(typ='fork', level='medium'), SID) is None and not sent and judged['n'] == 0
+      and 'fork left at medium - Auto effort is off' in last_log(), (sent, judged, last_log()))
+check('Auto effort off: the fork keeps its entry', len(rows()) == n + 1 and last_row().get('type') == 'fork'
+      and last_row().get('set_by') == 'session', last_row())
 
 state()
 answer['v'] = (None, eh.AT_LIMIT)
@@ -144,47 +164,56 @@ eh.judge = broken
 check('a check that fails never blocks the agent', eh.on_agent(agent(effort='high'), SID) is None)
 check('a check that fails: the entry has the call\'s level, not set by the Kit',
       last_row().get('level') == 'high' and last_row().get('set_by') == 'session', last_row())
-eh.judge = lambda ask, system=eh.RULES: answer['v']
+eh.judge = judge
 
-# Forks: no level of their own, so the session is raised for one that needs more, and stays there
+# Forks: no level of their own, so the Kit stops them; the session's level follows only its own work
 answer['v'] = ('xhigh', 'xhigh - Builds a feature end to end.')
 state(sessions={SID: {'level': 'low'}})
+before = json.load(open(eh.STATE))
 sent.clear()
+judged['n'] = 0
 out = eh.on_agent(agent(typ='fork', level='low', desc='Build the page'), SID)
-st = json.load(open(eh.STATE))['sessions'][SID]
-check('a fork that needs more raises the session first', out is None and sent == [(SID, 'xhigh')], (out, sent))
-check('a fork never gets an effort in its call (Claude Code ignores it there)', out is None)
-check('the raise is remembered as the Kit\'s own', st.get('sent') == 'xhigh' and st.get('level') == 'xhigh', st)
-check('the raise is logged with the fork', 'agent  cse_01TESTsession fork low->xhigh' in last_log(), last_log())
-check('the fork\'s entry is at the raised level, set by the Kit', last_row().get('type') == 'fork'
-      and last_row().get('level') == 'xhigh' and last_row().get('set_by') == 'kit', last_row())
-check('the session is not set back (a fork runs at the session\'s level while it works)', sent == [(SID, 'xhigh')], sent)
-
-out = eh.on_agent(agent(typ='fork', level='xhigh', desc='Build the second page'), SID)
-check('two forks back to back: the second finds the session raised and sends nothing',
-      out is None and sent == [(SID, 'xhigh')] and 'fork at xhigh' in last_log(), (sent, last_log()))
-check('the second fork\'s entry: the Kit\'s pick is the session\'s level', last_row().get('level') == 'xhigh'
-      and last_row().get('set_by') == 'kit', last_row())
-
-answer['v'] = ('medium', 'medium - A short edit.')
-sent.clear()
-out = eh.on_agent(agent(typ='fork', level='high', desc='Small edit'), SID)
-check('a fork that needs less starts at the session level; nothing is sent', out is None and not sent and 'fork at high' in last_log(),
-      (sent, last_log()))
-check('its entry is at the session\'s level, with what it needs', last_row().get('level') == 'high'
-      and last_row().get('set_by') == 'session' and 'It needs medium' in last_row().get('reason', ''), last_row())
-
-answer['v'] = ('xhigh', 'xhigh - Builds a feature end to end.')
+hso = (out or {}).get('hookSpecificOutput') or {}
+check('a fork is denied before it starts', hso.get('hookEventName') == 'PreToolUse' and hso.get('permissionDecision') == 'deny', out)
+check('the deny tells Claude why, and to start a briefed agent in its place',
+      hso.get('permissionDecisionReason') == eh.FORK_STOP and 'general-purpose' in eh.FORK_STOP
+      and 'full brief' in eh.FORK_STOP and "session's effort level" in eh.FORK_STOP, hso)
+check('the deny changes no input and gives no level', 'updatedInput' not in hso, hso)
+check('a denied fork makes no model call', judged['n'] == 0, judged)
+check('a denied fork changes no session level', not sent and json.load(open(eh.STATE)) == before, (sent, json.load(open(eh.STATE))))
+check('a denied fork has no entry in the list of agents', 'agents' not in json.load(open(eh.STATE))['sessions'][SID], rows())
+check('the deny is logged with the fork', last_log().endswith(
+      'agent  cse_01TESTsession fork stopped - start a briefed agent instead | Build the page'), last_log())
+check('the deny reason has no em-dash or double hyphen', '\u2014' not in eh.FORK_STOP and '--' not in eh.FORK_STOP, eh.FORK_STOP)
+for lv in ('low', 'medium', 'high', 'xhigh', 'max'):
+    answer['v'] = (lv, f'{lv} - Any level.')
+    out = eh.on_agent(agent(typ='fork', level='high', desc='Small edit'), SID)
+    if ((out or {}).get('hookSpecificOutput') or {}).get('permissionDecision') != 'deny':
+        break
+check('a fork is denied whatever level it needs (no check is made)', not sent and judged['n'] == 0
+      and ((out or {}).get('hookSpecificOutput') or {}).get('permissionDecision') == 'deny', (out, sent, judged))
 typed['v'] = {'level': 'medium'}
-out = eh.on_agent(agent(typ='fork', level='medium', desc='Build it'), SID)
-check('a fork while a prompt the Kit typed in has no answer: not raised, and logged',
-      out is None and not sent and 'not raised now:' in last_log() and last_row().get('set_by') == 'session', (sent, last_log()))
-typed['v'] = None
 hand['v'] = 'high'
 out = eh.on_agent(agent(typ='fork', level='medium', desc='Build it'), SID)
-check('a fork when the person just set the level by hand: nothing sent, its entry at that level',
-      out is None and not sent and last_row().get('level') == 'high' and last_row().get('set_by') == 'session', (sent, last_row()))
+check('a fork is denied also while a typed prompt waits or after a pick by hand (neither is read)',
+      ((out or {}).get('hookSpecificOutput') or {}).get('permissionDecision') == 'deny' and not sent, (out, sent))
+typed['v'] = None
 hand['v'] = ''
+
+# Every other agent: the Kit's level in its call, and no session change
+answer['v'] = ('xhigh', 'xhigh - Builds a feature end to end.')
+state(sessions={SID: {'level': 'low'}})
+before = json.load(open(eh.STATE))['sessions'][SID]
+out = eh.on_agent(agent(typ='general-purpose', level='low', desc='Build the page'), SID)
+after = json.load(open(eh.STATE))['sessions'][SID]
+check('an agent that needs more than the session gets it in its own call', picked(out).get('effort') == 'xhigh', out)
+check('and the session is not raised for it', not sent and after.get('level') == 'low'
+      and {k: v for k, v in after.items() if k != 'agents'} == before, (sent, after))
+answer['v'] = ('low', 'low - Simple file search.')
+state(sessions={SID: {'level': 'max'}})
+out = eh.on_agent(agent(level='max'), SID)
+check('an agent that needs less gets it in its own call, and the session stays', picked(out).get('effort') == 'low'
+      and not sent and json.load(open(eh.STATE))['sessions'][SID].get('level') == 'max', (out, sent))
 
 answer['v'] = ('high', 'high - Needs judgment.')
 n = len(rows())
@@ -192,7 +221,11 @@ out = eh.on_agent(agent(), None)
 check('a session that is not on Remote Control still gets its agents picked', picked(out).get('effort') == 'high', out)
 check('but it has no list of agents (no record in the state file)', len(rows()) == n, rows()[n:])
 sent.clear()
-check('and a fork there is not raised (no way to reach the session)', eh.on_agent(agent(typ='fork', level='low'), None) is None and not sent)
+judged['n'] = 0
+out = eh.on_agent(agent(typ='fork', level='low'), None)
+check('a fork there is denied too, with no model call and nothing sent',
+      ((out or {}).get('hookSpecificOutput') or {}).get('permissionDecision') == 'deny' and not sent and judged['n'] == 0, (out, sent))
+check('its log line names the session by its short id', 'agent  f46255ef fork stopped - start a briefed agent instead |' in last_log(), last_log())
 
 # The session's list of its agents
 state()
@@ -222,7 +255,7 @@ def by_tool(tool):
     return next((a for a in rows() if a.get('tool_use_id') == tool), {})
 
 
-state()
+state(sessions={SID: {'level': 'medium', 'manual': True}})  # Manual: a fork runs and has an entry
 answer['v'] = ('low', 'low - Simple file search.')
 eh.on_agent(agent(tool='toolu_A'), SID)
 eh.on_agent(agent(typ='fork', level='medium', tool='toolu_F'), SID)
@@ -309,6 +342,12 @@ check('the hook takes SubagentStart: the entry gets the agent\'s id, and nothing
       by_tool('toolu_main').get('agent_id') == 'eeee0000000000001' and r1.returncode == 0 and not r1.stdout.strip(), (r1, rows()))
 r2 = hook(subagent('SubagentStop', 'eeee0000000000001', 'Explore'))
 check('the hook takes SubagentStop: the entry gets its end', by_tool('toolu_main').get('done_at') and r2.returncode == 0, (r2, rows()))
+n = len(rows())
+r4 = hook(agent(typ='fork', desc='Build the page'))
+check('the hook itself prints the deny for a fork, in the form Claude Code reads, and writes no entry',
+      r4.returncode == 0 and json.loads(r4.stdout or '{}') == {'hookSpecificOutput': {
+          'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': eh.FORK_STOP}}
+      and len(rows()) == n, (r4, rows()[n:]))
 n = len(open(LOG).read().splitlines())
 r3 = subprocess.run([sys.executable, HOOK], input=json.dumps(subagent('SubagentStart', 'eeee0000000000002', 'Explore')),
                     capture_output=True, text=True, env=dict(os.environ))

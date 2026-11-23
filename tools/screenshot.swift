@@ -114,9 +114,10 @@ import SwiftUI
             model.page = .sessions
             Shot.capture(w, to: folder + "/window-sessions.png")
             // the agents note's picture: the Claude working group's sessions that started agents, each with its agents under
-            // it (three forks at Max; a search that finished and two agents that run), the forks' session selected
+            // it (three builds at Max; a search that finished and two agents that run), the builds' session selected
+            let builds = "Press 2 job board"
             let withAgents = model.snap.rows(.working).filter { !$0.agents.isEmpty }.map { r -> Inbox.Row in var r = r; r.checkin = nil; return r }
-                .sorted { a, _ in a.agents.contains { $0.isFork } }   // the forks first
+                .sorted { a, _ in a.title == builds }   // the builds first
             let agw = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
             agw.appearance = w.appearance
             agw.isReleasedWhenClosed = false
@@ -124,7 +125,7 @@ import SwiftUI
                 GroupHeader(group: .working, count: model.snap.rows(.working).count)
                 ForEach(Array(withAgents.enumerated()), id: \.element.id) { i, r in
                     if i > 0 { Color.clear.frame(height: 1) }
-                    RowView(row: r, selected: r.agents.contains { $0.isFork }, alerts: model.snap.alerts(r), reach: model.snap.reach)
+                    RowView(row: r, selected: r.title == builds, alerts: model.snap.alerts(r), reach: model.snap.reach)
                 }
                 Spacer(minLength: 0)
             }.padding(.horizontal, 14).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
@@ -150,7 +151,7 @@ import SwiftUI
                 // and at the window's narrowest, where the agents' types make room for their tasks
                 w.setContentSize(NSSize(width: 960, height: 1180))
                 w.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
-                model.selected = model.snap.rows.first { $0.agents.contains { $0.isFork } }?.id
+                model.selected = model.snap.rows.first { $0.title == builds }?.id
                 Shot.capture(w, to: ag + "/agents-narrow" + (look ? "-dark" : "-light") + ".png")
                 w.setFrame(frame, display: true)
                 ShotWindow.check("the window's size again")
@@ -320,8 +321,8 @@ import SwiftUI
             model.openEvent = nil
             try? logBefore.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
             model.readEvents()
-            // the every-agent-effort note's picture: an agent whose level in its call the Kit replaced, opened, a fork the
-            // Kit raised the session for, and an agent the Kit set. Lines for this picture only: the log goes back after.
+            // the no-fork-agents note's picture: a fork the Kit stopped, opened, the agent Claude started in its place with
+            // the Kit's level, and a search agent the Kit set. Lines for this picture only: the log goes back after.
             Sample.agents(dir)
             var picks: [KitEvent] = []
             let until = Date().addingTimeInterval(10)
@@ -330,7 +331,7 @@ import SwiftUI
                 RunLoop.main.run(until: Date().addingTimeInterval(0.2))
                 picks = model.events.filter { e in Sample.agentTasks.contains { e.text.contains($0) } }
             }
-            model.openEvent = picks.first { $0.text.contains(Sample.agentTasks[0]) }?.id
+            model.openEvent = picks.first { $0.text.hasPrefix("Fork ") }?.id
             let ae = ShotWindow(contentRect: NSRect(x: ShotWindow.away, y: 0, width: 440, height: 280), styleMask: [.borderless], backing: .buffered, defer: false)
             ae.appearance = w.appearance
             ae.isReleasedWhenClosed = false
@@ -342,7 +343,7 @@ import SwiftUI
                 Spacer(minLength: 0)
             }.padding(12).frame(width: 440, height: 280, alignment: .top).background(K.card).font(K.font(13)).foregroundColor(K.ink))
             ae.setFrameOrigin(NSPoint(x: ShotWindow.away, y: 0))
-            Shot.capture(ae, to: "whats-new/every-agent-effort" + (look ? "-dark" : "") + ".png")
+            Shot.capture(ae, to: "whats-new/no-fork-agents" + (look ? "-dark" : "") + ".png")
             ae.close()
             model.openEvent = nil
             try? logBefore.write(to: dir.appendingPathComponent("log"), atomically: true, encoding: .utf8)
@@ -743,18 +744,19 @@ enum Sample {
         return before
     }
 
-    /// The tasks of the agents in the every-agent-effort note's picture, newest first.
-    static let agentTasks = ["List the press 2 job fields", "Build the label proof page", "Find the dock door photos"]
+    /// The tasks of the agents in the no-fork-agents note's picture, newest first: the agent Claude started in place
+    /// of the fork has the fork's task.
+    static let agentTasks = ["Build the label proof page", "Build the label proof page", "Find the dock door photos"]
 
-    /// Three agents' levels (effort-hook.py on_agent), for the every-agent-effort note's picture: a level in the call
-    /// that the Kit replaced, a fork that the Kit raised the session for, and an agent the Kit set.
+    /// Three agent lines (effort-hook.py on_agent), for the no-fork-agents note's picture: an agent the Kit set, a fork
+    /// that the Kit stopped, and the agent Claude started in its place, with the level the Kit picked for it.
     static func agents(_ dir: URL) {
         let lf = DateFormatter(); lf.dateFormat = "yyyy-MM-dd HH:mm:ss"
         func at(_ m: Double) -> String { lf.string(from: Date().addingTimeInterval(-m * 60)) }
         let lines = [
             at(3) + " agent  cse_01Sample3 Explore ->low (1.8s) low - A short search for photos. | " + agentTasks[2],
-            at(2) + " agent  cse_01Sample4 fork medium->xhigh (2.1s) xhigh - Builds a new page end to end. | " + agentTasks[1],
-            at(1) + " agent  cse_01Sample4 general-purpose replaced max (set in the call) with medium (2.0s) medium - A short list from known files. | " + agentTasks[0],
+            at(2) + " agent  cse_01Sample4 fork stopped - start a briefed agent instead | " + agentTasks[1],
+            at(1) + " agent  cse_01Sample4 general-purpose ->xhigh (2.1s) xhigh - Builds a new page end to end. | " + agentTasks[0],
         ]
         if let h = try? FileHandle(forWritingTo: dir.appendingPathComponent("log")) {
             h.seekToEndOfFile(); h.write((lines.joined(separator: "\n") + "\n").data(using: .utf8)!); try? h.close()
@@ -788,7 +790,8 @@ enum Sample {
             (190, "name   sid-sample-9 -> \"Rename report columns\" (2.0s) | Rename the report columns to match the new names"),
             (62, "agent  cse_01Sample4 Explore ->low (1.9s) low - A short file search. | Find the job board code"),
             (61, "agent  cse_01Sample4 general-purpose ->xhigh (2.2s) xhigh - A new page design with judgment calls. | Design the job rows"),
-            (60, "agent  cse_01Sample4 fork low->high (2.0s) high - Code changes across a few files. | Build the press filters"),
+            (60, "agent  cse_01Sample4 fork stopped - start a briefed agent instead | Build the press filters"),
+            (59.9, "agent  cse_01Sample4 general-purpose ->high (2.0s) high - Code changes across a few files. | Build the press filters"),
             (52, "change cse_01Sample3 medium->low (2.1s) low - Routine edit with a clear plan. | Fix the typo in the dock door work order"),
             (44, "same   cse_01Sample4 \"Press 2 job board\" got the first prompt of cse_01Sample13: the person chose Send to"),
             (41, "wait   07f324 cse_01Sample5 \"Slitter blade change\" set: a reply from the blade supplier, by Mon 9:00 AM | they answer overnight"),
@@ -822,11 +825,12 @@ enum Sample {
              "reason": reason, "started_at": now - started * 60, "done_at": done.map { now - $0 * 60 } as Any? ?? NSNull()]
         }
         func ago(_ m: Double) -> String { iso(Date().addingTimeInterval(-m * 60)) }
-        // three forks at the session's level, Max; a search that finished and two agents that run; 8 that finished
-        let forkAgents: [[String: Any]] = [
-            agent("41", "fork", "Build the press filters", "max", "Three builds at once, and each must be right.", started: 5),
-            agent("42", "fork", "Build the due date column", "max", by: "session", started: 5),
-            agent("43", "fork", "Build the job card", "max", by: "session", started: 4)]
+        // three builds at Max, the level the Kit picked for each; a search that finished and two agents that run; 8 that
+        // finished
+        let buildAgents: [[String: Any]] = [
+            agent("41", "general-purpose", "Build the press filters", "max", "Three builds at once, and each must be right.", started: 5),
+            agent("42", "general-purpose", "Build the due date column", "max", "A new column across the page and its data.", started: 5),
+            agent("43", "general-purpose", "Build the job card", "max", "A new card with its layout and data.", started: 4)]
         let bladeAgents: [[String: Any]] = [
             agent("51", "Explore", "Find the blade photos", "low", "A short file search.", started: 34, done: 32),
             agent("52", "general-purpose", "Photos of the slitter blades", "high", "Reads 12 photos and judges wear.", started: 31),
@@ -846,7 +850,7 @@ enum Sample {
                     agents: rewinderAgents),
             session(3, "Dock door repair", "low", ago: 8, app: ["unseen": true, "last_event_at": ago(8)]),
             session(4, "Press 2 job board", "max", ago: 0, reason: "Three builds at once, and each must be right", app: ["working": true], turn: 6,
-                    agents: forkAgents),
+                    agents: buildAgents),
             session(5, "Slitter blade change", "medium", ago: 1, reason: "Summarizes the agents' photos",
                     app: ["checked": now, "background": ["agents": 2, "bash": 0, "what": "Photos of the slitter blades", "since": now - 31 * 60]],
                     agents: bladeAgents),

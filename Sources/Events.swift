@@ -408,13 +408,17 @@ enum Events {
                 e.detail.append(byCall ? "The call sets this level." : byDefinition ? "Its definition sets this level."
                     : typ == "fork" ? "A fork runs at the session's level, also when that level changes."
                     : "It runs at the session's level, also when that level changes.")
-            } else if typ == "fork", tail.contains("->") {
+            } else if typ == "fork", tail == "stopped" {   // "… fork stopped - start a briefed agent instead | desc"
+                e.text = "\(what) stopped"
+                e.detail.append("A fork runs at the session's level, so it cannot get a level for its own work.")
+                e.detail.append("Claude starts a new agent with a full brief in its place, and the Kit sets the level of that agent.")
+            } else if typ == "fork", tail.contains("->") {   // older lines: the Kit raised the session for a fork
                 let p = tail.split(separator: "-", omittingEmptySubsequences: false)
                 let to = level(p.last?.dropFirst() ?? "")
                 e.text = "Effort raised from \(level(p.first ?? "")) to \(to) so \(what.prefix(1).lowercased() + what.dropFirst()) starts at \(to)"
                 e.detail.append("A fork runs at the session's level, also when that level changes. So the Kit does not set the session back.")
                 if !reason.isEmpty { e.detail.append("Why: " + reason) }
-            } else if typ == "fork" {
+            } else if typ == "fork" {   // older lines: a fork at the session's level
                 e.text = "\(what) starts at \(level(w.count > 3 ? w[3] : "")) effort, the session's level"; e.routine = true
                 let needs = level(w.count > 5 ? w[5] : "")
                 if let r = reason.range(of: "not raised now: ") {

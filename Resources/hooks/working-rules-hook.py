@@ -85,9 +85,10 @@ agent for each part on that interface. In the plan line, give the number of agen
 Give each agent that \
 changes files its own git worktree, and merge their pull requests one at a time. When the person adds work while \
 an agent runs, start a new agent for the new part. Do not send it to that agent with SendMessage, unless it changes \
-what that agent builds now. Give each agent a name that matches its part. Use a fork agent when the task needs the \
-chat context. Use a new agent with full instructions when it does not. When an agent completes, tell the person in one or two lines what it found \
-or did. Keep the chat for direction and decisions. Do the work in the chat only for one lookup or a one-line fix.
+what that agent builds now. Give each agent a name that matches its part. Do not use fork agents: a fork runs at \
+the session's effort level and cannot get a level for its own work. Start a new agent with full instructions, and \
+put the facts it needs from the chat in its brief. When an agent completes, tell the person in one or two lines \
+what it found or did. Keep the chat for direction and decisions. Do the work in the chat only for one lookup or a one-line fix.
 - When a prompt holds more than one ask, number the asks. At every end of turn, give a table with each ask \
 and its status, each status starting with its icon so the person sees it at a glance: ✅ Done, 🔄 In progress, \
 🔴 Needs you (say what you need), ⚪ Dropped (say why). Keep each ask in the table until it is done or the \
