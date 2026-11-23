@@ -51,7 +51,7 @@ import Foundation
                                                  "A fork runs at the session's level. It needs high: code across a few files", started: 4),
                                            agent("f2", "fork", "Build the label list", "high", by: "session", started: 3)]],
                                busy: true, lastActive: Date())
-        check(fork[0].why == "Runs at the session's level, Max. It needs high: code across a few files.",
+        check(fork[0].why == "Runs at the session's level, Max. It needs High: code across a few files.",
               "a fork at the session's level as it was, with the Kit's note, said once: \(fork[0].why)")
         check(fork[1].why == "Runs at the session's level, High.", "a fork with no note: \(fork[1].why)")
         // a fork has no level of its own: while it runs, it shows the session's level now

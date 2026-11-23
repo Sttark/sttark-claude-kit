@@ -67,6 +67,9 @@ enum Agents {
                 for same in ["A fork runs at the session's level.", "A fork runs at the session level."] where note.hasPrefix(same) {
                     note = String(note.dropFirst(same.count)).trimmingCharacters(in: .whitespaces)
                 }
+                for (k, name) in levelNames {   // the hook's "It needs high: …" names the level as the window does
+                    note = note.replacingOccurrences(of: "needs \(k)", with: "needs \(name)")
+                }
                 return [head, note].filter { !$0.isEmpty }.joined(separator: " ")
             }
             if setBy == "session" {
