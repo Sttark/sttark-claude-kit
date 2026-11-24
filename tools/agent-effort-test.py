@@ -231,10 +231,10 @@ check('its log line names the session by its short id', 'agent  f46255ef fork st
 state()
 eh.on_agent(agent(desc='A long description of an agent that goes on and on past the eighty characters the list keeps'), SID)
 e = last_row()
-check('an entry has every field, with the call\'s tool_use_id and no id or end yet',
-      set(e) == {'tool_use_id', 'agent_id', 'type', 'desc', 'level', 'set_by', 'reason', 'started_at', 'done_at'}
+check('an entry has every field, with the call\'s tool_use_id, no id or end yet, and the record\'s size (no record: 0)',
+      set(e) == {'tool_use_id', 'agent_id', 'type', 'desc', 'level', 'set_by', 'reason', 'started_at', 'done_at', 'pos'}
       and e['tool_use_id'].startswith('toolu_test') and e['agent_id'] is None and e['done_at'] is None
-      and isinstance(e['started_at'], float) and e['type'] == 'Explore' and e['level'] in eh.LEVELS, e)
+      and isinstance(e['started_at'], float) and e['type'] == 'Explore' and e['level'] in eh.LEVELS and e['pos'] == 0, e)
 check('an entry\'s description is at most 80 characters', len(e['desc']) == 80, e['desc'])
 
 
