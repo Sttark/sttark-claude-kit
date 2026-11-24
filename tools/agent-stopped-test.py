@@ -274,6 +274,12 @@ set_state(MADE_ROWS)
 r = hook(step, {k: v for k, v in env.items() if k != 'CLAUDE_CODE_BRIDGE_SESSION_ID'})
 check('the hook: a session that is not on Remote Control has no list, and nothing changes',
       r.returncode == 0 and all(e.get('done_at') is None for e in entries().values()), (r, entries()))
+set_state([dict(MADE_ROWS[0], pos='not a number')])
+r = hook({'hook_event_name': 'UserPromptSubmit', 'session_id': CID, 'transcript_path': TP, 'cwd': T, 'prompt': 'Go on'})
+log = open(LOG).read().splitlines()
+check('the hook: an entry it cannot read logs an error, and the prompt goes on to the effort hook\'s next steps',
+      r.returncode == 0 and any(f'error  {SID} the ends of its agents could not be read' in x for x in log)
+      and f'paused {SID} left at high | Go on' in log[-1], (r, log[-2:]))
 
 shutil.rmtree(T)
 print('all passed' if not failed else f'{len(failed)} failed')

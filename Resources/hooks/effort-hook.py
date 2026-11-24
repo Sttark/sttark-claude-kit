@@ -2643,6 +2643,14 @@ def close_ended_agents(sid, tp):
     The hook runs it on the session's own events (each prompt, and a <task-notification> comes as one; each step of the
     session itself, not of its agents; SubagentStart and SubagentStop). An agent that another agent started gets its
     notice in that agent's record, not the session's, so its end comes from SubagentStop only."""
+    try:
+        read_agent_ends(sid, tp)
+    except Exception as e:  # never stop the prompt, the step or the effort check for this
+        log(f'error  {sid} the ends of its agents could not be read: {e!r}')
+
+
+def read_agent_ends(sid, tp):
+    """close_ended_agents() without its guard."""
     if not sid or not tp:
         return
     now = time.time()
