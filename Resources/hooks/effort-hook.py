@@ -17,9 +17,11 @@ session starts, from its brief, and it goes in the agent's call (on_agent()).
 A fork is stopped: it can only run at the session's level, so Claude starts a
 new agent with a full brief in its place.
 SubagentStart and SubagentStop (in the background) keep the session's list of
-its agents in the state file up to date. An agent that was stopped or failed
-gets no SubagentStop: the session's own events read its end from the session's
-record (close_ended_agents()).
+its agents in the state file up to date. Not every agent gets a SubagentStop
+(one that was stopped or failed, a web-fetch agent), so the session's own
+events, and the minute check (--track), also read each end from Claude Code's
+records: the agent's meta.json marks it finished, or the session's record says
+it was stopped or failed (close_ended_agents()).
 
 Hands off when the app's "Auto effort" is off, when a session is set to Manual
 in the app, or when the person changes a session's effort themselves (the hook
@@ -1156,7 +1158,12 @@ def track():
     blocked on you (asking a question or a permission), or when its finished reply asks you to answer or
     decide something (judged once per reply). Archived sessions, replies that need nothing, and sessions
     you've opened or had on screen since Claude last wrote don't count.
-    Saved as x['app'] for the menu's Waiting on you section and its notices."""
+    Saved as x['app'] for the menu's Waiting on you section and its notices. First, the ends of agents that no event
+    of their session told (close_agents())."""
+    try:
+        close_agents()
+    except Exception as e:  # never stop the minute check for this
+        log(f'error  the ends of agents could not be read: {e!r}')
     cutoff = time.time() - 86400
     app_list()
     sessions = peek().get('sessions', {})
@@ -2556,11 +2563,12 @@ def agent_entry(sid, data, typ, desc, level, set_by, reason):
     """A new entry in the session's list of its agents (`agents` in its record in the state file):
     {tool_use_id, agent_id, type, desc, level, set_by, reason, started_at, done_at, pos}. on_agent() writes it just
     before the Agent tool starts the agent; SubagentStart (or the Agent tool's answer) gives it the agent's id, and
-    SubagentStop the time the agent ended (on_subagent(), on_agent_answer()). An agent that was stopped or failed gets
-    no SubagentStop: its end comes from the session's record (close_ended_agents()), read from `pos`, the record's size
-    now, since the end comes after it. `level` is the level the agent starts at; `set_by` is 'kit' when the Kit picked
-    that level, else 'session' (Auto effort off, Manual, or no pick; a fork gets an entry only then, at the session's
-    level). Only for a Remote Control session, which has a record in the state file."""
+    SubagentStop, or the answer of an agent in the foreground, the time the agent ended (on_subagent(),
+    on_agent_answer()). An agent with no SubagentStop gets its end from Claude Code's records (close_ended_agents()):
+    its meta.json marks it finished, or the session's record, read from `pos` (the record's size now, since the end
+    comes after it), says it was stopped or failed. `level` is the level the agent starts at; `set_by` is 'kit' when
+    the Kit picked that level, else 'session' (Auto effort off, Manual, or no pick; a fork gets an entry only then, at
+    the session's level). Only for a Remote Control session, which has a record in the state file."""
     if not sid or level not in LEVELS:
         return
     now = time.time()
@@ -2609,6 +2617,57 @@ def agent_meta_tool(data, aid):
     return (meta.get('toolUseId') or '') if isinstance(meta, dict) else ''
 
 
+AGENT_ID = re.compile(r'\w+')
+
+
+def agent_finished(tp, aid):
+    """When agent `aid` of the session whose record is `tp` ended its work, from Claude Code's record of the agent
+    (`<session>/subagents/agent-<id>.meta.json`): Claude Code writes `"finished": true` there when the agent ends its
+    work, in the foreground or in the background, for each type of agent, also one that gets no SubagentStop (a
+    web-fetch agent, for one). running_agents() counts an agent as at work by the same mark, so the list and the
+    Claude working group agree. The time: that of the newest entry in the agent's own record (last_time()), or the
+    meta file's time when that is earlier or the record has no time. 0 while it is not marked finished."""
+    if not (tp or '').endswith('.jsonl') or not AGENT_ID.fullmatch(aid or ''):
+        return 0
+    meta = os.path.join(tp[:-len('.jsonl')], 'subagents', f'agent-{aid}.meta.json')
+    try:
+        with open(meta) as f:
+            m = json.load(f)
+        when = os.path.getmtime(meta)
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(m, dict) or not m.get('finished'):
+        return 0
+    t = last_time(meta[:-len('.meta.json')] + '.jsonl')
+    return min(t, when) if t else when
+
+
+def agent_by_call(tp, tool, since=0):
+    """The id of the agent that the Agent call `tool` started, from Claude Code's records of the session's agents
+    (`toolUseId` in each `subagents/agent-<id>.meta.json`), or ''. For an entry that has no agent id: SubagentStart and
+    the Agent tool's answer did not give it one. Claude Code writes the file as the agent starts, so only files changed
+    since `since` (when the entry was made, less a minute) are read."""
+    if not (tp or '').endswith('.jsonl') or not tool:
+        return ''
+    sub = os.path.join(tp[:-len('.jsonl')], 'subagents')
+    try:
+        names = [n for n in os.listdir(sub) if n.startswith('agent-') and n.endswith('.meta.json')]
+    except OSError:
+        return ''
+    for n in names:
+        p = os.path.join(sub, n)
+        try:
+            if os.path.getmtime(p) < since - 60:
+                continue
+            with open(p) as f:
+                m = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(m, dict) and m.get('toolUseId') == tool:
+            return n[len('agent-'):-len('.meta.json')]
+    return ''
+
+
 def on_subagent(data, sid, event):
     """SubagentStart and SubagentStop, in the background: the agent's id, and the time it ended, in its entry in the
     session's list. The hook names the agent's id and type, not the Agent call. So the entry is the one that Claude
@@ -2635,14 +2694,20 @@ def on_subagent(data, sid, event):
 
 
 def close_ended_agents(sid, tp):
-    """The end of each agent in the session's list that ended with no SubagentStop: Claude Code sends none for an agent
-    that was stopped (TaskStop, for one) or that failed, so its entry would show it at work for good. The session's
-    record (`tp`) says when it ended (agent_ends()). Each entry with no end is read for from its `pos`: where the last
-    read stopped, or the record's size when the entry was made. An entry from before `pos` was kept reads from the
-    start of the record, once. So a call reads only what the record gained, and nothing while every entry has its end.
+    """The end of each agent in the session's list that has no end yet. SubagentStop does not come for each agent: Claude
+    Code sends none for an agent that was stopped (TaskStop, for one) or that failed, and none reaches the Kit for a
+    web-fetch agent. So an entry would show its agent at work for good. Two records say that an agent ended:
+    - Claude Code's record of the agent marks it `finished` when it ends its work, for each type of agent, in the
+      foreground or the background (agent_finished()). An entry with no agent id gets it from the same records, by its
+      Agent call (agent_by_call()).
+    - The session's record (`tp`) says when an agent was stopped or failed (agent_ends()). Each entry with no end is
+      read for from its `pos`: where the last read stopped, or the record's size when the entry was made. An entry from
+      before `pos` was kept reads from the start of the record, once. So a call reads only what the record gained, and
+      nothing while every entry has its end. An agent that another agent started gets its notice in that agent's
+      record, not the session's.
     The hook runs it on the session's own events (each prompt, and a <task-notification> comes as one; each step of the
-    session itself, not of its agents; SubagentStart and SubagentStop). An agent that another agent started gets its
-    notice in that agent's record, not the session's, so its end comes from SubagentStop only."""
+    session itself, not of its agents; SubagentStart and SubagentStop), and track() runs it each minute for each
+    session with an entry that has no end (close_agents()), also when the session sends no event after its agent ends."""
     try:
         read_agent_ends(sid, tp)
     except Exception as e:  # never stop the prompt, the step or the effort check for this
@@ -2650,25 +2715,39 @@ def close_ended_agents(sid, tp):
 
 
 def read_agent_ends(sid, tp):
-    """close_ended_agents() without its guard."""
+    """close_ended_agents() without its guard. Writes the state only when an entry gets an id, an end or a new `pos`."""
     if not sid or not tp:
         return
     now = time.time()
     open_ = [a for a in agent_rows((peek().get('sessions') or {}).get(sid) or {}, now) if not a.get('done_at')]
     if not open_:
         return
-    try:
-        size = os.path.getsize(tp)
-    except OSError:
+    ids, ends = {}, {}  # {tool_use_id: the agent id its call started}, {agent id or tool_use_id: when it ended}
+    for a in open_:
+        aid = a.get('agent_id') or agent_by_call(tp, a.get('tool_use_id') or '', a.get('started_at') or 0)
+        if aid and not a.get('agent_id'):
+            ids[a.get('tool_use_id')] = aid
+        t = agent_finished(tp, aid)
+        if t:
+            ends[aid] = t
+    rest = [a for a in open_ if not ends.get(a.get('agent_id') or ids.get(a.get('tool_use_id')) or '')]
+    end = size = None
+    if rest:
+        try:
+            size = os.path.getsize(tp)
+        except OSError:
+            size = None
+    if size is not None:
+        # a `pos` past the end is not this record's (it was written again, or the session has a new one): read it all
+        start = min(p if p <= size else 0 for p in (a.get('pos') or 0 for a in rest))
+        if start < size:
+            data, e = whole_lines(tp, start, size)
+            if e > start:
+                end = e
+                for k, t in agent_ends(data).items():
+                    ends.setdefault(k, t)
+    if not ids and not ends and end is None:
         return
-    # a `pos` past the end is not this record's (it was written again, or the session has a new one): read it all
-    start = min(p if p <= size else 0 for p in (a.get('pos') or 0 for a in open_))
-    if start >= size:
-        return
-    data, end = whole_lines(tp, start, size)
-    if end <= start:
-        return
-    ends = agent_ends(data)
     with state() as s:
         x = s['sessions'].get(sid)
         if not x:
@@ -2677,30 +2756,54 @@ def read_agent_ends(sid, tp):
         for a in rows:
             if a.get('done_at'):
                 continue
+            if not a.get('agent_id') and ids.get(a.get('tool_use_id')):
+                set_agent_id(rows, a, ids[a['tool_use_id']])
             t = ends.get(a.get('agent_id') or '') or ends.get(a.get('tool_use_id') or '')
             if t:
                 a['done_at'] = t
-            elif (a.get('pos') or 0) <= end or (a.get('pos') or 0) > size:
+            elif end is not None and ((a.get('pos') or 0) <= end or (a.get('pos') or 0) > size):
                 a['pos'] = end  # read up to here
         x['agents'] = rows
+
+
+def close_agents():
+    """Each minute, from track(): close_ended_agents() for each session in the state file that has an entry with no
+    end in its list of its agents. The hook reads ends only on the session's own events, and a session can send none
+    after its agent ends: a foreground agent's end is often the last step of a turn, and a session can stop with an
+    agent stopped in it. So an agent that ended shows as done on the Sessions page within a minute. It reads only for
+    entries with no end: their agents' meta.json files, and what the session's record gained since the last read."""
+    now = time.time()
+    for sid, x in list((peek().get('sessions') or {}).items()):
+        if (isinstance(x, dict) and isinstance(x.get('transcript'), str) and x['transcript']
+                and any(not a.get('done_at') for a in agent_rows(x, now))):
+            close_ended_agents(sid, x['transcript'])
 
 
 def on_agent_answer(data, sid):
     """After the Agent tool, in the background: its answer names the agent's id, at once for an agent in the
     background and at its end for one in the foreground. The entry of this call gets that id, also when
-    SubagentStart gave it the id of another agent of the same type that started at the same time."""
+    SubagentStart gave it the id of another agent of the same type that started at the same time. An answer with the
+    status `completed` comes when the agent ended in the foreground (an agent in the background answers
+    `async_launched`, and one sent to the background while it ran answers `backgrounded`). So the entry also gets its
+    end, for each type of agent, with no SubagentStop: the time Claude Code's record of the agent gives
+    (agent_finished()), else now."""
     res = data.get('tool_response')
-    aid = res.get('agentId') if isinstance(res, dict) else ''
-    tool = data.get('tool_use_id') or ''
+    res = res if isinstance(res, dict) else {}
+    aid, tool = res.get('agentId') or '', data.get('tool_use_id') or ''
+    ended = res.get('status') == 'completed'
     rows = (peek().get('sessions', {}).get(sid) or {}).get('agents') or []
-    if not (aid and tool) or not any(a.get('tool_use_id') == tool and a.get('agent_id') != aid
+    if not (aid and tool) or not any(a.get('tool_use_id') == tool and (a.get('agent_id') != aid
+                                                                       or (ended and not a.get('done_at')))
                                      for a in rows if isinstance(a, dict)):
         return
+    t = (agent_finished(data.get('transcript_path') or '', aid) or time.time()) if ended else 0
     with state() as s:
         rows = (s['sessions'].get(sid) or {}).get('agents') or []
         e = next((a for a in rows if isinstance(a, dict) and a.get('tool_use_id') == tool), None)
         if e is not None:
             set_agent_id(rows, e, aid)
+            if t and not e.get('done_at'):
+                e['done_at'] = t
 
 
 FORK_STOP = ("Sttark Claude Kit stopped this fork before it started. A fork runs at the session's effort level, so "
